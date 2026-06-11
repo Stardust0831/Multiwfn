@@ -7,14 +7,15 @@ implicit real*8 (a-h,o-z)
 character(len=*),intent(in) :: cubefile
 real*8,intent(in) :: isovalue
 character(len=200) scenefile
+integer sceneunit
 logical lopen
 
 if (ivmdscene==0.and.ivmdrun==0) return
 
-call open_vmd_scene_file(scenefile,lopen)
+call open_vmd_scene_file(scenefile,sceneunit,lopen)
 if (.not.lopen) return
-call write_vmd_cube_scene(99,cubefile,isovalue,scenefile)
-close(99)
+call write_vmd_cube_scene(sceneunit,cubefile,isovalue,scenefile)
+close(sceneunit)
 
 write(*,"(' VMD scene script has been written to ',a)") trim(scenefile)
 if (ivmdrun==1) call run_vmd_scene(scenefile)
@@ -29,19 +30,20 @@ integer,intent(in) :: nfile
 character(len=*),intent(in) :: cubefiles(nfile)
 real*8,intent(in) :: isovalue
 character(len=200) scenefile
+integer sceneunit
 logical lopen
 
 if (ivmdscene==0.and.ivmdrun==0) return
 if (nfile<=0) return
 
-call open_vmd_scene_file(scenefile,lopen)
+call open_vmd_scene_file(scenefile,sceneunit,lopen)
 if (.not.lopen) return
-call write_vmd_scene_header(99,scenefile)
+call write_vmd_scene_header(sceneunit,scenefile)
 do ifile=1,nfile
-    call write_vmd_cube_molecule(99,cubefiles(ifile),isovalue)
+    call write_vmd_cube_molecule(sceneunit,cubefiles(ifile),isovalue)
 end do
-call write_vmd_scene_footer(99)
-close(99)
+call write_vmd_scene_footer(sceneunit)
+close(sceneunit)
 
 write(*,"(' VMD scene script has been written to ',a)") trim(scenefile)
 if (ivmdrun==1) call run_vmd_scene(scenefile)
@@ -56,17 +58,18 @@ integer,intent(in) :: ndataset
 character(len=*),intent(in) :: cubefile
 real*8,intent(in) :: isovalue
 character(len=200) scenefile
+integer sceneunit
 logical lopen
 
 if (ivmdscene==0.and.ivmdrun==0) return
 if (ndataset<=0) return
 
-call open_vmd_scene_file(scenefile,lopen)
+call open_vmd_scene_file(scenefile,sceneunit,lopen)
 if (.not.lopen) return
-call write_vmd_scene_header(99,scenefile)
-call write_vmd_cube_dataset_molecule(99,cubefile,ndataset,isovalue)
-call write_vmd_scene_footer(99)
-close(99)
+call write_vmd_scene_header(sceneunit,scenefile)
+call write_vmd_cube_dataset_molecule(sceneunit,cubefile,ndataset,isovalue)
+call write_vmd_scene_footer(sceneunit)
+close(sceneunit)
 
 write(*,"(' VMD scene script has been written to ',a)") trim(scenefile)
 if (ivmdrun==1) call run_vmd_scene(scenefile)
@@ -88,17 +91,19 @@ call write_vmd_scene_footer(ifileid)
 end subroutine
 
 
-subroutine open_vmd_scene_file(scenefile,lopen)
+subroutine open_vmd_scene_file(scenefile,sceneunit,lopen)
 use defvar
 implicit real*8 (a-h,o-z)
 character(len=200),intent(out) :: scenefile
+integer,intent(out) :: sceneunit
 logical,intent(out) :: lopen
 integer iopen
 
 scenefile=vmdscenefile
 if (scenefile==" ") scenefile="multiwfn_scene.tcl"
 
-open(99,file=scenefile,status="replace",iostat=iopen)
+sceneunit=-1
+open(newunit=sceneunit,file=scenefile,status="replace",iostat=iopen)
 if (iopen/=0) then
     write(*,"(' VMD scene script was not written because the file could not be opened: ',a)") trim(scenefile)
     write(*,"(' VMD scene open IOSTAT = ',i0)") iopen

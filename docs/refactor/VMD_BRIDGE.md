@@ -110,6 +110,10 @@ path and Fortran `IOSTAT` value, then returns without launching VMD. The
 underlying Multiwfn export remains the authoritative output and should not be
 lost because VMD scene generation failed.
 
+Scene files are opened with a dynamically assigned Fortran unit rather than a
+fixed global unit number. This keeps the bridge isolated from analysis routines
+that may already have their own files open.
+
 Specialized exporters pass analysis-specific default isovalues where Multiwfn
 already uses one for on-screen isosurfaces, for example hole/electron
 distributions and transition densities in the excitation module.

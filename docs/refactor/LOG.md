@@ -151,3 +151,6 @@
 - Added a generated VMD scene header note explaining that relative cube paths
   are resolved from VMD's current working directory, and documented the manual
   `source` implication.
+- Changed VMD scene file output to use a dynamically assigned Fortran unit
+  instead of fixed unit `99`, reducing the bridge's chance of colliding with
+  callers that already have files open.
