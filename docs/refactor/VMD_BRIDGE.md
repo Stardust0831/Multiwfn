@@ -29,6 +29,8 @@ Command-line overrides:
 - `-vmd`: enable scene generation.
 - `-vmdrun`: enable scene generation and launch VMD.
 - `-vmdpath PATH`: override the VMD executable path.
+- `-vmdscene PATH`: override the generated Tcl scene path.
+- `-vmdmaterial MATERIAL`: override the VMD isosurface material.
 
 ## Supported export paths
 

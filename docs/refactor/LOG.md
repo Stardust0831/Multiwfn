@@ -73,3 +73,6 @@
   analysis routines that call `drawscatter` with optional arguments. This removes
   the GFortran warning about too many actual arguments by giving those calls the
   module procedure interface.
+- Added command-line overrides `-vmdscene` and `-vmdmaterial` for the VMD bridge
+  and fixed the generated Tcl script header to mention the actual scene file path
+  selected for the current export.

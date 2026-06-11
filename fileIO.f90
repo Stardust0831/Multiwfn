@@ -10012,6 +10012,10 @@ if (ifound==1) then
 end if
 call getarg_str("-vmdpath",c200tmp,ifound)
 if (ifound==1) vmdpath=c200tmp
+call getarg_str("-vmdscene",c200tmp,ifound)
+if (ifound==1) vmdscenefile=c200tmp
+call getarg_str("-vmdmaterial",c80tmp,ifound)
+if (ifound==1) vmdmaterial=c80tmp
 call get_option_str(20,'iESPcode=',c80tmp)
 if (c80tmp/=" ") read(c80tmp,*) iESPcode
 call get_option_str(20,'outmedinfo=',c80tmp)
