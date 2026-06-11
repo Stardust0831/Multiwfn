@@ -16,6 +16,16 @@ under `.build-env/pkgs`, and creates the compiler prefix under `.build-env/gnu`.
 If the prefix already exists, it verifies that the expected compiler and `make`
 executables are present.
 
+Set `GNU_PREFIX` to use another prefix inside this source tree. Relative
+`GNU_PREFIX` values are interpreted relative to the repository root by the
+bootstrap and wrapper scripts:
+
+```sh
+GNU_PREFIX=.build-env/gnu-alt tools/bootstrap-gnu-env.sh
+GNU_PREFIX=.build-env/gnu-alt tools/gnu-build.sh smoke
+GNU_PREFIX=.build-env/gnu-alt tools/gnu-build.sh vmd-smoke
+```
+
 The equivalent manual command is:
 
 ```sh
@@ -118,6 +128,10 @@ tools/gnu-build.sh vmd-smoke
 tools/gnu-build.sh noGUI
 tools/gnu-build.sh clean
 ```
+
+The wrapper forwards `GNU_PREFIX` to the Makefile and the VMD bridge smoke test,
+so alternate local prefixes use the same compiler, `make`, OpenBLAS library path,
+and runtime library path consistently.
 
 The smoke target generates a temporary XYZ file under `.build-env/smoke`, backs
 up `settings.ini`, runs `Multiwfn_noGUI`, verifies that the file was loaded and

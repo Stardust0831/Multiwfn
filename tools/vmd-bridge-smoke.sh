@@ -3,7 +3,11 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
-gnu_prefix="$repo_dir/.build-env/gnu"
+gnu_prefix=${GNU_PREFIX:-"$repo_dir/.build-env/gnu"}
+case "$gnu_prefix" in
+    /*) ;;
+    *) gnu_prefix="$repo_dir/$gnu_prefix" ;;
+esac
 fc="$gnu_prefix/bin/x86_64-conda-linux-gnu-gfortran"
 build_dir="$repo_dir/.build-env/vmd-bridge-smoke"
 mod_dir="$build_dir/mod"
@@ -15,7 +19,7 @@ dataset_scene_file="$build_dir/test_dataset_scene.tcl"
 out_file="$build_dir/vmd_bridge_smoke.out"
 
 if [ ! -x "$fc" ]; then
-    printf '%s\n' "GNU Fortran compiler was not found at .build-env/gnu"
+    printf '%s\n' "GNU Fortran compiler was not found at $gnu_prefix"
     printf '%s\n' "Create or verify it with: tools/bootstrap-gnu-env.sh"
     exit 1
 fi

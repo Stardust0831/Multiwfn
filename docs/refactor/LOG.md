@@ -154,3 +154,6 @@
 - Changed VMD scene file output to use a dynamically assigned Fortran unit
   instead of fixed unit `99`, reducing the bridge's chance of colliding with
   callers that already have files open.
+- Updated GNU build wrappers so `tools/gnu-build.sh` and the VMD bridge smoke
+  test honor `GNU_PREFIX`, matching `tools/bootstrap-gnu-env.sh` and the
+  Makefile's configurable local prefix.
