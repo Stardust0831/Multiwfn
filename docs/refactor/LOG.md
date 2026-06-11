@@ -100,3 +100,8 @@
   through the VMD bridge.
 - Routed molecular-surface `surf.cub`/`mapfunc.cub` exports and other-functions
   free-region/STM cube exports through the VMD bridge.
+- Routed LSB information-theory grids, AdNDP saved/candidate orbitals,
+  function-pair cube exports, separated orbital cubes, fitted orbital-combination
+  grids, ICSS grids, and hyperpolarizability density grids through the VMD
+  bridge. Multi-dataset `orbital.cub` remains intentionally excluded until the
+  bridge can generate dataset-aware VMD scenes.

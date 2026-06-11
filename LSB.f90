@@ -1703,6 +1703,7 @@ subroutine energy_info_project
 use defvar
 use util
 use functions
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 character refsysname*200
 real*8 intval,funcval(radpot*sphpot),beckeweigrid(radpot*sphpot)
@@ -2063,6 +2064,9 @@ else if (itask==2) then !Calculate grid data and export to ITA.cub in current fo
 	open(10,file="ITA.cub",status="replace")
 	call outcube(funcvalcub,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
     close(10)
+    sur_value=maxval(abs(funcvalcub))/2D0
+    if (sur_value==0) sur_value=0.05D0
+    call maybe_write_vmd_cube_scene("ITA.cub",sur_value)
     write(*,*) "Done!"
 	if (itask==2) deallocate(evalcub,egradcub,elaplcub,e0valcub,e0gradcub,funcvalcub)
 end if
@@ -2085,6 +2089,7 @@ end subroutine
 subroutine infogain_customref
 use defvar
 use functions
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 real*8 actualrho(radpot*sphpot),refrho(radpot*sphpot)
 real*8 beckeweigrid(radpot*sphpot),atmdens(radpot*sphpot,ncenter),atmintval(ncenter) !Integration value of each atom
@@ -2249,6 +2254,9 @@ else if (isel==2) then
 	open(10,file="infogain.cub",status="replace")
 	call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 	close(10)
+    sur_value=maxval(abs(cubmat))/2D0
+    if (sur_value==0) sur_value=0.05D0
+    call maybe_write_vmd_cube_scene("infogain.cub",sur_value)
 	write(*,*) "infogain.cub has been exported to current folder"
 end if
 

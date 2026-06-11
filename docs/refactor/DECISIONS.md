@@ -31,3 +31,16 @@ Rationale:
   the current behavior as the default.
 - A separate CMake or fpm migration can follow after noGUI builds are reproducible.
 
+## 2026-06-12: Cube bridge coverage boundary
+
+Decision: Route ordinary single-dataset cube exports through the VMD bridge first
+and leave multi-dataset cube files out until the bridge is dataset-aware.
+
+Rationale:
+
+- The current VMD scene helper assumes one scalar grid per cube and adds a simple
+  positive/negative isosurface pair.
+- Multi-dataset files such as `orbital.cub` need explicit dataset selection in
+  VMD to avoid showing the wrong grid or generating ambiguous scenes.
+- Keeping this boundary explicit preserves low-intrusion behavior while coverage
+  is expanded across user-facing exports.

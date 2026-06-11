@@ -100,6 +100,7 @@ subroutine ICSS
 use defvar
 use util
 use GUI
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 character c200tmp*200,gauinpfile*200,gauoutfile*200,selectyn,suffix*4
 character,allocatable :: gauinpcontent(:)*79
@@ -326,13 +327,15 @@ do while(.true.)
 	else if (isel==1) then
 		call drawisosurgui(1)
 	else if (isel==2) then
-		if (iload==1) open(10,file="ICSS.cub",status="replace")
-		if (iload==2) open(10,file="AICSS.cub",status="replace")
-		if (iload==3) open(10,file="ICSSXX.cub",status="replace")
-		if (iload==4) open(10,file="ICSSYY.cub",status="replace")
-		if (iload==5) open(10,file="ICSSZZ.cub",status="replace")
+		if (iload==1) c200tmp="ICSS.cub"
+		if (iload==2) c200tmp="AICSS.cub"
+		if (iload==3) c200tmp="ICSSXX.cub"
+		if (iload==4) c200tmp="ICSSYY.cub"
+		if (iload==5) c200tmp="ICSSZZ.cub"
+		open(10,file=trim(c200tmp),status="replace")
 		call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+		call maybe_write_vmd_cube_scene(trim(c200tmp),sur_value)
 		write(*,"(a)") " The cube file has been exported to current folder"
 	end if
 end do

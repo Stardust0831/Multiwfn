@@ -399,11 +399,13 @@ use plot
 use defvar
 use util
 use GUI
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer iwork
 real*8,allocatable :: scatterx(:),scattery(:),exchangedata(:,:,:)
 real*8,allocatable :: f2orgdata(:,:,:),scatteryorg(:) !Backup original data of function 2, because it may be modified by users
 character c200tmp*200,f1name*20,f2name*20
+character(len=200) vmdcubefiles(2)
 
 f1name="function 1"
 f2name="function 2"
@@ -641,6 +643,11 @@ do while (.true.)
 		call outcube(cubmattmp,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
 		write(*,"(a)") " The cube file of "//trim(f2name)//" has been exported to func2.cub in current folder"
+        vmdcubefiles(1)="func1.cub"
+        vmdcubefiles(2)="func2.cub"
+        vmdiso=max(maxval(abs(cubmat)),maxval(abs(cubmattmp)))/2D0
+        if (vmdiso==0) vmdiso=0.05D0
+        call maybe_write_vmd_cube_scene_list(vmdcubefiles,2,vmdiso)
 	else if (isel==4) then
 		write(*,*) "Input lower limit and upper limit of X axis e.g. 0,1.5"
 		read(*,*) xmin,xmax

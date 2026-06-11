@@ -4,6 +4,7 @@ use defvar
 use util
 use GUI
 use NAOmod
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer,allocatable :: nNAOatm(:) !The number of NAOs of each atom
 integer,allocatable :: atmcomb(:) !Store combination of specific number of atoms
@@ -560,6 +561,7 @@ do while(.true.)
 					open(10,file=c80tmp,status="replace")
 					call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 					close(10)
+                    call maybe_write_vmd_cube_scene(trim(c80tmp),sur_value_orb)
 					write(*,"(1x,a,' has been exported to current folder')") trim(c80tmp)
 				end do
 			else if (isel==10) then !Export candidate orbitals
@@ -587,6 +589,7 @@ do while(.true.)
 					open(10,file=c80tmp,status="replace")
 					call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 					close(10)
+                    call maybe_write_vmd_cube_scene(trim(c80tmp),sur_value_orb)
 					write(*,"(1x,a,' has been exported to current folder')") trim(c80tmp)
 				end do
 			end if

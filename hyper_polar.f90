@@ -2349,6 +2349,7 @@ use defvar
 use util
 use functions
 use GUI
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer fieldlist(4)
 character c80tmp*80,c200tmp*200,c200tmp2*200,c2000tmp*200,fname(4)*3,fpath(4)*200
@@ -2594,6 +2595,7 @@ do while(.true.)
 			    open(10,file=c200tmp,status="replace")
 			    call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 			    close(10)
+                call maybe_write_vmd_cube_scene(trim(c200tmp),sur_value)
 			    write(*,"(' Done! Grid data has been exported to ',a)") trim(c200tmp)
             end if
         end do

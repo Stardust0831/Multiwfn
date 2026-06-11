@@ -311,6 +311,7 @@ end subroutine
 subroutine genmultiorbcube
 use defvar
 use util
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer orbsellist(nmo)
 integer tmparr(nmo+1)
@@ -345,6 +346,7 @@ if (index(c1000tmp,'h')==0.and.index(c1000tmp,'l')==0) then !Use inputted a seri
 		    open(10,file=cubname,status="replace")
 		    call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		    close(10)
+            call maybe_write_vmd_cube_scene(trim(cubname),sur_value_orb)
 		    write(*,"(' Orbital',i7,' has been exported to ',a,' in current folder',/)") iorb,trim(cubname)
 	    end do
 	
@@ -405,6 +407,7 @@ else
 	open(10,file=cubname,status="replace")
 	call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 	close(10)
+    call maybe_write_vmd_cube_scene(trim(cubname),sur_value_orb)
 	write(*,"(' Orbital',i7,' has been exported to ',a,' in current folder')") iorb,trim(cubname)
     deallocate(cubmat)
 end if
@@ -2058,6 +2061,7 @@ use defvar
 use util
 use GUI
 use functions
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 character c200tmp*200,c2000tmp*2000,selectyn
 integer,allocatable :: orbidx(:)
@@ -2273,6 +2277,7 @@ do while(.true.)
                 open(10,file="fitted.cub",status="replace")
                 call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
                 close(10)
+                call maybe_write_vmd_cube_scene("fitted.cub",0.01D0)
                 write(*,*) "Outputting finished!"
             else if (isel2==2) then
                 if (.not.allocated(cubmattmp)) allocate(cubmattmp(nx,ny,nz))
