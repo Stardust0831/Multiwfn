@@ -125,3 +125,6 @@
   audit and list per-file `outcube`/bridge call counts.
 - Updated GNU build helper error messages to point to
   `tools/bootstrap-gnu-env.sh` as the canonical local environment setup entry.
+- Added a `check` mode to `tools/audit-vmd-exports.sh` and included it in
+  `tools/verify-refactor.sh quick` so VMD export count documentation stays in
+  sync with source changes.

@@ -7,7 +7,11 @@ Regenerate the current count summary with:
 
 ```sh
 tools/audit-vmd-exports.sh
+tools/audit-vmd-exports.sh check
 ```
+
+The `check` mode is part of `tools/verify-refactor.sh quick`; it fails if the
+documented counts below drift from the current source tree.
 
 Current counts after the latest bridge coverage pass:
 
