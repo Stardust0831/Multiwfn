@@ -47,6 +47,7 @@ The same noGUI build and smoke test can be run via:
 ```sh
 tools/gnu-build.sh noGUI
 tools/gnu-build.sh smoke
+tools/gnu-build.sh vmd-smoke
 ```
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
@@ -61,6 +62,10 @@ root/`noGUI` object files after linking by default. After `gnu-noGUI-smoke`, the
 source root should contain `Multiwfn_noGUI` but no root `*.o`, root `*.mod`, or
 `noGUI/*.o` files. Full object-directory isolation remains a future Makefile
 refactor because the upstream rules are still object-name based.
+
+The VMD bridge has a narrower smoke test that compiles just `define.f90`,
+`vmd_bridge.f90`, and `tools/vmd_bridge_smoke.f90`. This caught and removed an
+unnecessary dependency from `vmd_bridge` to the large `util` module.
 
 Not verified locally:
 

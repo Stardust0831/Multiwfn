@@ -3,7 +3,6 @@ contains
 
 subroutine maybe_write_vmd_cube_scene(cubefile,isovalue)
 use defvar
-use util
 implicit real*8 (a-h,o-z)
 character(len=*),intent(in) :: cubefile
 real*8,intent(in) :: isovalue
@@ -62,7 +61,6 @@ end subroutine
 
 subroutine run_vmd_scene(scenefile)
 use defvar
-use util
 implicit real*8 (a-h,o-z)
 character(len=*),intent(in) :: scenefile
 character(len=600) command
@@ -73,7 +71,12 @@ if (vmdpath==" ".or.vmdpath=="none") then
 end if
 
 command=""""//trim(vmdpath)//""" -e """//trim(scenefile)//""""
-call runcommand(trim(command))
+write(*,"(a)") " Running: "//trim(command)
+if (isys==1) then
+    call execute_command_line(""""//trim(command)//"""")
+else
+    call execute_command_line(trim(command))
+end if
 
 end subroutine
 

@@ -92,6 +92,7 @@ Or use the convenience wrapper:
 
 ```sh
 tools/gnu-build.sh smoke
+tools/gnu-build.sh vmd-smoke
 tools/gnu-build.sh noGUI
 tools/gnu-build.sh clean
 ```
@@ -109,3 +110,8 @@ After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 - Smoke-test inputs and logs under `.build-env/smoke`.
 - No root `*.o`, root `*.mod`, or `noGUI/*.o` files unless `GNU_KEEP_OBJECTS=1`
   was used.
+
+The `vmd-smoke` wrapper compiles only `define.f90`, `vmd_bridge.f90`, and a
+small test driver under `tools/` into `.build-env/vmd-bridge-smoke`. It verifies
+that the bridge can generate a VMD Tcl scene for a cube file without linking the
+full Multiwfn binary or launching VMD.

@@ -78,3 +78,6 @@
   selected for the current export.
 - Added `tools/gnu-build.sh` as a small convenience wrapper around the local
   `.build-env/gnu/bin/make` noGUI build and smoke-test targets.
+- Added a narrow VMD bridge smoke test (`tools/gnu-build.sh vmd-smoke`) and
+  removed the bridge module's unnecessary dependency on `util` by using
+  `execute_command_line` directly for launching VMD.

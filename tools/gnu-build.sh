@@ -18,6 +18,9 @@ case "$target" in
     smoke)
         set -- gnu-noGUI-smoke "$@"
         ;;
+    vmd-smoke|vmd)
+        exec "$script_dir/vmd-bridge-smoke.sh" "$@"
+        ;;
     noGUI|nogui)
         set -- gnu-noGUI "$@"
         ;;
@@ -25,7 +28,7 @@ case "$target" in
         set -- clean "$@"
         ;;
     *)
-        printf '%s\n' "Usage: tools/gnu-build.sh [smoke|noGUI|clean] [make-args...]"
+        printf '%s\n' "Usage: tools/gnu-build.sh [smoke|vmd-smoke|noGUI|clean] [make-args...]"
         exit 2
         ;;
 esac

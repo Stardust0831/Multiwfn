@@ -46,6 +46,18 @@ Future work:
 - Generate richer VMD scenes for critical points, topology paths, molecular
   surfaces, arrows, and multi-cube overlays.
 
+## Smoke test
+
+The bridge can be tested without launching VMD:
+
+```sh
+tools/gnu-build.sh vmd-smoke
+```
+
+This compiles a minimal driver and verifies that the generated Tcl scene loads a
+cube file, adds molecular and positive/negative isosurface representations, and
+uses the configured VMD material.
+
 ## Rationale
 
 VMD is treated as an external executable. This respects VMD's main program
