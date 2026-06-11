@@ -3,6 +3,12 @@
 This audit tracks why remaining `outcube` call sites do not always have a
 one-to-one `maybe_write_vmd_cube_scene` call immediately after them.
 
+Regenerate the current count summary with:
+
+```sh
+tools/audit-vmd-exports.sh
+```
+
 Current counts after the latest bridge coverage pass:
 
 - `outcube` call sites in Fortran sources: 70

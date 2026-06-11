@@ -121,3 +121,5 @@
   points from the project front page.
 - Added cube and dataset comments to generated VMD Tcl scenes and extended the
   VMD bridge smoke test to assert those annotations.
+- Added `tools/audit-vmd-exports.sh` to reproduce the VMD cube export count
+  audit and list per-file `outcube`/bridge call counts.

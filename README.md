@@ -27,6 +27,7 @@ tools/gnu-build.sh smoke
 Run the refactor verification gate:
 
 ```sh
+tools/audit-vmd-exports.sh
 tools/verify-refactor.sh quick
 tools/verify-refactor.sh full
 ```

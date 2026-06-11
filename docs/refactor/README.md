@@ -34,6 +34,7 @@ Main local verification entry points:
 
 ```sh
 tools/bootstrap-gnu-env.sh
+tools/audit-vmd-exports.sh
 tools/verify-refactor.sh quick
 tools/verify-refactor.sh full
 ```
