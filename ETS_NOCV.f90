@@ -14,6 +14,7 @@ use defvar
 use util
 use GUI
 use functions
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 character c80tmp*80,c200tmp*200,c2000tmp*200
 integer :: nfrag=0 !Number of fragments
@@ -535,6 +536,7 @@ do while(.true.)
 		        open(10,file=trim(c200tmp),status="replace")
 		        call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		        close(10)
+                call maybe_write_vmd_cube_scene(trim(c200tmp),sur_value_iso)
 		        write(*,*) "Done!"
             end if
             deallocate(cubmat,sellist)
@@ -563,6 +565,7 @@ do while(.true.)
         open(10,file=c200tmp,status="replace")
         call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
         close(10)
+        call maybe_write_vmd_cube_scene(trim(c200tmp),sur_value_orb)
         write(*,*) "Done!"
         deallocate(cubmat)
         
@@ -672,6 +675,7 @@ do while(.true.)
 		    open(10,file=trim(c200tmp),status="replace")
 		    call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		    close(10)
+            call maybe_write_vmd_cube_scene(trim(c200tmp),sur_value_iso)
 		    write(*,*) "Done!"
         end if
         deallocate(cubmat)

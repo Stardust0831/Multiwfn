@@ -96,3 +96,5 @@
   charge-density difference, Cele/Chole, C+/C-, density polarization, and
   external potential grids. These calls use analysis-specific default isovalues
   where Multiwfn already defines them for interactive isosurface viewing.
+- Routed ETS-NOCV cube exports and EDA atomic dispersion density cube exports
+  through the VMD bridge.

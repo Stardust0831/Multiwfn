@@ -50,11 +50,14 @@ Initial coverage:
   density, transition dipole density, charge-density difference, Cele/Chole
   functions, C+/C- charge-transfer functions, density polarization, and external
   potential grids.
+- ETS-NOCV exports for NOCV orbitals, NOCV pair density, Pauli deformation
+  density, orbital deformation density, and total deformation density.
+- EDA atomic dispersion contribution cube exports.
 
 Future work:
 
-- Add helper calls to specialized cube outputs in modules such as excitation,
-  and ETS-NOCV analysis.
+- Add helper calls to any remaining specialized cube outputs not yet covered by
+  the explicit export-point strategy.
 - Generate richer VMD scenes for critical points, topology paths, molecular
   surfaces, arrows, and multi-cube overlays.
 

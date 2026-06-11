@@ -710,6 +710,7 @@ end subroutine
 subroutine atomdispcontri
 use defvar
 use util
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 real*8 dispmat(ncenter,ncenter),atomdisp(ncenter),tmparr(ncenter)
 real*8,allocatable :: dispmattmp(:,:),atomdisptmp(:)
@@ -778,6 +779,7 @@ do while(.true.)
         open(10,file="dispdens.cub",status="replace")
         call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
         close(10)
+        call maybe_write_vmd_cube_scene("dispdens.cub",sur_value)
         write(*,*) "Done!"
         
     else if (isel==3.or.isel==4) then
@@ -875,6 +877,7 @@ do while(.true.)
             open(10,file="dispdensdiff.cub",status="replace")
             call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
             close(10)
+            call maybe_write_vmd_cube_scene("dispdensdiff.cub",sur_value)
             write(*,*) "Done!"
         end if
         
