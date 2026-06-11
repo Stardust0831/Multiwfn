@@ -31,3 +31,14 @@
   dependency order.
 - Actual compilation was not possible in this environment because `ifort`, `ifx`,
   and `gfortran` are not available.
+- Re-ran a one-time `git push --force-with-lease origin refactor/vmd-bridge`
+  using the repository-local `Stardust0831` identity and SSH key. GitHub reported
+  the branch was already up to date.
+- Split the Makefile object lists so `make noGUI` no longer depends on real
+  `GUI.o`.
+- Added noGUI stub modules for `GUI` and `dislin`, allowing the noGUI dry-run to
+  avoid compiling `GUI.f90`, `mouse_rotate.f90`, `ext/xlib.f90`, and the real
+  `dislin_d.f90`.
+- Ran `make -n noGUI` and `make -n GUI` after the split. The noGUI dry-run avoids
+  real GUI/xlib/DISLIN compilation; the GUI dry-run still uses the original GUI
+  path.

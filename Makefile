@@ -15,17 +15,19 @@ EXE = Multiwfn
 EXE_noGUI = Multiwfn_noGUI
 LIBRETAPATH = ./libreta_hybrid
 
-objects = define.o util.o vmd_bridge.o plot.o Bspline.o sym.o libreta.o function.o GUI.o sub.o integral.o Lebedev-Laikov.o \
+objects_common = define.o util.o vmd_bridge.o plot.o Bspline.o sym.o libreta.o function.o sub.o integral.o Lebedev-Laikov.o \
 DFTxclib.o edflib.o fparser.o fileIO.o spectrum.o DOS.o Multiwfn.o 0123dim.o LSB.o \
 population.o frj.o orbcomp.o bondorder.o topology.o excittrans.o otherfunc.o \
 otherfunc2.o otherfunc3.o O1.o surfana.o procgriddata.o AdNDP.o fuzzy.o CDA.o basin.o \
 orbloc.o visweak.o EDA.o CDFT.o ETS_NOCV.o atmraddens.o NAONBO.o grid.o PBC.o hyper_polar.o deloc_aromat.o cp2kmate.o\
 minpack.o blockhrr_012345.o ean.o hrr_012345.o eanvrr_012345.o boysfunc.o naiveeri.o ryspoly.o 2F2.f90.o
 
-objects_noGUI = noGUI/dislin_d_empty.o noGUI/mouse_rotate_empty.o #Dummy subroutines for noGUI version
+objects = $(objects_common) GUI.o
+
+objects_noGUI = noGUI/dislin_mod_empty.o noGUI/GUI_empty.o noGUI/dislin_d_empty.o noGUI/mouse_rotate_empty.o #Dummy modules/subroutines for noGUI version
 
 ifeq ($(WITH_FD),1)
-  objects += 2F2.c.o
+  objects_common += 2F2.c.o
   ifeq ($(OS),Ubuntu) # for Ubuntu
     LIB_base += -lflint -lflint-arb
   else ifeq ($(OS),RHEL) # for Fedora, CentOS, RHEL
@@ -33,7 +35,7 @@ ifeq ($(WITH_FD),1)
     LIB_base += -lflint -larb
   endif
 else
-  objects += no2F2.c.o
+  objects_common += no2F2.c.o
 endif
 
 default: $(objects)
@@ -43,14 +45,14 @@ default: $(objects)
 	@echo "          Multiwfn has been successfully built!"
 	@echo " ------------------------------------------------------ "
 
-GUI: $(objects) mouse_rotate.o xlib.o
+GUI: dislin.mod $(objects) mouse_rotate.o xlib.o
 	$(FC) $(OPT) $(objects) mouse_rotate.o xlib.o $(LIB_GUI) -o $(EXE)
 
-noGUI: $(objects) $(objects_noGUI)
-	$(FC) $(OPT) $(objects) $(objects_noGUI) $(LIB_noGUI) -o $(EXE_noGUI)
+noGUI: $(objects_noGUI) $(objects_common)
+	$(FC) $(OPT) $(objects_common) $(objects_noGUI) $(LIB_noGUI) -o $(EXE_noGUI)
 
 clean:
-	rm -f $(EXE) *.o *.mod
+	rm -f $(EXE) $(EXE_noGUI) *.o *.mod noGUI/*.o
 
 #Only clean Multiwfn files, compiled libreta files are not affected
 cleanmultiwfn:
@@ -72,7 +74,7 @@ cleanlibreta:
 dislin.mod : dislin_d.f90
 	$(FC) $(OPT) -c dislin_d.f90
 
-define.o : define.f90 dislin.mod
+define.o : define.f90
 	$(FC) $(OPT) -c define.f90
 
 Bspline.o : Bspline.f90
@@ -99,10 +101,13 @@ mouse_rotate.o : mouse_rotate.f90 xlib.o define.o plot.o
 noGUI/mouse_rotate_empty.o : noGUI/mouse_rotate_empty.f90
 	$(FC) $(OPT) -c noGUI/mouse_rotate_empty.f90 -o noGUI/mouse_rotate_empty.o
 
+noGUI/GUI_empty.o : noGUI/GUI_empty.f90
+	$(FC) $(OPT) -c noGUI/GUI_empty.f90 -o noGUI/GUI_empty.o
+
 2F2.f90.o : ext/2F2.f90 util.o Bspline.o
 	$(FC) $(OPT) -c ext/2F2.f90 -o 2F2.f90.o
 
-modules = define.o util.o vmd_bridge.o function.o plot.o GUI.o libreta.o 2F2.f90.o
+modules = define.o util.o vmd_bridge.o function.o plot.o libreta.o 2F2.f90.o
 
 
 #Library or adpated third-part codes
@@ -136,6 +141,9 @@ no2F2.c.o : ext/no2F2.c
 
 noGUI/dislin_d_empty.o : noGUI/dislin_d_empty.f90
 	$(FC) $(OPT) -c noGUI/dislin_d_empty.f90 -o noGUI/dislin_d_empty.o -diag-disable 6178,6843
+
+noGUI/dislin_mod_empty.o : noGUI/dislin_mod_empty.f90
+	$(FC) $(OPT) -c noGUI/dislin_mod_empty.f90 -o noGUI/dislin_mod_empty.o
 
 #Others
 

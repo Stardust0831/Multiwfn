@@ -13,12 +13,26 @@ The first VMD bridge change adds `vmd_bridge.o` to the existing Makefile. A
 dry-run confirms the new module is compiled after `define.o` and `util.o`, and
 before modules that use it.
 
+The noGUI target now has a separate object entry point:
+
+- `objects_common` contains the numerical and text-mode sources shared by both
+  variants.
+- `GUI` still links the real `GUI.o`, `mouse_rotate.o`, `xlib.o`, and DISLIN
+  library path.
+- `noGUI` links `noGUI/GUI_empty.o`, `noGUI/dislin_mod_empty.o`,
+  `noGUI/dislin_d_empty.o`, and `noGUI/mouse_rotate_empty.o` instead of the real
+  GUI/xlib/DISLIN module implementation.
+
 Verified locally:
 
 ```sh
 git diff --check
 make -n noGUI
+make -n GUI
 ```
+
+The current `make -n noGUI` output no longer contains compile steps for
+`GUI.f90`, `mouse_rotate.f90`, `ext/xlib.f90`, or the real `dislin_d.f90`.
 
 Not verified locally:
 
@@ -31,7 +45,8 @@ Reason: this environment has no `ifort`, `ifx`, or `gfortran` command available.
 ## Next build refactor targets
 
 1. Keep the current Intel build as the reference path.
-2. Add clearer Makefile switches for noGUI-first builds.
+2. Add object-directory separation so GUI and noGUI builds do not share `.o` and
+   `.mod` files.
 3. Make compiler and BLAS/OpenMP choices easier to override without editing the
    Makefile.
 4. Avoid requiring DISLIN/Motif for workflows that use VMD as the visualization
