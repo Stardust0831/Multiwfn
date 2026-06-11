@@ -66,3 +66,6 @@
   clean stale root build products before compiling. After `gnu-noGUI-smoke`, the
   source root has no `.mod` files while `.build-env/gnu-mod` contains the GNU
   modules.
+- Added post-link cleanup for `gnu-noGUI`: by default it removes root `*.o` and
+  `noGUI/*.o` files while preserving `Multiwfn_noGUI`. `GNU_KEEP_OBJECTS=1`
+  keeps objects for debugging.

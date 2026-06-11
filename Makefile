@@ -19,6 +19,7 @@ DISLIN_EMPTY_DIAG = -diag-disable 6178,6843
 
 GNU_PREFIX ?= $(CURDIR)/.build-env/gnu
 GNU_MOD_DIR ?= $(CURDIR)/.build-env/gnu-mod
+GNU_KEEP_OBJECTS ?= 0
 FC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gfortran
 CC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gcc
 OPT_GNU ?= -O2 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy -J$(GNU_MOD_DIR) -I$(GNU_MOD_DIR)
@@ -72,6 +73,7 @@ gnu-noGUI:
 	rm -rf "$(GNU_MOD_DIR)"
 	mkdir -p "$(GNU_MOD_DIR)"
 	$(MAKE) noGUI FC="$(FC_GNU)" CC="$(CC_GNU)" OPT="$(OPT_GNU)" OPT1="$(OPT1_GNU)" LIB_noGUI="$(LIB_noGUI_GNU)" LIBRETA_DIAG= DISLIN_EMPTY_DIAG=
+	@if [ "$(GNU_KEEP_OBJECTS)" != "1" ]; then rm -f *.o noGUI/*.o; fi
 
 gnu-noGUI-smoke: gnu-noGUI
 	@mkdir -p "$(SMOKE_DIR)"

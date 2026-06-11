@@ -51,8 +51,10 @@ GNU module files are written to:
 The `gnu-noGUI` target removes and recreates this directory and runs `make clean`
 before compiling. This prevents noGUI stub modules such as `dislin.mod` and
 `gui.mod` from being left in the source root and confusing a later GUI build.
-GNU object files still use the source root, so run `make clean` before switching
-between GNU noGUI and the original Intel GUI path.
+GNU object files are still produced in the source root during compilation because
+the upstream Makefile rules are object-name based, but `gnu-noGUI` removes root
+and `noGUI/` object files after linking by default. Set `GNU_KEEP_OBJECTS=1` if
+debugging requires the `.o` files.
 
 During environment creation, `mamba` attempted to update
 `/home/stardust/.conda/environments.txt`, but that path was read-only in this
@@ -91,3 +93,11 @@ up `settings.ini`, runs `Multiwfn_noGUI`, verifies that the file was loaded and
 the main menu was reached, and restores `settings.ini` before exiting. GFortran
 currently prints an IEEE floating-point exception flag note at program
 termination; this should be tracked during broader numerical validation.
+
+After a successful `gnu-noGUI-smoke`, the expected local build residue is:
+
+- `Multiwfn_noGUI` in the source root.
+- GNU `.mod` files under `.build-env/gnu-mod`.
+- Smoke-test inputs and logs under `.build-env/smoke`.
+- No root `*.o`, root `*.mod`, or `noGUI/*.o` files unless `GNU_KEEP_OBJECTS=1`
+  was used.
