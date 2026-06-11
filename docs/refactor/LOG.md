@@ -123,3 +123,5 @@
   VMD bridge smoke test to assert those annotations.
 - Added `tools/audit-vmd-exports.sh` to reproduce the VMD cube export count
   audit and list per-file `outcube`/bridge call counts.
+- Updated GNU build helper error messages to point to
+  `tools/bootstrap-gnu-env.sh` as the canonical local environment setup entry.

@@ -15,7 +15,7 @@ out_file="$build_dir/vmd_bridge_smoke.out"
 
 if [ ! -x "$fc" ]; then
     printf '%s\n' "GNU Fortran compiler was not found at .build-env/gnu"
-    printf '%s\n' "Create it with: mamba env create -p \"\$PWD/.build-env/gnu\" -f docs/refactor/gnu-build-env.yml"
+    printf '%s\n' "Create or verify it with: tools/bootstrap-gnu-env.sh"
     exit 1
 fi
 

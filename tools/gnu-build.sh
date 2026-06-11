@@ -7,7 +7,7 @@ make_bin="$repo_dir/.build-env/gnu/bin/make"
 
 if [ ! -x "$make_bin" ]; then
     printf '%s\n' "GNU build prefix was not found at .build-env/gnu"
-    printf '%s\n' "Create it with: mamba env create -p \"\$PWD/.build-env/gnu\" -f docs/refactor/gnu-build-env.yml"
+    printf '%s\n' "Create or verify it with: tools/bootstrap-gnu-env.sh"
     exit 1
 fi
 
