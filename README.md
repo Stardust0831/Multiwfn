@@ -5,7 +5,7 @@ goals:
 
 1. Make the Linux noGUI build easier to reproduce with a local GNU toolchain.
 2. Keep VMD as an external visualization backend and generate VMD Tcl scenes from
-   supported Multiwfn cube exports.
+   supported Multiwfn structure and cube exports.
 
 The original upstream compilation notes are still in
 `COMPILATION_METHOD.txt`. Refactor-specific notes are under `docs/refactor/`.
@@ -39,7 +39,7 @@ artifacts stay under `.build-env/` or are ignored by Git.
 
 The VMD integration is a file-and-script bridge, not source fusion. Multiwfn
 performs wavefunction and grid calculations, then optionally writes a VMD Tcl
-scene for supported cube exports.
+scene for supported structure and cube exports.
 
 Useful runtime options:
 
@@ -47,7 +47,11 @@ Useful runtime options:
 ./Multiwfn_noGUI input.fch -vmd
 ./Multiwfn_noGUI input.fch -vmdrun -vmdpath /path/to/vmd
 ./Multiwfn_noGUI input.fch -vmdscene scene.tcl -vmdmaterial Transparent
+./Multiwfn_noGUI input.fch -vmd -vmdscene auto
 ```
+
+Use `-vmdscene auto` to write `<exported-file>.vmd.tcl` for each supported
+export instead of overwriting one shared scene file.
 
 See `docs/refactor/VMD_BRIDGE.md` for supported export paths and current
 limitations.
