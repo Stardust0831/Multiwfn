@@ -76,3 +76,5 @@
 - Added command-line overrides `-vmdscene` and `-vmdmaterial` for the VMD bridge
   and fixed the generated Tcl script header to mention the actual scene file path
   selected for the current export.
+- Added `tools/gnu-build.sh` as a small convenience wrapper around the local
+  `.build-env/gnu/bin/make` noGUI build and smoke-test targets.

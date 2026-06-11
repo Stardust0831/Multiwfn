@@ -42,6 +42,13 @@ Verified locally after preparing `.build-env/gnu`:
 .build-env/gnu/bin/make gnu-noGUI-smoke
 ```
 
+The same noGUI build and smoke test can be run via:
+
+```sh
+tools/gnu-build.sh noGUI
+tools/gnu-build.sh smoke
+```
+
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. A smoke test loads a three-atom water XYZ file and exits from the
 main menu with status 0. The smoke target restores `settings.ini` after the run

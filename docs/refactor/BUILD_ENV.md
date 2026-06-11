@@ -88,6 +88,14 @@ For smoke testing from this source folder:
 .build-env/gnu/bin/make gnu-noGUI-smoke
 ```
 
+Or use the convenience wrapper:
+
+```sh
+tools/gnu-build.sh smoke
+tools/gnu-build.sh noGUI
+tools/gnu-build.sh clean
+```
+
 The smoke target generates a temporary XYZ file under `.build-env/smoke`, backs
 up `settings.ini`, runs `Multiwfn_noGUI`, verifies that the file was loaded and
 the main menu was reached, and restores `settings.ini` before exiting. GFortran
