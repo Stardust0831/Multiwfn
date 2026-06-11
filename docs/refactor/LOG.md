@@ -139,3 +139,5 @@
   export workflow. The VMD bridge smoke test now checks this non-fatal path.
 - Tightened `tools/audit-vmd-exports.sh` so production coverage counts exclude
   `tools/` smoke-test drivers and noGUI stubs.
+- Factored VMD scene filename normalization and file opening into one helper so
+  future scene types inherit the same default-path and non-fatal error handling.
