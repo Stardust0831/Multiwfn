@@ -73,9 +73,9 @@ tools/verify-refactor.sh full
 ```
 
 `env` runs the read-only GNU build environment doctor. `quick` runs
-`git diff --check`, the environment doctor, helper-script mode/shebang audit,
-the noGUI build-boundary audit, VMD export audits, the narrow VMD bridge smoke
-test under default smoke settings, and a check that no default
+`git diff --check`, the environment doctor, ignore-rule audit, helper-script
+mode/shebang audit, the noGUI build-boundary audit, VMD export audits, the narrow
+VMD bridge smoke test under default smoke settings, and a check that no default
 `.build-env/nogui-build-audit.*` or `.build-env/vmd-bridge-smoke.*` directory was
 left behind. `full` also runs the GNU noGUI smoke test and checks that root
 `*.o`, root `*.mod`, and `noGUI/*.o` files were not left behind. The full wrapper
@@ -91,6 +91,11 @@ wrapper checks that restoration worked by comparing `settings.ini` before and
 after the smoke test. The smoke test reports an IEEE floating-point exception
 flag note at shutdown; this known note is allowed by the smoke target, while any
 other stderr output causes the smoke test to fail.
+
+All generated compiler packages, module files, smoke logs, temporary build
+artifacts, exported visualization files, and machine-local Makefile overrides
+should stay ignored by Git. `tools/audit-ignore-rules.sh` keeps the key ignore
+patterns under the quick verification gate.
 
 The GNU noGUI path now writes `.mod` files to `.build-env/gnu-mod` and removes
 root/`noGUI` object files after linking by default. After `gnu-noGUI-smoke`, the

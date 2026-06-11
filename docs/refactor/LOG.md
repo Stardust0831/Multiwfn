@@ -214,3 +214,6 @@
   smoke target.
 - Extended quick verification residue checks and `gnu-clean` to cover
   `.build-env/nogui-build-audit.*` in addition to VMD bridge smoke directories.
+- Added `tools/audit-ignore-rules.sh` and included it in
+  `tools/verify-refactor.sh quick` to protect ignore rules for local build
+  products, exported visualization files, `.build-env/`, and `Makefile.local`.
