@@ -8,6 +8,17 @@ install system packages or change global shell startup files for this refactor.
 Create the GNU build environment with a local package cache and local prefix:
 
 ```sh
+tools/bootstrap-gnu-env.sh
+```
+
+The script uses `mamba`, `micromamba`, or `conda` from `PATH`, stores packages
+under `.build-env/pkgs`, and creates the compiler prefix under `.build-env/gnu`.
+If the prefix already exists, it verifies that the expected compiler and `make`
+executables are present.
+
+The equivalent manual command is:
+
+```sh
 mkdir -p .build-env/pkgs
 CONDA_PKGS_DIRS="$PWD/.build-env/pkgs" \
   mamba env create -p "$PWD/.build-env/gnu" -f docs/refactor/gnu-build-env.yml

@@ -114,3 +114,5 @@
 - Added optional `Makefile.local` support and a tracked
   `Makefile.local.example` so machine-local compiler/library paths can stay in
   the source folder without changing the tracked Makefile.
+- Added `tools/bootstrap-gnu-env.sh` to create or verify the local GNU build
+  prefix under `.build-env/gnu` using a package cache under `.build-env/pkgs`.

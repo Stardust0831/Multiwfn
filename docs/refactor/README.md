@@ -33,6 +33,7 @@ Key documents:
 Main local verification entry points:
 
 ```sh
+tools/bootstrap-gnu-env.sh
 tools/verify-refactor.sh quick
 tools/verify-refactor.sh full
 ```
