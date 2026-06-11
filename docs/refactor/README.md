@@ -29,3 +29,10 @@ Key documents:
 - `VMD_CUBE_EXPORT_AUDIT.md`: remaining cube export audit and exclusions.
 - `DECISIONS.md`: architecture and boundary decisions.
 - `LOG.md`: chronological implementation notes.
+
+Main local verification entry points:
+
+```sh
+tools/verify-refactor.sh quick
+tools/verify-refactor.sh full
+```

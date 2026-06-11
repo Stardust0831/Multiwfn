@@ -50,6 +50,17 @@ tools/gnu-build.sh smoke
 tools/gnu-build.sh vmd-smoke
 ```
 
+For refactor work, use the wrapper below before committing:
+
+```sh
+tools/verify-refactor.sh quick
+tools/verify-refactor.sh full
+```
+
+`quick` runs `git diff --check` and the narrow VMD bridge smoke test. `full`
+also runs the GNU noGUI smoke test and checks that root `*.o`, root `*.mod`, and
+`noGUI/*.o` files were not left behind.
+
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. A smoke test loads a three-atom water XYZ file and exits from the
 main menu with status 0. The smoke target restores `settings.ini` after the run

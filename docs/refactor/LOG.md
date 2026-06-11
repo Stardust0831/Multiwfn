@@ -108,3 +108,6 @@
 - Added dataset-aware VMD scene generation and routed the combined multiple-
   orbital `orbital.cub` export through it. The smoke test now checks single-cube,
   multi-cube, and multi-dataset cube scenes.
+- Added `tools/verify-refactor.sh` as the main local verification wrapper.
+  `quick` runs formatting/diff checks and the VMD bridge smoke test; `full` also
+  runs the GNU noGUI smoke test and checks for object/module residue.
