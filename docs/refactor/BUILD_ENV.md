@@ -168,5 +168,7 @@ the local compiler prefix and package cache remain available for the next build.
 The `vmd-smoke` wrapper compiles only `define.f90`, `vmd_bridge.f90`, and a
 small test driver under `tools/` into `.build-env/vmd-bridge-smoke.<pid>` by
 default. It verifies that the bridge can generate a VMD Tcl scene for a cube file
-without linking the full Multiwfn binary or launching VMD. Set `VMD_SMOKE_DIR`
-to use a fixed smoke-test directory when debugging generated files.
+without linking the full Multiwfn binary or launching VMD. Successful default
+runs remove their temporary directory automatically. Set `VMD_SMOKE_KEEP=1` or
+set `VMD_SMOKE_DIR` to a fixed smoke-test directory when debugging generated
+files.

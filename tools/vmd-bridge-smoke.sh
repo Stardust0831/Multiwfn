@@ -9,7 +9,13 @@ case "$gnu_prefix" in
     *) gnu_prefix="$repo_dir/$gnu_prefix" ;;
 esac
 fc="$gnu_prefix/bin/x86_64-conda-linux-gnu-gfortran"
-smoke_dir=${VMD_SMOKE_DIR:-".build-env/vmd-bridge-smoke.$$"}
+if [ "${VMD_SMOKE_DIR:-}" ]; then
+    smoke_dir=$VMD_SMOKE_DIR
+    cleanup_default=0
+else
+    smoke_dir=".build-env/vmd-bridge-smoke.$$"
+    cleanup_default=1
+fi
 case "$smoke_dir" in
     /*) build_dir="$smoke_dir" ;;
     *) build_dir="$repo_dir/$smoke_dir" ;;
@@ -31,6 +37,14 @@ if [ ! -x "$fc" ]; then
     printf '%s\n' "Create or verify it with: tools/bootstrap-gnu-env.sh"
     exit 1
 fi
+
+cleanup() {
+    status=$?
+    if [ "$status" -eq 0 ] && [ "$cleanup_default" -eq 1 ] && [ "${VMD_SMOKE_KEEP:-0}" != "1" ]; then
+        rm -rf "$build_dir"
+    fi
+}
+trap cleanup EXIT
 
 rm -rf "$build_dir"
 mkdir -p "$mod_dir" "$obj_dir"
@@ -82,4 +96,8 @@ grep -Fq 'mol representation Isosurface 0.05000000 1 0 0 1 1' "$dataset_scene_fi
 grep -Fq 'mol representation Isosurface 0.05000000 2 0 0 1 1' "$dataset_scene_file"
 grep -Fq 'mol representation Isosurface -0.05000000 2 0 0 1 1' "$dataset_scene_file"
 
-printf '%s\n' "VMD bridge smoke test passed: $scene_file"
+if [ "$cleanup_default" -eq 1 ] && [ "${VMD_SMOKE_KEEP:-0}" != "1" ]; then
+    printf '%s\n' "VMD bridge smoke test passed; temporary directory will be cleaned."
+else
+    printf '%s\n' "VMD bridge smoke test passed: $scene_file"
+fi

@@ -187,3 +187,7 @@
   `tools/gnu-build.sh clean` through it. The target removes noGUI build residue,
   GNU module output, smoke logs, and temporary VMD bridge smoke directories while
   preserving the local compiler prefix and package cache under `.build-env`.
+- Changed the VMD bridge smoke wrapper to remove its default per-process
+  temporary directory after successful runs. Failed runs, `VMD_SMOKE_KEEP=1`, and
+  explicit `VMD_SMOKE_DIR` runs still preserve generated scene files for
+  debugging.

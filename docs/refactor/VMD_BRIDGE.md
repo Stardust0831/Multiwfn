@@ -152,7 +152,9 @@ for cube and scene paths containing spaces, backslashes, and Tcl-sensitive
 characters. The smoke test also covers the non-fatal error path for an
 unwritable scene location and VMD launch-command quoting for Linux/MacOS and
 Windows. Generated scenes also carry a header note describing relative file path
-resolution.
+resolution. Successful default runs clean their temporary `.build-env` smoke
+directory; use `VMD_SMOKE_KEEP=1` or set `VMD_SMOKE_DIR` when inspecting the
+generated Tcl files.
 
 ## Rationale
 
