@@ -141,3 +141,6 @@
   `tools/` smoke-test drivers and noGUI stubs.
 - Factored VMD scene filename normalization and file opening into one helper so
   future scene types inherit the same default-path and non-fatal error handling.
+- Factored VMD launch command construction into a testable helper and added
+  host-shell quoting for the VMD executable and scene path. The smoke test now
+  checks Linux/MacOS and Windows command strings without launching VMD.

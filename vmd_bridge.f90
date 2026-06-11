@@ -225,7 +225,7 @@ if (vmdpath==" ".or.vmdpath=="none") then
     return
 end if
 
-command=""""//trim(vmdpath)//""" -e """//trim(scenefile)//""""
+call build_vmd_run_command(scenefile,command)
 write(*,"(a)") " Running: "//trim(command)
 if (isys==1) then
     call execute_command_line(""""//trim(command)//"""")
@@ -234,6 +234,66 @@ else
 end if
 
 end subroutine
+
+
+subroutine build_vmd_run_command(scenefile,command)
+use defvar
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: scenefile
+character(len=600),intent(out) :: command
+
+command=trim(vmd_shell_quote(vmdpath))//" -e "//trim(vmd_shell_quote(scenefile))
+
+end subroutine
+
+
+function vmd_shell_quote(text) result(quoted)
+use defvar
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: text
+character(len=600) :: quoted
+character(len=1) :: ch
+
+quoted=" "
+if (isys==1) then
+    quoted(1:1)=""""
+    ipos=2
+    do itxt=1,len_trim(text)
+        ch=text(itxt:itxt)
+        if (ch=="""") then
+            if (ipos+1>len(quoted)) exit
+            quoted(ipos:ipos)=""""
+            quoted(ipos+1:ipos+1)=""""
+            ipos=ipos+2
+        else
+            if (ipos>len(quoted)) exit
+            quoted(ipos:ipos)=ch
+            ipos=ipos+1
+        end if
+    end do
+    if (ipos<=len(quoted)) quoted(ipos:ipos)=""""
+else
+    quoted(1:1)="'"
+    ipos=2
+    do itxt=1,len_trim(text)
+        ch=text(itxt:itxt)
+        if (ch=="'") then
+            if (ipos+3>len(quoted)) exit
+            quoted(ipos:ipos)="'"
+            quoted(ipos+1:ipos+1)="\"
+            quoted(ipos+2:ipos+2)="'"
+            quoted(ipos+3:ipos+3)="'"
+            ipos=ipos+4
+        else
+            if (ipos>len(quoted)) exit
+            quoted(ipos:ipos)=ch
+            ipos=ipos+1
+        end if
+    end do
+    if (ipos<=len(quoted)) quoted(ipos:ipos)="'"
+end if
+
+end function
 
 
 function vmd_tcl_dquote(text) result(quoted)

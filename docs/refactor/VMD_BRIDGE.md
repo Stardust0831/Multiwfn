@@ -92,6 +92,12 @@ strings with Tcl-sensitive characters escaped. This keeps paths with spaces,
 brackets, dollar signs, and closing braces usable when a user exports grid files
 into normal project directories.
 
+When `ivmdrun` launches VMD, the executable path and scene path are quoted for
+the host command shell before calling `execute_command_line`. Linux/MacOS use
+single-quote shell quoting with embedded single quotes escaped; Windows keeps
+double-quoted command arguments. The bridge smoke test verifies the command
+string construction without requiring VMD to be installed.
+
 If the configured scene file cannot be opened, the bridge reports the failing
 path and Fortran `IOSTAT` value, then returns without launching VMD. The
 underlying Multiwfn export remains the authoritative output and should not be
@@ -115,7 +121,7 @@ molecular and positive/negative isosurface representations; and use the
 configured VMD material. It also checks the generated cube/dataset comments and
 Tcl quoting for cube paths containing spaces and Tcl-sensitive characters. The
 smoke test also covers the non-fatal error path for an unwritable scene
-location.
+location and VMD launch-command quoting for Linux/MacOS and Windows.
 
 ## Rationale
 
