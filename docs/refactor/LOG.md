@@ -131,3 +131,6 @@
 - Added a `check` mode to `tools/audit-vmd-exports.sh` and included it in
   `tools/verify-refactor.sh quick` so VMD export count documentation stays in
   sync with source changes.
+- Changed generated VMD `mol new` commands to use Tcl double-quoted paths with
+  escaping for Tcl-sensitive characters, and extended the VMD bridge smoke test
+  to cover paths with spaces, brackets, dollar signs, and closing braces.

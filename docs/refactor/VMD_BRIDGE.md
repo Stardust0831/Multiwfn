@@ -87,6 +87,11 @@ multi-dataset cubes, the VMD volumetric dataset index used by each isosurface
 representation. These comments are intended to make hand inspection and scene
 debugging easier without changing VMD behavior.
 
+Cube paths in generated `mol new` commands are emitted as Tcl double-quoted
+strings with Tcl-sensitive characters escaped. This keeps paths with spaces,
+brackets, dollar signs, and closing braces usable when a user exports grid files
+into normal project directories.
+
 Specialized exporters pass analysis-specific default isovalues where Multiwfn
 already uses one for on-screen isosurfaces, for example hole/electron
 distributions and transition densities in the excitation module.
@@ -102,7 +107,8 @@ tools/gnu-build.sh vmd-smoke
 This compiles a minimal driver and verifies that generated Tcl scenes can load a
 single cube file, multiple cube files, or a multi-dataset cube file; add
 molecular and positive/negative isosurface representations; and use the
-configured VMD material. It also checks the generated cube/dataset comments.
+configured VMD material. It also checks the generated cube/dataset comments and
+Tcl quoting for cube paths containing spaces and Tcl-sensitive characters.
 
 ## Rationale
 

@@ -120,14 +120,16 @@ integer,intent(in) :: ifileid
 character(len=*),intent(in) :: cubefile
 real*8,intent(in) :: isovalue
 character(len=80) c80tmp
+character(len=600) c600cube
 
 write(c80tmp,"(f16.8)") abs(isovalue)
 c80tmp=adjustl(c80tmp)
+c600cube=vmd_tcl_dquote(cubefile)
 
 write(ifileid,"(a)") ""
 write(ifileid,"(a)") "# Cube file: "//trim(cubefile)
 write(ifileid,"(a)") "# Volumetric dataset index: 0"
-write(ifileid,"(a)") "mol new {"//trim(cubefile)//"} type cube waitfor all"
+write(ifileid,"(a)") "mol new "//trim(c600cube)//" type cube waitfor all"
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
 write(ifileid,"(a)") "mol color Element"
@@ -154,14 +156,16 @@ integer,intent(in) :: ifileid,ndataset
 character(len=*),intent(in) :: cubefile
 real*8,intent(in) :: isovalue
 character(len=80) c80tmp,c80idx,c80color
+character(len=600) c600cube
 
 write(c80tmp,"(f16.8)") abs(isovalue)
 c80tmp=adjustl(c80tmp)
+c600cube=vmd_tcl_dquote(cubefile)
 
 write(ifileid,"(a)") ""
 write(ifileid,"(a)") "# Multi-dataset cube file: "//trim(cubefile)
 write(ifileid,"(a,i0)") "# Number of volumetric datasets: ",ndataset
-write(ifileid,"(a)") "mol new {"//trim(cubefile)//"} type cube waitfor all"
+write(ifileid,"(a)") "mol new "//trim(c600cube)//" type cube waitfor all"
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
 write(ifileid,"(a)") "mol color Element"
@@ -210,5 +214,32 @@ else
 end if
 
 end subroutine
+
+
+function vmd_tcl_dquote(text) result(quoted)
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: text
+character(len=600) :: quoted
+character(len=1) :: ch
+
+quoted=" "
+quoted(1:1)=""""
+ipos=2
+do itxt=1,len_trim(text)
+    ch=text(itxt:itxt)
+    if (ch=="\".or.ch=="""".or.ch=="$".or.ch=="[".or.ch=="]") then
+        if (ipos+1>len(quoted)) exit
+        quoted(ipos:ipos)="\"
+        quoted(ipos+1:ipos+1)=ch
+        ipos=ipos+2
+    else
+        if (ipos>len(quoted)) exit
+        quoted(ipos:ipos)=ch
+        ipos=ipos+1
+    end if
+end do
+if (ipos<=len(quoted)) quoted(ipos:ipos)=""""
+
+end function
 
 end module
