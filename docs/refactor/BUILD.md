@@ -77,14 +77,18 @@ tools/verify-refactor.sh full
 export audits, the narrow VMD bridge smoke test under default smoke settings,
 and a check that no default `.build-env/vmd-bridge-smoke.*` directory was left
 behind. `full` also runs the GNU noGUI smoke test and checks that root `*.o`,
-root `*.mod`, and `noGUI/*.o` files were not left behind.
+root `*.mod`, and `noGUI/*.o` files were not left behind. The full wrapper also
+checks that `settings.ini` has the same checksum before and after the smoke test,
+so the smoke target cannot silently leave Multiwfn's `lastfile` update in the
+working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. A smoke test loads a three-atom water XYZ file and exits from the
 main menu with status 0. The smoke target restores `settings.ini` after the run
-because Multiwfn updates `lastfile` during normal startup. The smoke test reports
-an IEEE floating-point exception flag note at shutdown; this is a runtime
-validation item, not a build blocker.
+because Multiwfn updates `lastfile` during normal startup. The full verification
+wrapper checks that restoration worked by comparing `settings.ini` before and
+after the smoke test. The smoke test reports an IEEE floating-point exception
+flag note at shutdown; this is a runtime validation item, not a build blocker.
 
 The GNU noGUI path now writes `.mod` files to `.build-env/gnu-mod` and removes
 root/`noGUI` object files after linking by default. After `gnu-noGUI-smoke`, the

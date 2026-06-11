@@ -198,3 +198,6 @@
   `tools/verify-refactor.sh quick`. The audit runs `make -n noGUI`, confirms the
   noGUI stub sources are used, and fails if the dry-run brings back real GUI,
   X11, OpenGL, or DISLIN compile/link entries.
+- Added a `settings.ini` checksum guard around the GNU noGUI smoke step in
+  `tools/verify-refactor.sh full`, so verification fails if the smoke workflow
+  does not restore Multiwfn's normal `lastfile` update.

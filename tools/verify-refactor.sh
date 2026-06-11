@@ -12,7 +12,7 @@ case "$mode" in
         printf '%s\n' "Usage: tools/verify-refactor.sh [env|quick|full]"
         printf '%s\n' "  env:   read-only GNU build environment diagnostics"
         printf '%s\n' "  quick: env diagnostics + git diff check + noGUI/VMD audits + VMD bridge smoke/residue checks"
-        printf '%s\n' "  full:  quick checks + GNU noGUI smoke + object residue check"
+        printf '%s\n' "  full:  quick checks + GNU noGUI smoke + settings/object residue checks"
         exit 2
         ;;
 esac
@@ -59,6 +59,24 @@ check_no_object_residue() {
     fi
 }
 
+run_gnu_smoke_preserving_settings() {
+    settings_file="$repo_dir/settings.ini"
+    settings_before=$(cksum "$settings_file")
+
+    set +e
+    "$script_dir/gnu-build.sh" smoke
+    status=$?
+    set -e
+
+    settings_after=$(cksum "$settings_file")
+    if [ "$settings_before" != "$settings_after" ]; then
+        printf '%s\n' "settings.ini changed during GNU noGUI smoke test."
+        exit 1
+    fi
+
+    return "$status"
+}
+
 cd "$repo_dir"
 
 if [ "$mode" = "env" ]; then
@@ -76,7 +94,7 @@ run_step run_default_vmd_bridge_smoke
 run_step check_no_vmd_smoke_residue
 
 if [ "$mode" = "full" ]; then
-    run_step "$script_dir/gnu-build.sh" smoke
+    run_step run_gnu_smoke_preserving_settings
     run_step check_no_object_residue
 fi
 
