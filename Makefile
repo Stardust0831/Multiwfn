@@ -23,6 +23,12 @@ CC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gcc
 OPT_GNU ?= -O2 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy
 OPT1_GNU ?= -O1 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy
 LIB_noGUI_GNU ?= -L$(GNU_PREFIX)/lib -lopenblas
+SMOKE_DIR ?= .build-env/smoke
+SMOKE_XYZ ?= $(SMOKE_DIR)/water.xyz
+SMOKE_OUT ?= $(SMOKE_DIR)/gnu-noGUI-smoke.out
+SMOKE_ERR ?= $(SMOKE_DIR)/gnu-noGUI-smoke.err
+
+.PHONY: default GUI noGUI gnu-noGUI gnu-noGUI-smoke clean cleanmultiwfn cleanlibreta
 
 objects_common = define.o util.o vmd_bridge.o plot.o Bspline.o sym.o libreta.o function.o sub.o integral.o Lebedev-Laikov.o \
 DFTxclib.o edflib.o fparser.o fileIO.o spectrum.o DOS.o Multiwfn.o 0123dim.o LSB.o \
@@ -62,6 +68,17 @@ noGUI: $(objects_noGUI) $(objects_common)
 
 gnu-noGUI:
 	$(MAKE) noGUI FC="$(FC_GNU)" CC="$(CC_GNU)" OPT="$(OPT_GNU)" OPT1="$(OPT1_GNU)" LIB_noGUI="$(LIB_noGUI_GNU)" LIBRETA_DIAG= DISLIN_EMPTY_DIAG=
+
+gnu-noGUI-smoke: gnu-noGUI
+	@mkdir -p "$(SMOKE_DIR)"
+	@printf '%s\n%s\n%s\n%s\n%s\n' '3' 'water smoke test' 'O 0.000000 0.000000 0.000000' 'H 0.758602 0.000000 0.504284' 'H -0.758602 0.000000 0.504284' > "$(SMOKE_XYZ)"
+	@cp settings.ini "$(SMOKE_DIR)/settings.ini.before"
+	@set -e; \
+	trap 'cp "$(SMOKE_DIR)/settings.ini.before" settings.ini' EXIT; \
+	printf '%s\nq\n' "$(SMOKE_XYZ)" | LD_LIBRARY_PATH="$(GNU_PREFIX)/lib$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" timeout 12s ./$(EXE_noGUI) > "$(SMOKE_OUT)" 2> "$(SMOKE_ERR)"; \
+	grep -q 'Loaded .*water.xyz successfully' "$(SMOKE_OUT)"; \
+	grep -q 'Main function menu' "$(SMOKE_OUT)"
+	@cat "$(SMOKE_ERR)"
 
 clean:
 	rm -f $(EXE) $(EXE_noGUI) *.o *.mod noGUI/*.o

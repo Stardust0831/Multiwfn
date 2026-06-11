@@ -71,11 +71,11 @@ The resulting binary is:
 For smoke testing from this source folder:
 
 ```sh
-printf '.build-env/smoke/water.xyz\nq\n' | \
-  LD_LIBRARY_PATH="$PWD/.build-env/gnu/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-  ./Multiwfn_noGUI
+.build-env/gnu/bin/make gnu-noGUI-smoke
 ```
 
-The smoke test loads the temporary XYZ file, enters the main menu, and exits with
-`q`. GFortran currently prints an IEEE floating-point exception flag note at
-program termination; this should be tracked during broader numerical validation.
+The smoke target generates a temporary XYZ file under `.build-env/smoke`, backs
+up `settings.ini`, runs `Multiwfn_noGUI`, verifies that the file was loaded and
+the main menu was reached, and restores `settings.ini` before exiting. GFortran
+currently prints an IEEE floating-point exception flag note at program
+termination; this should be tracked during broader numerical validation.

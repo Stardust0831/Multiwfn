@@ -59,3 +59,6 @@
   `.build-env/smoke/`; it loaded the file, reached the main menu, and exited with
   `q` using status 0. GFortran printed an IEEE floating-point exception flag note
   at shutdown, which should be tracked in later runtime validation.
+- Added `gnu-noGUI-smoke`, a Makefile smoke target that creates the temporary XYZ
+  fixture, runs `Multiwfn_noGUI`, checks the expected output, and restores
+  `settings.ini` so the test does not leave the repository dirty.

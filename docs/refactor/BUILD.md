@@ -39,15 +39,15 @@ Verified locally after preparing `.build-env/gnu`:
 ```sh
 .build-env/gnu/bin/make clean
 .build-env/gnu/bin/make gnu-noGUI
-printf '.build-env/smoke/water.xyz\nq\n' | \
-  LD_LIBRARY_PATH="$PWD/.build-env/gnu/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-  timeout 12s ./Multiwfn_noGUI
+.build-env/gnu/bin/make gnu-noGUI-smoke
 ```
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. A smoke test loads a three-atom water XYZ file and exits from the
-main menu with status 0. The smoke test reports an IEEE floating-point exception
-flag note at shutdown; this is a runtime validation item, not a build blocker.
+main menu with status 0. The smoke target restores `settings.ini` after the run
+because Multiwfn updates `lastfile` during normal startup. The smoke test reports
+an IEEE floating-point exception flag note at shutdown; this is a runtime
+validation item, not a build blocker.
 
 Not verified locally:
 
@@ -67,5 +67,5 @@ Intel-oriented flags.
    Makefile.
 4. Avoid requiring DISLIN/Motif for workflows that use VMD as the visualization
    backend.
-5. Add a non-interactive smoke-test target once a small committed fixture policy
-   is decided.
+5. Add broader non-interactive fixtures for representative wavefunction and grid
+   workflows.
