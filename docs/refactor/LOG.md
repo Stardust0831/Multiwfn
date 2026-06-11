@@ -116,3 +116,6 @@
   the source folder without changing the tracked Makefile.
 - Added `tools/bootstrap-gnu-env.sh` to create or verify the local GNU build
   prefix under `.build-env/gnu` using a package cache under `.build-env/pkgs`.
+- Added a root `README.md` for the refactor branch so the GitHub repository
+  exposes the GNU noGUI build, verification wrappers, and VMD bridge entry
+  points from the project front page.
