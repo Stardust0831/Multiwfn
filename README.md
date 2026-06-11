@@ -28,6 +28,7 @@ tools/gnu-build.sh smoke
 Run the refactor verification gate:
 
 ```sh
+tools/audit-nogui-build.sh
 tools/audit-vmd-exports.sh
 tools/audit-vmd-structure-exports.sh
 tools/verify-refactor.sh env

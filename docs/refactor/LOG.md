@@ -194,3 +194,7 @@
 - Added a VMD bridge smoke residue check to `tools/verify-refactor.sh quick`.
   The verification wrapper now unsets `VMD_SMOKE_DIR` and `VMD_SMOKE_KEEP` for
   its smoke run, then fails if `.build-env/vmd-bridge-smoke.*` remains.
+- Added `tools/audit-nogui-build.sh` and included it in
+  `tools/verify-refactor.sh quick`. The audit runs `make -n noGUI`, confirms the
+  noGUI stub sources are used, and fails if the dry-run brings back real GUI,
+  X11, OpenGL, or DISLIN compile/link entries.

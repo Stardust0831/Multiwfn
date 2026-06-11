@@ -38,10 +38,14 @@ Verified locally:
 git diff --check
 make -n noGUI
 make -n GUI
+tools/audit-nogui-build.sh
 ```
 
 The current `make -n noGUI` output no longer contains compile steps for
 `GUI.f90`, `mouse_rotate.f90`, `ext/xlib.f90`, or the real `dislin_d.f90`.
+`tools/audit-nogui-build.sh` keeps this boundary under automation by checking
+that the noGUI dry-run uses the noGUI stub sources and does not link GUI, X11,
+OpenGL, or DISLIN objects/libraries.
 
 Verified locally after preparing `.build-env/gnu`:
 
@@ -69,11 +73,11 @@ tools/verify-refactor.sh full
 ```
 
 `env` runs the read-only GNU build environment doctor. `quick` runs
-`git diff --check`, the environment doctor, VMD export audits, the narrow VMD
-bridge smoke test under default smoke settings, and a check that no default
-`.build-env/vmd-bridge-smoke.*` directory was left behind. `full` also runs the
-GNU noGUI smoke test and checks that root `*.o`, root `*.mod`, and `noGUI/*.o`
-files were not left behind.
+`git diff --check`, the environment doctor, the noGUI build-boundary audit, VMD
+export audits, the narrow VMD bridge smoke test under default smoke settings,
+and a check that no default `.build-env/vmd-bridge-smoke.*` directory was left
+behind. `full` also runs the GNU noGUI smoke test and checks that root `*.o`,
+root `*.mod`, and `noGUI/*.o` files were not left behind.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. A smoke test loads a three-atom water XYZ file and exits from the

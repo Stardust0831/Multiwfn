@@ -11,7 +11,7 @@ case "$mode" in
     *)
         printf '%s\n' "Usage: tools/verify-refactor.sh [env|quick|full]"
         printf '%s\n' "  env:   read-only GNU build environment diagnostics"
-        printf '%s\n' "  quick: env diagnostics + git diff check + VMD export audits + VMD bridge smoke/residue checks"
+        printf '%s\n' "  quick: env diagnostics + git diff check + noGUI/VMD audits + VMD bridge smoke/residue checks"
         printf '%s\n' "  full:  quick checks + GNU noGUI smoke + object residue check"
         exit 2
         ;;
@@ -69,6 +69,7 @@ fi
 
 run_step git diff --check
 run_step "$script_dir/gnu-build.sh" doctor
+run_step "$script_dir/audit-nogui-build.sh"
 run_step "$script_dir/audit-vmd-exports.sh" check
 run_step "$script_dir/audit-vmd-structure-exports.sh" check
 run_step run_default_vmd_bridge_smoke

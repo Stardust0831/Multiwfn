@@ -35,6 +35,7 @@ Main local verification entry points:
 
 ```sh
 tools/bootstrap-gnu-env.sh
+tools/audit-nogui-build.sh
 tools/audit-vmd-exports.sh
 tools/audit-vmd-structure-exports.sh
 tools/verify-refactor.sh env
