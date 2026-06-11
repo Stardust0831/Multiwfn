@@ -11,7 +11,7 @@ ivmdscene=1
 ivmdrun=0
 isosurshowboth=1
 
-call maybe_write_vmd_cube_scene("sample.cub",0.05D0)
+call maybe_write_vmd_cube_scene("win path C:\tmp\a$b[1]}.cub",0.05D0)
 
 vmdscenefile=".build-env/vmd-bridge-smoke/test source $[1]}.tcl"
 call maybe_write_vmd_cube_scene("sample.cub",0.05D0)

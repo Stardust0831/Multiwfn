@@ -146,3 +146,5 @@
   checks Linux/MacOS and Windows command strings without launching VMD.
 - Reused Tcl quoting for the scene header's manual `source` hint and extended
   the smoke test to cover scene paths with spaces and Tcl-sensitive characters.
+- Extended the VMD bridge smoke test to cover cube paths with Windows-style
+  backslashes plus Tcl-sensitive characters.

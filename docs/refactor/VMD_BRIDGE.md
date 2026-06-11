@@ -89,8 +89,9 @@ debugging easier without changing VMD behavior.
 
 Cube paths in generated `mol new` commands and the header's manual `source`
 hint are emitted as Tcl double-quoted strings with Tcl-sensitive characters
-escaped. This keeps paths with spaces, brackets, dollar signs, and closing
-braces usable when a user exports grid files into normal project directories.
+escaped. This keeps paths with spaces, backslashes, brackets, dollar signs, and
+closing braces usable when a user exports grid files into normal project
+directories.
 
 When `ivmdrun` launches VMD, the executable path and scene path are quoted for
 the host command shell before calling `execute_command_line`. Linux/MacOS use
@@ -119,10 +120,10 @@ This compiles a minimal driver and verifies that generated Tcl scenes can load a
 single cube file, multiple cube files, or a multi-dataset cube file; add
 molecular and positive/negative isosurface representations; and use the
 configured VMD material. It also checks the generated cube/dataset comments and
-Tcl quoting for cube and scene paths containing spaces and Tcl-sensitive
-characters. The smoke test also covers the non-fatal error path for an
-unwritable scene location and VMD launch-command quoting for Linux/MacOS and
-Windows.
+Tcl quoting for cube and scene paths containing spaces, backslashes, and
+Tcl-sensitive characters. The smoke test also covers the non-fatal error path
+for an unwritable scene location and VMD launch-command quoting for Linux/MacOS
+and Windows.
 
 ## Rationale
 
