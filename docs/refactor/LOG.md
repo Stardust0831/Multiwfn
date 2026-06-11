@@ -98,3 +98,5 @@
   where Multiwfn already defines them for interactive isosurface viewing.
 - Routed ETS-NOCV cube exports and EDA atomic dispersion density cube exports
   through the VMD bridge.
+- Routed molecular-surface `surf.cub`/`mapfunc.cub` exports and other-functions
+  free-region/STM cube exports through the VMD bridge.

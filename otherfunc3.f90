@@ -50,6 +50,7 @@ subroutine freeregion
 use defvar
 use GUI
 use util
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 character c80tmp*80
 integer :: ismooth=1,iclosebound=1,ismoothmethod=3,nBeckeiter=1
@@ -327,6 +328,7 @@ do while(.true.)
             open(10,file="free_prim.cub",status="replace")
             call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
             close(10)
+            call maybe_write_vmd_cube_scene("free_prim.cub",sur_value)
             write(*,"(' Done! Grid data has been exported to free_prim.cub in current folder')")
         else if (isel==3) then
             allocate(cubmattmp(nx,ny,nz))
@@ -339,6 +341,7 @@ do while(.true.)
             open(10,file="free_smooth.cub",status="replace")
             call outcube(cubmat_smooth,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
             close(10)
+            call maybe_write_vmd_cube_scene("free_smooth.cub",sur_value)
             write(*,"(' Done! Grid data has been exported to free_smooth.cub in current folder')")
         end if
     end do
@@ -1109,6 +1112,7 @@ use defvar
 use GUI
 use functions
 use util
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer :: imode=2
 real*8 :: bias=0
@@ -1402,6 +1406,7 @@ do while(.true.)
                     open(10,file="STM.cub",status="replace")
 			        call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
                     close(10)
+                    call maybe_write_vmd_cube_scene("STM.cub",sur_value)
                     write(*,*) "Exporting finished!"
                 else if (isel2==3) then
                     write(*,*) "Input constant current value, e.g. 0.004"

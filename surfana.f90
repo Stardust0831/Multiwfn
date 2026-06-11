@@ -5,6 +5,7 @@ use surfvertex
 use util
 use functions
 use GUI
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer*2,allocatable :: corpos(:,:,:) !corner position
 logical,allocatable :: ifbndcub(:,:,:) !if true, means this is a boundary cub
@@ -1387,6 +1388,7 @@ do while(.true.)
 		open(10,file="surf.cub",status="replace")
 		call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+		call maybe_write_vmd_cube_scene("surf.cub",surfisoval)
 		write(*,*) "Done, the grid data has been exported to surf.cub in current folder"
 		
 	else if (isel==-1) then
@@ -2103,6 +2105,7 @@ do while(.true.)
 		open(10,file="mapfunc.cub",status="replace")
 		call outcube(cubmattmp,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+		call maybe_write_vmd_cube_scene("mapfunc.cub",sur_value)
 		write(*,*) "Done! grid data has been exported to mapfunc.cub in current folder"
         deallocate(cubmattmp)
         

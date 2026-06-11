@@ -53,6 +53,8 @@ Initial coverage:
 - ETS-NOCV exports for NOCV orbitals, NOCV pair density, Pauli deformation
   density, orbital deformation density, and total deformation density.
 - EDA atomic dispersion contribution cube exports.
+- Molecular surface analysis exports for `surf.cub` and `mapfunc.cub`.
+- Other functions part 3 exports for free-region grids and STM LDOS grids.
 
 Future work:
 
