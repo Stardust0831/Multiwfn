@@ -171,3 +171,6 @@
   and multiple grid files in the same workflow.
 - Updated the root README and `settings.ini` comments so user-facing VMD bridge
   instructions mention structure exports and `vmdscenefile=auto`.
+- Added `tools/audit-vmd-structure-exports.sh` and
+  `docs/refactor/VMD_STRUCTURE_EXPORT_AUDIT.md` to lock down PDB/PQR/XYZ/GRO
+  structure export bridge coverage in the quick verification gate.

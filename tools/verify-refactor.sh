@@ -10,7 +10,7 @@ case "$mode" in
         ;;
     *)
         printf '%s\n' "Usage: tools/verify-refactor.sh [quick|full]"
-        printf '%s\n' "  quick: git diff check + VMD export audit + VMD bridge smoke"
+        printf '%s\n' "  quick: git diff check + VMD export audits + VMD bridge smoke"
         printf '%s\n' "  full:  quick checks + GNU noGUI smoke + object residue check"
         exit 2
         ;;
@@ -41,6 +41,7 @@ cd "$repo_dir"
 
 run_step git diff --check
 run_step "$script_dir/audit-vmd-exports.sh" check
+run_step "$script_dir/audit-vmd-structure-exports.sh" check
 run_step "$script_dir/gnu-build.sh" vmd-smoke
 
 if [ "$mode" = "full" ]; then

@@ -27,6 +27,7 @@ Key documents:
 - `BUILD_ENV.md`: local GNU toolchain setup under `.build-env`.
 - `VMD_BRIDGE.md`: bridge settings, CLI flags, and current coverage.
 - `VMD_CUBE_EXPORT_AUDIT.md`: remaining cube export audit and exclusions.
+- `VMD_STRUCTURE_EXPORT_AUDIT.md`: structure export bridge audit and exclusions.
 - `DECISIONS.md`: architecture and boundary decisions.
 - `LOG.md`: chronological implementation notes.
 
@@ -35,6 +36,7 @@ Main local verification entry points:
 ```sh
 tools/bootstrap-gnu-env.sh
 tools/audit-vmd-exports.sh
+tools/audit-vmd-structure-exports.sh
 tools/verify-refactor.sh quick
 tools/verify-refactor.sh full
 ```
