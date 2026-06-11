@@ -11,12 +11,14 @@ tools/audit-vmd-exports.sh check
 ```
 
 The `check` mode is part of `tools/verify-refactor.sh quick`; it fails if the
-documented counts below drift from the current source tree.
+documented counts below drift from the current production source tree. Test
+fixtures under `tools/` and noGUI stubs are intentionally excluded from the
+counts.
 
 Current counts after the latest bridge coverage pass:
 
-- `outcube` call sites in Fortran sources: 70
-- VMD bridge calls in Fortran sources: 55
+- `outcube` call sites in production Fortran sources: 70
+- VMD bridge calls in production Fortran sources: 52
 
 The difference is expected. Several menu actions write multiple cube files and
 then call `maybe_write_vmd_cube_scene_list` once after the batch. Other call

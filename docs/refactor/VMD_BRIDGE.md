@@ -92,6 +92,11 @@ strings with Tcl-sensitive characters escaped. This keeps paths with spaces,
 brackets, dollar signs, and closing braces usable when a user exports grid files
 into normal project directories.
 
+If the configured scene file cannot be opened, the bridge reports the failing
+path and Fortran `IOSTAT` value, then returns without launching VMD. The
+underlying Multiwfn export remains the authoritative output and should not be
+lost because VMD scene generation failed.
+
 Specialized exporters pass analysis-specific default isovalues where Multiwfn
 already uses one for on-screen isosurfaces, for example hole/electron
 distributions and transition densities in the excitation module.
@@ -108,7 +113,9 @@ This compiles a minimal driver and verifies that generated Tcl scenes can load a
 single cube file, multiple cube files, or a multi-dataset cube file; add
 molecular and positive/negative isosurface representations; and use the
 configured VMD material. It also checks the generated cube/dataset comments and
-Tcl quoting for cube paths containing spaces and Tcl-sensitive characters.
+Tcl quoting for cube paths containing spaces and Tcl-sensitive characters. The
+smoke test also covers the non-fatal error path for an unwritable scene
+location.
 
 ## Rationale
 

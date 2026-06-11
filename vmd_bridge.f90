@@ -7,13 +7,19 @@ implicit real*8 (a-h,o-z)
 character(len=*),intent(in) :: cubefile
 real*8,intent(in) :: isovalue
 character(len=200) scenefile
+integer iopen
 
 if (ivmdscene==0.and.ivmdrun==0) return
 
 scenefile=vmdscenefile
 if (scenefile==" ") scenefile="multiwfn_scene.tcl"
 
-open(99,file=scenefile,status="replace")
+open(99,file=scenefile,status="replace",iostat=iopen)
+if (iopen/=0) then
+    write(*,"(' VMD scene script was not written because the file could not be opened: ',a)") trim(scenefile)
+    write(*,"(' VMD scene open IOSTAT = ',i0)") iopen
+    return
+end if
 call write_vmd_cube_scene(99,cubefile,isovalue,scenefile)
 close(99)
 
@@ -30,6 +36,7 @@ integer,intent(in) :: nfile
 character(len=*),intent(in) :: cubefiles(nfile)
 real*8,intent(in) :: isovalue
 character(len=200) scenefile
+integer iopen
 
 if (ivmdscene==0.and.ivmdrun==0) return
 if (nfile<=0) return
@@ -37,7 +44,12 @@ if (nfile<=0) return
 scenefile=vmdscenefile
 if (scenefile==" ") scenefile="multiwfn_scene.tcl"
 
-open(99,file=scenefile,status="replace")
+open(99,file=scenefile,status="replace",iostat=iopen)
+if (iopen/=0) then
+    write(*,"(' VMD scene script was not written because the file could not be opened: ',a)") trim(scenefile)
+    write(*,"(' VMD scene open IOSTAT = ',i0)") iopen
+    return
+end if
 call write_vmd_scene_header(99,scenefile)
 do ifile=1,nfile
     call write_vmd_cube_molecule(99,cubefiles(ifile),isovalue)
@@ -58,6 +70,7 @@ integer,intent(in) :: ndataset
 character(len=*),intent(in) :: cubefile
 real*8,intent(in) :: isovalue
 character(len=200) scenefile
+integer iopen
 
 if (ivmdscene==0.and.ivmdrun==0) return
 if (ndataset<=0) return
@@ -65,7 +78,12 @@ if (ndataset<=0) return
 scenefile=vmdscenefile
 if (scenefile==" ") scenefile="multiwfn_scene.tcl"
 
-open(99,file=scenefile,status="replace")
+open(99,file=scenefile,status="replace",iostat=iopen)
+if (iopen/=0) then
+    write(*,"(' VMD scene script was not written because the file could not be opened: ',a)") trim(scenefile)
+    write(*,"(' VMD scene open IOSTAT = ',i0)") iopen
+    return
+end if
 call write_vmd_scene_header(99,scenefile)
 call write_vmd_cube_dataset_molecule(99,cubefile,ndataset,isovalue)
 call write_vmd_scene_footer(99)

@@ -27,12 +27,16 @@ cd "$repo_dir"
 outcube_pattern='call outcube\('
 bridge_pattern='call maybe_write_vmd_cube_scene|call maybe_write_vmd_cube_scene_list|call maybe_write_vmd_cube_dataset_scene'
 
-outcube_count=$(rg -n "$outcube_pattern" --glob '*.f90' --glob '*.F' | wc -l | tr -d ' ')
-bridge_count=$(rg -n "$bridge_pattern" --glob '*.f90' --glob '*.F' | wc -l | tr -d ' ')
+rg_src() {
+    rg "$@" --glob '*.f90' --glob '*.F' --glob '!tools/**' --glob '!noGUI/**'
+}
+
+outcube_count=$(rg_src -n "$outcube_pattern" | wc -l | tr -d ' ')
+bridge_count=$(rg_src -n "$bridge_pattern" | wc -l | tr -d ' ')
 
 if [ "$mode" = "check" ]; then
-    expected_outcube=$(sed -n 's/^- `outcube` call sites in Fortran sources: \([0-9][0-9]*\)$/\1/p' "$audit_doc" | sed -n '1p')
-    expected_bridge=$(sed -n 's/^- VMD bridge calls in Fortran sources: \([0-9][0-9]*\)$/\1/p' "$audit_doc" | sed -n '1p')
+    expected_outcube=$(sed -n 's/^- `outcube` call sites in production Fortran sources: \([0-9][0-9]*\)$/\1/p' "$audit_doc" | sed -n '1p')
+    expected_bridge=$(sed -n 's/^- VMD bridge calls in production Fortran sources: \([0-9][0-9]*\)$/\1/p' "$audit_doc" | sed -n '1p')
 
     if [ -z "$expected_outcube" ] || [ -z "$expected_bridge" ]; then
         printf '%s\n' "Could not read expected counts from $audit_doc"
@@ -58,7 +62,7 @@ printf '%s %s\n\n' "VMD bridge calls:" "$bridge_count"
 printf '%s\n' "## Per-file counts"
 printf '%s\n' ""
 
-rg -l "$outcube_pattern" --glob '*.f90' --glob '*.F' | sort | while IFS= read -r file
+rg_src -l "$outcube_pattern" | sort | while IFS= read -r file
 do
     outc=$(rg -c "$outcube_pattern" "$file" || true)
     brc=$(rg -c "$bridge_pattern" "$file" || true)

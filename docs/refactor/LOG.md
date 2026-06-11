@@ -134,3 +134,8 @@
 - Changed generated VMD `mol new` commands to use Tcl double-quoted paths with
   escaping for Tcl-sensitive characters, and extended the VMD bridge smoke test
   to cover paths with spaces, brackets, dollar signs, and closing braces.
+- Added `iostat` handling when opening VMD scene files, so an invalid
+  `vmdscenefile` path reports a clear message and does not abort the Multiwfn
+  export workflow. The VMD bridge smoke test now checks this non-fatal path.
+- Tightened `tools/audit-vmd-exports.sh` so production coverage counts exclude
+  `tools/` smoke-test drivers and noGUI stubs.

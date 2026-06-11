@@ -33,6 +33,7 @@ cd "$repo_dir"
 LD_LIBRARY_PATH="$gnu_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$build_dir/vmd_bridge_smoke" > "$out_file"
 
 grep -Fq 'VMD scene script has been written to .build-env/vmd-bridge-smoke/test_scene.tcl' "$out_file"
+grep -Fq 'VMD scene script was not written because the file could not be opened: .build-env/vmd-bridge-smoke/missing-dir/test_scene.tcl' "$out_file"
 grep -Fq '# Cube file: sample.cub' "$scene_file"
 grep -Fq '# Volumetric dataset index: 0' "$scene_file"
 grep -Fq 'mol new "sample.cub" type cube waitfor all' "$scene_file"
