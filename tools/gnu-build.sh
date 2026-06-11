@@ -36,7 +36,7 @@ case "$target" in
         set -- gnu-noGUI "$@"
         ;;
     clean)
-        set -- clean "$@"
+        set -- gnu-clean "$@"
         ;;
     *)
         printf '%s\n' "Usage: tools/gnu-build.sh [doctor|smoke|vmd-smoke|noGUI|clean] [make-args...]"

@@ -86,6 +86,12 @@ source root should contain `Multiwfn_noGUI` but no root `*.o`, root `*.mod`, or
 `noGUI/*.o` files. Full object-directory isolation remains a future Makefile
 refactor because the upstream rules are still object-name based.
 
+`tools/gnu-build.sh clean` runs the GNU-specific `gnu-clean` Makefile target. It
+removes normal Multiwfn build outputs, `.build-env/gnu-mod`, `.build-env/smoke`,
+and temporary `.build-env/vmd-bridge-smoke.*` directories. It intentionally
+keeps `.build-env/gnu` and `.build-env/pkgs` so cleaning build residue does not
+remove the local compiler environment or package cache.
+
 The VMD bridge has a narrower smoke test that compiles just `define.f90`,
 `vmd_bridge.f90`, and `tools/vmd_bridge_smoke.f90`. This caught and removed an
 unnecessary dependency from `vmd_bridge` to the large `util` module.

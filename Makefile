@@ -32,7 +32,7 @@ SMOKE_ERR ?= $(SMOKE_DIR)/gnu-noGUI-smoke.err
 
 -include Makefile.local
 
-.PHONY: default GUI noGUI gnu-noGUI gnu-noGUI-smoke clean cleanmultiwfn cleanlibreta
+.PHONY: default GUI noGUI gnu-noGUI gnu-noGUI-smoke gnu-clean clean cleanmultiwfn cleanlibreta
 
 objects_common = define.o util.o vmd_bridge.o plot.o Bspline.o sym.o libreta.o function.o sub.o integral.o Lebedev-Laikov.o \
 DFTxclib.o edflib.o fparser.o fileIO.o spectrum.o DOS.o Multiwfn.o 0123dim.o LSB.o \
@@ -71,7 +71,7 @@ noGUI: $(objects_noGUI) $(objects_common)
 	$(FC) $(OPT) $(objects_common) $(objects_noGUI) $(LIB_noGUI) -o $(EXE_noGUI)
 
 gnu-noGUI:
-	$(MAKE) clean
+	$(MAKE) gnu-clean
 	rm -rf "$(GNU_MOD_DIR)"
 	mkdir -p "$(GNU_MOD_DIR)"
 	$(MAKE) noGUI FC="$(FC_GNU)" CC="$(CC_GNU)" OPT="$(OPT_GNU)" OPT1="$(OPT1_GNU)" LIB_noGUI="$(LIB_noGUI_GNU)" LIBRETA_DIAG= DISLIN_EMPTY_DIAG=
@@ -87,6 +87,10 @@ gnu-noGUI-smoke: gnu-noGUI
 	grep -q 'Loaded .*water.xyz successfully' "$(SMOKE_OUT)"; \
 	grep -q 'Main function menu' "$(SMOKE_OUT)"
 	@cat "$(SMOKE_ERR)"
+
+gnu-clean:
+	$(MAKE) clean
+	rm -rf "$(GNU_MOD_DIR)" "$(SMOKE_DIR)" .build-env/vmd-bridge-smoke.*
 
 clean:
 	rm -f $(EXE) $(EXE_noGUI) *.o *.mod noGUI/*.o

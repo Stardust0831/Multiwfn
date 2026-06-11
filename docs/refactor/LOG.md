@@ -183,3 +183,7 @@
 - Added `tools/verify-refactor.sh env` and made `quick`/`full` run the GNU
   build environment doctor before compiler-dependent smoke tests, so missing or
   incomplete local prefixes are diagnosed from the main verification entry point.
+- Added a GNU-specific `gnu-clean` Makefile target and routed
+  `tools/gnu-build.sh clean` through it. The target removes noGUI build residue,
+  GNU module output, smoke logs, and temporary VMD bridge smoke directories while
+  preserving the local compiler prefix and package cache under `.build-env`.

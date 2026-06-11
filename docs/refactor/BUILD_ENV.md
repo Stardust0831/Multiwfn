@@ -160,6 +160,11 @@ After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 - No root `*.o`, root `*.mod`, or `noGUI/*.o` files unless `GNU_KEEP_OBJECTS=1`
   was used.
 
+Use `tools/gnu-build.sh clean` to remove the noGUI binary, transient object and
+module files, `.build-env/gnu-mod`, `.build-env/smoke`, and temporary VMD bridge
+smoke directories. This cleanup keeps `.build-env/gnu` and `.build-env/pkgs` so
+the local compiler prefix and package cache remain available for the next build.
+
 The `vmd-smoke` wrapper compiles only `define.f90`, `vmd_bridge.f90`, and a
 small test driver under `tools/` into `.build-env/vmd-bridge-smoke.<pid>` by
 default. It verifies that the bridge can generate a VMD Tcl scene for a cube file
