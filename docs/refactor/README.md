@@ -21,3 +21,11 @@ Current direction:
    VMD.
 4. Keep all major decisions and build results documented in Markdown.
 
+Key documents:
+
+- `BUILD.md`: noGUI build targets and wrapper commands.
+- `BUILD_ENV.md`: local GNU toolchain setup under `.build-env`.
+- `VMD_BRIDGE.md`: bridge settings, CLI flags, and current coverage.
+- `VMD_CUBE_EXPORT_AUDIT.md`: remaining cube export audit and exclusions.
+- `DECISIONS.md`: architecture and boundary decisions.
+- `LOG.md`: chronological implementation notes.
