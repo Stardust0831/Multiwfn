@@ -36,6 +36,7 @@ Command-line overrides:
 
 Initial coverage:
 
+- PDB and XYZ structure exports through `outpdb_wrapper` and `outxyz_wrapper`.
 - Generic cube export through `outcube_wrapper`.
 - Main 3D grid post-processing cube export in `study3dim`.
 - CDFT cube exports for Fukui functions, dual descriptors, orbital-weighted
@@ -87,11 +88,15 @@ multi-dataset cubes, the VMD volumetric dataset index used by each isosurface
 representation. These comments are intended to make hand inspection and scene
 debugging easier without changing VMD behavior.
 
-Cube paths in generated `mol new` commands and the header's manual `source`
-hint are emitted as Tcl double-quoted strings with Tcl-sensitive characters
-escaped. This keeps paths with spaces, backslashes, brackets, dollar signs, and
-closing braces usable when a user exports grid files into normal project
-directories.
+Structure scenes are generated after the interactive PDB/XYZ export wrappers
+finish writing the structure file. The low-level `outpdb` and `outxyz` routines
+remain side-effect free, so internal or batch writers are not forced through VMD.
+
+Structure and cube paths in generated `mol new` commands and the header's manual
+`source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive
+characters escaped. This keeps paths with spaces, backslashes, brackets, dollar
+signs, and closing braces usable when a user exports structure or grid files into
+normal project directories.
 
 When `ivmdrun` launches VMD, the executable path and scene path are quoted for
 the host command shell before calling `execute_command_line`. Linux/MacOS use
@@ -127,14 +132,14 @@ tools/gnu-build.sh vmd-smoke
 ```
 
 This compiles a minimal driver and verifies that generated Tcl scenes can load a
-single cube file, multiple cube files, or a multi-dataset cube file; add
-molecular and positive/negative isosurface representations; and use the
-configured VMD material. It also checks the generated cube/dataset comments and
-Tcl quoting for cube and scene paths containing spaces, backslashes, and
-Tcl-sensitive characters. The smoke test also covers the non-fatal error path
-for an unwritable scene location and VMD launch-command quoting for Linux/MacOS
-and Windows. Generated scenes also carry a header note describing relative cube
-path resolution.
+PDB structure file, a single cube file, multiple cube files, or a multi-dataset
+cube file; add molecular and positive/negative isosurface representations; and
+use the configured VMD material. It also checks the generated structure,
+cube/dataset comments and Tcl quoting for cube and scene paths containing spaces,
+backslashes, and Tcl-sensitive characters. The smoke test also covers the
+non-fatal error path for an unwritable scene location and VMD launch-command
+quoting for Linux/MacOS and Windows. Generated scenes also carry a header note
+describing relative file path resolution.
 
 ## Rationale
 

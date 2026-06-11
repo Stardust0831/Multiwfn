@@ -9,11 +9,15 @@ character(len=600) scene_dir
 call get_environment_variable("VMD_SMOKE_DIR",scene_dir)
 if (len_trim(scene_dir)==0) scene_dir=".build-env/vmd-bridge-smoke"
 
-vmdscenefile=trim(scene_dir)//"/test_scene.tcl"
+vmdscenefile=trim(scene_dir)//"/test_structure_scene.tcl"
 vmdmaterial="Glass1"
 ivmdscene=1
 ivmdrun=0
 isosurshowboth=1
+
+call maybe_write_vmd_structure_scene("structure dir/a$b[1]}.pdb","pdb")
+
+vmdscenefile=trim(scene_dir)//"/test_scene.tcl"
 
 call maybe_write_vmd_cube_scene("win path C:\tmp\a$b[1]}.cub",0.05D0)
 

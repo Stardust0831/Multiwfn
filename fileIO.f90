@@ -5502,6 +5502,7 @@ end subroutine
 subroutine outpdb_wrapper
 use util
 use defvar
+use vmd_bridge
 character(len=200) outname,c200tmp
 call path2filename(filename,c200tmp)
 write(*,*) "Input path for outputting pdb file, e.g. C:\ltwd.pdb"
@@ -5509,6 +5510,7 @@ write(*,"(a)") " If press ENTER button directly, the system will be exported to 
 read(*,"(a)") outname
 if (outname==" ") outname=trim(c200tmp)//".pdb"
 call outpdb(outname,10)
+call maybe_write_vmd_structure_scene(outname,"pdb")
 end subroutine
 !!---------- Output current coordinate to pdb file
 subroutine outpdb(outpdbname,ifileid)
@@ -5620,6 +5622,7 @@ end subroutine
 subroutine outxyz_wrapper
 use util
 use defvar
+use vmd_bridge
 character(len=200) outname,c200tmp
 call path2filename(filename,c200tmp)
 write(*,*) "Input path for outputting xyz file, e.g. C:\ltwd.xyz"
@@ -5628,6 +5631,7 @@ read(*,"(a)") outname
 if (outname==" ") outname=trim(c200tmp)//".xyz"
 call outxyz(outname,10)
 write(*,*) "Exporting xyz file finished!"
+call maybe_write_vmd_structure_scene(outname,"xyz")
 end subroutine
 !!---------- Output current coordinate to xyz file
 subroutine outxyz(outxyzname,ifileid)

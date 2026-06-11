@@ -160,3 +160,6 @@
 - Changed the VMD bridge smoke wrapper to use a per-process build directory by
   default, with `VMD_SMOKE_DIR` as an override, so parallel smoke runs do not
   delete each other's temporary objects and scene files.
+- Added VMD structure-scene generation for interactive PDB and XYZ exports via
+  `outpdb_wrapper` and `outxyz_wrapper`, while keeping the low-level structure
+  writers side-effect free.
