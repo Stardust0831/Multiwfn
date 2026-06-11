@@ -91,3 +91,8 @@
 - Routed basin analysis cube exports through the VMD bridge, including basin
   index grids, selected basin functions, basin-type helper grids, per-basin cube
   batches, and `basinana.cub` state exports.
+- Routed electron excitation cube exports through the VMD bridge, including
+  hole/electron distributions, transition density, transition dipole density,
+  charge-density difference, Cele/Chole, C+/C-, density polarization, and
+  external potential grids. These calls use analysis-specific default isovalues
+  where Multiwfn already defines them for interactive isosurface viewing.

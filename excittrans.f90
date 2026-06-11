@@ -1700,6 +1700,7 @@ use defvar
 use GUI
 use util
 use functions
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer :: idomag=0
 real*8 orbval(nmo),wfnderv(3,nmo)
@@ -1707,6 +1708,7 @@ logical,allocatable :: skippair(:) !Record which orbital pairs will be ignored d
 real*8,allocatable :: holegrid(:,:,:),elegrid(:,:,:),Sm(:,:,:),Sr(:,:,:),transdens(:,:,:),holecross(:,:,:),elecross(:,:,:),Cele(:,:,:),Chole(:,:,:),magtrdens(:,:,:,:)
 real*8,allocatable :: cubx(:),cuby(:),cubz(:) !Used to calculate Coulomb attractive energy
 character cubsuff*12
+character(len=200) vmdcubefiles(2)
 iaddstateidx=0
 cubsuff=".cub"
 
@@ -2260,6 +2262,7 @@ do while(.true.)
 		if (isel2==2) call outcube(holegrid-holecross,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		if (isel2==3) call outcube(holecross,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("hole"//trim(cubsuff),0.002D0)
 		write(*,*) "Done!"
 	else if (isel==11) then
  		write(*,*) "Select the type of electron distribution to be exported. 1 is commonly used"
@@ -2273,6 +2276,7 @@ do while(.true.)
 		if (isel2==2) call outcube(elegrid-elecross,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		if (isel2==3) call outcube(elecross,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("electron"//trim(cubsuff),0.002D0)
 		write(*,*) "Done!"
 	else if (isel==12) then
  		write(*,*) "Select the function that measures overlap of hole and electron distribution"
@@ -2289,12 +2293,15 @@ do while(.true.)
 			call outcube(Sr,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
  		end if
 		close(10)
+        if (iovlptype==1) call maybe_write_vmd_cube_scene("Sm"//trim(cubsuff),0.002D0)
+        if (iovlptype==2) call maybe_write_vmd_cube_scene("Sr"//trim(cubsuff),0.002D0)
 		write(*,*) "Done!"
 	else if (isel==13) then
 		write(*,"(a)") " Outputting transition density to transdens"//trim(cubsuff)//" in current folder"
 		open(10,file="transdens"//trim(cubsuff),status="replace")
 		call outcube(transdens,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("transdens"//trim(cubsuff),0.001D0)
 		write(*,*) "Done!"
  	else if (isel==14) then
 		write(*,*) "Select the component of transition dipole moment density"
@@ -2317,6 +2324,7 @@ do while(.true.)
 		open(10,file="transdipdens"//trim(cubsuff),status="replace")
 		call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("transdipdens"//trim(cubsuff),0.001D0)
 		write(*,*) "Done!"
 		deallocate(cubmat)
 	else if (isel==15) then
@@ -2324,6 +2332,7 @@ do while(.true.)
 		open(10,file="CDD"//trim(cubsuff),status="replace")
 		call outcube(elegrid-holegrid,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("CDD"//trim(cubsuff),0.002D0)
 		write(*,*) "Done!"
 	else if (isel==16) then
 		open(10,file="Cele"//trim(cubsuff),status="replace")
@@ -2334,6 +2343,9 @@ do while(.true.)
 		call outcube(Chole,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
 		write(*,"(' Chole function has been outputted to Chole"//trim(cubsuff)//" in current folder')")
+        vmdcubefiles(1)="Cele"//trim(cubsuff)
+        vmdcubefiles(2)="Chole"//trim(cubsuff)
+        call maybe_write_vmd_cube_scene_list(vmdcubefiles,2,0.002D0)
  	else if (isel==17) then
         if (idomag==0) then
             write(*,"(a)") " Error: In order to export transition magnetic dipole moment density, you must select &
@@ -2352,6 +2364,7 @@ do while(.true.)
 		if (ifac==3) call outcube(magtrdens(:,:,:,3),nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		if (ifac==4) call outcube(dsqrt(magtrdens(:,:,:,1)**2+magtrdens(:,:,:,2)**2+magtrdens(:,:,:,3)**2),nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("magtrdipdens"//trim(cubsuff),0.007D0)
 		write(*,*) "Done!"
  	else if (isel==18) then
 		call walltime(iwalltime1)
@@ -4311,8 +4324,10 @@ end subroutine
 subroutine CTanalyze
 use GUI
 use defvar
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 real*8,allocatable :: Cpos(:,:,:),Cneg(:,:,:),tmpmat(:,:,:)
+character(len=200) vmdcubefiles(2)
 
 if (.not.allocated(cubmat)) then
 	write(*,"(a)") " Error: No grid data is presented, grid data of electron density difference must be &
@@ -4491,6 +4506,9 @@ do while(.true.)
 		call outcube(Cneg,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
 		write(*,"(' C- function has been outputted to ""Cneg.cub"" in current folder')")
+        vmdcubefiles(1)="Cpos.cub"
+        vmdcubefiles(2)="Cneg.cub"
+        call maybe_write_vmd_cube_scene_list(vmdcubefiles,2,sur_value)
 	end if
 end do
 end subroutine
@@ -6774,6 +6792,7 @@ use defvar
 use excitinfo
 use util
 use GUI
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer nchg !Number of point charges
 real*8,allocatable :: chgx(:),chgy(:),chgz(:),chgval(:) !XYZ coordinate (Bohr) and value (e) of point charges
@@ -6965,6 +6984,7 @@ do while(.true.)
 		open(10,file="denspolar.cub",status="replace")
 		call outcube(denspolar,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("denspolar.cub",1D-4)
 		write(*,*) "Done! Density polarization has been exported to denspolar.cub in current folder"
     else if (isel==11) then
 		write(*,*) "Input the index of the excited state of interest, e.g. 8"
@@ -6974,12 +6994,14 @@ do while(.true.)
 		open(10,file="transdens.cub",status="replace")
 		call outcube(transdens,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("transdens.cub",2D-3)
 		write(*,*) "Done! Transition density has been exported to transdens.cub in current folder"
     else if (isel==12) then
 		write(*,*) "Exporting extpot.cub, please wait..."
 		open(10,file="extpot.cub",status="replace")
 		call outcube(extpot,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("extpot.cub",0.1D0)
 		write(*,*) "Done! External potential has been exported to extpot.cub in current folder"
     end if
 end do

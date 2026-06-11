@@ -46,6 +46,10 @@ Initial coverage:
 - Basin analysis cube exports for basin index grids, selected basin functions,
   basin-type helper grids, per-basin cube batches, and `basinana.cub` state
   exports.
+- Electron excitation exports for hole/electron distributions, transition
+  density, transition dipole density, charge-density difference, Cele/Chole
+  functions, C+/C- charge-transfer functions, density polarization, and external
+  potential grids.
 
 Future work:
 
@@ -62,6 +66,10 @@ For workflows that export multiple cube files in one action, the bridge can now
 write a single VMD scene that loads all exported cube files. This is used for
 weak-interaction batch exports such as IGM delta-g grids and for selected basin
 cube batches.
+
+Specialized exporters pass analysis-specific default isovalues where Multiwfn
+already uses one for on-screen isosurfaces, for example hole/electron
+distributions and transition densities in the excitation module.
 
 ## Smoke test
 
