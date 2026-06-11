@@ -18,4 +18,4 @@ wfntmp*/
 *.vmd
 output.txt
 nouseout
-
+.build-env/

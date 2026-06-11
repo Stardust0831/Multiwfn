@@ -42,3 +42,20 @@
 - Ran `make -n noGUI` and `make -n GUI` after the split. The noGUI dry-run avoids
   real GUI/xlib/DISLIN compilation; the GUI dry-run still uses the original GUI
   path.
+- Added a reproducible conda-forge GNU build environment description in
+  `docs/refactor/gnu-build-env.yml` and ignored `.build-env/`.
+- Created a local prefix at `.build-env/gnu` with GFortran/GCC 15.2.0, GNU Make
+  4.4.1, and OpenBLAS. No system packages were installed.
+- Added `gnu-noGUI` to the Makefile. It uses the local prefix and removes
+  Intel-only diagnostic/MKL/OpenMP flags from the noGUI build path.
+- Replaced hard-coded Intel diagnostic flags in a few Makefile rules with
+  overridable variables so GNU builds can leave them empty.
+- Fixed the noGUI `drawplanegui` stub signature to match the real GUI routine's
+  implicit `real*8` arguments.
+- Added noGUI external plotting stubs for legacy calls that do not use the
+  `plot` module interface.
+- Built `Multiwfn_noGUI` successfully with `.build-env/gnu/bin/make gnu-noGUI`.
+- Smoke-tested the binary with a temporary ignored water XYZ file under
+  `.build-env/smoke/`; it loaded the file, reached the main menu, and exited with
+  `q` using status 0. GFortran printed an IEEE floating-point exception flag note
+  at shutdown, which should be tracked in later runtime validation.

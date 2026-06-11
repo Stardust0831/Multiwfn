@@ -1,0 +1,9 @@
+name: multiwfn-gnu-build
+channels:
+  - conda-forge
+dependencies:
+  - binutils_linux-64
+  - gcc_linux-64
+  - gfortran_linux-64
+  - make
+  - openblas

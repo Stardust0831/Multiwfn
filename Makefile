@@ -14,6 +14,15 @@ CC = gcc
 EXE = Multiwfn
 EXE_noGUI = Multiwfn_noGUI
 LIBRETAPATH = ./libreta_hybrid
+LIBRETA_DIAG = -diag-disable 6843
+DISLIN_EMPTY_DIAG = -diag-disable 6178,6843
+
+GNU_PREFIX ?= $(CURDIR)/.build-env/gnu
+FC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gfortran
+CC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gcc
+OPT_GNU ?= -O2 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy
+OPT1_GNU ?= -O1 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy
+LIB_noGUI_GNU ?= -L$(GNU_PREFIX)/lib -lopenblas
 
 objects_common = define.o util.o vmd_bridge.o plot.o Bspline.o sym.o libreta.o function.o sub.o integral.o Lebedev-Laikov.o \
 DFTxclib.o edflib.o fparser.o fileIO.o spectrum.o DOS.o Multiwfn.o 0123dim.o LSB.o \
@@ -24,7 +33,7 @@ minpack.o blockhrr_012345.o ean.o hrr_012345.o eanvrr_012345.o boysfunc.o naivee
 
 objects = $(objects_common) GUI.o
 
-objects_noGUI = noGUI/dislin_mod_empty.o noGUI/GUI_empty.o noGUI/dislin_d_empty.o noGUI/mouse_rotate_empty.o #Dummy modules/subroutines for noGUI version
+objects_noGUI = noGUI/dislin_mod_empty.o noGUI/GUI_empty.o noGUI/plot_external_empty.o noGUI/dislin_d_empty.o noGUI/mouse_rotate_empty.o #Dummy modules/subroutines for noGUI version
 
 ifeq ($(WITH_FD),1)
   objects_common += 2F2.c.o
@@ -50,6 +59,9 @@ GUI: dislin.mod $(objects) mouse_rotate.o xlib.o
 
 noGUI: $(objects_noGUI) $(objects_common)
 	$(FC) $(OPT) $(objects_common) $(objects_noGUI) $(LIB_noGUI) -o $(EXE_noGUI)
+
+gnu-noGUI:
+	$(MAKE) noGUI FC="$(FC_GNU)" CC="$(CC_GNU)" OPT="$(OPT_GNU)" OPT1="$(OPT1_GNU)" LIB_noGUI="$(LIB_noGUI_GNU)" LIBRETA_DIAG= DISLIN_EMPTY_DIAG=
 
 clean:
 	rm -f $(EXE) $(EXE_noGUI) *.o *.mod noGUI/*.o
@@ -104,6 +116,9 @@ noGUI/mouse_rotate_empty.o : noGUI/mouse_rotate_empty.f90
 noGUI/GUI_empty.o : noGUI/GUI_empty.f90
 	$(FC) $(OPT) -c noGUI/GUI_empty.f90 -o noGUI/GUI_empty.o
 
+noGUI/plot_external_empty.o : noGUI/plot_external_empty.f90
+	$(FC) $(OPT) -c noGUI/plot_external_empty.f90 -o noGUI/plot_external_empty.o
+
 2F2.f90.o : ext/2F2.f90 util.o Bspline.o
 	$(FC) $(OPT) -c ext/2F2.f90 -o 2F2.f90.o
 
@@ -140,7 +155,7 @@ no2F2.c.o : ext/no2F2.c
 	$(CC) -c ext/no2F2.c -o no2F2.c.o
 
 noGUI/dislin_d_empty.o : noGUI/dislin_d_empty.f90
-	$(FC) $(OPT) -c noGUI/dislin_d_empty.f90 -o noGUI/dislin_d_empty.o -diag-disable 6178,6843
+	$(FC) $(OPT) -c noGUI/dislin_d_empty.f90 -o noGUI/dislin_d_empty.o $(DISLIN_EMPTY_DIAG)
 
 noGUI/dislin_mod_empty.o : noGUI/dislin_mod_empty.f90
 	$(FC) $(OPT) -c noGUI/dislin_mod_empty.f90 -o noGUI/dislin_mod_empty.o
@@ -262,10 +277,10 @@ libreta.o: ${LIBRETAPATH}/libreta.f90 hrr_012345.o blockhrr_012345.o ean.o eanvr
 # Pure libreta files for ESP
 
 hrr_012345.o: ${LIBRETAPATH}/hrr_012345.f90
-	$(FC) $(OPT) -diag-disable 6843 $(SIMD) -c ${LIBRETAPATH}/hrr_012345.f90
+	$(FC) $(OPT) $(LIBRETA_DIAG) $(SIMD) -c ${LIBRETAPATH}/hrr_012345.f90
 
 blockhrr_012345.o: ${LIBRETAPATH}/blockhrr_012345.f90
-	$(FC) -O1 -diag-disable 6843 $(SIMD) -c ${LIBRETAPATH}/blockhrr_012345.f90
+	$(FC) $(OPT1) $(LIBRETA_DIAG) -c ${LIBRETAPATH}/blockhrr_012345.f90
 
 ean.o: ${LIBRETAPATH}/ean.f90 hrr_012345.o eanvrr_012345.o boysfunc.o ${LIBRETAPATH}/ean_data1.h ${LIBRETAPATH}/ean_data2.h
 	$(FC) $(OPT) -c ${LIBRETAPATH}/ean.f90

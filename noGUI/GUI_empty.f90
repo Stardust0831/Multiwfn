@@ -12,6 +12,7 @@ subroutine drawmolgui
 end subroutine
 
 subroutine drawplanegui(init1,end1,init2,end2,init3,end3,idrawtype)
+real*8,intent (in) :: init1,end1,init2,end2,init3,end3
 integer,intent (in) :: idrawtype
 end subroutine
 
