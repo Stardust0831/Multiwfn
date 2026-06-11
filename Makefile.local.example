@@ -1,0 +1,30 @@
+# Optional local Makefile overrides.
+#
+# To use this file:
+#
+#   cp Makefile.local.example Makefile.local
+#   edit Makefile.local
+#
+# `Makefile.local` is ignored by Git and should contain only machine-local
+# compiler/library paths or temporary build preferences.
+
+# Keep the upstream Intel path as the default unless you explicitly want another
+# compiler for the generic GUI/noGUI targets.
+# FC = ifort
+# CC = gcc
+# OPT = -O2 -qopenmp -qopenmp-link=static -threads -qopt-matmul $(SIMD) $(DISDIAG) -fpscomp logicals -fpp -mkl -static-intel -DINTEL_MKL -stand f08
+# OPT1 = -O1 -qopenmp -qopenmp-link=static -threads $(SIMD) $(DISDIAG) -fpscomp logicals -fpp -mkl -static-intel -DINTEL_MKL -stand f08
+# LIB_base =
+# LIB_GUI = $(LIB_base) ./dislin_d-11.0.a -lXm -lXt -lX11 -lGL
+# LIB_noGUI = $(LIB_base)
+
+# Local GNU noGUI prefix. This is the path used by tools/gnu-build.sh and the
+# gnu-noGUI Makefile target.
+# GNU_PREFIX = $(CURDIR)/.build-env/gnu
+# GNU_MOD_DIR = $(CURDIR)/.build-env/gnu-mod
+# FC_GNU = $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gfortran
+# CC_GNU = $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gcc
+# LIB_noGUI_GNU = -L$(GNU_PREFIX)/lib -lopenblas
+
+# Keep root/noGUI object files after gnu-noGUI for debugging.
+# GNU_KEEP_OBJECTS = 1

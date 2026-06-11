@@ -60,3 +60,16 @@ Rationale:
   dataset-only scene.
 - This keeps the earlier boundary intact for unknown multi-dataset formats:
   route them only when the exporter knows the dataset count.
+
+## 2026-06-12: Local Makefile overrides
+
+Decision: Add optional `Makefile.local` support for machine-local compiler and
+library settings.
+
+Rationale:
+
+- The tracked Makefile should preserve the upstream Intel-oriented defaults.
+- Local GNU, BLAS, DISLIN, or debugging paths vary by machine and should not be
+  committed.
+- A tracked `Makefile.local.example` gives users a discoverable starting point
+  while the ignored `Makefile.local` keeps experiments inside the source folder.

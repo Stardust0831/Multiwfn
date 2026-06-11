@@ -19,3 +19,4 @@ wfntmp*/
 output.txt
 nouseout
 .build-env/
+Makefile.local

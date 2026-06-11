@@ -23,6 +23,17 @@ Use tools from the local prefix without activating globally:
 
 The `.build-env/` directory is intentionally ignored by Git.
 
+Machine-local Makefile overrides should also stay in the source folder. Copy the
+tracked example and edit the ignored local file:
+
+```sh
+cp Makefile.local.example Makefile.local
+```
+
+Use `Makefile.local` for local compiler paths, BLAS/DISLIN library paths, or
+alternate `.build-env` prefixes instead of editing the tracked Makefile for one
+machine.
+
 ## Current Local Result
 
 On WSL2 x86_64, the environment was created successfully in:

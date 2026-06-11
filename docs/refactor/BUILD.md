@@ -9,6 +9,14 @@ FC=ifort
 OPT=-O2 -qopenmp ... -mkl -static-intel ...
 ```
 
+Machine-local overrides can be placed in `Makefile.local`. This file is loaded
+by the Makefile if present, is ignored by Git, and is intended for compiler,
+BLAS, DISLIN, or local GNU-prefix paths that should not be committed. Start from:
+
+```sh
+cp Makefile.local.example Makefile.local
+```
+
 The first VMD bridge change adds `vmd_bridge.o` to the existing Makefile. A
 dry-run confirms the new module is compiled after `define.o` and `util.o`, and
 before modules that use it.

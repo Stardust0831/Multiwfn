@@ -30,6 +30,8 @@ SMOKE_XYZ ?= $(SMOKE_DIR)/water.xyz
 SMOKE_OUT ?= $(SMOKE_DIR)/gnu-noGUI-smoke.out
 SMOKE_ERR ?= $(SMOKE_DIR)/gnu-noGUI-smoke.err
 
+-include Makefile.local
+
 .PHONY: default GUI noGUI gnu-noGUI gnu-noGUI-smoke clean cleanmultiwfn cleanlibreta
 
 objects_common = define.o util.o vmd_bridge.o plot.o Bspline.o sym.o libreta.o function.o sub.o integral.o Lebedev-Laikov.o \

@@ -111,3 +111,6 @@
 - Added `tools/verify-refactor.sh` as the main local verification wrapper.
   `quick` runs formatting/diff checks and the VMD bridge smoke test; `full` also
   runs the GNU noGUI smoke test and checks for object/module residue.
+- Added optional `Makefile.local` support and a tracked
+  `Makefile.local.example` so machine-local compiler/library paths can stay in
+  the source folder without changing the tracked Makefile.
