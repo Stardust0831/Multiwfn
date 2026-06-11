@@ -30,14 +30,14 @@ run_default_vmd_bridge_smoke() {
     )
 }
 
-check_no_vmd_smoke_residue() {
+check_no_quick_temp_residue() {
     residue=
     if [ -d "$repo_dir/.build-env" ]; then
-        residue=$(find "$repo_dir/.build-env" -maxdepth 1 -type d -name 'vmd-bridge-smoke.*' -print)
+        residue=$(find "$repo_dir/.build-env" -maxdepth 1 -type d \( -name 'nogui-build-audit.*' -o -name 'vmd-bridge-smoke.*' \) -print)
     fi
 
     if [ -n "$residue" ]; then
-        printf '%s\n' "Unexpected VMD bridge smoke residue:"
+        printf '%s\n' "Unexpected quick verification temporary directory residue:"
         printf '%s\n' "$residue"
         exit 1
     fi
@@ -92,7 +92,7 @@ run_step "$script_dir/audit-nogui-build.sh"
 run_step "$script_dir/audit-vmd-exports.sh" check
 run_step "$script_dir/audit-vmd-structure-exports.sh" check
 run_step run_default_vmd_bridge_smoke
-run_step check_no_vmd_smoke_residue
+run_step check_no_quick_temp_residue
 
 if [ "$mode" = "full" ]; then
     run_step run_gnu_smoke_preserving_settings

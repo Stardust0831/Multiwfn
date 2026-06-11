@@ -212,3 +212,5 @@
 - Tightened `gnu-noGUI-smoke` so stderr must be empty or contain only the known
   GFortran `IEEE_INVALID_FLAG` shutdown note. Other stderr output now fails the
   smoke target.
+- Extended quick verification residue checks and `gnu-clean` to cover
+  `.build-env/nogui-build-audit.*` in addition to VMD bridge smoke directories.
