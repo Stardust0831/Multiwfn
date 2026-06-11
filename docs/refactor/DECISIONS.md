@@ -8,6 +8,8 @@ Rationale:
 
 - The main VMD source code is governed by a restricted license that is not suitable
   for direct source fusion and redistribution without additional permission.
+- The official VMD license allows separately distributed complimentary works that
+  interoperate with VMD, which fits a generated-file and Tcl-scene bridge.
 - Multiwfn already exports cube, PDB, XYZ, and VMD-related Tcl snippets in several
   places, so a file-and-script bridge is technically natural.
 - Keeping VMD external avoids pulling its GUI/build dependency tree into Multiwfn.

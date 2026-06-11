@@ -66,6 +66,7 @@ limitations.
 - `docs/refactor/BUILD_ENV.md`: local GNU build environment.
 - `docs/refactor/BUILD.md`: noGUI build and verification details.
 - `docs/refactor/VMD_BRIDGE.md`: VMD bridge behavior and coverage.
+- `docs/refactor/LICENSE_BOUNDARY.md`: Multiwfn/VMD license boundary notes.
 - `docs/refactor/VMD_CUBE_EXPORT_AUDIT.md`: cube export coverage audit.
 - `docs/refactor/ROADMAP.md`: current checkpoints and next refactor work.
 - `docs/refactor/DECISIONS.md`: architecture and build decisions.

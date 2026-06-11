@@ -26,6 +26,7 @@ Key documents:
 - `BUILD.md`: noGUI build targets and wrapper commands.
 - `BUILD_ENV.md`: local GNU toolchain setup under `.build-env`.
 - `VMD_BRIDGE.md`: bridge settings, CLI flags, and current coverage.
+- `LICENSE_BOUNDARY.md`: Multiwfn/VMD license boundary for integration choices.
 - `VMD_CUBE_EXPORT_AUDIT.md`: remaining cube export audit and exclusions.
 - `VMD_STRUCTURE_EXPORT_AUDIT.md`: structure export bridge audit and exclusions.
 - `DECISIONS.md`: architecture and boundary decisions.

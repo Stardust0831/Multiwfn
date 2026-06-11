@@ -203,3 +203,6 @@
   does not restore Multiwfn's normal `lastfile` update.
 - Added `docs/refactor/ROADMAP.md` to keep current refactor checkpoints, next
   work, boundaries, and completion evidence explicit as the branch grows.
+- Added `docs/refactor/LICENSE_BOUNDARY.md` after checking the official Multiwfn
+  download terms and VMD license page. The note documents why this branch keeps
+  VMD as an external executable and does not fuse or redistribute VMD source.
