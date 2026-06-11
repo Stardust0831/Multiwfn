@@ -85,3 +85,6 @@
   orbital-weighted Fukui functions, and Fukui potential grids through the VMD
   bridge. This extends coverage at explicit export points while keeping
   low-level `outcube` free of automatic side effects for temporary files.
+- Added multi-cube VMD scene generation and routed weak-interaction exports
+  through the bridge for aNCI, IGM/mIGM/IGMH, aIGM/amIGM, TFI, and van der Waals
+  potential cube files.

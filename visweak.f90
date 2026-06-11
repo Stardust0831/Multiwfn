@@ -74,6 +74,7 @@ use defvar
 use util
 use GUI
 use functions
+use vmd_bridge
 use plot, only: drawscatter
 implicit real*8 (a-h,o-z)
 !The first index of avggrad and the first two indices of avghess correspond to components of gradient and Hessian, respectively
@@ -81,6 +82,7 @@ real*8,allocatable :: avgdens(:,:,:),avggrad(:,:,:,:),avghess(:,:,:,:,:)
 real*8,allocatable :: avgRDG(:,:,:),avgsl2r(:,:,:),thermflu(:,:,:)
 real*8,allocatable :: scatterx(:),scattery(:)
 logical,allocatable :: dogrid(:,:,:)
+character(len=200) vmdcubefiles(2)
 
 write(*,*) "*** Please cite the following papers along with Multiwfn original papers ***"
 write(*,*) "  Original paper of aNCI: J. Chem. Theory Comput., 9, 2226 (2013)"
@@ -185,12 +187,15 @@ do while (.true.)
 		open(10,file="avgRDG.cub",status="replace")
 		call outcube(avgRDG,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        vmdcubefiles(1)="avgRDG.cub"
 		write(*,*) "Done!"
 		write(*,*)
 		write(*,*) "Outputting averaged sign(lambda2)*rho to avgsl2r.cub in current folder"
 		open(10,file="avgsl2r.cub",status="replace")
 		call outcube(avgsl2r,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        vmdcubefiles(2)="avgsl2r.cub"
+        call maybe_write_vmd_cube_scene_list(vmdcubefiles,2,sur_value)
 		write(*,*) "Done!"
 	else if (isel==7) then
         call calcexport_TFI(avgdens,ifpsstart,ifpsend)
@@ -207,6 +212,7 @@ do while (.true.)
 		open(10,file="avgdens.cub",status="replace")
 		call outcube(avgdens,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("avgdens.cub",sur_value)
 		write(*,*) "Done!"
 	end if
 end do
@@ -310,6 +316,7 @@ subroutine calcexport_TFI(avgdens,ifpsstart,ifpsend)
 use defvar
 use util
 use functions
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 real*8 thermflu(nx,ny,nz),avgdens(nx,ny,nz)
 
@@ -354,6 +361,7 @@ write(*,*) "Outputting thermal fluctuation index to thermflu.cub in current fold
 open(10,file="thermflu.cub",status="replace")
 call outcube(thermflu,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 close(10)
+call maybe_write_vmd_cube_scene("thermflu.cub",sur_value)
 write(*,*) "Done!"
 end subroutine
 
@@ -372,9 +380,11 @@ use functions
 use util
 use defvar
 use GUI
+use vmd_bridge
 use plot, only: drawscatter
 implicit real*8 (a-h,o-z)
 character c2000tmp*2000,selectyn
+character(len=200) vmdcubefiles(4)
 real*8 grad(3),IGM_gradnorm,IGM_gradnorm_inter,gradtmp(3)
 integer iIGMtype
 integer,allocatable :: IGMfrag(:,:),IGMfragsize(:) !Definition of each fragment used in IGM, and the number of atoms in each fragment
@@ -711,27 +721,37 @@ do while (.true.)
 		write(*,*) "Finished! Column 1/2/3/4 = delta-g_inter/delta-g_intra/delta-g/sign(lambda2)rho"
 	else if (isel==3) then
 		write(*,*) "Exporting..."
+        nvmdcube=0
 		open(10,file="sl2r.cub",status="replace")
 		call outcube(sl2r,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        nvmdcube=nvmdcube+1
+        vmdcubefiles(nvmdcube)="sl2r.cub"
 		write(*,*) "sign(lambda2)rho has been exported to sl2r.cub in current folder"
 		open(10,file="dg_inter.cub",status="replace")
 		call outcube(dg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        nvmdcube=nvmdcube+1
+        vmdcubefiles(nvmdcube)="dg_inter.cub"
 		write(*,*) "delta-g_inter has been exported to dg_inter.cub in current folder"
 		if (IGMvdwscl==0) then
 			open(10,file="dg_intra.cub",status="replace")
 			call outcube(dg_intra,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 			close(10)
+            nvmdcube=nvmdcube+1
+            vmdcubefiles(nvmdcube)="dg_intra.cub"
 			write(*,*) "delta-g_intra has been exported to dg_intra.cub in current folder"
 			open(10,file="dg.cub",status="replace")
 			call outcube(dg,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 			close(10)
+            nvmdcube=nvmdcube+1
+            vmdcubefiles(nvmdcube)="dg.cub"
 			write(*,*) "delta-g has been exported to dg.cub in current folder"
         else
 			write(*,"(a)")  " Note: Because ""IGMvdwscl"" in settings.ini is not zero, grid data of &
             &delta-g_intra and delta-g are not exported as these functions are meaningless in this case"
         end if
+        call maybe_write_vmd_cube_scene_list(vmdcubefiles,nvmdcube,sur_value)
 	else if (isel==4) then
 		write(*,*) "1 delta-g_inter"
 		write(*,*) "2 delta-g_intra"
@@ -1181,6 +1201,7 @@ use defvar
 use util
 use GUI
 use functions
+use vmd_bridge
 use plot, only: drawscatter
 implicit real*8 (a-h,o-z)
 real*8 gradtmp(3),grad_inter(3),IGM_gradnorm_inter,vec1(3),vec2(3)
@@ -1193,7 +1214,8 @@ logical,allocatable :: dogrid(:,:,:),dogridtmp(:,:,:)
 real*8,allocatable :: avgdens(:,:,:),avggrad(:,:,:,:),avghess(:,:,:,:,:)
 real*8,allocatable :: avgRDG(:,:,:),thermflu(:,:,:),avgsl2r(:,:,:)
 real*8,allocatable :: scatterx(:),scattery(:)
-character c80tmp*80,c2000tmp*2000,selectyn
+character c80tmp*80,c2000tmp*2000,selectyn,outcubfile*200
+character(len=200) vmdcubefiles(2)
 real*8 prorho,prograd(3),atmprorho(ncenter),atmprograd(3,ncenter),atmgrad(3),atomcoeff(10),atomexp(10)
 
 write(*,*) "*** Please cite the following paper along with Multiwfn original papers ***"
@@ -1506,11 +1528,14 @@ do while (.true.)
         open(10,file="avgdg_inter.cub",status="replace")
 		call outcube(dg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        vmdcubefiles(1)="avgdg_inter.cub"
         write(*,*) "Done!"
         write(*,*) "Exporting averaged sign(lambda2)rho to avgsl2r.cub..."
         open(10,file="avgsl2r.cub",status="replace")
 		call outcube(avgsl2r,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        vmdcubefiles(2)="avgsl2r.cub"
+        call maybe_write_vmd_cube_scene_list(vmdcubefiles,2,sur_value)
         write(*,*) "Done!"
         
     else if (isel==4) then
@@ -1518,6 +1543,7 @@ do while (.true.)
         open(10,file="avgRDG.cub",status="replace")
 		call outcube(avgRDG,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene("avgRDG.cub",sur_value)
         write(*,*) "Done!"
         
     else if (isel==5) then
@@ -1571,13 +1597,15 @@ do while (.true.)
 		end do
         if (iIGMtype==1) then
 			write(*,*) "Exporting TFI(aIGM) to TFI-aIGM.cub..."
-			open(10,file="TFI-aIGM.cub",status="replace")
+            outcubfile="TFI-aIGM.cub"
         else if (iIGMtype==-1) then
 			write(*,*) "Exporting TFI(amIGM) to TFI-amIGM.cub..."
-			open(10,file="TFI-amIGM.cub",status="replace")
+            outcubfile="TFI-amIGM.cub"
         end if
+        open(10,file=outcubfile,status="replace")
 		call outcube(TFI_IGM,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene(outcubfile,sur_value)
         write(*,*) "Done!"
 		deallocate(TFI_IGM)
     end if
@@ -1596,6 +1624,7 @@ end subroutine
 subroutine vdwpotential
 use defvar
 use GUI
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 real*8 parmA(ncenter),parmB(ncenter),UFF_A(103),UFF_B(103),tvec(3)
 real*8,allocatable :: repulgrid(:,:,:),dispgrid(:,:,:),vdwgrid(:,:,:)
@@ -1723,6 +1752,7 @@ do while(.true.)
 		open(10,file=outcubfile,status="replace")
 		call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        call maybe_write_vmd_cube_scene(outcubfile,sur_value)
         deallocate(cubmat)
 		write(*,"(' Done! Grid data has been exported to ',a,' in current folder')") trim(outcubfile)
     end if

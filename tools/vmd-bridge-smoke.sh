@@ -9,6 +9,7 @@ build_dir="$repo_dir/.build-env/vmd-bridge-smoke"
 mod_dir="$build_dir/mod"
 obj_dir="$build_dir/obj"
 scene_file="$build_dir/test_scene.tcl"
+multi_scene_file="$build_dir/test_multi_scene.tcl"
 out_file="$build_dir/vmd_bridge_smoke.out"
 
 if [ ! -x "$fc" ]; then
@@ -35,5 +36,7 @@ grep -Fq 'mol new {sample.cub} type cube waitfor all' "$scene_file"
 grep -Fq 'mol material Glass1' "$scene_file"
 grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$scene_file"
 grep -Fq 'mol representation Isosurface -0.05000000 0 0 0 1 1' "$scene_file"
+grep -Fq 'mol new {sample.cub} type cube waitfor all' "$multi_scene_file"
+grep -Fq 'mol new {sample2.cub} type cube waitfor all' "$multi_scene_file"
 
 printf '%s\n' "VMD bridge smoke test passed: $scene_file"
