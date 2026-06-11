@@ -23,6 +23,9 @@ call maybe_write_vmd_structure_scene("charge dir/a$b[1]}.pqr","pqr")
 vmdscenefile=trim(scene_dir)//"/test_gro_structure_scene.tcl"
 call maybe_write_vmd_structure_scene("traj dir/a$b[1]}.gro","gro")
 
+vmdscenefile="auto"
+call maybe_write_vmd_structure_scene(trim(scene_dir)//"/auto_structure.xyz","xyz")
+
 vmdscenefile=trim(scene_dir)//"/test_scene.tcl"
 
 call maybe_write_vmd_cube_scene("win path C:\tmp\a$b[1]}.cub",0.05D0)

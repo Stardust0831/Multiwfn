@@ -19,6 +19,8 @@ Settings in `settings.ini`:
 
 - `vmdpath`: VMD executable path. Default: `"vmd"`.
 - `vmdscenefile`: generated Tcl scene path. Default: `"multiwfn_scene.tcl"`.
+  Set to `auto` to write `<exported-file>.vmd.tcl` beside each exported
+  structure or cube file.
 - `vmdmaterial`: material for generated isosurface representations. Default:
   `Transparent`.
 - `ivmdscene`: if `1`, generate a VMD scene after supported cube exports.
@@ -101,6 +103,13 @@ characters escaped. This keeps paths with spaces, backslashes, brackets, dollar
 signs, and closing braces usable when a user exports structure or grid files into
 normal project directories.
 
+Scene file naming remains explicit by default: all supported exports use
+`vmdscenefile`, whose default is `multiwfn_scene.tcl`. If `vmdscenefile` is set
+to `auto`, each supported export writes `<exported-file>.vmd.tcl`; for example,
+`dens.cub` writes `dens.cub.vmd.tcl` and `mol.pdb` writes `mol.pdb.vmd.tcl`.
+This opt-in mode avoids scene overwrites during workflows that export both a
+structure and several grid files.
+
 When `ivmdrun` launches VMD, the executable path and scene path are quoted for
 the host command shell before calling `execute_command_line`. Linux/MacOS use
 single-quote shell quoting with embedded single quotes escaped; Windows keeps
@@ -134,16 +143,16 @@ The bridge can be tested without launching VMD:
 tools/gnu-build.sh vmd-smoke
 ```
 
-This compiles a minimal driver and verifies that generated Tcl scenes can load a
-PDB, PQR, and GRO structure files, a single cube file, multiple cube files, or a
-multi-dataset cube file; add molecular and positive/negative isosurface
+This compiles a minimal driver and verifies that generated Tcl scenes can load
+PDB, PQR, XYZ, and GRO structure files, a single cube file, multiple cube files,
+or a multi-dataset cube file; add molecular and positive/negative isosurface
 representations; and use the configured VMD material. It also checks the
-generated structure, cube/dataset comments and Tcl quoting for cube and scene
-paths containing spaces, backslashes, and Tcl-sensitive characters. The smoke
-test also covers the
-non-fatal error path for an unwritable scene location and VMD launch-command
-quoting for Linux/MacOS and Windows. Generated scenes also carry a header note
-describing relative file path resolution.
+generated structure, cube/dataset comments, `auto` scene naming, and Tcl quoting
+for cube and scene paths containing spaces, backslashes, and Tcl-sensitive
+characters. The smoke test also covers the non-fatal error path for an
+unwritable scene location and VMD launch-command quoting for Linux/MacOS and
+Windows. Generated scenes also carry a header note describing relative file path
+resolution.
 
 ## Rationale
 

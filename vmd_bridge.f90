@@ -11,7 +11,7 @@ logical lopen
 
 if (ivmdscene==0.and.ivmdrun==0) return
 
-call open_vmd_scene_file(scenefile,sceneunit,lopen)
+call open_vmd_scene_file(scenefile,sceneunit,lopen,structfile)
 if (.not.lopen) return
 call write_vmd_scene_header(sceneunit,scenefile)
 call write_vmd_structure_molecule(sceneunit,structfile,filetype)
@@ -35,7 +35,7 @@ logical lopen
 
 if (ivmdscene==0.and.ivmdrun==0) return
 
-call open_vmd_scene_file(scenefile,sceneunit,lopen)
+call open_vmd_scene_file(scenefile,sceneunit,lopen,cubefile)
 if (.not.lopen) return
 call write_vmd_cube_scene(sceneunit,cubefile,isovalue,scenefile)
 close(sceneunit)
@@ -59,7 +59,7 @@ logical lopen
 if (ivmdscene==0.and.ivmdrun==0) return
 if (nfile<=0) return
 
-call open_vmd_scene_file(scenefile,sceneunit,lopen)
+call open_vmd_scene_file(scenefile,sceneunit,lopen,cubefiles(1))
 if (.not.lopen) return
 call write_vmd_scene_header(sceneunit,scenefile)
 do ifile=1,nfile
@@ -87,7 +87,7 @@ logical lopen
 if (ivmdscene==0.and.ivmdrun==0) return
 if (ndataset<=0) return
 
-call open_vmd_scene_file(scenefile,sceneunit,lopen)
+call open_vmd_scene_file(scenefile,sceneunit,lopen,cubefile)
 if (.not.lopen) return
 call write_vmd_scene_header(sceneunit,scenefile)
 call write_vmd_cube_dataset_molecule(sceneunit,cubefile,ndataset,isovalue)
@@ -114,16 +114,23 @@ call write_vmd_scene_footer(ifileid)
 end subroutine
 
 
-subroutine open_vmd_scene_file(scenefile,sceneunit,lopen)
+subroutine open_vmd_scene_file(scenefile,sceneunit,lopen,exportfile)
 use defvar
 implicit real*8 (a-h,o-z)
 character(len=200),intent(out) :: scenefile
 integer,intent(out) :: sceneunit
 logical,intent(out) :: lopen
+character(len=*),intent(in),optional :: exportfile
 integer iopen
 
 scenefile=vmdscenefile
 if (scenefile==" ") scenefile="multiwfn_scene.tcl"
+if (trim(scenefile)=="auto".or.trim(scenefile)=="Auto".or.trim(scenefile)=="AUTO") then
+    scenefile="multiwfn_scene.tcl"
+    if (present(exportfile)) then
+        if (trim(exportfile)/=" ") scenefile=trim(exportfile)//".vmd.tcl"
+    end if
+end if
 
 sceneunit=-1
 open(newunit=sceneunit,file=scenefile,status="replace",iostat=iopen)

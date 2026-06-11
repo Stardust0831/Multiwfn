@@ -166,3 +166,6 @@
 - Extended structure-scene coverage to interactive PQR and GRO exports and the
   explicit PBC PDB file export menu path, preserving the same low-level writer
   boundary.
+- Added opt-in `vmdscenefile=auto` scene naming so supported exports write
+  `<exported-file>.vmd.tcl`, reducing scene overwrites when exporting structures
+  and multiple grid files in the same workflow.
