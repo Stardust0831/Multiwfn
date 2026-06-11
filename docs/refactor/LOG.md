@@ -119,3 +119,5 @@
 - Added a root `README.md` for the refactor branch so the GitHub repository
   exposes the GNU noGUI build, verification wrappers, and VMD bridge entry
   points from the project front page.
+- Added cube and dataset comments to generated VMD Tcl scenes and extended the
+  VMD bridge smoke test to assert those annotations.

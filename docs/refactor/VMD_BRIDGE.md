@@ -82,6 +82,11 @@ bridge can write one VMD scene that loads the cube once and adds isosurface
 representations for dataset indices `0..n-1`. This is used for `orbital.cub`
 from the multiple-orbital exporter.
 
+Generated Tcl scenes include comments identifying the source cube file and, for
+multi-dataset cubes, the VMD volumetric dataset index used by each isosurface
+representation. These comments are intended to make hand inspection and scene
+debugging easier without changing VMD behavior.
+
 Specialized exporters pass analysis-specific default isovalues where Multiwfn
 already uses one for on-screen isosurfaces, for example hole/electron
 distributions and transition densities in the excitation module.
@@ -97,7 +102,7 @@ tools/gnu-build.sh vmd-smoke
 This compiles a minimal driver and verifies that generated Tcl scenes can load a
 single cube file, multiple cube files, or a multi-dataset cube file; add
 molecular and positive/negative isosurface representations; and use the
-configured VMD material.
+configured VMD material. It also checks the generated cube/dataset comments.
 
 ## Rationale
 
