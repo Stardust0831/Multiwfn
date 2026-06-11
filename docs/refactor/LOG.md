@@ -78,6 +78,9 @@
   selected for the current export.
 - Added `tools/gnu-build.sh` as a small convenience wrapper around the local
   `.build-env/gnu/bin/make` noGUI build and smoke-test targets.
+- Removed the stale Makefile `util.o` prerequisite from `vmd_bridge.o`; the
+  bridge only imports `define`, so the build dependency boundary now matches the
+  source.
 - Added a narrow VMD bridge smoke test (`tools/gnu-build.sh vmd-smoke`) and
   removed the bridge module's unnecessary dependency on `util` by using
   `execute_command_line` directly for launching VMD.

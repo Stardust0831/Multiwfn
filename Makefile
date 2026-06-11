@@ -120,7 +120,7 @@ Bspline.o : Bspline.f90
 util.o : util.f90 define.o
 	$(FC) $(OPT) -c util.f90
 
-vmd_bridge.o : vmd_bridge.f90 define.o util.o
+vmd_bridge.o : vmd_bridge.f90 define.o
 	$(FC) $(OPT) -c vmd_bridge.f90
 
 function.o : function.f90 define.o util.o Bspline.o libreta.o 2F2.f90.o

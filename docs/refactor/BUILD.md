@@ -18,8 +18,9 @@ cp Makefile.local.example Makefile.local
 ```
 
 The first VMD bridge change adds `vmd_bridge.o` to the existing Makefile. A
-dry-run confirms the new module is compiled after `define.o` and `util.o`, and
-before modules that use it.
+dry-run confirms the new module is compiled after `define.o` and before modules
+that use it. It intentionally does not depend on `util.o`, keeping the bridge's
+Fortran boundary limited to global settings from `define`.
 
 The noGUI target now has a separate object entry point:
 
