@@ -4,8 +4,9 @@ use defvar
 use GUI
 use functions
 use util
+use vmd_bridge
 implicit real*8 (a-h,o-z)
-character keywords*200,c10tmp*10,c200tmp*200,inpname*200,selectyn
+character keywords*200,c10tmp*10,c200tmp*200,inpname*200,selectyn,outcubfile*200
 character c3p*3,c3q*3 !e.g. c3p="N+4" if np=4, c3q="N-4" if nq=4. c3 means three characters
 !Maximum number of electronic states in order: N,N+p,N-q,N-2,N+1,N-1 (six slots)
 !For nondegeneracy case, p=1 and q=1, slots 5 and 6 are not used
@@ -730,12 +731,14 @@ do while(.true.)
                 if (isel2<=4) then
 		            call drawisosurgui(1)
                 else
-                    if (isel2==5) open(10,file="f+.cub",status="replace")
-                    if (isel2==6) open(10,file="f-.cub",status="replace")
-                    if (isel2==7) open(10,file="f0.cub",status="replace")
-                    if (isel2==8) open(10,file="DD.cub",status="replace")
+                    if (isel2==5) outcubfile="f+.cub"
+                    if (isel2==6) outcubfile="f-.cub"
+                    if (isel2==7) outcubfile="f0.cub"
+                    if (isel2==8) outcubfile="DD.cub"
+                    open(10,file=outcubfile,status="replace")
                     call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
                     close(10)
+                    call maybe_write_vmd_cube_scene(outcubfile,sur_value)
                     write(*,*) "Exporting finished!"
                 end if
             end if
@@ -920,12 +923,14 @@ do while(.true.)
                 if (isel2<=4) then
 		            call drawisosurgui(1)
                 else
-                    if (isel2==5) open(10,file="OW_f+.cub",status="replace")
-                    if (isel2==6) open(10,file="OW_f-.cub",status="replace")
-                    if (isel2==7) open(10,file="OW_f0.cub",status="replace")
-                    if (isel2==8) open(10,file="OW_DD.cub",status="replace")
+                    if (isel2==5) outcubfile="OW_f+.cub"
+                    if (isel2==6) outcubfile="OW_f-.cub"
+                    if (isel2==7) outcubfile="OW_f0.cub"
+                    if (isel2==8) outcubfile="OW_DD.cub"
+                    open(10,file=outcubfile,status="replace")
                     call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
                     close(10)
+                    call maybe_write_vmd_cube_scene(outcubfile,sur_value)
                     write(*,*) "Exporting finished!"
                 end if
             end if
@@ -1079,12 +1084,14 @@ do while(.true.)
                 if (isel2<=4) then
 		            call drawisosurgui(1)
                 else
-                    if (isel2==5) open(10,file="f+P.cub",status="replace")
-                    if (isel2==6) open(10,file="f-P.cub",status="replace")
-                    if (isel2==7) open(10,file="f0P.cub",status="replace")
-                    if (isel2==8) open(10,file="DDP.cub",status="replace")
+                    if (isel2==5) outcubfile="f+P.cub"
+                    if (isel2==6) outcubfile="f-P.cub"
+                    if (isel2==7) outcubfile="f0P.cub"
+                    if (isel2==8) outcubfile="DDP.cub"
+                    open(10,file=outcubfile,status="replace")
                     call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
                     close(10)
+                    call maybe_write_vmd_cube_scene(outcubfile,sur_value)
                     write(*,*) "Exporting finished!"
                 end if
             end if

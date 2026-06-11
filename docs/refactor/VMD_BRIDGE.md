@@ -38,13 +38,19 @@ Initial coverage:
 
 - Generic cube export through `outcube_wrapper`.
 - Main 3D grid post-processing cube export in `study3dim`.
+- CDFT cube exports for Fukui functions, dual descriptors, orbital-weighted
+  Fukui functions, and Fukui potential / dual descriptor potential.
 
 Future work:
 
 - Add helper calls to specialized cube outputs in modules such as excitation,
-  weak interaction, basin, CDFT, and ETS-NOCV analysis.
+  weak interaction, basin, and ETS-NOCV analysis.
 - Generate richer VMD scenes for critical points, topology paths, molecular
   surfaces, arrows, and multi-cube overlays.
+
+Coverage is being expanded at explicit user-facing export points instead of by
+adding side effects to the low-level `outcube` writer. This avoids launching VMD
+for temporary cube files used internally by calculations.
 
 ## Smoke test
 
