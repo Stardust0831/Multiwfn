@@ -85,7 +85,12 @@ gnu-noGUI-smoke: gnu-noGUI
 	trap 'cp "$(SMOKE_DIR)/settings.ini.before" settings.ini' EXIT; \
 	printf '%s\nq\n' "$(SMOKE_XYZ)" | LD_LIBRARY_PATH="$(GNU_PREFIX)/lib$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" timeout 12s ./$(EXE_noGUI) > "$(SMOKE_OUT)" 2> "$(SMOKE_ERR)"; \
 	grep -q 'Loaded .*water.xyz successfully' "$(SMOKE_OUT)"; \
-	grep -q 'Main function menu' "$(SMOKE_OUT)"
+	grep -q 'Main function menu' "$(SMOKE_OUT)"; \
+	if [ -s "$(SMOKE_ERR)" ] && ! grep -Fxq 'Note: The following floating-point exceptions are signalling: IEEE_INVALID_FLAG' "$(SMOKE_ERR)"; then \
+		printf '%s\n' "Unexpected GNU noGUI smoke stderr:"; \
+		cat "$(SMOKE_ERR)"; \
+		exit 1; \
+	fi
 	@cat "$(SMOKE_ERR)"
 
 gnu-clean:

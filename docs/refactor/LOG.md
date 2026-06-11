@@ -209,3 +209,6 @@
 - Added `tools/audit-helper-scripts.sh` and included it in
   `tools/verify-refactor.sh quick` to ensure tracked helper shell scripts keep
   executable mode bits and the expected POSIX `sh` shebang.
+- Tightened `gnu-noGUI-smoke` so stderr must be empty or contain only the known
+  GFortran `IEEE_INVALID_FLAG` shutdown note. Other stderr output now fails the
+  smoke target.

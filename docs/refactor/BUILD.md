@@ -88,7 +88,8 @@ main menu with status 0. The smoke target restores `settings.ini` after the run
 because Multiwfn updates `lastfile` during normal startup. The full verification
 wrapper checks that restoration worked by comparing `settings.ini` before and
 after the smoke test. The smoke test reports an IEEE floating-point exception
-flag note at shutdown; this is a runtime validation item, not a build blocker.
+flag note at shutdown; this known note is allowed by the smoke target, while any
+other stderr output causes the smoke test to fail.
 
 The GNU noGUI path now writes `.mod` files to `.build-env/gnu-mod` and removes
 root/`noGUI` object files after linking by default. After `gnu-noGUI-smoke`, the
