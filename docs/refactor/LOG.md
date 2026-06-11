@@ -177,3 +177,6 @@
 - Marked helper shell scripts executable in the Git index so fresh clones can run
   documented `tools/*.sh` commands directly rather than depending on local
   filesystem mode bits.
+- Added `tools/gnu-env-doctor.sh` and `tools/gnu-build.sh doctor` as read-only
+  diagnostics for the local GNU prefix, compiler tools, OpenBLAS library, package
+  cache, and available conda/mamba frontends.

@@ -16,6 +16,7 @@ Prepare the local GNU build environment inside this source tree:
 
 ```sh
 tools/bootstrap-gnu-env.sh
+tools/gnu-build.sh doctor
 ```
 
 Build and smoke-test the noGUI binary:

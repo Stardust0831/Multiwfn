@@ -10,6 +10,13 @@ case "$gnu_prefix" in
 esac
 make_bin="$gnu_prefix/bin/make"
 
+target=${1:-smoke}
+shift || true
+
+if [ "$target" = "doctor" ]; then
+    exec "$script_dir/gnu-env-doctor.sh" "$@"
+fi
+
 if [ ! -x "$make_bin" ]; then
     printf '%s\n' "GNU build prefix was not found at $gnu_prefix"
     printf '%s\n' "Create or verify it with: tools/bootstrap-gnu-env.sh"
@@ -17,9 +24,6 @@ if [ ! -x "$make_bin" ]; then
 fi
 
 export GNU_PREFIX="$gnu_prefix"
-
-target=${1:-smoke}
-shift || true
 
 case "$target" in
     smoke)
@@ -35,7 +39,7 @@ case "$target" in
         set -- clean "$@"
         ;;
     *)
-        printf '%s\n' "Usage: tools/gnu-build.sh [smoke|vmd-smoke|noGUI|clean] [make-args...]"
+        printf '%s\n' "Usage: tools/gnu-build.sh [doctor|smoke|vmd-smoke|noGUI|clean] [make-args...]"
         exit 2
         ;;
 esac

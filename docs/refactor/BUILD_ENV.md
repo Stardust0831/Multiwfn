@@ -16,6 +16,17 @@ under `.build-env/pkgs`, and creates the compiler prefix under `.build-env/gnu`.
 If the prefix already exists, it verifies that the expected compiler and `make`
 executables are present.
 
+Inspect the local prefix without compiling anything:
+
+```sh
+tools/gnu-build.sh doctor
+tools/gnu-env-doctor.sh
+```
+
+The doctor command is read-only. It reports the resolved `GNU_PREFIX`, package
+cache path, compiler and `make` versions, OpenBLAS availability, and whether
+`mamba`, `micromamba`, or `conda` are currently on `PATH`.
+
 Set `GNU_PREFIX` to use another prefix inside this source tree. Relative
 `GNU_PREFIX` values are interpreted relative to the repository root by the
 bootstrap and wrapper scripts:
@@ -127,6 +138,7 @@ tools/gnu-build.sh smoke
 tools/gnu-build.sh vmd-smoke
 tools/gnu-build.sh noGUI
 tools/gnu-build.sh clean
+tools/gnu-build.sh doctor
 ```
 
 The wrapper forwards `GNU_PREFIX` to the Makefile and the VMD bridge smoke test,
