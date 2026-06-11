@@ -201,3 +201,5 @@
 - Added a `settings.ini` checksum guard around the GNU noGUI smoke step in
   `tools/verify-refactor.sh full`, so verification fails if the smoke workflow
   does not restore Multiwfn's normal `lastfile` update.
+- Added `docs/refactor/ROADMAP.md` to keep current refactor checkpoints, next
+  work, boundaries, and completion evidence explicit as the branch grows.

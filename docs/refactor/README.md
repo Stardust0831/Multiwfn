@@ -29,6 +29,7 @@ Key documents:
 - `VMD_CUBE_EXPORT_AUDIT.md`: remaining cube export audit and exclusions.
 - `VMD_STRUCTURE_EXPORT_AUDIT.md`: structure export bridge audit and exclusions.
 - `DECISIONS.md`: architecture and boundary decisions.
+- `ROADMAP.md`: current checkpoints, next work, and completion evidence.
 - `LOG.md`: chronological implementation notes.
 
 Main local verification entry points:
