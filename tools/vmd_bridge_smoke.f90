@@ -13,6 +13,9 @@ isosurshowboth=1
 
 call maybe_write_vmd_cube_scene("sample.cub",0.05D0)
 
+vmdscenefile=".build-env/vmd-bridge-smoke/test source $[1]}.tcl"
+call maybe_write_vmd_cube_scene("sample.cub",0.05D0)
+
 cubefiles(1)="sample.cub"
 cubefiles(2)="sample dir/a$b[1]}.cub"
 vmdscenefile=".build-env/vmd-bridge-smoke/test_multi_scene.tcl"

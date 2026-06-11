@@ -144,3 +144,5 @@
 - Factored VMD launch command construction into a testable helper and added
   host-shell quoting for the VMD executable and scene path. The smoke test now
   checks Linux/MacOS and Windows command strings without launching VMD.
+- Reused Tcl quoting for the scene header's manual `source` hint and extended
+  the smoke test to cover scene paths with spaces and Tcl-sensitive characters.
