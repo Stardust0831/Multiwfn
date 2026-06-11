@@ -6,11 +6,12 @@ repo_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
 mode=${1:-quick}
 case "$mode" in
-    quick|full)
+    env|quick|full)
         ;;
     *)
-        printf '%s\n' "Usage: tools/verify-refactor.sh [quick|full]"
-        printf '%s\n' "  quick: git diff check + VMD export audits + VMD bridge smoke"
+        printf '%s\n' "Usage: tools/verify-refactor.sh [env|quick|full]"
+        printf '%s\n' "  env:   read-only GNU build environment diagnostics"
+        printf '%s\n' "  quick: env diagnostics + git diff check + VMD export audits + VMD bridge smoke"
         printf '%s\n' "  full:  quick checks + GNU noGUI smoke + object residue check"
         exit 2
         ;;
@@ -39,7 +40,14 @@ check_no_object_residue() {
 
 cd "$repo_dir"
 
+if [ "$mode" = "env" ]; then
+    run_step "$script_dir/gnu-build.sh" doctor
+    printf '\n%s\n' "Refactor verification passed ($mode)."
+    exit 0
+fi
+
 run_step git diff --check
+run_step "$script_dir/gnu-build.sh" doctor
 run_step "$script_dir/audit-vmd-exports.sh" check
 run_step "$script_dir/audit-vmd-structure-exports.sh" check
 run_step "$script_dir/gnu-build.sh" vmd-smoke

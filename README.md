@@ -30,6 +30,7 @@ Run the refactor verification gate:
 ```sh
 tools/audit-vmd-exports.sh
 tools/audit-vmd-structure-exports.sh
+tools/verify-refactor.sh env
 tools/verify-refactor.sh quick
 tools/verify-refactor.sh full
 ```

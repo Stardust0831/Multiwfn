@@ -139,6 +139,7 @@ tools/gnu-build.sh vmd-smoke
 tools/gnu-build.sh noGUI
 tools/gnu-build.sh clean
 tools/gnu-build.sh doctor
+tools/verify-refactor.sh env
 ```
 
 The wrapper forwards `GNU_PREFIX` to the Makefile and the VMD bridge smoke test,

@@ -180,3 +180,6 @@
 - Added `tools/gnu-env-doctor.sh` and `tools/gnu-build.sh doctor` as read-only
   diagnostics for the local GNU prefix, compiler tools, OpenBLAS library, package
   cache, and available conda/mamba frontends.
+- Added `tools/verify-refactor.sh env` and made `quick`/`full` run the GNU
+  build environment doctor before compiler-dependent smoke tests, so missing or
+  incomplete local prefixes are diagnosed from the main verification entry point.

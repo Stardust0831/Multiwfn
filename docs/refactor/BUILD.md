@@ -57,18 +57,21 @@ The same noGUI build and smoke test can be run via:
 tools/gnu-build.sh noGUI
 tools/gnu-build.sh smoke
 tools/gnu-build.sh vmd-smoke
+tools/gnu-build.sh doctor
 ```
 
 For refactor work, use the wrapper below before committing:
 
 ```sh
+tools/verify-refactor.sh env
 tools/verify-refactor.sh quick
 tools/verify-refactor.sh full
 ```
 
-`quick` runs `git diff --check` and the narrow VMD bridge smoke test. `full`
-also runs the GNU noGUI smoke test and checks that root `*.o`, root `*.mod`, and
-`noGUI/*.o` files were not left behind.
+`env` runs the read-only GNU build environment doctor. `quick` runs
+`git diff --check`, the environment doctor, VMD export audits, and the narrow
+VMD bridge smoke test. `full` also runs the GNU noGUI smoke test and checks that
+root `*.o`, root `*.mod`, and `noGUI/*.o` files were not left behind.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. A smoke test loads a three-atom water XYZ file and exits from the
