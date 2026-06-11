@@ -174,3 +174,6 @@
 - Added `tools/audit-vmd-structure-exports.sh` and
   `docs/refactor/VMD_STRUCTURE_EXPORT_AUDIT.md` to lock down PDB/PQR/XYZ/GRO
   structure export bridge coverage in the quick verification gate.
+- Marked helper shell scripts executable in the Git index so fresh clones can run
+  documented `tools/*.sh` commands directly rather than depending on local
+  filesystem mode bits.
