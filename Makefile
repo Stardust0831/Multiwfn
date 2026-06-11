@@ -15,7 +15,7 @@ EXE = Multiwfn
 EXE_noGUI = Multiwfn_noGUI
 LIBRETAPATH = ./libreta_hybrid
 
-objects = define.o util.o plot.o Bspline.o sym.o libreta.o function.o GUI.o sub.o integral.o Lebedev-Laikov.o \
+objects = define.o util.o vmd_bridge.o plot.o Bspline.o sym.o libreta.o function.o GUI.o sub.o integral.o Lebedev-Laikov.o \
 DFTxclib.o edflib.o fparser.o fileIO.o spectrum.o DOS.o Multiwfn.o 0123dim.o LSB.o \
 population.o frj.o orbcomp.o bondorder.o topology.o excittrans.o otherfunc.o \
 otherfunc2.o otherfunc3.o O1.o surfana.o procgriddata.o AdNDP.o fuzzy.o CDA.o basin.o \
@@ -81,6 +81,9 @@ Bspline.o : Bspline.f90
 util.o : util.f90 define.o
 	$(FC) $(OPT) -c util.f90
 
+vmd_bridge.o : vmd_bridge.f90 define.o util.o
+	$(FC) $(OPT) -c vmd_bridge.f90
+
 function.o : function.f90 define.o util.o Bspline.o libreta.o 2F2.f90.o
 	$(FC) $(OPT) -c function.f90
 
@@ -99,7 +102,7 @@ noGUI/mouse_rotate_empty.o : noGUI/mouse_rotate_empty.f90
 2F2.f90.o : ext/2F2.f90 util.o Bspline.o
 	$(FC) $(OPT) -c ext/2F2.f90 -o 2F2.f90.o
 
-modules = define.o util.o function.o plot.o GUI.o libreta.o 2F2.f90.o
+modules = define.o util.o vmd_bridge.o function.o plot.o GUI.o libreta.o 2F2.f90.o
 
 
 #Library or adpated third-part codes
@@ -278,4 +281,3 @@ ryspoly.o: ${LIBRETAPATH}/ryspoly.f90
 # Fortran-xlib interface
 xlib.o: ext/xlib.f90
 	$(FC) $(OPT) -fpscomp logicals -c ext/xlib.f90
-

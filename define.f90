@@ -474,6 +474,7 @@ integer :: isys=1 !Windows
 integer :: isys=2 !Linux/MacOS
 #endif
 integer :: igenP=1,iwfntmptype=1,iESPcode=2,outmedinfo=0,iaddprefix=0,intmolcust=0,isilent=0,idelvirorb=1
+integer :: ivmdscene=0,ivmdrun=0
 integer :: ifchprog=1,iloadascart=0,iloadGaugeom=1,iloadORCAgeom=1,maxloadexc=0,iprintLMOorder=0,iMCBOtype=0,ibasinlocmin=0
 integer :: iuserfunc=0,iDFTxcsel=84,iKEDsel=0,ispheratm=1,ishowchgtrans=0,uESEinp=0,SpherIVgroup=0,MCvolmethod=2,readEDF=1,isupplyEDF=2,ishowptESP=1,imolsurparmode=1,nPGmaxatm=200
 integer :: NICSnptlim=8000,iCDAcomp=1,ESPrhonlay=1
@@ -481,6 +482,7 @@ real*8 :: bndordthres=0.05D0,compthres=0.5D0,compthresCDA=1D0,expcutoff=-40D0,ex
 integer :: nthreads=4
 integer*8 :: ompstacksize=200000000
 character :: lastfile*200="",gaupath*200="",cubegenpath*200="",formchkpath*200="",orcapath*200="",orca_2mklpath*200="",orca_2jsonpath*200="",dftd3path*200="",cubegendenstype*80="SCF"
+character :: vmdpath*200="vmd",vmdscenefile*200="multiwfn_scene.tcl",vmdmaterial*80="Transparent"
 !! About function calculation, external or internal parameters
 integer :: RDG_addminimal=1,ELF_addminimal=1,num1Dpoints=3000,atomdenscut=1,nprevorbgrid=120000,paircorrtype=3,pairfunctype=1,srcfuncmode=1
 integer :: ELFLOL_type=0,ipolarpara=0,iALIEdecomp=0,iskipnuc=0,ivdwprobe=6

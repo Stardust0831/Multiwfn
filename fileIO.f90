@@ -7633,6 +7633,7 @@ end subroutine
 subroutine outcube_wrapper
 use util
 use defvar
+use vmd_bridge
 character(len=200) outname,c200tmp
 call path2filename(filename,c200tmp)
 write(*,*) "Input path of the new cube file, e.g. C:\Tree.cub"
@@ -7644,6 +7645,7 @@ open(10,file=outname,status="replace")
 call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 close(10)
 write(*,*) "Done, cube file has been outputted"
+call maybe_write_vmd_cube_scene(outname,sur_value)
 end subroutine
 !!-------- Output 3D matrix with property to a cube file. fileid must be opened before invoking this routine, and close it after that
 !Example of calling: outcube(holegrid,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
@@ -9986,11 +9988,30 @@ call get_option_str(20,'orca_2jsonpath=',c200tmp)
 if (c200tmp/=" ") read(c200tmp,*) orca_2jsonpath
 call get_option_str(20,'dftd3path=',c200tmp)
 if (c200tmp/=" ") read(c200tmp,*) dftd3path
+call get_option_str(20,'vmdpath=',c200tmp)
+if (c200tmp/=" ") read(c200tmp,*) vmdpath
+call get_option_str(20,'vmdscenefile=',c200tmp)
+if (c200tmp/=" ") read(c200tmp,*) vmdscenefile
+call get_option_str(20,'vmdmaterial=',c80tmp)
+if (c80tmp/=" ") read(c80tmp,*) vmdmaterial
+call get_option_str(20,'ivmdscene=',c80tmp)
+if (c80tmp/=" ") read(c80tmp,*) ivmdscene
+call get_option_str(20,'ivmdrun=',c80tmp)
+if (c80tmp/=" ") read(c80tmp,*) ivmdrun
 call testarg("-silent",isilent)
 if (isilent==0) then
     call get_option_str(20,'isilent=',c80tmp)
     if (c80tmp/=" ") read(c80tmp,*) isilent
 end if
+call testarg("-vmd",ifound)
+if (ifound==1) ivmdscene=1
+call testarg("-vmdrun",ifound)
+if (ifound==1) then
+    ivmdscene=1
+    ivmdrun=1
+end if
+call getarg_str("-vmdpath",c200tmp,ifound)
+if (ifound==1) vmdpath=c200tmp
 call get_option_str(20,'iESPcode=',c80tmp)
 if (c80tmp/=" ") read(c80tmp,*) iESPcode
 call get_option_str(20,'outmedinfo=',c80tmp)

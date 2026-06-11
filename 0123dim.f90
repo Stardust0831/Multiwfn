@@ -2366,6 +2366,7 @@ use defvar
 use util
 use functions
 use GUI
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 character c200tmp*200,c2000tmp*2000,outcubfile*200
 real*8 :: tmpvec(3)
@@ -2791,6 +2792,7 @@ else !Calculate grid data
 			call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 			close(10)
 			write(*,"(' Done! Grid data has been exported to ',a,' in current folder')") trim(outcubfile)
+			call maybe_write_vmd_cube_scene(outcubfile,sur_value)
             if (iaddprefix==0) write(*,"(a)") " Hint: If you want to add input file name as prefix of the outputted &
             &cube file, you can set ""iaddprefix"" in settings.ini to 1"
             
