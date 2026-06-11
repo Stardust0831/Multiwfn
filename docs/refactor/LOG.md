@@ -62,3 +62,7 @@
 - Added `gnu-noGUI-smoke`, a Makefile smoke target that creates the temporary XYZ
   fixture, runs `Multiwfn_noGUI`, checks the expected output, and restores
   `settings.ini` so the test does not leave the repository dirty.
+- Isolated GNU module files under `.build-env/gnu-mod` and made `gnu-noGUI`
+  clean stale root build products before compiling. After `gnu-noGUI-smoke`, the
+  source root has no `.mod` files while `.build-env/gnu-mod` contains the GNU
+  modules.

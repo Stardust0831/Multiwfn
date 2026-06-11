@@ -49,6 +49,11 @@ because Multiwfn updates `lastfile` during normal startup. The smoke test report
 an IEEE floating-point exception flag note at shutdown; this is a runtime
 validation item, not a build blocker.
 
+The GNU noGUI path now writes `.mod` files to `.build-env/gnu-mod` and leaves no
+`.mod` files in the source root after `gnu-noGUI-smoke`. Object files still use
+the source root, so full object-directory isolation remains a future build
+refactor.
+
 Not verified locally:
 
 ```sh
@@ -61,8 +66,8 @@ Intel-oriented flags.
 ## Next build refactor targets
 
 1. Keep the current Intel build as the reference path.
-2. Add object-directory separation so GUI and noGUI builds do not share `.o` and
-   `.mod` files.
+2. Add object-directory separation so GUI and noGUI builds do not share `.o`
+   files. GNU `.mod` files are already isolated under `.build-env/gnu-mod`.
 3. Make compiler and BLAS/OpenMP choices easier to override without editing the
    Makefile.
 4. Avoid requiring DISLIN/Motif for workflows that use VMD as the visualization

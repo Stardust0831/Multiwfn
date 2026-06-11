@@ -18,10 +18,11 @@ LIBRETA_DIAG = -diag-disable 6843
 DISLIN_EMPTY_DIAG = -diag-disable 6178,6843
 
 GNU_PREFIX ?= $(CURDIR)/.build-env/gnu
+GNU_MOD_DIR ?= $(CURDIR)/.build-env/gnu-mod
 FC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gfortran
 CC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gcc
-OPT_GNU ?= -O2 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy
-OPT1_GNU ?= -O1 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy
+OPT_GNU ?= -O2 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy -J$(GNU_MOD_DIR) -I$(GNU_MOD_DIR)
+OPT1_GNU ?= -O1 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy -J$(GNU_MOD_DIR) -I$(GNU_MOD_DIR)
 LIB_noGUI_GNU ?= -L$(GNU_PREFIX)/lib -lopenblas
 SMOKE_DIR ?= .build-env/smoke
 SMOKE_XYZ ?= $(SMOKE_DIR)/water.xyz
@@ -67,6 +68,9 @@ noGUI: $(objects_noGUI) $(objects_common)
 	$(FC) $(OPT) $(objects_common) $(objects_noGUI) $(LIB_noGUI) -o $(EXE_noGUI)
 
 gnu-noGUI:
+	$(MAKE) clean
+	rm -rf "$(GNU_MOD_DIR)"
+	mkdir -p "$(GNU_MOD_DIR)"
 	$(MAKE) noGUI FC="$(FC_GNU)" CC="$(CC_GNU)" OPT="$(OPT_GNU)" OPT1="$(OPT1_GNU)" LIB_noGUI="$(LIB_noGUI_GNU)" LIBRETA_DIAG= DISLIN_EMPTY_DIAG=
 
 gnu-noGUI-smoke: gnu-noGUI

@@ -42,6 +42,18 @@ Verified tools:
 The local compiler versions are GCC/GFortran 15.2.0 from conda-forge and GNU Make
 4.4.1.
 
+GNU module files are written to:
+
+```sh
+.build-env/gnu-mod
+```
+
+The `gnu-noGUI` target removes and recreates this directory and runs `make clean`
+before compiling. This prevents noGUI stub modules such as `dislin.mod` and
+`gui.mod` from being left in the source root and confusing a later GUI build.
+GNU object files still use the source root, so run `make clean` before switching
+between GNU noGUI and the original Intel GUI path.
+
 During environment creation, `mamba` attempted to update
 `/home/stardust/.conda/environments.txt`, but that path was read-only in this
 environment. The package transaction still completed and the usable prefix was
