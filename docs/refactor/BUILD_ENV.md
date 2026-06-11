@@ -91,13 +91,18 @@ GNU module files are written to:
 .build-env/gnu-mod
 ```
 
-The `gnu-noGUI` target removes and recreates this directory and runs `make clean`
-before compiling. This prevents noGUI stub modules such as `dislin.mod` and
-`gui.mod` from being left in the source root and confusing a later GUI build.
-GNU object files are still produced in the source root during compilation because
-the upstream Makefile rules are object-name based, but `gnu-noGUI` removes root
-and `noGUI/` object files after linking by default. Set `GNU_KEEP_OBJECTS=1` if
-debugging requires the `.o` files.
+GNU object files are written to:
+
+```sh
+.build-env/gnu-obj
+```
+
+The `gnu-noGUI` target removes and recreates both directories and runs
+`make clean` before compiling. This prevents noGUI stub modules such as
+`dislin.mod` and `gui.mod` from being left in the source root and keeps GNU
+object files out of the source root during normal noGUI builds. Set
+`GNU_OBJ_DIR` to another ignored local directory if a debugging run needs a
+different object location.
 
 During environment creation, `mamba` attempted to update
 `/home/stardust/.conda/environments.txt`, but that path was read-only in this
@@ -156,15 +161,15 @@ After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 
 - `Multiwfn_noGUI` in the source root.
 - GNU `.mod` files under `.build-env/gnu-mod`.
+- GNU object files under `.build-env/gnu-obj`.
 - Smoke-test inputs and logs under `.build-env/smoke`.
-- No root `*.o`, root `*.mod`, or `noGUI/*.o` files unless `GNU_KEEP_OBJECTS=1`
-  was used.
+- No root `*.o`, root `*.mod`, or `noGUI/*.o` files.
 
 Use `tools/gnu-build.sh clean` to remove the noGUI binary, transient object and
-module files, `.build-env/gnu-mod`, `.build-env/smoke`, temporary noGUI build
-audit directories, and temporary VMD bridge smoke directories. This cleanup keeps
-`.build-env/gnu` and `.build-env/pkgs` so the local compiler prefix and package
-cache remain available for the next build.
+module files, `.build-env/gnu-mod`, `.build-env/gnu-obj`, `.build-env/smoke`,
+temporary noGUI build audit directories, and temporary VMD bridge smoke
+directories. This cleanup keeps `.build-env/gnu` and `.build-env/pkgs` so the
+local compiler prefix and package cache remain available for the next build.
 
 The `vmd-smoke` wrapper compiles only `define.f90`, `vmd_bridge.f90`, and a
 small test driver under `tools/` into `.build-env/vmd-bridge-smoke.<pid>` by

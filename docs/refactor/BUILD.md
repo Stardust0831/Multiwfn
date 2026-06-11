@@ -97,15 +97,16 @@ artifacts, exported visualization files, and machine-local Makefile overrides
 should stay ignored by Git. `tools/audit-ignore-rules.sh` keeps the key ignore
 patterns under the quick verification gate.
 
-The GNU noGUI path now writes `.mod` files to `.build-env/gnu-mod` and removes
-root/`noGUI` object files after linking by default. After `gnu-noGUI-smoke`, the
-source root should contain `Multiwfn_noGUI` but no root `*.o`, root `*.mod`, or
-`noGUI/*.o` files. Full object-directory isolation remains a future Makefile
-refactor because the upstream rules are still object-name based.
+The GNU noGUI path now writes `.mod` files to `.build-env/gnu-mod` and object
+files to `.build-env/gnu-obj`. After `gnu-noGUI-smoke`, the source root should
+contain `Multiwfn_noGUI` but no root `*.o`, root `*.mod`, or `noGUI/*.o` files.
+The normal Intel-oriented object names remain the default when `OBJ_DIR` is not
+set; `gnu-noGUI` passes `OBJ_DIR=$(GNU_OBJ_DIR)` only to its noGUI sub-build.
 
 `tools/gnu-build.sh clean` runs the GNU-specific `gnu-clean` Makefile target. It
-removes normal Multiwfn build outputs, `.build-env/gnu-mod`, `.build-env/smoke`,
-and temporary `.build-env/nogui-build-audit.*` and
+removes normal Multiwfn build outputs, `.build-env/gnu-mod`,
+`.build-env/gnu-obj`, `.build-env/smoke`, and temporary
+`.build-env/nogui-build-audit.*` and
 `.build-env/vmd-bridge-smoke.*` directories. It intentionally keeps
 `.build-env/gnu` and `.build-env/pkgs` so cleaning build residue does not remove
 the local compiler environment or package cache.
@@ -126,9 +127,8 @@ Intel-oriented flags.
 ## Next build refactor targets
 
 1. Keep the current Intel build as the reference path.
-2. Add real object-directory separation so GUI and noGUI builds never create
-   transient `.o` files in the source root. The GNU path currently cleans them
-   after linking.
+2. Continue separating build outputs by variant so future GUI/GNU combinations
+   can use independent object and module directories without colliding.
 3. Make compiler and BLAS/OpenMP choices easier to override without editing the
    Makefile.
 4. Avoid requiring DISLIN/Motif for workflows that use VMD as the visualization

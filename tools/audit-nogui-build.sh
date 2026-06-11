@@ -5,6 +5,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 audit_dir="$repo_dir/.build-env/nogui-build-audit.$$"
 dry_run_out="$audit_dir/make-noGUI.dry-run"
+obj_dry_run_out="$audit_dir/make-noGUI-objdir.dry-run"
 
 cleanup() {
     status=$?
@@ -20,6 +21,7 @@ mkdir -p "$audit_dir"
 cd "$repo_dir"
 
 ${MAKE:-make} -n noGUI > "$dry_run_out"
+${MAKE:-make} -n noGUI OBJ_DIR="$repo_dir/.build-env/gnu-obj" > "$obj_dry_run_out"
 
 require_present() {
     pattern=$1
@@ -57,3 +59,16 @@ require_absent '(^|[[:space:]])-lX11([[:space:]]|$)'
 require_absent '(^|[[:space:]])-lGL([[:space:]]|$)'
 
 printf '%s\n' "noGUI dry-run audit passed."
+
+if ! grep -Fq "$repo_dir/.build-env/gnu-obj/define.o" "$obj_dry_run_out"; then
+    printf '%s\n' "Expected OBJ_DIR noGUI dry-run to compile/link objects under .build-env/gnu-obj."
+    exit 1
+fi
+
+if grep -Eq '[[:space:]]-o[[:space:]]+([A-Za-z0-9_.-]+\.o|noGUI/[A-Za-z0-9_.-]+\.o)([[:space:]]|$)' "$obj_dry_run_out"; then
+    printf '%s\n' "Unexpected root/noGUI object output found in OBJ_DIR noGUI dry-run."
+    printf '%s\n' "Output kept at: $obj_dry_run_out"
+    exit 1
+fi
+
+printf '%s\n' "noGUI OBJ_DIR dry-run audit passed."

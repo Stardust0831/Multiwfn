@@ -66,9 +66,9 @@
   clean stale root build products before compiling. After `gnu-noGUI-smoke`, the
   source root has no `.mod` files while `.build-env/gnu-mod` contains the GNU
   modules.
-- Added post-link cleanup for `gnu-noGUI`: by default it removes root `*.o` and
-  `noGUI/*.o` files while preserving `Multiwfn_noGUI`. `GNU_KEEP_OBJECTS=1`
-  keeps objects for debugging.
+- Added post-link cleanup for `gnu-noGUI`: at this stage it removed root `*.o`
+  and `noGUI/*.o` files while preserving `Multiwfn_noGUI`. This was later
+  superseded by explicit GNU object output under `.build-env/gnu-obj`.
 - Added explicit `use plot, only: drawscatter` imports in weak-interaction
   analysis routines that call `drawscatter` with optional arguments. This removes
   the GFortran warning about too many actual arguments by giving those calls the
@@ -217,3 +217,8 @@
 - Added `tools/audit-ignore-rules.sh` and included it in
   `tools/verify-refactor.sh quick` to protect ignore rules for local build
   products, exported visualization files, `.build-env/`, and `Makefile.local`.
+- Added `GNU_OBJ_DIR`/`OBJ_DIR` support to the Makefile so `gnu-noGUI` writes
+  object files under `.build-env/gnu-obj` while preserving the original root
+  object paths for the default Intel-oriented build. The noGUI build-boundary
+  audit now also dry-runs an `OBJ_DIR` noGUI build and fails if compile outputs
+  fall back to root or `noGUI/*.o` object files.

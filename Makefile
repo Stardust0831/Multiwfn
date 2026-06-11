@@ -19,7 +19,7 @@ DISLIN_EMPTY_DIAG = -diag-disable 6178,6843
 
 GNU_PREFIX ?= $(CURDIR)/.build-env/gnu
 GNU_MOD_DIR ?= $(CURDIR)/.build-env/gnu-mod
-GNU_KEEP_OBJECTS ?= 0
+GNU_OBJ_DIR ?= $(CURDIR)/.build-env/gnu-obj
 FC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gfortran
 CC_GNU ?= $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gcc
 OPT_GNU ?= -O2 -fopenmp -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy -J$(GNU_MOD_DIR) -I$(GNU_MOD_DIR)
@@ -34,19 +34,21 @@ SMOKE_ERR ?= $(SMOKE_DIR)/gnu-noGUI-smoke.err
 
 .PHONY: default GUI noGUI gnu-noGUI gnu-noGUI-smoke gnu-clean clean cleanmultiwfn cleanlibreta
 
-objects_common = define.o util.o vmd_bridge.o plot.o Bspline.o sym.o libreta.o function.o sub.o integral.o Lebedev-Laikov.o \
-DFTxclib.o edflib.o fparser.o fileIO.o spectrum.o DOS.o Multiwfn.o 0123dim.o LSB.o \
-population.o frj.o orbcomp.o bondorder.o topology.o excittrans.o otherfunc.o \
-otherfunc2.o otherfunc3.o O1.o surfana.o procgriddata.o AdNDP.o fuzzy.o CDA.o basin.o \
-orbloc.o visweak.o EDA.o CDFT.o ETS_NOCV.o atmraddens.o NAONBO.o grid.o PBC.o hyper_polar.o deloc_aromat.o cp2kmate.o\
-minpack.o blockhrr_012345.o ean.o hrr_012345.o eanvrr_012345.o boysfunc.o naiveeri.o ryspoly.o 2F2.f90.o
+obj = $(if $(OBJ_DIR),$(OBJ_DIR)/$(1),$(1))
 
-objects = $(objects_common) GUI.o
+objects_common = $(call obj,define.o) $(call obj,util.o) $(call obj,vmd_bridge.o) $(call obj,plot.o) $(call obj,Bspline.o) $(call obj,sym.o) $(call obj,libreta.o) $(call obj,function.o) $(call obj,sub.o) $(call obj,integral.o) $(call obj,Lebedev-Laikov.o) \
+$(call obj,DFTxclib.o) $(call obj,edflib.o) $(call obj,fparser.o) $(call obj,fileIO.o) $(call obj,spectrum.o) $(call obj,DOS.o) $(call obj,Multiwfn.o) $(call obj,0123dim.o) $(call obj,LSB.o) \
+$(call obj,population.o) $(call obj,frj.o) $(call obj,orbcomp.o) $(call obj,bondorder.o) $(call obj,topology.o) $(call obj,excittrans.o) $(call obj,otherfunc.o) \
+$(call obj,otherfunc2.o) $(call obj,otherfunc3.o) $(call obj,O1.o) $(call obj,surfana.o) $(call obj,procgriddata.o) $(call obj,AdNDP.o) $(call obj,fuzzy.o) $(call obj,CDA.o) $(call obj,basin.o) \
+$(call obj,orbloc.o) $(call obj,visweak.o) $(call obj,EDA.o) $(call obj,CDFT.o) $(call obj,ETS_NOCV.o) $(call obj,atmraddens.o) $(call obj,NAONBO.o) $(call obj,grid.o) $(call obj,PBC.o) $(call obj,hyper_polar.o) $(call obj,deloc_aromat.o) $(call obj,cp2kmate.o)\
+$(call obj,minpack.o) $(call obj,blockhrr_012345.o) $(call obj,ean.o) $(call obj,hrr_012345.o) $(call obj,eanvrr_012345.o) $(call obj,boysfunc.o) $(call obj,naiveeri.o) $(call obj,ryspoly.o) $(call obj,2F2.f90.o)
 
-objects_noGUI = noGUI/dislin_mod_empty.o noGUI/GUI_empty.o noGUI/plot_external_empty.o noGUI/dislin_d_empty.o noGUI/mouse_rotate_empty.o #Dummy modules/subroutines for noGUI version
+objects = $(objects_common) $(call obj,GUI.o)
+
+objects_noGUI = $(call obj,noGUI/dislin_mod_empty.o) $(call obj,noGUI/GUI_empty.o) $(call obj,noGUI/plot_external_empty.o) $(call obj,noGUI/dislin_d_empty.o) $(call obj,noGUI/mouse_rotate_empty.o) #Dummy modules/subroutines for noGUI version
 
 ifeq ($(WITH_FD),1)
-  objects_common += 2F2.c.o
+  objects_common += $(call obj,2F2.c.o)
   ifeq ($(OS),Ubuntu) # for Ubuntu
     LIB_base += -lflint -lflint-arb
   else ifeq ($(OS),RHEL) # for Fedora, CentOS, RHEL
@@ -54,7 +56,7 @@ ifeq ($(WITH_FD),1)
     LIB_base += -lflint -larb
   endif
 else
-  objects_common += no2F2.c.o
+  objects_common += $(call obj,no2F2.c.o)
 endif
 
 default: $(objects)
@@ -64,18 +66,17 @@ default: $(objects)
 	@echo "          Multiwfn has been successfully built!"
 	@echo " ------------------------------------------------------ "
 
-GUI: dislin.mod $(objects) mouse_rotate.o xlib.o
-	$(FC) $(OPT) $(objects) mouse_rotate.o xlib.o $(LIB_GUI) -o $(EXE)
+GUI: dislin.mod $(objects) $(call obj,mouse_rotate.o) $(call obj,xlib.o)
+	$(FC) $(OPT) $(objects) $(call obj,mouse_rotate.o) $(call obj,xlib.o) $(LIB_GUI) -o $(EXE)
 
 noGUI: $(objects_noGUI) $(objects_common)
 	$(FC) $(OPT) $(objects_common) $(objects_noGUI) $(LIB_noGUI) -o $(EXE_noGUI)
 
 gnu-noGUI:
 	$(MAKE) gnu-clean
-	rm -rf "$(GNU_MOD_DIR)"
-	mkdir -p "$(GNU_MOD_DIR)"
-	$(MAKE) noGUI FC="$(FC_GNU)" CC="$(CC_GNU)" OPT="$(OPT_GNU)" OPT1="$(OPT1_GNU)" LIB_noGUI="$(LIB_noGUI_GNU)" LIBRETA_DIAG= DISLIN_EMPTY_DIAG=
-	@if [ "$(GNU_KEEP_OBJECTS)" != "1" ]; then rm -f *.o noGUI/*.o; fi
+	rm -rf "$(GNU_MOD_DIR)" "$(GNU_OBJ_DIR)"
+	mkdir -p "$(GNU_MOD_DIR)" "$(GNU_OBJ_DIR)"
+	$(MAKE) noGUI OBJ_DIR="$(GNU_OBJ_DIR)" FC="$(FC_GNU)" CC="$(CC_GNU)" OPT="$(OPT_GNU)" OPT1="$(OPT1_GNU)" LIB_noGUI="$(LIB_noGUI_GNU)" LIBRETA_DIAG= DISLIN_EMPTY_DIAG=
 
 gnu-noGUI-smoke: gnu-noGUI
 	@mkdir -p "$(SMOKE_DIR)"
@@ -95,7 +96,7 @@ gnu-noGUI-smoke: gnu-noGUI
 
 gnu-clean:
 	$(MAKE) clean
-	rm -rf "$(GNU_MOD_DIR)" "$(SMOKE_DIR)" .build-env/nogui-build-audit.* .build-env/vmd-bridge-smoke.*
+	rm -rf "$(GNU_MOD_DIR)" "$(GNU_OBJ_DIR)" "$(SMOKE_DIR)" .build-env/nogui-build-audit.* .build-env/vmd-bridge-smoke.*
 
 clean:
 	rm -f $(EXE) $(EXE_noGUI) *.o *.mod noGUI/*.o
@@ -120,221 +121,288 @@ cleanlibreta:
 dislin.mod : dislin_d.f90
 	$(FC) $(OPT) -c dislin_d.f90
 
-define.o : define.f90
-	$(FC) $(OPT) -c define.f90
+$(call obj,define.o) : define.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c define.f90 -o $@
 
-Bspline.o : Bspline.f90
-	$(FC) $(OPT) -c Bspline.f90
+$(call obj,Bspline.o) : Bspline.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c Bspline.f90 -o $@
 
-util.o : util.f90 define.o
-	$(FC) $(OPT) -c util.f90
+$(call obj,util.o) : util.f90 $(call obj,define.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c util.f90 -o $@
 
-vmd_bridge.o : vmd_bridge.f90 define.o
-	$(FC) $(OPT) -c vmd_bridge.f90
+$(call obj,vmd_bridge.o) : vmd_bridge.f90 $(call obj,define.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c vmd_bridge.f90 -o $@
 
-function.o : function.f90 define.o util.o Bspline.o libreta.o 2F2.f90.o
-	$(FC) $(OPT) -c function.f90
+$(call obj,function.o) : function.f90 $(call obj,define.o) $(call obj,util.o) $(call obj,Bspline.o) $(call obj,libreta.o) $(call obj,2F2.f90.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c function.f90 -o $@
 
-plot.o : plot.f90 function.o define.o util.o
-	$(FC) $(OPT) -c plot.f90
+$(call obj,plot.o) : plot.f90 $(call obj,function.o) $(call obj,define.o) $(call obj,util.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c plot.f90 -o $@
 
-GUI.o : GUI.f90 define.o plot.o function.o mouse_rotate.o
-	$(FC) $(OPT) -c GUI.f90
+$(call obj,GUI.o) : GUI.f90 $(call obj,define.o) $(call obj,plot.o) $(call obj,function.o) $(call obj,mouse_rotate.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c GUI.f90 -o $@
 
-mouse_rotate.o : mouse_rotate.f90 xlib.o define.o plot.o
-	$(FC) $(OPT) -c mouse_rotate.f90
+$(call obj,mouse_rotate.o) : mouse_rotate.f90 $(call obj,xlib.o) $(call obj,define.o) $(call obj,plot.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c mouse_rotate.f90 -o $@
 
-noGUI/mouse_rotate_empty.o : noGUI/mouse_rotate_empty.f90
-	$(FC) $(OPT) -c noGUI/mouse_rotate_empty.f90 -o noGUI/mouse_rotate_empty.o
+$(call obj,noGUI/mouse_rotate_empty.o) : noGUI/mouse_rotate_empty.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c noGUI/mouse_rotate_empty.f90 -o $@
 
-noGUI/GUI_empty.o : noGUI/GUI_empty.f90
-	$(FC) $(OPT) -c noGUI/GUI_empty.f90 -o noGUI/GUI_empty.o
+$(call obj,noGUI/GUI_empty.o) : noGUI/GUI_empty.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c noGUI/GUI_empty.f90 -o $@
 
-noGUI/plot_external_empty.o : noGUI/plot_external_empty.f90
-	$(FC) $(OPT) -c noGUI/plot_external_empty.f90 -o noGUI/plot_external_empty.o
+$(call obj,noGUI/plot_external_empty.o) : noGUI/plot_external_empty.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c noGUI/plot_external_empty.f90 -o $@
 
-2F2.f90.o : ext/2F2.f90 util.o Bspline.o
-	$(FC) $(OPT) -c ext/2F2.f90 -o 2F2.f90.o
+$(call obj,2F2.f90.o) : ext/2F2.f90 $(call obj,util.o) $(call obj,Bspline.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ext/2F2.f90 -o $@
 
-modules = define.o util.o vmd_bridge.o function.o plot.o libreta.o 2F2.f90.o
+modules = $(call obj,define.o) $(call obj,util.o) $(call obj,vmd_bridge.o) $(call obj,function.o) $(call obj,plot.o) $(call obj,libreta.o) $(call obj,2F2.f90.o)
 
 
 #Library or adpated third-part codes
 
-DFTxclib.o : DFTxclib.F
-	$(FC) $(OPT) -c DFTxclib.F
+$(call obj,DFTxclib.o) : DFTxclib.F
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c DFTxclib.F -o $@
 
-Lebedev-Laikov.o : Lebedev-Laikov.F
-	$(FC) $(OPT) -c Lebedev-Laikov.F
+$(call obj,Lebedev-Laikov.o) : Lebedev-Laikov.F
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c Lebedev-Laikov.F -o $@
 
-sym.o : sym.F
-	$(FC) $(OPT) -c sym.F
+$(call obj,sym.o) : sym.F
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c sym.F -o $@
 
-edflib.o : edflib.f90
-	$(FC) $(OPT) -c edflib.f90
+$(call obj,edflib.o) : edflib.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c edflib.f90 -o $@
 
-atmraddens.o : atmraddens.f90
-	$(FC) $(OPT) -c atmraddens.f90
+$(call obj,atmraddens.o) : atmraddens.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c atmraddens.f90 -o $@
 
-minpack.o : minpack.f90
-	$(FC) $(OPT) -c minpack.f90
+$(call obj,minpack.o) : minpack.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c minpack.f90 -o $@
 	
-fparser.o : fparser.f90
-	$(FC) $(OPT) -c fparser.f90
+$(call obj,fparser.o) : fparser.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c fparser.f90 -o $@
 	
-2F2.c.o : ext/2F2.c
-	$(CC) $(INCLUDE) -c ext/2F2.c -o 2F2.c.o
+$(call obj,2F2.c.o) : ext/2F2.c
+	@mkdir -p "$(dir $@)"
+	$(CC) $(INCLUDE) -c ext/2F2.c -o $@
 
-no2F2.c.o : ext/no2F2.c
-	$(CC) -c ext/no2F2.c -o no2F2.c.o
+$(call obj,no2F2.c.o) : ext/no2F2.c
+	@mkdir -p "$(dir $@)"
+	$(CC) -c ext/no2F2.c -o $@
 
-noGUI/dislin_d_empty.o : noGUI/dislin_d_empty.f90
-	$(FC) $(OPT) -c noGUI/dislin_d_empty.f90 -o noGUI/dislin_d_empty.o $(DISLIN_EMPTY_DIAG)
+$(call obj,noGUI/dislin_d_empty.o) : noGUI/dislin_d_empty.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c noGUI/dislin_d_empty.f90 -o $@ $(DISLIN_EMPTY_DIAG)
 
-noGUI/dislin_mod_empty.o : noGUI/dislin_mod_empty.f90
-	$(FC) $(OPT) -c noGUI/dislin_mod_empty.f90 -o noGUI/dislin_mod_empty.o
+$(call obj,noGUI/dislin_mod_empty.o) : noGUI/dislin_mod_empty.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c noGUI/dislin_mod_empty.f90 -o $@
 
 #Others
 
-sub.o : sub.f90 $(modules)
-	$(FC) $(OPT) -c sub.f90
+$(call obj,sub.o) : sub.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c sub.f90 -o $@
 
-integral.o : integral.f90 $(modules)
-	$(FC) $(OPT) -c integral.f90
+$(call obj,integral.o) : integral.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c integral.f90 -o $@
 
-fileIO.o : fileIO.f90 $(modules)
-	$(FC) $(OPT) -c fileIO.f90
+$(call obj,fileIO.o) : fileIO.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c fileIO.f90 -o $@
 
-spectrum.o : spectrum.f90 $(modules)
-	$(FC) $(OPT) -c spectrum.f90
+$(call obj,spectrum.o) : spectrum.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c spectrum.f90 -o $@
 
-DOS.o : DOS.f90 $(modules)
-	$(FC) $(OPT) -c DOS.f90
+$(call obj,DOS.o) : DOS.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c DOS.f90 -o $@
 
-Multiwfn.o : Multiwfn.f90 $(modules)
-	$(FC) $(OPT) -c Multiwfn.f90
+$(call obj,Multiwfn.o) : Multiwfn.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c Multiwfn.f90 -o $@
 
-0123dim.o : 0123dim.f90 $(modules)
-	$(FC) $(OPT) -c 0123dim.f90
+$(call obj,0123dim.o) : 0123dim.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c 0123dim.f90 -o $@
 
-LSB.o : LSB.f90 $(modules)
-	$(FC) $(OPT) -c LSB.f90
+$(call obj,LSB.o) : LSB.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c LSB.f90 -o $@
 
-population.o : population.f90 $(modules)
-	$(FC) $(OPT) -c population.f90
+$(call obj,population.o) : population.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c population.f90 -o $@
 
-frj.o : ext/frj.f90 $(modules)
-	$(FC) $(OPT) -c ext/frj.f90 -o frj.o
+$(call obj,frj.o) : ext/frj.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ext/frj.f90 -o $@
 
-orbcomp.o : orbcomp.f90 $(modules)
-	$(FC) $(OPT) -c orbcomp.f90
+$(call obj,orbcomp.o) : orbcomp.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c orbcomp.f90 -o $@
 
-bondorder.o : bondorder.f90 $(modules)
-	$(FC) $(OPT) -c bondorder.f90
+$(call obj,bondorder.o) : bondorder.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c bondorder.f90 -o $@
 
-topology.o : topology.f90 $(modules)
-	$(FC) $(OPT) -c topology.f90
+$(call obj,topology.o) : topology.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c topology.f90 -o $@
 
-excittrans.o : excittrans.f90 $(modules)
-	$(FC) $(OPT) -c excittrans.f90
+$(call obj,excittrans.o) : excittrans.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c excittrans.f90 -o $@
 
-otherfunc.o : otherfunc.f90 $(modules)
-	$(FC) $(OPT) -c otherfunc.f90
+$(call obj,otherfunc.o) : otherfunc.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c otherfunc.f90 -o $@
 
-otherfunc2.o : otherfunc2.f90 $(modules)
-	$(FC) $(OPT) -c otherfunc2.f90
+$(call obj,otherfunc2.o) : otherfunc2.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c otherfunc2.f90 -o $@
 
-otherfunc3.o : otherfunc3.f90 $(modules)
-	$(FC) $(OPT) -c otherfunc3.f90
+$(call obj,otherfunc3.o) : otherfunc3.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c otherfunc3.f90 -o $@
 	
-O1.o : O1.f90 $(modules)
-	$(FC) $(OPT1) -c O1.f90
+$(call obj,O1.o) : O1.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT1) -c O1.f90 -o $@
 
-surfana.o : surfana.f90 $(modules)
-	$(FC) $(OPT) -c surfana.f90
+$(call obj,surfana.o) : surfana.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c surfana.f90 -o $@
 
-procgriddata.o : procgriddata.f90 $(modules)
-	$(FC) $(OPT) -c procgriddata.f90
+$(call obj,procgriddata.o) : procgriddata.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c procgriddata.f90 -o $@
 
-AdNDP.o : AdNDP.f90 $(modules)
-	$(FC) $(OPT) -c AdNDP.f90
+$(call obj,AdNDP.o) : AdNDP.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c AdNDP.f90 -o $@
 
-fuzzy.o : fuzzy.f90 $(modules)
-	$(FC) $(OPT) -c fuzzy.f90
+$(call obj,fuzzy.o) : fuzzy.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c fuzzy.f90 -o $@
 
-CDA.o : CDA.f90 $(modules)
-	$(FC) $(OPT) -c CDA.f90
+$(call obj,CDA.o) : CDA.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c CDA.f90 -o $@
 
-basin.o : basin.f90 $(modules)
-	$(FC) $(OPT) -c basin.f90
+$(call obj,basin.o) : basin.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c basin.f90 -o $@
 
-orbloc.o : orbloc.f90 $(modules)
-	$(FC) $(OPT) -c orbloc.f90
+$(call obj,orbloc.o) : orbloc.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c orbloc.f90 -o $@
 
-visweak.o : visweak.f90 $(modules)
-	$(FC) $(OPT) -c visweak.f90
+$(call obj,visweak.o) : visweak.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c visweak.f90 -o $@
 
-EDA.o : EDA.f90 $(modules)
-	$(FC) $(OPT) -c EDA.f90
+$(call obj,EDA.o) : EDA.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c EDA.f90 -o $@
 
-CDFT.o : CDFT.f90 $(modules)
-	$(FC) $(OPT) -c CDFT.f90
+$(call obj,CDFT.o) : CDFT.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c CDFT.f90 -o $@
 
-ETS_NOCV.o : ETS_NOCV.f90 $(modules)
-	$(FC) $(OPT) -c ETS_NOCV.f90
+$(call obj,ETS_NOCV.o) : ETS_NOCV.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ETS_NOCV.f90 -o $@
 
-NAONBO.o : NAONBO.f90 $(modules)
-	$(FC) $(OPT) -c NAONBO.f90
+$(call obj,NAONBO.o) : NAONBO.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c NAONBO.f90 -o $@
 
-grid.o : grid.f90 $(modules)
-	$(FC) $(OPT) -c grid.f90
+$(call obj,grid.o) : grid.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c grid.f90 -o $@
 
-PBC.o : PBC.f90 $(modules)
-	$(FC) $(OPT) -c PBC.f90
+$(call obj,PBC.o) : PBC.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c PBC.f90 -o $@
 
-hyper_polar.o : hyper_polar.f90 $(modules)
-	$(FC) $(OPT) -c hyper_polar.f90
+$(call obj,hyper_polar.o) : hyper_polar.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c hyper_polar.f90 -o $@
 	
-deloc_aromat.o : deloc_aromat.f90 $(modules)
-	$(FC) $(OPT) -c deloc_aromat.f90
+$(call obj,deloc_aromat.o) : deloc_aromat.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c deloc_aromat.f90 -o $@
 	
-cp2kmate.o : cp2kmate.f90 $(modules)
-	$(FC) $(OPT) -c cp2kmate.f90
+$(call obj,cp2kmate.o) : cp2kmate.f90 $(modules)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c cp2kmate.f90 -o $@
 
 
 # Interfaces of libreta-ESP to Multiwfn
 
-libreta.o: ${LIBRETAPATH}/libreta.f90 hrr_012345.o blockhrr_012345.o ean.o eanvrr_012345.o boysfunc.o
-	$(FC) $(OPT) -c ${LIBRETAPATH}/libreta.f90
+$(call obj,libreta.o): ${LIBRETAPATH}/libreta.f90 $(call obj,hrr_012345.o) $(call obj,blockhrr_012345.o) $(call obj,ean.o) $(call obj,eanvrr_012345.o) $(call obj,boysfunc.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ${LIBRETAPATH}/libreta.f90 -o $@
 
 
 # Pure libreta files for ESP
 
-hrr_012345.o: ${LIBRETAPATH}/hrr_012345.f90
-	$(FC) $(OPT) $(LIBRETA_DIAG) $(SIMD) -c ${LIBRETAPATH}/hrr_012345.f90
+$(call obj,hrr_012345.o): ${LIBRETAPATH}/hrr_012345.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) $(LIBRETA_DIAG) $(SIMD) -c ${LIBRETAPATH}/hrr_012345.f90 -o $@
 
-blockhrr_012345.o: ${LIBRETAPATH}/blockhrr_012345.f90
-	$(FC) $(OPT1) $(LIBRETA_DIAG) -c ${LIBRETAPATH}/blockhrr_012345.f90
+$(call obj,blockhrr_012345.o): ${LIBRETAPATH}/blockhrr_012345.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT1) $(LIBRETA_DIAG) -c ${LIBRETAPATH}/blockhrr_012345.f90 -o $@
 
-ean.o: ${LIBRETAPATH}/ean.f90 hrr_012345.o eanvrr_012345.o boysfunc.o ${LIBRETAPATH}/ean_data1.h ${LIBRETAPATH}/ean_data2.h
-	$(FC) $(OPT) -c ${LIBRETAPATH}/ean.f90
+$(call obj,ean.o): ${LIBRETAPATH}/ean.f90 $(call obj,hrr_012345.o) $(call obj,eanvrr_012345.o) $(call obj,boysfunc.o) ${LIBRETAPATH}/ean_data1.h ${LIBRETAPATH}/ean_data2.h
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ${LIBRETAPATH}/ean.f90 -o $@
 
-eanvrr_012345.o: ${LIBRETAPATH}/eanvrr_012345.f90 boysfunc.o
-	$(FC) $(OPT) -c ${LIBRETAPATH}/eanvrr_012345.f90
+$(call obj,eanvrr_012345.o): ${LIBRETAPATH}/eanvrr_012345.f90 $(call obj,boysfunc.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ${LIBRETAPATH}/eanvrr_012345.f90 -o $@
 
-boysfunc.o: ${LIBRETAPATH}/boysfunc.f90 ${LIBRETAPATH}/boysfunc_data1.h ${LIBRETAPATH}/boysfunc_data2.h
-	$(FC) $(OPT) -c ${LIBRETAPATH}/boysfunc.f90
+$(call obj,boysfunc.o): ${LIBRETAPATH}/boysfunc.f90 ${LIBRETAPATH}/boysfunc_data1.h ${LIBRETAPATH}/boysfunc_data2.h
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ${LIBRETAPATH}/boysfunc.f90 -o $@
 
 
 # libreta-ERI
 
-naiveeri.o: ${LIBRETAPATH}/naiveeri.f90 ryspoly.o
-	$(FC) $(OPT) -c ${LIBRETAPATH}/naiveeri.f90
+$(call obj,naiveeri.o): ${LIBRETAPATH}/naiveeri.f90 $(call obj,ryspoly.o)
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ${LIBRETAPATH}/naiveeri.f90 -o $@
 	
-ryspoly.o: ${LIBRETAPATH}/ryspoly.f90
-	$(FC) $(OPT) -c ${LIBRETAPATH}/ryspoly.f90
+$(call obj,ryspoly.o): ${LIBRETAPATH}/ryspoly.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -c ${LIBRETAPATH}/ryspoly.f90 -o $@
 
 
 # Fortran-xlib interface
-xlib.o: ext/xlib.f90
-	$(FC) $(OPT) -fpscomp logicals -c ext/xlib.f90
+$(call obj,xlib.o): ext/xlib.f90
+	@mkdir -p "$(dir $@)"
+	$(FC) $(OPT) -fpscomp logicals -c ext/xlib.f90 -o $@

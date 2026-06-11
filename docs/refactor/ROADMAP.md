@@ -14,6 +14,9 @@ branch grows and what work is still worth doing next.
   wholesale build-system replacement.
 - The Linux noGUI build can be reproduced with the local conda-forge GNU prefix
   and OpenBLAS.
+- The GNU noGUI build keeps module files under `.build-env/gnu-mod` and object
+  files under `.build-env/gnu-obj`, leaving the source root free of transient
+  `*.o`/`*.mod` files after full verification.
 - The noGUI target uses noGUI stub sources instead of real GUI, X11, OpenGL, or
   DISLIN objects. This is guarded by `tools/audit-nogui-build.sh`.
 - VMD remains an external executable. Multiwfn writes structure/cube files and
@@ -31,8 +34,8 @@ branch grows and what work is still worth doing next.
 2. Continue auditing specialized structure, cube, and non-cube visualization
    exports and route user-facing exports through VMD where the output maps
    cleanly to VMD.
-3. Move more transient GNU build output into explicit object directories instead
-   of cleaning root `*.o` files after linking.
+3. Continue separating build outputs by compiler/variant so future GUI, noGUI,
+   Intel, and GNU builds can coexist without object or module collisions.
 4. Keep compiler and BLAS/OpenMP selection easier to override without weakening
    the original Intel build path.
 5. Investigate the GFortran `IEEE_INVALID_FLAG` shutdown note with a narrow
