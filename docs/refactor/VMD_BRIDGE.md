@@ -48,4 +48,3 @@ Future work:
 
 VMD is treated as an external executable. This respects VMD's main program
 license boundary and avoids introducing its build system into Multiwfn.
-

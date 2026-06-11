@@ -36,4 +36,3 @@ Reason: this environment has no `ifort`, `ifx`, or `gfortran` command available.
    Makefile.
 4. Avoid requiring DISLIN/Motif for workflows that use VMD as the visualization
    backend.
-
