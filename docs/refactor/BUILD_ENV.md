@@ -148,6 +148,7 @@ After a successful `gnu-noGUI-smoke`, the expected local build residue is:
   was used.
 
 The `vmd-smoke` wrapper compiles only `define.f90`, `vmd_bridge.f90`, and a
-small test driver under `tools/` into `.build-env/vmd-bridge-smoke`. It verifies
-that the bridge can generate a VMD Tcl scene for a cube file without linking the
-full Multiwfn binary or launching VMD.
+small test driver under `tools/` into `.build-env/vmd-bridge-smoke.<pid>` by
+default. It verifies that the bridge can generate a VMD Tcl scene for a cube file
+without linking the full Multiwfn binary or launching VMD. Set `VMD_SMOKE_DIR`
+to use a fixed smoke-test directory when debugging generated files.

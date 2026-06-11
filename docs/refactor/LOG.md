@@ -157,3 +157,6 @@
 - Updated GNU build wrappers so `tools/gnu-build.sh` and the VMD bridge smoke
   test honor `GNU_PREFIX`, matching `tools/bootstrap-gnu-env.sh` and the
   Makefile's configurable local prefix.
+- Changed the VMD bridge smoke wrapper to use a per-process build directory by
+  default, with `VMD_SMOKE_DIR` as an override, so parallel smoke runs do not
+  delete each other's temporary objects and scene files.

@@ -9,7 +9,11 @@ case "$gnu_prefix" in
     *) gnu_prefix="$repo_dir/$gnu_prefix" ;;
 esac
 fc="$gnu_prefix/bin/x86_64-conda-linux-gnu-gfortran"
-build_dir="$repo_dir/.build-env/vmd-bridge-smoke"
+smoke_dir=${VMD_SMOKE_DIR:-".build-env/vmd-bridge-smoke.$$"}
+case "$smoke_dir" in
+    /*) build_dir="$smoke_dir" ;;
+    *) build_dir="$repo_dir/$smoke_dir" ;;
+esac
 mod_dir="$build_dir/mod"
 obj_dir="$build_dir/obj"
 scene_file="$build_dir/test_scene.tcl"
@@ -26,6 +30,7 @@ fi
 
 rm -rf "$build_dir"
 mkdir -p "$mod_dir" "$obj_dir"
+export VMD_SMOKE_DIR="$smoke_dir"
 
 flags="-O0 -cpp -ffree-line-length-none -fallow-argument-mismatch -fallow-invalid-boz -std=legacy -J$mod_dir -I$mod_dir"
 
@@ -37,14 +42,14 @@ cd "$repo_dir"
 
 LD_LIBRARY_PATH="$gnu_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$build_dir/vmd_bridge_smoke" > "$out_file"
 
-grep -Fq 'VMD scene script has been written to .build-env/vmd-bridge-smoke/test_scene.tcl' "$out_file"
-grep -Fq 'VMD scene script was not written because the file could not be opened: .build-env/vmd-bridge-smoke/missing-dir/test_scene.tcl' "$out_file"
+grep -Fq "VMD scene script has been written to $smoke_dir/test_scene.tcl" "$out_file"
+grep -Fq "VMD scene script was not written because the file could not be opened: $smoke_dir/missing-dir/test_scene.tcl" "$out_file"
 grep -Fq "POSIX command: '/opt/VMD app/vmd\$bin' -e 'scene dir/a'\\''b\$[x].tcl'" "$out_file"
 grep -Fq 'Windows command: "C:\Program Files\VMD\vmd.exe" -e "scene dir\test scene.tcl"' "$out_file"
 grep -Fq '# Cube file: win path C:\tmp\a$b[1]}.cub' "$scene_file"
 grep -Fq '# Relative cube paths are resolved by VMD from its current working directory.' "$scene_file"
 grep -Fq '# If loading manually, source this scene from the directory used for the Multiwfn export or use absolute cube paths.' "$scene_file"
-grep -Fq '# Load this script in VMD by: source ".build-env/vmd-bridge-smoke/test source \$\[1\]}.tcl"' "$quoted_scene_file"
+grep -Fq "# Load this script in VMD by: source \"${smoke_dir}/test source \\\$\\[1\\]}.tcl\"" "$quoted_scene_file"
 grep -Fq 'mol new "sample.cub" type cube waitfor all' "$quoted_scene_file"
 grep -Fq '# Volumetric dataset index: 0' "$scene_file"
 grep -Fq 'mol new "win path C:\\tmp\\a\$b\[1\]}.cub" type cube waitfor all' "$scene_file"
