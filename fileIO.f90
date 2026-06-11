@@ -5570,6 +5570,7 @@ end subroutine
 subroutine outpqr_wrapper
 use util
 use defvar
+use vmd_bridge
 character(len=200) outname,c200tmp
 call path2filename(filename,c200tmp)
 write(*,*) "Input path for outputting pqr file, e.g. C:\ltwd.pqr"
@@ -5579,6 +5580,7 @@ if (outname==" ") outname=trim(c200tmp)//".pqr"
 call outpqr(outname,10)
 write(*,*) "Exporting pqr file finished!"
 write(*,"(a)") " This file contains atomic charges that originally recorded in your .chg file. The radius column corresponds to Bondi vdW radii"
+call maybe_write_vmd_structure_scene(outname,"pqr")
 end subroutine
 !!---------- Output current coordinate and atomic charges to pqr file
 subroutine outpqr(outpqrname,ifileid)
@@ -9626,6 +9628,7 @@ end subroutine
 subroutine outgro_wrapper
 use util
 use defvar
+use vmd_bridge
 character(len=200) outname,c200tmp
 call path2filename(filename,c200tmp)
 write(*,*) "Input path for outputting gro file, e.g. C:\ltwd.gro"
@@ -9633,6 +9636,7 @@ write(*,"(a)") " If press ENTER button directly,the system will be exported to "
 read(*,"(a)") outname
 if (outname==" ") outname=trim(c200tmp)//".gro"
 call outgro(outname,10)
+call maybe_write_vmd_structure_scene(outname,"gro")
 end subroutine
 !!---------- Output current coordinate to gro file
 subroutine outgro(outgroname,ifileid)

@@ -168,6 +168,7 @@ end subroutine
 subroutine outfile
 use defvar
 use util
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 character c200tmp*200,c200tmp2*200,c200tmp3*200
 write(*,*) "0 Return"
@@ -215,6 +216,7 @@ write(*,*) "25 CP2K         26 Quantum ESPRESSO      27 VASP (POSCAR)"
 read(*,*) c200tmp
 if (c200tmp=="1a") then
 	call outpdb_PBC("mol.pdb",10)
+    call maybe_write_vmd_structure_scene("mol.pdb","pdb")
     return
 else
 	read(c200tmp,*) isel

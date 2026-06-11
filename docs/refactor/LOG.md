@@ -163,3 +163,6 @@
 - Added VMD structure-scene generation for interactive PDB and XYZ exports via
   `outpdb_wrapper` and `outxyz_wrapper`, while keeping the low-level structure
   writers side-effect free.
+- Extended structure-scene coverage to interactive PQR and GRO exports and the
+  explicit PBC PDB file export menu path, preserving the same low-level writer
+  boundary.

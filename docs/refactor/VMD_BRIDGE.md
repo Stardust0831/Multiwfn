@@ -10,8 +10,8 @@ wavefunction and grid calculations. The bridge only acts after cube export:
 3. If VMD scene generation is enabled, Multiwfn writes a VMD Tcl scene script.
 4. If VMD launching is enabled, Multiwfn calls VMD with the generated script.
 
-This avoids source-level fusion with VMD and keeps low-level `outcube` free of
-automatic side effects.
+This avoids source-level fusion with VMD and keeps low-level `outcube` and
+structure writers free of automatic side effects.
 
 ## Configuration
 
@@ -36,7 +36,8 @@ Command-line overrides:
 
 Initial coverage:
 
-- PDB and XYZ structure exports through `outpdb_wrapper` and `outxyz_wrapper`.
+- PDB, PQR, XYZ, and GRO structure exports through their interactive wrappers,
+  plus the explicit PBC PDB export path in the file export menu.
 - Generic cube export through `outcube_wrapper`.
 - Main 3D grid post-processing cube export in `study3dim`.
 - CDFT cube exports for Fukui functions, dual descriptors, orbital-weighted
@@ -88,9 +89,11 @@ multi-dataset cubes, the VMD volumetric dataset index used by each isosurface
 representation. These comments are intended to make hand inspection and scene
 debugging easier without changing VMD behavior.
 
-Structure scenes are generated after the interactive PDB/XYZ export wrappers
-finish writing the structure file. The low-level `outpdb` and `outxyz` routines
-remain side-effect free, so internal or batch writers are not forced through VMD.
+Structure scenes are generated after the interactive PDB, PQR, XYZ, and GRO
+export wrappers finish writing the structure file. The low-level structure
+writers remain side-effect free, so internal or batch writers are not forced
+through VMD. The file export menu's explicit PBC PDB path writes `mol.pdb` and
+then uses the same structure-scene helper because it is a direct user export.
 
 Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive
@@ -104,11 +107,11 @@ single-quote shell quoting with embedded single quotes escaped; Windows keeps
 double-quoted command arguments. The bridge smoke test verifies the command
 string construction without requiring VMD to be installed.
 
-Relative cube paths in generated scenes are resolved by VMD from its current
+Relative file paths in generated scenes are resolved by VMD from its current
 working directory. This matches the normal `-vmdrun` path because Multiwfn
 launches VMD from the export process. If a user manually sources a scene later,
 they should source it from the directory used for the Multiwfn export or export
-absolute cube paths.
+absolute file paths.
 
 If the configured scene file cannot be opened, the bridge reports the failing
 path and Fortran `IOSTAT` value, then returns without launching VMD. The
@@ -132,11 +135,12 @@ tools/gnu-build.sh vmd-smoke
 ```
 
 This compiles a minimal driver and verifies that generated Tcl scenes can load a
-PDB structure file, a single cube file, multiple cube files, or a multi-dataset
-cube file; add molecular and positive/negative isosurface representations; and
-use the configured VMD material. It also checks the generated structure,
-cube/dataset comments and Tcl quoting for cube and scene paths containing spaces,
-backslashes, and Tcl-sensitive characters. The smoke test also covers the
+PDB, PQR, and GRO structure files, a single cube file, multiple cube files, or a
+multi-dataset cube file; add molecular and positive/negative isosurface
+representations; and use the configured VMD material. It also checks the
+generated structure, cube/dataset comments and Tcl quoting for cube and scene
+paths containing spaces, backslashes, and Tcl-sensitive characters. The smoke
+test also covers the
 non-fatal error path for an unwritable scene location and VMD launch-command
 quoting for Linux/MacOS and Windows. Generated scenes also carry a header note
 describing relative file path resolution.
