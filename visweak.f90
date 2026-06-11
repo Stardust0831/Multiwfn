@@ -74,6 +74,7 @@ use defvar
 use util
 use GUI
 use functions
+use plot, only: drawscatter
 implicit real*8 (a-h,o-z)
 !The first index of avggrad and the first two indices of avghess correspond to components of gradient and Hessian, respectively
 real*8,allocatable :: avgdens(:,:,:),avggrad(:,:,:,:),avghess(:,:,:,:,:)
@@ -371,6 +372,7 @@ use functions
 use util
 use defvar
 use GUI
+use plot, only: drawscatter
 implicit real*8 (a-h,o-z)
 character c2000tmp*2000,selectyn
 real*8 grad(3),IGM_gradnorm,IGM_gradnorm_inter,gradtmp(3)
@@ -1179,6 +1181,7 @@ use defvar
 use util
 use GUI
 use functions
+use plot, only: drawscatter
 implicit real*8 (a-h,o-z)
 real*8 gradtmp(3),grad_inter(3),IGM_gradnorm_inter,vec1(3),vec2(3)
 integer iIGMtype

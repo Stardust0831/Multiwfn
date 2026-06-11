@@ -69,3 +69,7 @@
 - Added post-link cleanup for `gnu-noGUI`: by default it removes root `*.o` and
   `noGUI/*.o` files while preserving `Multiwfn_noGUI`. `GNU_KEEP_OBJECTS=1`
   keeps objects for debugging.
+- Added explicit `use plot, only: drawscatter` imports in weak-interaction
+  analysis routines that call `drawscatter` with optional arguments. This removes
+  the GFortran warning about too many actual arguments by giving those calls the
+  module procedure interface.
