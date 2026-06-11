@@ -11,7 +11,7 @@ case "$mode" in
     *)
         printf '%s\n' "Usage: tools/verify-refactor.sh [env|quick|full]"
         printf '%s\n' "  env:   read-only GNU build environment diagnostics"
-        printf '%s\n' "  quick: env diagnostics + git diff check + VMD export audits + VMD bridge smoke"
+        printf '%s\n' "  quick: env diagnostics + git diff check + VMD export audits + VMD bridge smoke/residue checks"
         printf '%s\n' "  full:  quick checks + GNU noGUI smoke + object residue check"
         exit 2
         ;;
@@ -20,6 +20,27 @@ esac
 run_step() {
     printf '\n%s\n' "==> $*"
     "$@"
+}
+
+run_default_vmd_bridge_smoke() {
+    (
+        unset VMD_SMOKE_DIR
+        unset VMD_SMOKE_KEEP
+        "$script_dir/gnu-build.sh" vmd-smoke
+    )
+}
+
+check_no_vmd_smoke_residue() {
+    residue=
+    if [ -d "$repo_dir/.build-env" ]; then
+        residue=$(find "$repo_dir/.build-env" -maxdepth 1 -type d -name 'vmd-bridge-smoke.*' -print)
+    fi
+
+    if [ -n "$residue" ]; then
+        printf '%s\n' "Unexpected VMD bridge smoke residue:"
+        printf '%s\n' "$residue"
+        exit 1
+    fi
 }
 
 check_no_object_residue() {
@@ -50,7 +71,8 @@ run_step git diff --check
 run_step "$script_dir/gnu-build.sh" doctor
 run_step "$script_dir/audit-vmd-exports.sh" check
 run_step "$script_dir/audit-vmd-structure-exports.sh" check
-run_step "$script_dir/gnu-build.sh" vmd-smoke
+run_step run_default_vmd_bridge_smoke
+run_step check_no_vmd_smoke_residue
 
 if [ "$mode" = "full" ]; then
     run_step "$script_dir/gnu-build.sh" smoke

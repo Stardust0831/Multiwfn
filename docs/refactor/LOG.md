@@ -191,3 +191,6 @@
   temporary directory after successful runs. Failed runs, `VMD_SMOKE_KEEP=1`, and
   explicit `VMD_SMOKE_DIR` runs still preserve generated scene files for
   debugging.
+- Added a VMD bridge smoke residue check to `tools/verify-refactor.sh quick`.
+  The verification wrapper now unsets `VMD_SMOKE_DIR` and `VMD_SMOKE_KEEP` for
+  its smoke run, then fails if `.build-env/vmd-bridge-smoke.*` remains.

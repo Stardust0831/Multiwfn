@@ -154,7 +154,9 @@ unwritable scene location and VMD launch-command quoting for Linux/MacOS and
 Windows. Generated scenes also carry a header note describing relative file path
 resolution. Successful default runs clean their temporary `.build-env` smoke
 directory; use `VMD_SMOKE_KEEP=1` or set `VMD_SMOKE_DIR` when inspecting the
-generated Tcl files.
+generated Tcl files. `tools/verify-refactor.sh quick` runs the smoke test with
+those debugging overrides unset and fails if a default `vmd-bridge-smoke.*`
+directory remains afterward.
 
 ## Rationale
 
