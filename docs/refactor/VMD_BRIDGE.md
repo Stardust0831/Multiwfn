@@ -99,6 +99,12 @@ single-quote shell quoting with embedded single quotes escaped; Windows keeps
 double-quoted command arguments. The bridge smoke test verifies the command
 string construction without requiring VMD to be installed.
 
+Relative cube paths in generated scenes are resolved by VMD from its current
+working directory. This matches the normal `-vmdrun` path because Multiwfn
+launches VMD from the export process. If a user manually sources a scene later,
+they should source it from the directory used for the Multiwfn export or export
+absolute cube paths.
+
 If the configured scene file cannot be opened, the bridge reports the failing
 path and Fortran `IOSTAT` value, then returns without launching VMD. The
 underlying Multiwfn export remains the authoritative output and should not be
@@ -123,7 +129,8 @@ configured VMD material. It also checks the generated cube/dataset comments and
 Tcl quoting for cube and scene paths containing spaces, backslashes, and
 Tcl-sensitive characters. The smoke test also covers the non-fatal error path
 for an unwritable scene location and VMD launch-command quoting for Linux/MacOS
-and Windows.
+and Windows. Generated scenes also carry a header note describing relative cube
+path resolution.
 
 ## Rationale
 

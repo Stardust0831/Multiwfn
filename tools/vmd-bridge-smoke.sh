@@ -38,6 +38,8 @@ grep -Fq 'VMD scene script was not written because the file could not be opened:
 grep -Fq "POSIX command: '/opt/VMD app/vmd\$bin' -e 'scene dir/a'\\''b\$[x].tcl'" "$out_file"
 grep -Fq 'Windows command: "C:\Program Files\VMD\vmd.exe" -e "scene dir\test scene.tcl"' "$out_file"
 grep -Fq '# Cube file: win path C:\tmp\a$b[1]}.cub' "$scene_file"
+grep -Fq '# Relative cube paths are resolved by VMD from its current working directory.' "$scene_file"
+grep -Fq '# If loading manually, source this scene from the directory used for the Multiwfn export or use absolute cube paths.' "$scene_file"
 grep -Fq '# Load this script in VMD by: source ".build-env/vmd-bridge-smoke/test source \$\[1\]}.tcl"' "$quoted_scene_file"
 grep -Fq 'mol new "sample.cub" type cube waitfor all' "$quoted_scene_file"
 grep -Fq '# Volumetric dataset index: 0' "$scene_file"

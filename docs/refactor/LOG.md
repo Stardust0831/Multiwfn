@@ -148,3 +148,6 @@
   the smoke test to cover scene paths with spaces and Tcl-sensitive characters.
 - Extended the VMD bridge smoke test to cover cube paths with Windows-style
   backslashes plus Tcl-sensitive characters.
+- Added a generated VMD scene header note explaining that relative cube paths
+  are resolved from VMD's current working directory, and documented the manual
+  `source` implication.
