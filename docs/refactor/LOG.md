@@ -88,3 +88,6 @@
 - Added multi-cube VMD scene generation and routed weak-interaction exports
   through the bridge for aNCI, IGM/mIGM/IGMH, aIGM/amIGM, TFI, and van der Waals
   potential cube files.
+- Routed basin analysis cube exports through the VMD bridge, including basin
+  index grids, selected basin functions, basin-type helper grids, per-basin cube
+  batches, and `basinana.cub` state exports.

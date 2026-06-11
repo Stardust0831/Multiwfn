@@ -43,11 +43,14 @@ Initial coverage:
 - Weak-interaction cube exports for aNCI averaged RDG/sign(lambda2)rho/density
   and TFI, IGM/mIGM/IGMH delta-g grids, aIGM/amIGM averaged grids and TFI, and
   van der Waals potential grids.
+- Basin analysis cube exports for basin index grids, selected basin functions,
+  basin-type helper grids, per-basin cube batches, and `basinana.cub` state
+  exports.
 
 Future work:
 
 - Add helper calls to specialized cube outputs in modules such as excitation,
-  basin, and ETS-NOCV analysis.
+  and ETS-NOCV analysis.
 - Generate richer VMD scenes for critical points, topology paths, molecular
   surfaces, arrows, and multi-cube overlays.
 
@@ -57,7 +60,8 @@ for temporary cube files used internally by calculations.
 
 For workflows that export multiple cube files in one action, the bridge can now
 write a single VMD scene that loads all exported cube files. This is used for
-weak-interaction batch exports such as IGM delta-g grids.
+weak-interaction batch exports such as IGM delta-g grids and for selected basin
+cube batches.
 
 ## Smoke test
 

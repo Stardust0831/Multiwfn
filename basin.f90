@@ -6,11 +6,13 @@ use defvar
 use basinintmod
 use util
 use GUI
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer walltime1,walltime2
 integer :: igridmethod=3
 integer,allocatable :: attconvold(:),realattconv(:),usercluslist(:),tmparr(:)
 character basinfilename*200,selectyn,c80tmp*80,ctmp1*20,ctmp2*20,ctmp3*20,ctmp4*20,c2000tmp*2000,c200tmp*200
+character(len=200),allocatable :: vmdcubefiles(:)
 real*8 :: threslowvalatt=1D-5
 real*8,allocatable :: tmparrf(:)
 logical alive1,alive2
@@ -162,6 +164,7 @@ do while(.true.)
             open(10,file="basin.cub",status="replace")
             call outcube(cubmattmp,nxtmp,nytmp,nztmp,orgx+gridv1(1),orgy+gridv2(2),orgz+gridv3(3),gridv1,gridv2,gridv3,10)
             close(10)
+            call maybe_write_vmd_cube_scene("basin.cub",0.5D0)
 		    deallocate(cubmattmp)
 			write(*,"(a)") " Done! basin.cub has been outputted to current folder. The grid values correspond to basin index"
         else if (index(c2000tmp,'b')/=0) then
@@ -202,6 +205,12 @@ do while(.true.)
 			open(10,file="basinfunc.cub",status="replace")
             call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 			close(10)
+            if (allocated(vmdcubefiles)) deallocate(vmdcubefiles)
+            allocate(vmdcubefiles(2))
+            vmdcubefiles(1)="basinsyn.cub"
+            vmdcubefiles(2)="basinfunc.cub"
+            call maybe_write_vmd_cube_scene_list(vmdcubefiles,2,0.5D0)
+            deallocate(vmdcubefiles)
             write(*,*) "Finished! This file records value of the function used to generate basins"
             write(*,"(a)") " Now you can use ""examples\scripts\basinsyn.tcl"" in Multiwfn package to draw basin type colored isosurface map in VMD"
         else if (index(c2000tmp,'c')/=0) then
@@ -226,6 +235,7 @@ do while(.true.)
 			open(10,file="basinsel.cub",status="replace")
             call outcube(cubmattmp,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 			close(10)
+            call maybe_write_vmd_cube_scene("basinsel.cub",sur_value)
             write(*,*) "Finished!"
             deallocate(cubmattmp)
 		else
@@ -248,10 +258,18 @@ do while(.true.)
 		    read(*,*) igrid
 		    if (allocated(cubmattmp)) deallocate(cubmattmp)
 		    allocate(cubmattmp(nx,ny,nz))
+            if (allocated(vmdcubefiles)) deallocate(vmdcubefiles)
+            allocate(vmdcubefiles(ntmp))
+            if (igrid==0) then
+                vmdiso=sur_value
+            else
+                vmdiso=0.5D0
+            end if
 		    do idx=1,ntmp
                 ibas=tmparr(idx)
 			    write(basinfilename,"('basin',i4.4,'.cub')") ibas
 			    write(*,"(' Outputting basin',i8,' as ',a)") ibas,trim(basinfilename)
+                vmdcubefiles(idx)=basinfilename
                 if (igrid==0) then
 					cubmattmp=cubmat
 					where(gridbas/=ibas) cubmattmp=0
@@ -279,6 +297,8 @@ do while(.true.)
                 call outcube(cubmattmp,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 			    close(10)
 		    end do
+            call maybe_write_vmd_cube_scene_list(vmdcubefiles,ntmp,vmdiso)
+            deallocate(vmdcubefiles)
 		    deallocate(cubmattmp)
 			write(*,"(a)") " Done! Cube files for the selected basins have been outputted to current folder"
             if (igrid==2) then
@@ -5041,12 +5061,14 @@ end subroutine
 subroutine export_basinana_info
 use defvar
 use basinintmod
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 
 write(*,*) "Exporting present grid data to basinana.cub in current folder..."
 open(10,file="basinana.cub",status="replace")
 call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 close(10)
+call maybe_write_vmd_cube_scene("basinana.cub",sur_value)
 write(*,*) "Done!"
 
 write(*,*) "Exporting attractors to basinana.txt in current folder..."
