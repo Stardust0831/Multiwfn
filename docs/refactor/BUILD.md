@@ -73,14 +73,14 @@ tools/verify-refactor.sh full
 ```
 
 `env` runs the read-only GNU build environment doctor. `quick` runs
-`git diff --check`, the environment doctor, the noGUI build-boundary audit, VMD
-export audits, the narrow VMD bridge smoke test under default smoke settings,
-and a check that no default `.build-env/vmd-bridge-smoke.*` directory was left
-behind. `full` also runs the GNU noGUI smoke test and checks that root `*.o`,
-root `*.mod`, and `noGUI/*.o` files were not left behind. The full wrapper also
-checks that `settings.ini` has the same checksum before and after the smoke test,
-so the smoke target cannot silently leave Multiwfn's `lastfile` update in the
-working tree.
+`git diff --check`, the environment doctor, helper-script mode/shebang audit,
+the noGUI build-boundary audit, VMD export audits, the narrow VMD bridge smoke
+test under default smoke settings, and a check that no default
+`.build-env/vmd-bridge-smoke.*` directory was left behind. `full` also runs the
+GNU noGUI smoke test and checks that root `*.o`, root `*.mod`, and `noGUI/*.o`
+files were not left behind. The full wrapper also checks that `settings.ini` has
+the same checksum before and after the smoke test, so the smoke target cannot
+silently leave Multiwfn's `lastfile` update in the working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. A smoke test loads a three-atom water XYZ file and exits from the

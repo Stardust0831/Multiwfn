@@ -206,3 +206,6 @@
 - Added `docs/refactor/LICENSE_BOUNDARY.md` after checking the official Multiwfn
   download terms and VMD license page. The note documents why this branch keeps
   VMD as an external executable and does not fuse or redistribute VMD source.
+- Added `tools/audit-helper-scripts.sh` and included it in
+  `tools/verify-refactor.sh quick` to ensure tracked helper shell scripts keep
+  executable mode bits and the expected POSIX `sh` shebang.
