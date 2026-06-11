@@ -105,3 +105,6 @@
   grids, ICSS grids, and hyperpolarizability density grids through the VMD
   bridge. Multi-dataset `orbital.cub` remains intentionally excluded until the
   bridge can generate dataset-aware VMD scenes.
+- Added dataset-aware VMD scene generation and routed the combined multiple-
+  orbital `orbital.cub` export through it. The smoke test now checks single-cube,
+  multi-cube, and multi-dataset cube scenes.

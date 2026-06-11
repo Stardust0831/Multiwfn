@@ -44,3 +44,19 @@ Rationale:
   VMD to avoid showing the wrong grid or generating ambiguous scenes.
 - Keeping this boundary explicit preserves low-intrusion behavior while coverage
   is expanded across user-facing exports.
+
+## 2026-06-12: Dataset-aware cube scenes
+
+Decision: Support known multi-dataset cube files with an explicit dataset-aware
+VMD scene helper instead of treating them as ordinary single-dataset cubes.
+
+Rationale:
+
+- VMD's `Isosurface` representation accepts a volumetric dataset index, so a
+  single loaded cube can expose dataset indices `0..n-1`.
+- Multiwfn's combined multiple-orbital export writes `orbital.cub` with one
+  dataset per selected orbital. Loading it once and adding one representation per
+  dataset keeps the bridge low-intrusion while avoiding a misleading default
+  dataset-only scene.
+- This keeps the earlier boundary intact for unknown multi-dataset formats:
+  route them only when the exporter knows the dataset count.

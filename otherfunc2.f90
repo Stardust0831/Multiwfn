@@ -381,6 +381,7 @@ if (index(c1000tmp,'h')==0.and.index(c1000tmp,'l')==0) then !Use inputted a seri
 		    end do
 	    end do
 	    close(10)
+        call maybe_write_vmd_cube_dataset_scene("orbital.cub",norbsel,sur_value_orb)
 	    write(*,*) "The grid data of the orbitals have been stored to orbital.cub in current folder"
 	    deallocate(orbcubmat)
     end if

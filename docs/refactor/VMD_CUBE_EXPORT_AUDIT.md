@@ -36,12 +36,9 @@ These cube outputs are not routed for now:
 - `otherfunc2.f90`: `rho_*.cub` files generated during orbital-fitting mode 2
   are cache/intermediate files used to construct the final fit. The final
   `fitted.cub` export is routed through VMD.
-- `otherfunc2.f90`: `orbital.cub` can contain multiple orbital datasets in one
-  cube file. The current bridge assumes a single scalar dataset, so this should
-  wait for dataset-aware VMD scene generation.
 
 ## Follow-Up
 
-The next visualization-focused improvement should be dataset-aware cube scene
-generation. That would make it reasonable to support `orbital.cub` and any other
-multi-dataset cube files without showing the wrong grid by default.
+Dataset-aware cube scene generation is now available for known multi-dataset
+exports such as `orbital.cub`. Future work should make the generated scenes
+richer, for example by adding per-dataset labels and user-selectable colors.

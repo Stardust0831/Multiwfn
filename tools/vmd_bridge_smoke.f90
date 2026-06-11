@@ -17,4 +17,7 @@ cubefiles(2)="sample2.cub"
 vmdscenefile=".build-env/vmd-bridge-smoke/test_multi_scene.tcl"
 call maybe_write_vmd_cube_scene_list(cubefiles,2,0.05D0)
 
+vmdscenefile=".build-env/vmd-bridge-smoke/test_dataset_scene.tcl"
+call maybe_write_vmd_cube_dataset_scene("multi_dataset.cub",3,0.05D0)
+
 end program

@@ -58,8 +58,8 @@ Initial coverage:
 - LSB information-theory grids for `ITA.cub` and `infogain.cub`.
 - AdNDP saved/candidate orbital cube exports.
 - Other functions part 1/2 exports for function-pair cubes, separated orbital
-  cubes, fitted orbital-combination grids, ICSS grids, and hyperpolarizability
-  density grids.
+  cubes, multi-dataset `orbital.cub`, fitted orbital-combination grids, ICSS
+  grids, and hyperpolarizability density grids.
 
 Future work:
 
@@ -77,14 +77,14 @@ write a single VMD scene that loads all exported cube files. This is used for
 weak-interaction batch exports such as IGM delta-g grids and for selected basin
 cube batches.
 
+For workflows that export multiple scalar datasets into one cube file, the
+bridge can write one VMD scene that loads the cube once and adds isosurface
+representations for dataset indices `0..n-1`. This is used for `orbital.cub`
+from the multiple-orbital exporter.
+
 Specialized exporters pass analysis-specific default isovalues where Multiwfn
 already uses one for on-screen isosurfaces, for example hole/electron
 distributions and transition densities in the excitation module.
-
-Multi-dataset cube files such as `orbital.cub` from the multiple-orbital
-exporter are not yet routed through the bridge. The current bridge assumes a
-single scalar dataset per cube, so these outputs should wait for dataset-aware
-VMD scene generation.
 
 ## Smoke test
 
@@ -95,8 +95,9 @@ tools/gnu-build.sh vmd-smoke
 ```
 
 This compiles a minimal driver and verifies that generated Tcl scenes can load a
-single cube file or multiple cube files, add molecular and positive/negative
-isosurface representations, and use the configured VMD material.
+single cube file, multiple cube files, or a multi-dataset cube file; add
+molecular and positive/negative isosurface representations; and use the
+configured VMD material.
 
 ## Rationale
 
