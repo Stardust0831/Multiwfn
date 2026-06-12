@@ -151,14 +151,16 @@ The wrapper forwards `GNU_PREFIX` to the Makefile and the VMD bridge smoke test,
 so alternate local prefixes use the same compiler, `make`, OpenBLAS library path,
 and runtime library path consistently.
 
-The smoke target generates temporary XYZ and cube files under `.build-env/smoke`,
-uses the tracked `tools/fixtures/he_minimal.mwfn` wavefunction fixture, backs up
-`settings.ini`, runs `Multiwfn_noGUI` for all six fixtures, verifies that the
-structure and cube files reach the main menu, verifies that a real main-program
-`xyz` export writes both an XYZ file and a VMD Tcl scene while `vmdpath=none`
-prevents launching VMD, verifies that a real grid-data processing menu export
-writes both a cube file and a VMD Tcl scene with positive and negative
-isosurfaces, sources those generated VMD scenes through
+The smoke target rebuilds `Multiwfn_noGUI`, then runs
+`tools/gnu-nogui-smoke.sh`. The script generates temporary XYZ and cube files
+under `.build-env/smoke`, uses the tracked
+`tools/fixtures/he_minimal.mwfn` wavefunction fixture, backs up `settings.ini`,
+runs `Multiwfn_noGUI` for all six fixtures, verifies that the structure and cube
+files reach the main menu, verifies that a real main-program `xyz` export writes
+both an XYZ file and a VMD Tcl scene while `vmdpath=none` prevents launching
+VMD, verifies that a real grid-data processing menu export writes both a cube
+file and a VMD Tcl scene with positive and negative isosurfaces, sources those
+generated VMD scenes through
 `tools/vmd-scene-source-check.sh` from a temporary working directory when
 `tclsh` is available, verifies that their `mol new` data paths resolve to the
 exported files, verifies that the `.mwfn` point-property fixture prints
@@ -167,6 +169,9 @@ prints basis and atomic populations, and restores `settings.ini` before exiting.
 GFortran currently prints an IEEE floating-point exception flag note at program
 termination; this should be tracked during broader numerical validation. The
 stderr check allows only that exact note and fails on any other stderr line.
+`GNU_PREFIX`, `EXE_noGUI`, and all documented `SMOKE_*` paths can still be
+overridden through the Makefile target or by invoking the script directly from
+the source root.
 
 After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 

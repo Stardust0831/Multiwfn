@@ -87,12 +87,15 @@ the smoke test. This prevents the smoke target from silently leaving Multiwfn's
 `lastfile` update or user-facing analysis outputs in the working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
-and OpenBLAS. The smoke target now runs six non-interactive fixtures: a
-three-atom water XYZ structure load, a real XYZ structure export that generates
-a VMD scene through the main program's `xyz` command, a minimal water cube grid
-load, a real cube export through the grid-data processing menu that generates a
-VMD scene, a minimal `.mwfn` wavefunction point-property calculation, and a
-minimal `.mwfn` Mulliken population analysis. The structure and cube load
+and OpenBLAS. The `gnu-noGUI-smoke` Makefile target delegates the runtime checks
+to `tools/gnu-nogui-smoke.sh` after rebuilding the binary, while preserving the
+same `SMOKE_*`, `GNU_PREFIX`, and `EXE_noGUI` override points for local
+debugging. The smoke script runs six non-interactive fixtures: a three-atom
+water XYZ structure load, a real XYZ structure export that generates a VMD scene
+through the main program's `xyz` command, a minimal water cube grid load, a real
+cube export through the grid-data processing menu that generates a VMD scene, a
+minimal `.mwfn` wavefunction point-property calculation, and a minimal `.mwfn`
+Mulliken population analysis. The structure and cube load
 fixtures must reach the main menu with status 0; the VMD structure-export
 fixture must write the exported XYZ file, write `<exported.xyz>.vmd.tcl`, and
 honor `-vmdrun -vmdpath none` without trying to launch VMD; the VMD cube-export

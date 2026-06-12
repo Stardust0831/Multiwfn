@@ -295,3 +295,8 @@
   now runs from a temporary working directory and fails if `mol new` data paths
   do not resolve to existing files, which protects saved `vmdscenefile=auto`
   scenes from depending on Multiwfn's original current working directory.
+- Extracted the long `gnu-noGUI-smoke` Makefile recipe into
+  `tools/gnu-nogui-smoke.sh`. The Makefile still rebuilds the GNU noGUI binary
+  first and forwards the same `GNU_PREFIX`, `EXE_noGUI`, and `SMOKE_*` override
+  variables, but the six-fixture runtime smoke flow now lives in a standalone
+  shell script that can be syntax-checked and maintained independently.
