@@ -38,6 +38,7 @@ auto_xyz_scene_file="$build_dir/auto_structure.xyz.vmd.tcl"
 quoted_scene_file="$build_dir/test source \$[1]}.tcl"
 multi_scene_file="$build_dir/test_multi_scene.tcl"
 dataset_scene_file="$build_dir/test_dataset_scene.tcl"
+no_load_scene_file="$build_dir/no_load_scene.tcl"
 out_file="$build_dir/vmd_bridge_smoke.out"
 relative_path_note="# Relative data paths are first resolved beside this scene file, then from VMD's current working directory."
 
@@ -136,6 +137,22 @@ mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir
     "$dataset_scene_file"
 
 if [ -n "$tclsh_bin" ]; then
+    cat > "$no_load_scene_file" <<'EOF'
+proc multiwfn_resolve_path {path} {
+    return $path
+}
+display resetview
+EOF
+    set +e
+    no_load_output=$("$script_dir/vmd-scene-source-check.sh" "$no_load_scene_file" 2>&1)
+    no_load_status=$?
+    set -e
+    if [ "$no_load_status" -eq 0 ]; then
+        printf '%s\n' "VMD scene source check unexpectedly accepted a scene without mol new"
+        exit 1
+    fi
+    printf '%s\n' "$no_load_output" | grep -Fq "scene did not issue any mol new data load commands"
+
     SCENE_UNDER_TEST="$quoted_scene_file" \
     EXPECTED_SCENE_SAMPLE="$build_dir/sample.cub" \
     "$tclsh_bin" <<'EOF'

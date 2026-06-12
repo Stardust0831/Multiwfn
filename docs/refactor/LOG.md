@@ -324,3 +324,10 @@
   scene source-check contract, and explicit GNU tool override inputs. Refreshed
   the refactor README verification list with the current wrapper and audit
   entry points.
+- Tightened `tools/vmd-scene-source-check.sh` so a sourceable Tcl scene must
+  actually issue at least one `mol new` data load command. The narrow VMD bridge
+  smoke test now includes a negative scene that defines `multiwfn_resolve_path`
+  but loads no data, which prevents empty placeholder scenes from satisfying the
+  VMD scene contract. The check script now wraps its Tcl logic in `catch` and
+  explicitly exits nonzero on failure, because `tclsh` reading from standard
+  input can print an error message yet still return success.

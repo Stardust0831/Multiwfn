@@ -35,6 +35,7 @@ do
     fi
 
     SCENE_UNDER_TEST=$scene_abs SCENE_SOURCE_CWD=$tmp_dir "$tclsh_bin" <<'EOF'
+if {[catch {
 set multiwfn_mol_new_paths {}
 
 proc mol {args} {
@@ -57,10 +58,18 @@ if {[llength [info procs multiwfn_resolve_path]] == 0} {
     error "multiwfn_resolve_path was not defined by scene"
 }
 
+if {[llength $multiwfn_mol_new_paths] == 0} {
+    error "scene did not issue any mol new data load commands"
+}
+
 foreach data_path $multiwfn_mol_new_paths {
     if {![file exists $data_path]} {
         error "resolved VMD data path does not exist when sourced from another CWD: $data_path"
     }
+}
+} multiwfn_scene_source_error]} {
+    puts stderr $multiwfn_scene_source_error
+    exit 1
 }
 EOF
 done
