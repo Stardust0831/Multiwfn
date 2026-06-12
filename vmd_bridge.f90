@@ -326,11 +326,7 @@ end if
 
 call build_vmd_run_command(scenefile,command)
 write(*,"(a)") " Running: "//trim(command)
-if (isys==1) then
-    call execute_command_line(""""//trim(command)//"""")
-else
-    call execute_command_line(trim(command))
-end if
+call execute_command_line(trim(command))
 
 end subroutine
 

@@ -143,7 +143,10 @@ When `ivmdrun` launches VMD, the executable path and scene path are quoted for
 the host command shell before calling `execute_command_line`. Linux/MacOS use
 single-quote shell quoting with embedded single quotes escaped; Windows keeps
 double-quoted command arguments. The bridge smoke test verifies the command
-string construction without requiring VMD to be installed.
+string construction without requiring VMD to be installed. The complete command
+is not wrapped in an additional pair of quotes; only the executable path and
+scene path arguments are quoted. This matters on Windows when `vmdpath` points
+to a path such as `C:\Program Files\VMD\vmd.exe`.
 If `vmdpath` is empty or set to `none` in any letter case, `ivmdrun` reports
 that VMD was not launched and leaves the generated scene file in place.
 

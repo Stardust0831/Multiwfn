@@ -244,3 +244,7 @@
 - Made `vmdpath=none` handling case-insensitive in both the Fortran bridge and
   `tools/vmd-doctor.sh`. `NONE` now disables launch attempts instead of being
   treated as an executable name; smoke tests cover both paths.
+- Removed an extra Windows-only wrapper around the complete VMD launch command.
+  The bridge now quotes the executable path and scene path as separate command
+  arguments, then passes the assembled command directly to `execute_command_line`.
+  This avoids malformed commands when `vmdpath` contains spaces.
