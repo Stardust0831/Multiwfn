@@ -1207,7 +1207,11 @@ integer infomode,ipqr
 character(len=*) name
 character test*6,tmpname*4,tmpname_up*4,element*3
 character c80tmp*80
-ifiletype=5
+if (ipqr==1) then
+	ifiletype=4
+else
+	ifiletype=5
+end if
 open(10,file=name,status="old")
 ncenter=0
 do while(.true.)

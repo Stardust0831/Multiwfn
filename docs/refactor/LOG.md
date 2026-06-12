@@ -397,3 +397,11 @@
   fixture. It loads the water XYZ fixture, uses the real main-menu `pdb`
   shortcut to write `exported.pdb`, generates `exported.pdb.vmd.tcl` with
   `vmdscenefile=auto`, and sources the generated PDB-type VMD scene.
+- Fixed PQR input classification in `readpdb_pqr`: PQR files now keep
+  `ifiletype=4`, matching the existing `chg/pqr` file-type contract and
+  enabling the export menu to call `outpqr_wrapper` instead of the PDB wrapper.
+- Extended the GNU noGUI smoke test with an end-to-end PQR structure export
+  fixture. It loads a minimal charged water PQR, uses the real file export menu
+  to write `exported.pqr`, generates `exported.pqr.vmd.tcl` with
+  `vmdscenefile=auto`, and sources the generated PQR scene while checking VMD
+  `Charge` coloring.
