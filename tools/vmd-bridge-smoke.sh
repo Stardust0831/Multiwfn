@@ -110,8 +110,27 @@ grep -Fq 'mol representation Isosurface 0.05000000 1 0 0 1 1' "$dataset_scene_fi
 grep -Fq 'mol representation Isosurface 0.05000000 2 0 0 1 1' "$dataset_scene_file"
 grep -Fq 'mol representation Isosurface -0.05000000 2 0 0 1 1' "$dataset_scene_file"
 
+mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir" "$build_dir/sample dir"
+: > "$build_dir/structure dir/a\$b[1]}.pdb"
+: > "$build_dir/charge dir/a\$b[1]}.pqr"
+: > "$build_dir/traj dir/a\$b[1]}.gro"
+: > "$build_dir/auto_structure.xyz"
+: > "$build_dir/win path C:\\tmp\\a\$b[1]}.cub"
+: > "$build_dir/sample.cub"
+: > "$build_dir/sample dir/a\$b[1]}.cub"
+: > "$build_dir/multi dataset \$[x]}.cub"
+
+"$script_dir/vmd-scene-source-check.sh" \
+    "$structure_scene_file" \
+    "$pqr_structure_scene_file" \
+    "$gro_structure_scene_file" \
+    "$auto_xyz_scene_file" \
+    "$scene_file" \
+    "$quoted_scene_file" \
+    "$multi_scene_file" \
+    "$dataset_scene_file"
+
 if [ -n "$tclsh_bin" ]; then
-    : > "$build_dir/sample.cub"
     SCENE_UNDER_TEST="$quoted_scene_file" \
     EXPECTED_SCENE_SAMPLE="$build_dir/sample.cub" \
     "$tclsh_bin" <<'EOF'

@@ -310,3 +310,8 @@
   fixture intentionally runs in its own `.build-env/smoke/wfn-grid-export`
   directory, because Multiwfn's spatial-region export writes the cube using a
   fixed menu-derived filename.
+- Broadened `tools/vmd-bridge-smoke.sh` so `tools/vmd-scene-source-check.sh`
+  sources every generated structure, cube, multi-cube, and multi-dataset scene
+  after creating matching dummy data files. This turns path resolution and Tcl
+  syntax into an executable check for all VMD bridge scene variants, not only
+  the single quoted-path cube scene.
