@@ -26,7 +26,6 @@ cd "$repo_dir"
 
 wrapper_pattern='subroutine out(pdb|pqr|xyz|gro)_wrapper'
 wrapper_bridge_pattern='call maybe_write_vmd_structure_scene\(outname,"(pdb|pqr|xyz|gro)"\)'
-explicit_bridge_pattern='call maybe_write_vmd_structure_scene\("mol\.pdb","pdb"\)'
 bridge_pattern='call maybe_write_vmd_structure_scene'
 
 rg_src() {
@@ -39,8 +38,8 @@ count_pattern() {
 
 wrapper_count=$(count_pattern "$wrapper_pattern")
 wrapper_bridge_count=$(count_pattern "$wrapper_bridge_pattern")
-explicit_bridge_count=$(count_pattern "$explicit_bridge_pattern")
 bridge_count=$(count_pattern "$bridge_pattern")
+explicit_bridge_count=$((bridge_count - wrapper_bridge_count))
 
 if [ "$mode" = "check" ]; then
     expected_wrappers=$(sed -n 's/^- Structure wrapper definitions in production Fortran sources: \([0-9][0-9]*\)$/\1/p' "$audit_doc" | sed -n '1p')

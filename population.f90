@@ -2744,6 +2744,7 @@ subroutine fitESP(igridtype)
 use util
 use defvar
 use functions
+use vmd_bridge
 implicit real*8 (a-h,o-z)
 integer igridtype
 character(len=200) addcenfile,extptfile,chgfile,gauoutfilepath,outchgfilepath
@@ -3248,6 +3249,7 @@ if (ioutfitptval==1) then
 			write(*,"(a)") " Done! Fitting points have been exported to ESPfitpt.pqr in current folder. &
 			&The ""charge"" column in this file corresponds to ESP value in kcal/mol. The radius column is meaningless"
 			close(10)
+            call maybe_write_vmd_structure_scene("ESPfitpt.pqr","pqr")
 		else if (ides==3) then
 			open(10,file="ESPerr.pqr",status="replace")
 			do ipt=1,nESPpt
@@ -3258,6 +3260,7 @@ if (ioutfitptval==1) then
 			&The ""charge"" column in this file corresponds to absolute different (in kcal/mol) between the exactly evaluated ESP &
 			&and that evaluated based on atomic charges. The radius column is meaningless"
 			close(10)
+            call maybe_write_vmd_structure_scene("ESPerr.pqr","pqr")
 		end if
 	end do
 end if

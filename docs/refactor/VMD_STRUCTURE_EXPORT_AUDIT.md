@@ -21,8 +21,8 @@ Current counts:
 
 - Structure wrapper definitions in production Fortran sources: 4
 - Wrapper-level VMD structure bridge calls in production Fortran sources: 4
-- Explicit non-wrapper VMD structure bridge calls in production Fortran sources: 1
-- Total VMD structure bridge calls in production Fortran sources: 5
+- Explicit non-wrapper VMD structure bridge calls in production Fortran sources: 3
+- Total VMD structure bridge calls in production Fortran sources: 7
 
 ## Covered Structure Paths
 
@@ -37,6 +37,11 @@ The file export menu also has an explicit PBC PDB path that writes `mol.pdb` via
 `outpdb_PBC`; this path is covered by a direct call to
 `maybe_write_vmd_structure_scene("mol.pdb","pdb")` because it is a user-facing
 export rather than an internal helper.
+
+The ESP charge fitting workflow can export `ESPfitpt.pqr` and `ESPerr.pqr`,
+where the PQR charge field carries the ESP value or fitting error. These two
+user-selected point-cloud exports are routed through direct PQR scene calls so
+VMD can load them and color by charge.
 
 ## Intentionally Excluded
 

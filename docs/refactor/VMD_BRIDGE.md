@@ -119,8 +119,11 @@ export wrappers finish writing the structure file. The low-level structure
 writers remain side-effect free, so internal or batch writers are not forced
 through VMD. The file export menu's explicit PBC PDB path writes `mol.pdb` and
 then uses the same structure-scene helper because it is a direct user export.
-PDB, XYZ, and GRO structure scenes use element coloring; PQR scenes use VMD's
-charge coloring so exported per-atom charges are visible immediately.
+The ESP charge fitting workflow's `ESPfitpt.pqr` and `ESPerr.pqr` point-cloud
+exports are also routed through the structure-scene helper. PDB, XYZ, and GRO
+structure scenes use element coloring; PQR scenes use VMD's charge coloring so
+exported per-atom charges, ESP values, or fitting errors are visible
+immediately.
 
 Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive

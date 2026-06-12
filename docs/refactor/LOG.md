@@ -331,3 +331,11 @@
   VMD scene contract. The check script now wraps its Tcl logic in `catch` and
   explicitly exits nonzero on failure, because `tclsh` reading from standard
   input can print an error message yet still return success.
+- Routed the ESP charge-fitting PQR point-cloud exports `ESPfitpt.pqr` and
+  `ESPerr.pqr` through the VMD structure bridge. These exports are user-selected
+  visualization artifacts whose charge field carries ESP value or fitting error,
+  so the existing PQR scene path gives VMD a useful charge-colored view without
+  touching the lower-level PQR writer. The structure export audit now computes
+  non-wrapper bridge calls as total structure bridge calls minus wrapper-level
+  calls, so additional direct user-facing exports do not require a hard-coded
+  filename pattern in the audit script.
