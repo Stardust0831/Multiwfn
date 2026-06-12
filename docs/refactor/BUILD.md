@@ -102,10 +102,11 @@ The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. The `gnu-noGUI-smoke` Makefile target delegates the runtime checks
 to `tools/gnu-nogui-smoke.sh` after rebuilding the binary, while preserving the
 same `SMOKE_*`, `GNU_PREFIX`, and `EXE_noGUI` override points for local
-debugging. The smoke script runs nine non-interactive fixtures: a three-atom
+debugging. The smoke script runs ten non-interactive fixtures: a three-atom
 water XYZ structure load, a real XYZ structure export that generates a VMD scene
-through the main program's `xyz` command, a minimal water cube grid load, a real
-cube export through the grid-data processing menu that generates a VMD scene, a
+through the main program's `xyz` command, a real PDB structure export that
+generates a VMD scene through the main program's `pdb` command, a minimal water
+cube grid load, a real cube export through the grid-data processing menu that generates a VMD scene, a
 real VASP `CHGCAR` grid export through the file export menu that generates a VMD
 scene with VMD's `CHGCAR` molfile type, a real POSCAR structure export through
 the file export menu that generates a VMD scene with VMD's `POSCAR` molfile
@@ -114,9 +115,11 @@ minimal `.mwfn` wavefunction point-property calculation, and a minimal `.mwfn`
 Mulliken population analysis, and a `.mwfn` electron-density grid calculation
 that exports `density.cub` and its VMD scene from the spatial-region menu. The
 structure and cube load
-fixtures must reach the main menu with status 0; the VMD structure-export
+fixtures must reach the main menu with status 0; the VMD XYZ structure-export
 fixture must write the exported XYZ file, write `<exported.xyz>.vmd.tcl`, and
-honor `-vmdrun -vmdpath none` without trying to launch VMD; the VMD cube-export
+honor `-vmdrun -vmdpath none` without trying to launch VMD; the PDB
+structure-export fixture must write `exported.pdb`, write
+`exported.pdb.vmd.tcl`, and source-check the generated PDB scene; the VMD cube-export
 fixture must enter `Process grid data`, write the exported cube file, write
 `<exported.cub>.vmd.tcl`, and generate positive and negative isosurface
 representations. The POSCAR structure-export fixture must load a minimal POSCAR

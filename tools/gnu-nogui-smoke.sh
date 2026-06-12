@@ -27,6 +27,10 @@ SMOKE_VMD_EXPORT_XYZ=${SMOKE_VMD_EXPORT_XYZ:-$SMOKE_VMD_DIR/exported.xyz}
 SMOKE_VMD_SCENE=${SMOKE_VMD_SCENE:-$SMOKE_VMD_EXPORT_XYZ.vmd.tcl}
 SMOKE_VMD_OUT=${SMOKE_VMD_OUT:-$SMOKE_VMD_DIR/gnu-noGUI-vmd-structure-smoke.out}
 SMOKE_VMD_ERR=${SMOKE_VMD_ERR:-$SMOKE_VMD_DIR/gnu-noGUI-vmd-structure-smoke.err}
+SMOKE_VMD_EXPORT_PDB=${SMOKE_VMD_EXPORT_PDB:-$SMOKE_VMD_DIR/exported.pdb}
+SMOKE_VMD_PDB_SCENE=${SMOKE_VMD_PDB_SCENE:-$SMOKE_VMD_EXPORT_PDB.vmd.tcl}
+SMOKE_VMD_PDB_OUT=${SMOKE_VMD_PDB_OUT:-$SMOKE_VMD_DIR/gnu-noGUI-vmd-pdb-smoke.out}
+SMOKE_VMD_PDB_ERR=${SMOKE_VMD_PDB_ERR:-$SMOKE_VMD_DIR/gnu-noGUI-vmd-pdb-smoke.err}
 SMOKE_VMD_CUBE_DIR=${SMOKE_VMD_CUBE_DIR:-$SMOKE_DIR/vmd-cube-export}
 SMOKE_VMD_EXPORT_CUBE=${SMOKE_VMD_EXPORT_CUBE:-$SMOKE_VMD_CUBE_DIR/exported.cub}
 SMOKE_VMD_CUBE_SCENE=${SMOKE_VMD_CUBE_SCENE:-$SMOKE_VMD_EXPORT_CUBE.vmd.tcl}
@@ -146,6 +150,20 @@ grep -Fq 'mol color Element' "$SMOKE_VMD_SCENE"
 tools/vmd-scene-source-check.sh "$SMOKE_VMD_SCENE"
 check_stderr "$SMOKE_VMD_ERR" "GNU noGUI VMD structure export smoke"
 
+printf '%s\n%s\n%s\n' 'pdb' "$SMOKE_VMD_EXPORT_PDB" 'q' |
+    run_multiwfn "$SMOKE_XYZ" -vmdrun -vmdpath none -vmdscene auto > "$SMOKE_VMD_PDB_OUT" 2> "$SMOKE_VMD_PDB_ERR"
+grep -q 'Loaded .*water.xyz successfully' "$SMOKE_VMD_PDB_OUT"
+grep -q 'Exporting pdb file finished!' "$SMOKE_VMD_PDB_OUT"
+grep -q 'VMD scene script has been written to .*exported.pdb.vmd.tcl' "$SMOKE_VMD_PDB_OUT"
+grep -q 'VMD was not launched because vmdpath is empty or none' "$SMOKE_VMD_PDB_OUT"
+test -s "$SMOKE_VMD_EXPORT_PDB"
+test -s "$SMOKE_VMD_PDB_SCENE"
+grep -Fq "# Structure file: $SMOKE_VMD_EXPORT_PDB" "$SMOKE_VMD_PDB_SCENE"
+grep -Fq 'mol new [multiwfn_resolve_path "exported.pdb"] type "pdb" waitfor all' "$SMOKE_VMD_PDB_SCENE"
+grep -Fq 'mol color Element' "$SMOKE_VMD_PDB_SCENE"
+tools/vmd-scene-source-check.sh "$SMOKE_VMD_PDB_SCENE"
+check_stderr "$SMOKE_VMD_PDB_ERR" "GNU noGUI VMD PDB structure export smoke"
+
 printf '%s\nq\n' "$SMOKE_CUBE" | run_multiwfn > "$SMOKE_CUBE_OUT" 2> "$SMOKE_CUBE_ERR"
 grep -q 'Loaded .*water-density.cub successfully' "$SMOKE_CUBE_OUT"
 grep -q 'Main function menu' "$SMOKE_CUBE_OUT"
@@ -243,6 +261,7 @@ check_stderr "$SMOKE_WFN_GRID_ERR" "GNU noGUI wavefunction grid export smoke"
 
 cat "$SMOKE_ERR"
 cat "$SMOKE_VMD_ERR"
+cat "$SMOKE_VMD_PDB_ERR"
 cat "$SMOKE_CUBE_ERR"
 cat "$SMOKE_VMD_CUBE_ERR"
 cat "$SMOKE_VMD_CHGCAR_ERR"

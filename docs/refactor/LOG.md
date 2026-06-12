@@ -393,3 +393,7 @@
   export menu to write `exported.POSCAR`, generates
   `exported.POSCAR.vmd.tcl` with `vmdscenefile=auto`, and sources the generated
   POSCAR-type VMD scene.
+- Extended the GNU noGUI smoke test with an end-to-end PDB structure export
+  fixture. It loads the water XYZ fixture, uses the real main-menu `pdb`
+  shortcut to write `exported.pdb`, generates `exported.pdb.vmd.tcl` with
+  `vmdscenefile=auto`, and sources the generated PDB-type VMD scene.
