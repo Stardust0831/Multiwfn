@@ -425,3 +425,6 @@
   `tools/vmd-scene-source-check.sh` before launching or dry-running VMD. The
   open-scene smoke test now covers a sourceable scene with a real data file and,
   when `tclsh` is available, rejects a placeholder scene without a VMD data load.
+- Added `.build-env/vmd-open-scene-smoke.*` to `gnu-clean` and the build
+  cleanup documentation so the Makefile cleanup path matches the quick residue
+  audit after adding the VMD open-scene helper smoke test.

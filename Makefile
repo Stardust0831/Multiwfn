@@ -188,7 +188,7 @@ gnu-noGUI-smoke: gnu-noGUI
 
 gnu-clean:
 	$(MAKE) clean
-	rm -rf "$(GNU_MOD_DIR)" "$(GNU_OBJ_DIR)" "$(SMOKE_DIR)" .build-env/nogui-build-audit.* .build-env/vmd-bridge-smoke.* .build-env/vmd-doctor-smoke.*
+	rm -rf "$(GNU_MOD_DIR)" "$(GNU_OBJ_DIR)" "$(SMOKE_DIR)" .build-env/nogui-build-audit.* .build-env/vmd-bridge-smoke.* .build-env/vmd-doctor-smoke.* .build-env/vmd-open-scene-smoke.*
 
 clean:
 	rm -f $(EXE) $(EXE_noGUI) *.o *.mod noGUI/*.o

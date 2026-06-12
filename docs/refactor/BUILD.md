@@ -168,8 +168,8 @@ The smoke target and full verification keep using the clean `gnu-noGUI` path.
 `tools/gnu-build.sh clean` runs the GNU-specific `gnu-clean` Makefile target. It
 removes normal Multiwfn build outputs, `.build-env/gnu-mod`,
 `.build-env/gnu-obj`, `.build-env/smoke`, and temporary
-`.build-env/nogui-build-audit.*` and
-`.build-env/vmd-bridge-smoke.*`, and `.build-env/vmd-doctor-smoke.*`
+`.build-env/nogui-build-audit.*`, `.build-env/vmd-bridge-smoke.*`,
+`.build-env/vmd-doctor-smoke.*`, and `.build-env/vmd-open-scene-smoke.*`
 directories. It intentionally keeps
 `.build-env/gnu` and `.build-env/pkgs` so cleaning build residue does not remove
 the local compiler environment or package cache.
