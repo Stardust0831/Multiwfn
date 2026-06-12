@@ -226,3 +226,7 @@
   fixtures: the existing water XYZ load and a minimal water cube grid load. The
   target now checks stderr line-by-line so only the known GFortran
   `IEEE_INVALID_FLAG` shutdown note is allowed.
+- Added `tools/vmd-doctor.sh`, a read-only helper that resolves the configured
+  VMD executable from `settings.ini` or an explicit argument without launching
+  VMD. This gives users a local check for `vmdpath`/`-vmdpath` while preserving
+  the external-VMD license boundary.

@@ -59,6 +59,14 @@ Useful runtime options:
 Use `-vmdscene auto` to write `<exported-file>.vmd.tcl` for each supported
 export instead of overwriting one shared scene file.
 
+Check whether the configured VMD executable path is resolvable without launching
+VMD:
+
+```sh
+tools/vmd-doctor.sh
+tools/vmd-doctor.sh /path/to/vmd
+```
+
 See `docs/refactor/VMD_BRIDGE.md` for supported export paths and current
 limitations.
 

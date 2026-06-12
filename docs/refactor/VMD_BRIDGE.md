@@ -34,6 +34,18 @@ Command-line overrides:
 - `-vmdscene PATH`: override the generated Tcl scene path.
 - `-vmdmaterial MATERIAL`: override the VMD isosurface material.
 
+The configured VMD path can be checked without launching VMD:
+
+```sh
+tools/vmd-doctor.sh
+tools/vmd-doctor.sh /path/to/vmd
+```
+
+The doctor is intentionally read-only. It resolves `vmdpath` from `settings.ini`
+or from the optional command-line argument, checks whether the executable can be
+found, and reports how to set `vmdpath` or `-vmdpath` when VMD is installed
+elsewhere.
+
 ## Supported export paths
 
 Initial coverage:
