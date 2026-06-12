@@ -151,11 +151,13 @@ The wrapper forwards `GNU_PREFIX` to the Makefile and the VMD bridge smoke test,
 so alternate local prefixes use the same compiler, `make`, OpenBLAS library path,
 and runtime library path consistently.
 
-The smoke target generates a temporary XYZ file under `.build-env/smoke`, backs
-up `settings.ini`, runs `Multiwfn_noGUI`, verifies that the file was loaded and
-the main menu was reached, and restores `settings.ini` before exiting. GFortran
-currently prints an IEEE floating-point exception flag note at program
-termination; this should be tracked during broader numerical validation.
+The smoke target generates temporary XYZ and cube files under `.build-env/smoke`,
+backs up `settings.ini`, runs `Multiwfn_noGUI` for both fixtures, verifies that
+each file was loaded and the main menu was reached, and restores `settings.ini`
+before exiting. GFortran currently prints an IEEE floating-point exception flag
+note at program termination; this should be tracked during broader numerical
+validation. The stderr check allows only that exact note and fails on any other
+stderr line.
 
 After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 

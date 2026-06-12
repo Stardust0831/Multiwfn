@@ -222,3 +222,7 @@
   object paths for the default Intel-oriented build. The noGUI build-boundary
   audit now also dry-runs an `OBJ_DIR` noGUI build and fails if compile outputs
   fall back to root or `noGUI/*.o` object files.
+- Extended `gnu-noGUI-smoke` from a single XYZ structure load to two runtime
+  fixtures: the existing water XYZ load and a minimal water cube grid load. The
+  target now checks stderr line-by-line so only the known GFortran
+  `IEEE_INVALID_FLAG` shutdown note is allowed.

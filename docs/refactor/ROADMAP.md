@@ -13,7 +13,8 @@ branch grows and what work is still worth doing next.
   added through local wrapper targets and overridable variables rather than a
   wholesale build-system replacement.
 - The Linux noGUI build can be reproduced with the local conda-forge GNU prefix
-  and OpenBLAS.
+  and OpenBLAS, then smoke-tested by loading both a water XYZ structure and a
+  minimal water cube grid.
 - The GNU noGUI build keeps module files under `.build-env/gnu-mod` and object
   files under `.build-env/gnu-obj`, leaving the source root free of transient
   `*.o`/`*.mod` files after full verification.
@@ -29,8 +30,8 @@ branch grows and what work is still worth doing next.
 
 ## Next Useful Work
 
-1. Add representative non-interactive fixtures for real wavefunction/grid
-   workflows beyond the current XYZ load smoke test.
+1. Add representative non-interactive fixtures for wavefunction-derived analyses
+   beyond the current structure and cube-load smoke tests.
 2. Continue auditing specialized structure, cube, and non-cube visualization
    exports and route user-facing exports through VMD where the output maps
    cleanly to VMD.

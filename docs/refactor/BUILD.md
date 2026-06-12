@@ -84,13 +84,15 @@ test, so the smoke target cannot silently leave Multiwfn's `lastfile` update in
 the working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
-and OpenBLAS. A smoke test loads a three-atom water XYZ file and exits from the
-main menu with status 0. The smoke target restores `settings.ini` after the run
-because Multiwfn updates `lastfile` during normal startup. The full verification
-wrapper checks that restoration worked by comparing `settings.ini` before and
-after the smoke test. The smoke test reports an IEEE floating-point exception
-flag note at shutdown; this known note is allowed by the smoke target, while any
-other stderr output causes the smoke test to fail.
+and OpenBLAS. The smoke target now runs two non-interactive fixtures: a
+three-atom water XYZ structure load and a minimal water cube grid load. Both
+fixtures must reach the main menu with status 0. The smoke target restores
+`settings.ini` after the run because Multiwfn updates `lastfile` during normal
+startup. The full verification wrapper checks that restoration worked by
+comparing `settings.ini` before and after the smoke test. The smoke test reports
+an IEEE floating-point exception flag note at shutdown; this known note is
+allowed by the smoke target, while any other stderr output causes the smoke test
+to fail.
 
 All generated compiler packages, module files, smoke logs, temporary build
 artifacts, exported visualization files, and machine-local Makefile overrides
@@ -133,5 +135,5 @@ Intel-oriented flags.
    Makefile.
 4. Avoid requiring DISLIN/Motif for workflows that use VMD as the visualization
    backend.
-5. Add broader non-interactive fixtures for representative wavefunction and grid
-   workflows.
+5. Add broader non-interactive fixtures for representative wavefunction-derived
+   analyses beyond the current structure and cube-load smoke tests.
