@@ -410,3 +410,7 @@
   real file export menu to write `exported.gro`, generates
   `exported.gro.vmd.tcl` with `vmdscenefile=auto`, and sources the generated
   GRO-type VMD scene.
+- Updated the roadmap and VMD bridge documentation so the stable checkpoints and
+  smoke-test descriptions reflect the current real noGUI export coverage:
+  XYZ/PDB/PQR/POSCAR/GRO structures, cube/CHGCAR volumetric exports, and
+  wavefunction-derived `density.cub` scenes.

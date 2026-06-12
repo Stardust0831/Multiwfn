@@ -13,13 +13,11 @@ branch grows and what work is still worth doing next.
   added through local wrapper targets and overridable variables rather than a
   wholesale build-system replacement.
 - The Linux noGUI build can be reproduced with the local conda-forge GNU prefix
-  and OpenBLAS, then smoke-tested by loading both a water XYZ structure and a
-  minimal water cube grid, by running a real `xyz` structure export that writes
-  a VMD Tcl scene, by running a real grid-data cube export that writes a VMD Tcl
-  scene, and by running a minimal `.mwfn` wavefunction point-property calculation
-  and Mulliken population analysis, and by calculating electron density from the
-  `.mwfn` fixture on a small grid and exporting the resulting `density.cub` with
-  a VMD scene.
+  and OpenBLAS, then smoke-tested by loading small XYZ, PQR, POSCAR, cube, and
+  `.mwfn` fixtures; exporting real XYZ, PDB, PQR, POSCAR, GRO, cube, CHGCAR, and
+  wavefunction-derived `density.cub` files; generating matching VMD Tcl scenes;
+  source-checking those scenes with stubbed VMD commands; and running minimal
+  `.mwfn` point-property and Mulliken population calculations.
 - The GNU noGUI build keeps module files under `.build-env/gnu-mod` and object
   files under `.build-env/gnu-obj`, leaving the source root free of transient
   `*.o`/`*.mod` files after full verification.
@@ -28,7 +26,8 @@ branch grows and what work is still worth doing next.
 - VMD remains an external executable. Multiwfn writes structure/cube files and
   optional VMD Tcl scenes; it does not merge or redistribute VMD source code.
 - VMD bridge coverage is added at explicit user-facing export points, not inside
-  low-level writers such as `outcube`.
+  low-level writers such as `outcube`, `outpdb`, `outpqr`, `outgro`, or
+  `outPOSCAR`.
 - `tools/verify-refactor.sh quick` is the minimum pre-commit gate. `full` adds a
   GNU noGUI build/smoke test, `settings.ini` restoration check, and object
   and smoke-export residue checks.
