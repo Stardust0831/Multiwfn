@@ -24,8 +24,8 @@ fi
 
 cd "$repo_dir"
 
-wrapper_pattern='subroutine out(pdb|pqr|xyz|gro)_wrapper'
-wrapper_bridge_pattern='call maybe_write_vmd_structure_scene\(outname,"(pdb|pqr|xyz|gro)"\)'
+wrapper_pattern='subroutine out(pdb|pqr|xyz|gro|POSCAR)_wrapper'
+wrapper_bridge_pattern='call maybe_write_vmd_structure_scene\(outname,"(pdb|pqr|xyz|gro|POSCAR)"\)'
 bridge_pattern='call maybe_write_vmd_structure_scene'
 
 rg_src() {

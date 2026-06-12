@@ -61,8 +61,8 @@ missing path as a negative case, so it does not require VMD to be installed.
 
 Initial coverage:
 
-- PDB, PQR, XYZ, and GRO structure exports through their interactive wrappers,
-  plus the explicit PBC PDB export path in the file export menu.
+- PDB, PQR, XYZ, GRO, and POSCAR structure exports through their interactive
+  wrappers, plus the explicit PBC PDB export path in the file export menu.
 - Generic cube export through `outcube_wrapper`.
 - Main 3D grid post-processing cube export in `study3dim`.
 - CDFT cube exports for Fukui functions, dual descriptors, orbital-weighted
@@ -147,11 +147,10 @@ formats whose VMD loading path is documented or covered by smoke tests. Future
 CIF/CML support should first verify the exact VMD plugin and `mol new ... type`
 token, then add a sourceable smoke scene.
 
-POSCAR is a likely future structure target because Multiwfn can export POSCAR
-and VMD documents VASP POSCAR/CONTCAR support. It remains unwired until the
-exact VMD file type token is confirmed. Mol2 is documented by VMD, but this
-source tree currently has Mol2 reading support rather than a Mol2 export wrapper
-to attach the bridge to.
+POSCAR structure exports use VMD's `POSCAR` molfile type, based on the VMD
+molfile `vaspposcarplugin` registration name. Mol2 is documented by VMD, but
+this source tree currently has Mol2 reading support rather than a Mol2 export
+wrapper to attach the bridge to.
 
 Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive

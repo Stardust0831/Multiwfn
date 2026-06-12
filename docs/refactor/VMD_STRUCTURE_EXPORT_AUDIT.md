@@ -19,19 +19,20 @@ counts.
 
 Current counts:
 
-- Structure wrapper definitions in production Fortran sources: 4
-- Wrapper-level VMD structure bridge calls in production Fortran sources: 4
+- Structure wrapper definitions in production Fortran sources: 5
+- Wrapper-level VMD structure bridge calls in production Fortran sources: 5
 - Explicit non-wrapper VMD structure bridge calls in production Fortran sources: 7
-- Total VMD structure bridge calls in production Fortran sources: 11
+- Total VMD structure bridge calls in production Fortran sources: 12
 
 ## Covered Structure Paths
 
-The four interactive wrappers covered by the bridge are:
+The five interactive wrappers covered by the bridge are:
 
 - `outpdb_wrapper`: writes PDB and then generates a PDB scene.
 - `outpqr_wrapper`: writes PQR and then generates a PQR scene.
 - `outxyz_wrapper`: writes XYZ and then generates an XYZ scene.
 - `outgro_wrapper`: writes GRO and then generates a GRO scene.
+- `outPOSCAR_wrapper`: writes POSCAR and then generates a POSCAR scene.
 
 The file export menu also has an explicit PBC PDB path that writes `mol.pdb` via
 `outpdb_PBC`; this path is covered by a direct call to
@@ -93,8 +94,7 @@ add a smoke scene that can be sourced by `tools/vmd-scene-source-check.sh`.
 - Mol2: VMD documents a Mol2 structure reader, but this source tree currently
   exposes Mol2 as an input/read path rather than a user-facing structure export
   path. There is no `outmol2` wrapper to route through the bridge.
-- POSCAR: Multiwfn has a user-facing `outPOSCAR_wrapper`, and VMD documents VASP
-  POSCAR/CONTCAR support. This is a plausible bridge candidate, but it is not
-  wired yet because the exact VMD `mol new ... type` token has not been verified
-  from an installed VMD build or plugin source. Do not guess the token in
-  production scene generation.
+
+POSCAR support was promoted from this candidate list after checking the VMD
+molfile `vaspposcarplugin` registration name. The generated scene uses VMD type
+`POSCAR`.

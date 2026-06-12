@@ -7571,6 +7571,7 @@ end subroutine
 subroutine outPOSCAR_wrapper
 use util
 use defvar
+use vmd_bridge
 character outname*200,c200tmp*200
 if (ifPBC==0) then
 	write(*,"(a)") " Error: POSCAR cannot be generated, because the loaded file does not contain cell information!"
@@ -7586,6 +7587,7 @@ read(*,"(a)") outname
 if (outname==" ") outname="POSCAR"
 call outPOSCAR(outname,10)
 write(*,"(a)") " VASP POSCAR file has been exported to "//trim(outname)//" in current folder"
+call maybe_write_vmd_structure_scene(outname,"POSCAR")
 end subroutine
 !!---------- Output current coordinate to VASP position file POSCAR
 subroutine outPOSCAR(outname,ifileid)

@@ -384,3 +384,7 @@
   It loads the water cube fixture, uses the real file export menu to write
   `exported.CHGCAR`, generates `exported.CHGCAR.vmd.tcl` with `vmdscenefile=auto`,
   and sources the generated CHGCAR-type VMD scene.
+- Routed `outPOSCAR_wrapper` through the VMD structure bridge using VMD's
+  `POSCAR` molfile type. The type token was verified from the VMD molfile
+  `vaspposcarplugin` registration name, and the structure audit now tracks
+  POSCAR as a covered wrapper.

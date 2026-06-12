@@ -36,6 +36,7 @@ beta_structure_scene_file="$build_dir/test_beta_structure_scene.tcl"
 pqr_structure_scene_file="$build_dir/test_pqr_structure_scene.tcl"
 multi_structure_scene_file="$build_dir/test_multi_structure_scene.tcl"
 gro_structure_scene_file="$build_dir/test_gro_structure_scene.tcl"
+poscar_structure_scene_file="$build_dir/test_poscar_structure_scene.tcl"
 auto_xyz_scene_file="$build_dir/auto_structure.xyz.vmd.tcl"
 quoted_scene_file="$build_dir/test source \$[1]}.tcl"
 multi_scene_file="$build_dir/test_multi_scene.tcl"
@@ -79,6 +80,7 @@ grep -Fq "VMD scene script has been written to $smoke_dir/test_beta_structure_sc
 grep -Fq "VMD scene script has been written to $smoke_dir/test_pqr_structure_scene.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/test_multi_structure_scene.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/test_gro_structure_scene.tcl" "$out_file"
+grep -Fq "VMD scene script has been written to $smoke_dir/test_poscar_structure_scene.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/auto_structure.xyz.vmd.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/test_scene.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/test_vasp_grid_scene.tcl" "$out_file"
@@ -106,6 +108,8 @@ grep -Fq 'mol new [multiwfn_resolve_path "charge dir/a\$b\[1\]}.pqr"] type "pqr"
 grep -Fq 'mol new [multiwfn_resolve_path "charge dir/batch second.pqr"] type "pqr" waitfor all' "$multi_structure_scene_file"
 grep -Fq 'mol new [multiwfn_resolve_path "charge dir/batch_third.pqr"] type "pqr" waitfor all' "$multi_structure_scene_file"
 grep -Fq 'mol new [multiwfn_resolve_path "traj dir/a\$b\[1\]}.gro"] type "gro" waitfor all' "$gro_structure_scene_file"
+grep -Fq 'mol new [multiwfn_resolve_path "vasp dir/POS\$\[1\]}.vasp"] type "POSCAR" waitfor all' "$poscar_structure_scene_file"
+grep -Fq 'mol color Element' "$poscar_structure_scene_file"
 grep -Fq 'mol new [multiwfn_resolve_path "auto_structure.xyz"] type "xyz" waitfor all' "$auto_xyz_scene_file"
 grep -Fq '# Cube file: win path C:\tmp\a$b[1]}.cub' "$scene_file"
 grep -Fq "$relative_path_note" "$scene_file"
@@ -135,13 +139,14 @@ grep -Fq 'mol new [multiwfn_resolve_path "vasp grid/CHG\$\[1\]}.vasp"] type "CHG
 grep -Fq 'mol rename top "vasp grid/CHG\$\[1\]}.vasp"' "$vasp_grid_scene_file"
 grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$vasp_grid_scene_file"
 
-mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir" "$build_dir/sample dir" "$build_dir/vasp grid"
+mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir" "$build_dir/vasp dir" "$build_dir/sample dir" "$build_dir/vasp grid"
 : > "$build_dir/structure dir/a\$b[1]}.pdb"
 : > "$build_dir/structure dir/beta values.pdb"
 : > "$build_dir/charge dir/a\$b[1]}.pqr"
 : > "$build_dir/charge dir/batch second.pqr"
 : > "$build_dir/charge dir/batch_third.pqr"
 : > "$build_dir/traj dir/a\$b[1]}.gro"
+: > "$build_dir/vasp dir/POS\$[1]}.vasp"
 : > "$build_dir/auto_structure.xyz"
 : > "$build_dir/win path C:\\tmp\\a\$b[1]}.cub"
 : > "$build_dir/sample.cub"
@@ -155,6 +160,7 @@ mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir
     "$pqr_structure_scene_file" \
     "$multi_structure_scene_file" \
     "$gro_structure_scene_file" \
+    "$poscar_structure_scene_file" \
     "$auto_xyz_scene_file" \
     "$scene_file" \
     "$quoted_scene_file" \
