@@ -172,6 +172,18 @@ write(ifileid,"(a)") "display resetview"
 end subroutine
 
 
+subroutine write_vmd_molecule_name(ifileid,molname)
+implicit real*8 (a-h,o-z)
+integer,intent(in) :: ifileid
+character(len=*),intent(in) :: molname
+character(len=600) c600name
+
+c600name=vmd_tcl_dquote(molname)
+write(ifileid,"(a)") "mol rename top "//trim(c600name)
+
+end subroutine
+
+
 subroutine write_vmd_structure_molecule(ifileid,structfile,filetype)
 implicit real*8 (a-h,o-z)
 integer,intent(in) :: ifileid
@@ -184,6 +196,7 @@ c600type=vmd_tcl_dquote(filetype)
 write(ifileid,"(a)") ""
 write(ifileid,"(a)") "# Structure file: "//trim(structfile)
 write(ifileid,"(a)") "mol new "//trim(c600struct)//" type "//trim(c600type)//" waitfor all"
+call write_vmd_molecule_name(ifileid,structfile)
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
 if (trim(filetype)=="pqr".or.trim(filetype)=="PQR") then
@@ -214,6 +227,7 @@ write(ifileid,"(a)") ""
 write(ifileid,"(a)") "# Cube file: "//trim(cubefile)
 write(ifileid,"(a)") "# Volumetric dataset index: 0"
 write(ifileid,"(a)") "mol new "//trim(c600cube)//" type cube waitfor all"
+call write_vmd_molecule_name(ifileid,cubefile)
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
 write(ifileid,"(a)") "mol color Element"
@@ -250,6 +264,7 @@ write(ifileid,"(a)") ""
 write(ifileid,"(a)") "# Multi-dataset cube file: "//trim(cubefile)
 write(ifileid,"(a,i0)") "# Number of volumetric datasets: ",ndataset
 write(ifileid,"(a)") "mol new "//trim(c600cube)//" type cube waitfor all"
+call write_vmd_molecule_name(ifileid,cubefile)
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
 write(ifileid,"(a)") "mol color Element"

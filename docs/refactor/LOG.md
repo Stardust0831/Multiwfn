@@ -237,3 +237,7 @@
 - Changed generated PQR structure scenes to use VMD `Charge` coloring while
   leaving PDB, XYZ, and GRO structure scenes on `Element` coloring. The VMD
   bridge smoke test now checks both branches.
+- Added `mol rename top` commands after generated VMD `mol new` calls so
+  molecules are labeled by the exported structure or cube path in VMD's molecule
+  list. The bridge smoke test checks Tcl quoting for renamed structure, cube,
+  and multi-dataset cube molecules.

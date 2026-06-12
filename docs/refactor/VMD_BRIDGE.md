@@ -126,6 +126,10 @@ characters escaped. This keeps paths with spaces, backslashes, brackets, dollar
 signs, and closing braces usable when a user exports structure or grid files into
 normal project directories.
 
+After each `mol new`, generated scenes rename the VMD molecule to the exported
+structure or cube path. This makes VMD's molecule list easier to inspect when a
+workflow opens several cube files or a multi-dataset cube alongside a structure.
+
 Scene file naming remains explicit by default: all supported exports use
 `vmdscenefile`, whose default is `multiwfn_scene.tcl`. If `vmdscenefile` is set
 to `auto`, each supported export writes `<exported-file>.vmd.tcl`; for example,
