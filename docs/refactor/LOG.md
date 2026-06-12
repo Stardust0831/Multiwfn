@@ -252,3 +252,7 @@
   it, enter main function 1, and verify representative point-property output.
   This gives the GNU noGUI gate one real wavefunction-derived calculation in
   addition to the existing structure and cube load checks.
+- Added a `multiwfn_resolve_path` Tcl helper to generated VMD scenes. Relative
+  structure and cube paths are now first resolved beside the scene file, then
+  allowed to fall back to VMD's current working directory, which makes saved
+  `vmdscenefile=auto` scenes easier to reopen manually.

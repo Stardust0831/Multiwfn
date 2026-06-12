@@ -126,7 +126,8 @@ Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive
 characters escaped. This keeps paths with spaces, backslashes, brackets, dollar
 signs, and closing braces usable when a user exports structure or grid files into
-normal project directories.
+normal project directories. The `mol new` commands pass data paths through a
+small Tcl helper named `multiwfn_resolve_path`.
 
 After each `mol new`, generated scenes rename the VMD molecule to the exported
 structure or cube path. This makes VMD's molecule list easier to inspect when a
@@ -150,11 +151,12 @@ to a path such as `C:\Program Files\VMD\vmd.exe`.
 If `vmdpath` is empty or set to `none` in any letter case, `ivmdrun` reports
 that VMD was not launched and leaves the generated scene file in place.
 
-Relative file paths in generated scenes are resolved by VMD from its current
-working directory. This matches the normal `-vmdrun` path because Multiwfn
-launches VMD from the export process. If a user manually sources a scene later,
-they should source it from the directory used for the Multiwfn export or export
-absolute file paths.
+Relative file paths in generated scenes are first resolved beside the scene
+script itself. If the file is not found there, the helper returns the original
+path so VMD falls back to its current working directory. This preserves the
+normal `-vmdrun` behavior while making `vmdscenefile=auto` scenes easier to
+reopen manually from another working directory when the exported data file sits
+beside the scene file. Absolute paths are passed through unchanged.
 
 If the configured scene file cannot be opened, the bridge reports the failing
 path and Fortran `IOSTAT` value, then returns without launching VMD. The
@@ -181,16 +183,17 @@ This compiles a minimal driver and verifies that generated Tcl scenes can load
 PDB, PQR, XYZ, and GRO structure files, a single cube file, multiple cube files,
 or a multi-dataset cube file; add molecular and positive/negative isosurface
 representations; and use the configured VMD material. It also checks the
-generated structure, cube/dataset comments, `auto` scene naming, and Tcl quoting
-for cube and scene paths containing spaces, backslashes, and Tcl-sensitive
-characters. The smoke test also covers the non-fatal error path for an
-unwritable scene location and VMD launch-command quoting for Linux/MacOS and
-Windows. Generated scenes also carry a header note describing relative file path
-resolution. Successful default runs clean their temporary `.build-env` smoke
-directory; use `VMD_SMOKE_KEEP=1` or set `VMD_SMOKE_DIR` when inspecting the
-generated Tcl files. `tools/verify-refactor.sh quick` runs the smoke test with
-those debugging overrides unset and fails if a default `vmd-bridge-smoke.*`
-directory remains afterward.
+generated structure, cube/dataset comments, `auto` scene naming, relative data
+path resolution helper, and Tcl quoting for cube and scene paths containing
+spaces, backslashes, and Tcl-sensitive characters. The smoke test also covers
+the non-fatal error path for an unwritable scene location and VMD launch-command
+quoting for Linux/MacOS and Windows. Generated scenes also carry a header note
+describing relative file path resolution. Successful default runs clean their
+temporary `.build-env` smoke directory; use `VMD_SMOKE_KEEP=1` or set
+`VMD_SMOKE_DIR` when inspecting the generated Tcl files.
+`tools/verify-refactor.sh quick` runs the smoke test with those debugging
+overrides unset and fails if a default `vmd-bridge-smoke.*` directory remains
+afterward.
 
 ## Rationale
 
