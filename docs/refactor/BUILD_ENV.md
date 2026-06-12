@@ -153,12 +153,14 @@ and runtime library path consistently.
 
 The smoke target generates temporary XYZ and cube files under `.build-env/smoke`,
 uses the tracked `tools/fixtures/he_minimal.mwfn` wavefunction fixture, backs up
-`settings.ini`, runs `Multiwfn_noGUI` for all three fixtures, verifies that the
-structure and cube files reach the main menu, verifies that the `.mwfn` fixture
-prints representative point-property results, and restores `settings.ini` before
-exiting. GFortran currently prints an IEEE floating-point exception flag note at
-program termination; this should be tracked during broader numerical validation.
-The stderr check allows only that exact note and fails on any other stderr line.
+`settings.ini`, runs `Multiwfn_noGUI` for all four fixtures, verifies that the
+structure and cube files reach the main menu, verifies that the `.mwfn`
+point-property fixture prints representative real-space results, verifies that
+the `.mwfn` Mulliken fixture prints basis and atomic populations, and restores
+`settings.ini` before exiting. GFortran currently prints an IEEE floating-point
+exception flag note at program termination; this should be tracked during
+broader numerical validation. The stderr check allows only that exact note and
+fails on any other stderr line.
 
 After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 

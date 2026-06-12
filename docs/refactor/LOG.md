@@ -263,3 +263,7 @@
   when available, using stubbed VMD commands. This checks Tcl syntax and the real
   behavior of `multiwfn_resolve_path` for scene-relative, missing relative, and
   absolute paths.
+- Extended `gnu-noGUI-smoke` with a minimal `.mwfn` Mulliken population-analysis
+  path. The fixture enters main function 7, selects Mulliken population output,
+  verifies basis and atom population lines, and explicitly answers `n` to the
+  `.chg` export prompt so the smoke run does not leave user output files behind.

@@ -35,6 +35,8 @@ SMOKE_CUBE_OUT ?= $(SMOKE_DIR)/gnu-noGUI-cube-smoke.out
 SMOKE_CUBE_ERR ?= $(SMOKE_DIR)/gnu-noGUI-cube-smoke.err
 SMOKE_MWFN_OUT ?= $(SMOKE_DIR)/gnu-noGUI-mwfn-point-smoke.out
 SMOKE_MWFN_ERR ?= $(SMOKE_DIR)/gnu-noGUI-mwfn-point-smoke.err
+SMOKE_MULLIKEN_OUT ?= $(SMOKE_DIR)/gnu-noGUI-mwfn-mulliken-smoke.out
+SMOKE_MULLIKEN_ERR ?= $(SMOKE_DIR)/gnu-noGUI-mwfn-mulliken-smoke.err
 
 -include Makefile.local
 
@@ -115,10 +117,18 @@ gnu-noGUI-smoke: gnu-noGUI
 	grep -q 'Density of all electrons:' "$(SMOKE_MWFN_OUT)"; \
 	grep -q 'Lagrangian kinetic energy G(r):' "$(SMOKE_MWFN_OUT)"; \
 	grep -q 'Wavefunction value for orbital' "$(SMOKE_MWFN_OUT)"; \
-	check_stderr "$(SMOKE_MWFN_ERR)" "GNU noGUI mwfn point smoke"
+	check_stderr "$(SMOKE_MWFN_ERR)" "GNU noGUI mwfn point smoke"; \
+	printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$(SMOKE_MWFN)" '7' '5' '1' 'n' '0' '0' 'q' | LD_LIBRARY_PATH="$(GNU_PREFIX)/lib$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" timeout 12s ./$(EXE_noGUI) > "$(SMOKE_MULLIKEN_OUT)" 2> "$(SMOKE_MULLIKEN_ERR)"; \
+	grep -q 'Loaded .*he_minimal.mwfn successfully' "$(SMOKE_MULLIKEN_OUT)"; \
+	grep -q 'Mulliken population analysis' "$(SMOKE_MULLIKEN_OUT)"; \
+	grep -q 'Population of basis functions:' "$(SMOKE_MULLIKEN_OUT)"; \
+	grep -q 'Atom     1(He)    Population:  2.00000000    Net charge:  0.00000000' "$(SMOKE_MULLIKEN_OUT)"; \
+	grep -q 'Total net charge:    0.00000000' "$(SMOKE_MULLIKEN_OUT)"; \
+	check_stderr "$(SMOKE_MULLIKEN_ERR)" "GNU noGUI mwfn Mulliken smoke"
 	@cat "$(SMOKE_ERR)"
 	@cat "$(SMOKE_CUBE_ERR)"
 	@cat "$(SMOKE_MWFN_ERR)"
+	@cat "$(SMOKE_MULLIKEN_ERR)"
 
 gnu-clean:
 	$(MAKE) clean

@@ -85,18 +85,19 @@ the smoke test, so the smoke target cannot silently leave Multiwfn's `lastfile`
 update in the working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
-and OpenBLAS. The smoke target now runs three non-interactive fixtures: a
-three-atom water XYZ structure load, a minimal water cube grid load, and a
-minimal `.mwfn` wavefunction point-property calculation. The structure and cube
-fixtures must reach the main menu with status 0; the `.mwfn` fixture must load
-successfully, enter main function 1, and print representative electron-density,
-kinetic-energy, and orbital-value lines. The smoke target restores
-`settings.ini` after the run because Multiwfn updates `lastfile` during normal
-startup. The full verification wrapper checks that restoration worked by
-comparing `settings.ini` before and after the smoke test. The smoke test reports
-an IEEE floating-point exception flag note at shutdown; this known note is
-allowed by the smoke target, while any other stderr output causes the smoke test
-to fail.
+and OpenBLAS. The smoke target now runs four non-interactive fixtures: a
+three-atom water XYZ structure load, a minimal water cube grid load, a minimal
+`.mwfn` wavefunction point-property calculation, and a minimal `.mwfn` Mulliken
+population analysis. The structure and cube fixtures must reach the main menu
+with status 0; the point-property fixture must print representative
+electron-density, kinetic-energy, and orbital-value lines; the Mulliken fixture
+must print basis-function population, atom population, and zero net charge for
+the helium fixture. The smoke target restores `settings.ini` after the run
+because Multiwfn updates `lastfile` during normal startup. The full verification
+wrapper checks that restoration worked by comparing `settings.ini` before and
+after the smoke test. The smoke test reports an IEEE floating-point exception
+flag note at shutdown; this known note is allowed by the smoke target, while any
+other stderr output causes the smoke test to fail.
 
 All generated compiler packages, module files, smoke logs, temporary build
 artifacts, exported visualization files, and machine-local Makefile overrides
