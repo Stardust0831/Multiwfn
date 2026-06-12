@@ -14,10 +14,10 @@ branch grows and what work is still worth doing next.
   wholesale build-system replacement.
 - The Linux noGUI build can be reproduced with the local conda-forge GNU prefix
   and OpenBLAS, then smoke-tested by loading small XYZ, PQR, POSCAR, cube, and
-  `.mwfn` fixtures; exporting real XYZ, PDB, PQR, POSCAR, GRO, cube, CHGCAR, and
-  wavefunction-derived `density.cub` files; generating matching VMD Tcl scenes;
-  source-checking those scenes with stubbed VMD commands; and running minimal
-  `.mwfn` point-property and Mulliken population calculations.
+  `.mwfn` fixtures; exporting real XYZ, PDB, PQR, POSCAR, GRO, Molden, cube,
+  CHGCAR, and wavefunction-derived `density.cub` files; generating matching VMD
+  Tcl scenes; source-checking those scenes with stubbed VMD commands; and
+  running minimal `.mwfn` point-property and Mulliken population calculations.
 - The GNU noGUI build keeps module files under `.build-env/gnu-mod` and object
   files under `.build-env/gnu-obj`, leaving the source root free of transient
   `*.o`/`*.mod` files after full verification.

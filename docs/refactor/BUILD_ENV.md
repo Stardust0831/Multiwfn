@@ -177,7 +177,7 @@ The smoke target rebuilds `Multiwfn_noGUI`, then runs
 `tools/gnu-nogui-smoke.sh`. The script generates temporary XYZ and cube files
 under `.build-env/smoke`, uses the tracked
 `tools/fixtures/he_minimal.mwfn` wavefunction fixture, backs up `settings.ini`,
-runs `Multiwfn_noGUI` for all twelve fixtures, verifies that the structure and cube
+runs `Multiwfn_noGUI` for all thirteen fixtures, verifies that the structure and cube
 files reach the main menu, verifies that a real main-program `xyz` export writes
 both an XYZ file and a VMD Tcl scene while `vmdpath=none` prevents launching
 VMD, verifies that a real main-program `pdb` export writes both a PDB file and a
@@ -189,7 +189,8 @@ scene using VMD's `CHGCAR` molfile type, verifies that a real file-export menu
 POSCAR structure export writes both a `POSCAR` file and a VMD Tcl scene using
 VMD's `POSCAR` molfile type, verifies that a real file-export menu GRO
 structure export writes both a `GRO` file and a VMD Tcl scene using VMD's `gro`
-molfile type, verifies that
+molfile type, verifies that a real file-export menu Molden export writes both a
+`.molden` file and an autotype VMD Tcl scene, verifies that
 the `.mwfn` fixture can calculate electron density on a small grid, write
 `density.cub`, and generate `density.cub.vmd.tcl`, sources those generated VMD
 scenes through

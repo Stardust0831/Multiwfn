@@ -412,7 +412,7 @@
   GRO-type VMD scene.
 - Updated the roadmap and VMD bridge documentation so the stable checkpoints and
   smoke-test descriptions reflect the current real noGUI export coverage:
-  XYZ/PDB/PQR/POSCAR/GRO structures, cube/CHGCAR volumetric exports, and
+  XYZ/PDB/PQR/POSCAR/GRO/Molden structures, cube/CHGCAR volumetric exports, and
   wavefunction-derived `density.cub` scenes.
 - Added `tools/vmd-open-scene.sh`, a repository-local helper for opening an
   already generated VMD Tcl scene via `vmd -e <scene>`. It resolves `vmdpath`
@@ -458,3 +458,8 @@
 - Routed `outmolden_wrapper` through the autotype VMD structure bridge after the
   Molden file is written. Updated the structure export audit, bridge
   documentation, and narrow VMD bridge smoke test to cover the new Molden scene.
+- Extended the GNU noGUI smoke test with an end-to-end Molden structure export
+  fixture. It loads the minimal `.mwfn` fixture, uses the real file export menu
+  to write `exported.molden`, generates `exported.molden.vmd.tcl` with
+  `vmdscenefile=auto`, checks the generated scene uses VMD extension
+  auto-detection instead of a hard-coded type token, and source-checks the scene.

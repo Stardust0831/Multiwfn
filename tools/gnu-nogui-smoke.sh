@@ -56,6 +56,11 @@ SMOKE_VMD_EXPORT_GRO=${SMOKE_VMD_EXPORT_GRO:-$SMOKE_VMD_GRO_DIR/exported.gro}
 SMOKE_VMD_GRO_SCENE=${SMOKE_VMD_GRO_SCENE:-$SMOKE_VMD_EXPORT_GRO.vmd.tcl}
 SMOKE_VMD_GRO_OUT=${SMOKE_VMD_GRO_OUT:-$SMOKE_VMD_GRO_DIR/gnu-noGUI-vmd-gro-smoke.out}
 SMOKE_VMD_GRO_ERR=${SMOKE_VMD_GRO_ERR:-$SMOKE_VMD_GRO_DIR/gnu-noGUI-vmd-gro-smoke.err}
+SMOKE_VMD_MOLDEN_DIR=${SMOKE_VMD_MOLDEN_DIR:-$SMOKE_DIR/vmd-molden-export}
+SMOKE_VMD_EXPORT_MOLDEN=${SMOKE_VMD_EXPORT_MOLDEN:-$SMOKE_VMD_MOLDEN_DIR/exported.molden}
+SMOKE_VMD_MOLDEN_SCENE=${SMOKE_VMD_MOLDEN_SCENE:-$SMOKE_VMD_EXPORT_MOLDEN.vmd.tcl}
+SMOKE_VMD_MOLDEN_OUT=${SMOKE_VMD_MOLDEN_OUT:-$SMOKE_VMD_MOLDEN_DIR/gnu-noGUI-vmd-molden-smoke.out}
+SMOKE_VMD_MOLDEN_ERR=${SMOKE_VMD_MOLDEN_ERR:-$SMOKE_VMD_MOLDEN_DIR/gnu-noGUI-vmd-molden-smoke.err}
 
 allowed_stderr='Note: The following floating-point exceptions are signalling: IEEE_INVALID_FLAG'
 
@@ -102,7 +107,7 @@ restore_settings() {
     fi
 }
 
-mkdir -p "$SMOKE_DIR" "$SMOKE_VMD_DIR" "$SMOKE_VMD_CUBE_DIR" "$SMOKE_VMD_VASP_DIR" "$SMOKE_VMD_POSCAR_DIR" "$SMOKE_VMD_GRO_DIR" "$SMOKE_WFN_GRID_DIR"
+mkdir -p "$SMOKE_DIR" "$SMOKE_VMD_DIR" "$SMOKE_VMD_CUBE_DIR" "$SMOKE_VMD_VASP_DIR" "$SMOKE_VMD_POSCAR_DIR" "$SMOKE_VMD_GRO_DIR" "$SMOKE_VMD_MOLDEN_DIR" "$SMOKE_WFN_GRID_DIR"
 
 printf '%s\n%s\n%s\n%s\n%s\n' \
     '3' \
@@ -279,6 +284,23 @@ grep -q 'Atom     1(He)    Population:  2.00000000    Net charge:  0.00000000' "
 grep -q 'Total net charge:    0.00000000' "$SMOKE_MULLIKEN_OUT"
 check_stderr "$SMOKE_MULLIKEN_ERR" "GNU noGUI mwfn Mulliken smoke"
 
+printf '%s\n%s\n%s\n%s\n%s\n%s\n' '100' '2' '6' "$SMOKE_VMD_EXPORT_MOLDEN" '0' 'q' |
+    run_multiwfn "$SMOKE_MWFN" -vmdrun -vmdpath none -vmdscene auto > "$SMOKE_VMD_MOLDEN_OUT" 2> "$SMOKE_VMD_MOLDEN_ERR"
+grep -q 'Loaded .*he_minimal.mwfn successfully' "$SMOKE_VMD_MOLDEN_OUT"
+grep -q 'Export system to various formats of files' "$SMOKE_VMD_MOLDEN_OUT"
+grep -q 'Exporting Molden input file finished!' "$SMOKE_VMD_MOLDEN_OUT"
+grep -q 'VMD scene script has been written to .*exported.molden.vmd.tcl' "$SMOKE_VMD_MOLDEN_OUT"
+grep -q 'VMD was not launched because vmdpath is empty or none' "$SMOKE_VMD_MOLDEN_OUT"
+test -s "$SMOKE_VMD_EXPORT_MOLDEN"
+test -s "$SMOKE_VMD_MOLDEN_SCENE"
+grep -Fq '[Molden Format]' "$SMOKE_VMD_EXPORT_MOLDEN"
+grep -Fq "# Structure file: $SMOKE_VMD_EXPORT_MOLDEN" "$SMOKE_VMD_MOLDEN_SCENE"
+grep -Fq '# VMD file type: auto-detected from file extension' "$SMOKE_VMD_MOLDEN_SCENE"
+grep -Fq 'mol new [multiwfn_resolve_path "exported.molden"] waitfor all' "$SMOKE_VMD_MOLDEN_SCENE"
+grep -Fq 'mol color Element' "$SMOKE_VMD_MOLDEN_SCENE"
+tools/vmd-scene-source-check.sh "$SMOKE_VMD_MOLDEN_SCENE"
+check_stderr "$SMOKE_VMD_MOLDEN_ERR" "GNU noGUI VMD Molden structure export smoke"
+
 cp settings.ini "$SMOKE_WFN_GRID_DIR/settings.ini"
 printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
     '5' \
@@ -316,4 +338,5 @@ cat "$SMOKE_VMD_POSCAR_ERR"
 cat "$SMOKE_VMD_GRO_ERR"
 cat "$SMOKE_MWFN_ERR"
 cat "$SMOKE_MULLIKEN_ERR"
+cat "$SMOKE_VMD_MOLDEN_ERR"
 cat "$SMOKE_WFN_GRID_ERR"
