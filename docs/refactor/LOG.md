@@ -414,3 +414,10 @@
   smoke-test descriptions reflect the current real noGUI export coverage:
   XYZ/PDB/PQR/POSCAR/GRO structures, cube/CHGCAR volumetric exports, and
   wavefunction-derived `density.cub` scenes.
+- Added `tools/vmd-open-scene.sh`, a repository-local helper for opening an
+  already generated VMD Tcl scene via `vmd -e <scene>`. It resolves `vmdpath`
+  from `settings.ini` or `--vmdpath`, supports `--dry-run`, validates the scene
+  file, and keeps VMD as an external executable. Added
+  `tools/vmd-open-scene-smoke.sh` and wired it into the quick verification gate
+  using a generated fake VMD executable, so this convenience path is tested
+  without requiring VMD to be installed.

@@ -87,9 +87,10 @@ tools/verify-refactor.sh full
 `env` runs the read-only GNU build environment doctor. `quick` runs
 `git diff --check`, the environment doctor, ignore-rule audit, helper-script
 mode/shebang audit, the noGUI build-boundary audit, VMD export audits, the narrow
-VMD path-doctor smoke test, the VMD bridge smoke test under default smoke
-settings, and `tools/audit-smoke-residue.sh quick` to check that no default
-`.build-env/nogui-build-audit.*`, `.build-env/vmd-doctor-smoke.*`, or
+VMD path-doctor smoke test, the VMD open-scene helper smoke test, the VMD bridge
+smoke test under default smoke settings, and `tools/audit-smoke-residue.sh
+quick` to check that no default `.build-env/nogui-build-audit.*`,
+`.build-env/vmd-doctor-smoke.*`, `.build-env/vmd-open-scene-smoke.*`, or
 `.build-env/vmd-bridge-smoke.*` directory was left behind. `full` also runs the
 GNU noGUI smoke test and then uses `tools/audit-smoke-residue.sh full` to check
 that root `*.o`, root `*.mod`, `noGUI/*.o`, and known smoke-driven export files
@@ -176,6 +177,13 @@ the local compiler environment or package cache.
 The VMD bridge has a narrower smoke test that compiles just `define.f90`,
 `vmd_bridge.f90`, and `tools/vmd_bridge_smoke.f90`. This caught and removed an
 unnecessary dependency from `vmd_bridge` to the large `util` module.
+
+`tools/vmd-open-scene.sh` is a small convenience wrapper for opening a generated
+scene after export. It validates the scene path, resolves `vmdpath` from
+`settings.ini` or `--vmdpath`, supports `--dry-run`, and then executes VMD with
+`-e <scene>`. Its smoke test uses a generated fake VMD executable and is part of
+the quick verification gate, so this helper remains covered without requiring a
+VMD installation.
 
 Not verified locally:
 

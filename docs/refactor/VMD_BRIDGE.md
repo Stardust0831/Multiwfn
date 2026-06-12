@@ -57,6 +57,20 @@ tools/vmd-doctor-smoke.sh
 This smoke test uses the local shell as a known executable and a generated
 missing path as a negative case, so it does not require VMD to be installed.
 
+An already generated scene can be opened through the repository-local helper:
+
+```sh
+tools/vmd-open-scene.sh exported.cub.vmd.tcl
+tools/vmd-open-scene.sh --vmdpath /path/to/vmd exported.cub.vmd.tcl
+tools/vmd-open-scene.sh --dry-run exported.cub.vmd.tcl
+```
+
+The helper reads `vmdpath` from `settings.ini` unless `--vmdpath` is supplied,
+verifies that the scene file exists, resolves the VMD executable, and then runs
+`vmd -e <scene>`. The dry-run mode reports the resolved executable and scene
+without launching VMD. Its smoke test uses a generated fake VMD executable, so
+the quick verification gate still does not require VMD to be installed.
+
 ## Supported export paths
 
 Initial coverage:
