@@ -256,3 +256,6 @@
   structure and cube paths are now first resolved beside the scene file, then
   allowed to fall back to VMD's current working directory, which makes saved
   `vmdscenefile=auto` scenes easier to reopen manually.
+- Routed generated VMD `mol material` arguments through the same Tcl double-quote
+  escaping helper used for paths and molecule names. The bridge smoke test now
+  covers material strings containing whitespace, `$`, and brackets.

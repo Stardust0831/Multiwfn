@@ -127,7 +127,10 @@ Structure and cube paths in generated `mol new` commands and the header's manual
 characters escaped. This keeps paths with spaces, backslashes, brackets, dollar
 signs, and closing braces usable when a user exports structure or grid files into
 normal project directories. The `mol new` commands pass data paths through a
-small Tcl helper named `multiwfn_resolve_path`.
+small Tcl helper named `multiwfn_resolve_path`. Generated `mol material`
+arguments are quoted the same way, so `-vmdmaterial` and `vmdmaterial` remain
+single Tcl arguments even if a user accidentally includes whitespace or Tcl
+sensitive characters.
 
 After each `mol new`, generated scenes rename the VMD molecule to the exported
 structure or cube path. This makes VMD's molecule list easier to inspect when a
@@ -185,12 +188,13 @@ or a multi-dataset cube file; add molecular and positive/negative isosurface
 representations; and use the configured VMD material. It also checks the
 generated structure, cube/dataset comments, `auto` scene naming, relative data
 path resolution helper, and Tcl quoting for cube and scene paths containing
-spaces, backslashes, and Tcl-sensitive characters. The smoke test also covers
-the non-fatal error path for an unwritable scene location and VMD launch-command
-quoting for Linux/MacOS and Windows. Generated scenes also carry a header note
-describing relative file path resolution. Successful default runs clean their
-temporary `.build-env` smoke directory; use `VMD_SMOKE_KEEP=1` or set
-`VMD_SMOKE_DIR` when inspecting the generated Tcl files.
+spaces, backslashes, and Tcl-sensitive characters. It also checks Tcl quoting for
+the configured VMD material. The smoke test covers the non-fatal error path for
+an unwritable scene location and VMD launch-command quoting for Linux/MacOS and
+Windows. Generated scenes also carry a header note describing relative file path
+resolution. Successful default runs clean their temporary `.build-env` smoke
+directory; use `VMD_SMOKE_KEEP=1` or set `VMD_SMOKE_DIR` when inspecting the
+generated Tcl files.
 `tools/verify-refactor.sh quick` runs the smoke test with those debugging
 overrides unset and fails if a default `vmd-bridge-smoke.*` directory remains
 afterward.

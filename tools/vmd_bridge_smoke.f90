@@ -10,7 +10,7 @@ call get_environment_variable("VMD_SMOKE_DIR",scene_dir)
 if (len_trim(scene_dir)==0) scene_dir=".build-env/vmd-bridge-smoke"
 
 vmdscenefile=trim(scene_dir)//"/test_structure_scene.tcl"
-vmdmaterial="Glass1"
+vmdmaterial="Glass $1[x]"
 ivmdscene=1
 ivmdrun=0
 isosurshowboth=1

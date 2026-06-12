@@ -195,6 +195,18 @@ write(ifileid,"(a)") "mol rename top "//trim(c600name)
 end subroutine
 
 
+subroutine write_vmd_material(ifileid,material)
+implicit real*8 (a-h,o-z)
+integer,intent(in) :: ifileid
+character(len=*),intent(in) :: material
+character(len=600) c600material
+
+c600material=vmd_tcl_dquote(material)
+write(ifileid,"(a)") "mol material "//trim(c600material)
+
+end subroutine
+
+
 subroutine write_vmd_structure_molecule(ifileid,structfile,filetype)
 implicit real*8 (a-h,o-z)
 integer,intent(in) :: ifileid
@@ -215,7 +227,7 @@ if (trim(filetype)=="pqr".or.trim(filetype)=="PQR") then
 else
     write(ifileid,"(a)") "mol color Element"
 end if
-write(ifileid,"(a)") "mol material Opaque"
+call write_vmd_material(ifileid,"Opaque")
 write(ifileid,"(a)") "mol addrep top"
 
 end subroutine
@@ -242,16 +254,16 @@ call write_vmd_molecule_name(ifileid,cubefile)
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
 write(ifileid,"(a)") "mol color Element"
-write(ifileid,"(a)") "mol material Opaque"
+call write_vmd_material(ifileid,"Opaque")
 write(ifileid,"(a)") "mol addrep top"
 write(ifileid,"(a)") "mol representation Isosurface "//trim(c80tmp)//" 0 0 0 1 1"
 write(ifileid,"(a)") "mol color ColorID 0"
-write(ifileid,"(a)") "mol material "//trim(vmdmaterial)
+call write_vmd_material(ifileid,vmdmaterial)
 write(ifileid,"(a)") "mol addrep top"
 if (isosurshowboth==1) then
     write(ifileid,"(a)") "mol representation Isosurface -"//trim(c80tmp)//" 0 0 0 1 1"
     write(ifileid,"(a)") "mol color ColorID 1"
-    write(ifileid,"(a)") "mol material "//trim(vmdmaterial)
+    call write_vmd_material(ifileid,vmdmaterial)
     write(ifileid,"(a)") "mol addrep top"
 end if
 
@@ -279,7 +291,7 @@ call write_vmd_molecule_name(ifileid,cubefile)
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
 write(ifileid,"(a)") "mol color Element"
-write(ifileid,"(a)") "mol material Opaque"
+call write_vmd_material(ifileid,"Opaque")
 write(ifileid,"(a)") "mol addrep top"
 do idataset=1,ndataset
     write(c80idx,"(i10)") idataset-1
@@ -289,14 +301,14 @@ do idataset=1,ndataset
     write(ifileid,"(a,i0,a,a)") "# Dataset ",idataset,", VMD volume index ",trim(c80idx)
     write(ifileid,"(a)") "mol representation Isosurface "//trim(c80tmp)//" "//trim(c80idx)//" 0 0 1 1"
     write(ifileid,"(a)") "mol color ColorID "//trim(c80color)
-    write(ifileid,"(a)") "mol material "//trim(vmdmaterial)
+    call write_vmd_material(ifileid,vmdmaterial)
     write(ifileid,"(a)") "mol addrep top"
     if (isosurshowboth==1) then
         write(c80color,"(i10)") mod(2*(idataset-1)+1,32)
         c80color=adjustl(c80color)
         write(ifileid,"(a)") "mol representation Isosurface -"//trim(c80tmp)//" "//trim(c80idx)//" 0 0 1 1"
         write(ifileid,"(a)") "mol color ColorID "//trim(c80color)
-        write(ifileid,"(a)") "mol material "//trim(vmdmaterial)
+        call write_vmd_material(ifileid,vmdmaterial)
         write(ifileid,"(a)") "mol addrep top"
     end if
 end do
