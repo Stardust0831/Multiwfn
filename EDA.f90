@@ -753,6 +753,7 @@ do while(.true.)
             a(:)%charge=atomdisp(:)
             call outpqr("atomdisp.pqr",10)
             a(:)%charge=tmparr(:)
+            call maybe_write_vmd_structure_scene("atomdisp.pqr","pqr")
             write(*,*) "Done! atomdisp.pqr has been exported in current folder"
         end if
         
@@ -854,6 +855,7 @@ do while(.true.)
                 a(:)%charge=atomdisp(:)
                 call outpqr("diffatomdisp.pqr",10)
                 a(:)%charge=tmparr(:)
+                call maybe_write_vmd_structure_scene("diffatomdisp.pqr","pqr")
                 write(*,*) "Done! diffatomdisp.pqr has been exported in current folder"
             end if
         else

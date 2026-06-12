@@ -339,3 +339,10 @@
   non-wrapper bridge calls as total structure bridge calls minus wrapper-level
   calls, so additional direct user-facing exports do not require a hard-coded
   filename pattern in the audit script.
+- Routed the atomic dispersion contribution PQR exports `atomdisp.pqr` and
+  `diffatomdisp.pqr` through the same VMD PQR scene path. The bridge remains at
+  the user-facing export branches after `outpqr` returns, preserving the
+  side-effect-free lower-level PQR writer. The EDA batch `atmint_*.pqr` outputs
+  remain intentionally excluded until a multi-structure scene helper exists, so
+  the default `vmdscenefile` path is not overwritten by a rapid sequence of
+  related PQR files.
