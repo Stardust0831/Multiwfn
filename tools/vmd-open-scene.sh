@@ -117,7 +117,7 @@ if [ ! -f "$scene" ]; then
 fi
 
 if [ "$check_only" -eq 1 ]; then
-    "$script_dir/vmd-scene-source-check.sh" "$scene"
+    "$script_dir/vmd-scene-source-check.sh" --require-tcl "$scene"
     exit 0
 fi
 

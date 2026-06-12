@@ -33,6 +33,7 @@ none_check_only_out="$smoke_dir/none-check-only.out"
 missing_scene_out="$smoke_dir/missing-scene.out"
 missing_vmd_out="$smoke_dir/missing-vmd.out"
 bad_check_out="$smoke_dir/bad-check.out"
+missing_tcl_out="$smoke_dir/missing-tcl.out"
 
 printf '%s\n' '# smoke scene' > "$scene_file"
 printf '%s\n%s\n' '1' 'H 0.0 0.0 0.0' > "$data_file"
@@ -76,6 +77,15 @@ fi
 
 "$script_dir/vmd-open-scene.sh" --check-only --vmdpath none "$checked_scene_file" > "$none_check_only_out"
 grep -Fq "VMD scene source check passed." "$none_check_only_out"
+
+"$script_dir/vmd-scene-source-check.sh" --help > "$smoke_dir/source-check-help.out"
+grep -Fq "Usage: tools/vmd-scene-source-check.sh [--require-tcl] SCENE.tcl [SCENE.tcl ...]" "$smoke_dir/source-check-help.out"
+
+if TCLSH="$smoke_dir/missing-tclsh" "$script_dir/vmd-scene-source-check.sh" --require-tcl "$checked_scene_file" > "$missing_tcl_out" 2>&1; then
+    printf '%s\n' "Expected --require-tcl to fail when TCLSH points to a missing executable."
+    exit 1
+fi
+grep -Fq "VMD scene source check requires tclsh, but tclsh was not found." "$missing_tcl_out"
 
 FAKE_VMD_LOG="$fake_log" "$script_dir/vmd-open-scene.sh" --vmdpath "$fake_vmd" "$scene_file" > "$run_out"
 grep -Fq "VMD executable: $fake_vmd" "$run_out"

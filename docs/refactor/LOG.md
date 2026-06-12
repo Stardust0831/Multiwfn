@@ -444,3 +444,6 @@
 - Improved `tools/vmd-scene-source-check.sh` diagnostics so a failing scene
   check reports the scene file path before the Tcl error. The open-scene smoke
   negative check now asserts that this context is present.
+- Added `--require-tcl` to `tools/vmd-scene-source-check.sh` and made
+  `tools/vmd-open-scene.sh --check-only` use it, so check-only mode fails
+  clearly instead of silently skipping validation when `tclsh` is unavailable.

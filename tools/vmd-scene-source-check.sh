@@ -1,17 +1,54 @@
 #!/usr/bin/env sh
 set -eu
 
+require_tcl=0
+
+usage() {
+    printf '%s\n' "Usage: tools/vmd-scene-source-check.sh [--require-tcl] SCENE.tcl [SCENE.tcl ...]"
+}
+
+while [ "$#" -gt 0 ]
+do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --require-tcl)
+            require_tcl=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            usage
+            exit 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
 if [ "$#" -eq 0 ]; then
-    printf '%s\n' "Usage: tools/vmd-scene-source-check.sh SCENE.tcl [SCENE.tcl ...]"
+    usage
     exit 2
 fi
 
 tclsh_bin=${TCLSH:-}
 if [ -z "$tclsh_bin" ]; then
     tclsh_bin=$(command -v tclsh || true)
+elif [ ! -x "$tclsh_bin" ]; then
+    tclsh_bin=$(command -v "$tclsh_bin" 2>/dev/null || true)
 fi
 
 if [ -z "$tclsh_bin" ]; then
+    if [ "$require_tcl" -eq 1 ]; then
+        printf '%s\n' "VMD scene source check requires tclsh, but tclsh was not found."
+        exit 1
+    fi
     printf '%s\n' "Skipping VMD scene source check because tclsh was not found."
     exit 0
 fi

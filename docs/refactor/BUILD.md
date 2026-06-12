@@ -186,9 +186,10 @@ unnecessary dependency from `vmd_bridge` to the large `util` module.
 scene after export. It validates the scene path, resolves `vmdpath` from
 `settings.ini` or `--vmdpath`, supports `--dry-run`, can run the reusable scene
 source check with `--check`, can validate a scene without resolving VMD via
-`--check-only`, and then executes VMD with `-e <scene>`. Its smoke test uses a
-generated fake VMD executable and is part of the quick verification gate, so
-this helper remains covered without requiring a VMD installation.
+`--check-only`, and then executes VMD with `-e <scene>`. `--check-only` requires
+`tclsh` because it is meant to be an actual scene validation path. Its smoke test
+uses a generated fake VMD executable and is part of the quick verification gate,
+so this helper remains covered without requiring a VMD installation.
 
 Not verified locally:
 
