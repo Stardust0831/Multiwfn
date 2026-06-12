@@ -31,6 +31,11 @@ SMOKE_VMD_EXPORT_CUBE=${SMOKE_VMD_EXPORT_CUBE:-$SMOKE_VMD_CUBE_DIR/exported.cub}
 SMOKE_VMD_CUBE_SCENE=${SMOKE_VMD_CUBE_SCENE:-$SMOKE_VMD_EXPORT_CUBE.vmd.tcl}
 SMOKE_VMD_CUBE_OUT=${SMOKE_VMD_CUBE_OUT:-$SMOKE_VMD_CUBE_DIR/gnu-noGUI-vmd-cube-smoke.out}
 SMOKE_VMD_CUBE_ERR=${SMOKE_VMD_CUBE_ERR:-$SMOKE_VMD_CUBE_DIR/gnu-noGUI-vmd-cube-smoke.err}
+SMOKE_VMD_VASP_DIR=${SMOKE_VMD_VASP_DIR:-$SMOKE_DIR/vmd-vasp-export}
+SMOKE_VMD_EXPORT_CHGCAR=${SMOKE_VMD_EXPORT_CHGCAR:-$SMOKE_VMD_VASP_DIR/exported.CHGCAR}
+SMOKE_VMD_CHGCAR_SCENE=${SMOKE_VMD_CHGCAR_SCENE:-$SMOKE_VMD_EXPORT_CHGCAR.vmd.tcl}
+SMOKE_VMD_CHGCAR_OUT=${SMOKE_VMD_CHGCAR_OUT:-$SMOKE_VMD_VASP_DIR/gnu-noGUI-vmd-vasp-smoke.out}
+SMOKE_VMD_CHGCAR_ERR=${SMOKE_VMD_CHGCAR_ERR:-$SMOKE_VMD_VASP_DIR/gnu-noGUI-vmd-vasp-smoke.err}
 
 allowed_stderr='Note: The following floating-point exceptions are signalling: IEEE_INVALID_FLAG'
 
@@ -77,7 +82,7 @@ restore_settings() {
     fi
 }
 
-mkdir -p "$SMOKE_DIR" "$SMOKE_VMD_DIR" "$SMOKE_VMD_CUBE_DIR" "$SMOKE_WFN_GRID_DIR"
+mkdir -p "$SMOKE_DIR" "$SMOKE_VMD_DIR" "$SMOKE_VMD_CUBE_DIR" "$SMOKE_VMD_VASP_DIR" "$SMOKE_WFN_GRID_DIR"
 
 printf '%s\n%s\n%s\n%s\n%s\n' \
     '3' \
@@ -143,6 +148,22 @@ grep -Fq 'mol representation Isosurface -0.05000000 0 0 0 1 1' "$SMOKE_VMD_CUBE_
 tools/vmd-scene-source-check.sh "$SMOKE_VMD_CUBE_SCENE"
 check_stderr "$SMOKE_VMD_CUBE_ERR" "GNU noGUI VMD cube export smoke"
 
+printf '%s\n%s\n%s\n%s\n%s\n%s\n' '100' '2' '37' "$SMOKE_VMD_EXPORT_CHGCAR" '0' 'q' |
+    run_multiwfn "$SMOKE_CUBE" -vmdrun -vmdpath none -vmdscene auto > "$SMOKE_VMD_CHGCAR_OUT" 2> "$SMOKE_VMD_CHGCAR_ERR"
+grep -q 'Loaded .*water-density.cub successfully' "$SMOKE_VMD_CHGCAR_OUT"
+grep -q 'Export system to various formats of files' "$SMOKE_VMD_CHGCAR_OUT"
+grep -q 'Done, the grid data has been exported in VASP grid data format' "$SMOKE_VMD_CHGCAR_OUT"
+grep -q 'VMD scene script has been written to .*exported.CHGCAR.vmd.tcl' "$SMOKE_VMD_CHGCAR_OUT"
+grep -q 'VMD was not launched because vmdpath is empty or none' "$SMOKE_VMD_CHGCAR_OUT"
+test -s "$SMOKE_VMD_EXPORT_CHGCAR"
+test -s "$SMOKE_VMD_CHGCAR_SCENE"
+grep -Fq "# Volumetric map file: $SMOKE_VMD_EXPORT_CHGCAR" "$SMOKE_VMD_CHGCAR_SCENE"
+grep -Fq '# VMD file type: CHGCAR' "$SMOKE_VMD_CHGCAR_SCENE"
+grep -Fq 'mol new [multiwfn_resolve_path "exported.CHGCAR"] type "CHGCAR" waitfor all' "$SMOKE_VMD_CHGCAR_SCENE"
+grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$SMOKE_VMD_CHGCAR_SCENE"
+tools/vmd-scene-source-check.sh "$SMOKE_VMD_CHGCAR_SCENE"
+check_stderr "$SMOKE_VMD_CHGCAR_ERR" "GNU noGUI VMD VASP grid export smoke"
+
 printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$SMOKE_MWFN" '1' '0.2,0.0,0.0' '1' 'q' 'q' |
     run_multiwfn > "$SMOKE_MWFN_OUT" 2> "$SMOKE_MWFN_ERR"
 grep -q 'Loaded .*he_minimal.mwfn successfully' "$SMOKE_MWFN_OUT"
@@ -190,6 +211,7 @@ cat "$SMOKE_ERR"
 cat "$SMOKE_VMD_ERR"
 cat "$SMOKE_CUBE_ERR"
 cat "$SMOKE_VMD_CUBE_ERR"
+cat "$SMOKE_VMD_CHGCAR_ERR"
 cat "$SMOKE_MWFN_ERR"
 cat "$SMOKE_MULLIKEN_ERR"
 cat "$SMOKE_WFN_GRID_ERR"

@@ -380,3 +380,7 @@
   menu's VASP grid export through it using VMD's `CHGCAR` molfile type. The type
   token was verified from the VMD molfile `vaspchgcarplugin` registration name,
   and the bridge smoke test now generates and sources a CHGCAR-type scene.
+- Extended the GNU noGUI smoke test with an end-to-end VASP grid export fixture.
+  It loads the water cube fixture, uses the real file export menu to write
+  `exported.CHGCAR`, generates `exported.CHGCAR.vmd.tcl` with `vmdscenefile=auto`,
+  and sources the generated CHGCAR-type VMD scene.

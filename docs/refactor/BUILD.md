@@ -102,10 +102,12 @@ The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. The `gnu-noGUI-smoke` Makefile target delegates the runtime checks
 to `tools/gnu-nogui-smoke.sh` after rebuilding the binary, while preserving the
 same `SMOKE_*`, `GNU_PREFIX`, and `EXE_noGUI` override points for local
-debugging. The smoke script runs seven non-interactive fixtures: a three-atom
+debugging. The smoke script runs eight non-interactive fixtures: a three-atom
 water XYZ structure load, a real XYZ structure export that generates a VMD scene
 through the main program's `xyz` command, a minimal water cube grid load, a real
 cube export through the grid-data processing menu that generates a VMD scene, a
+real VASP `CHGCAR` grid export through the file export menu that generates a VMD
+scene with VMD's `CHGCAR` molfile type, a
 minimal `.mwfn` wavefunction point-property calculation, and a minimal `.mwfn`
 Mulliken population analysis, and a `.mwfn` electron-density grid calculation
 that exports `density.cub` and its VMD scene from the spatial-region menu. The

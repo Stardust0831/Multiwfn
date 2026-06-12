@@ -54,7 +54,7 @@ check_object_residue() {
 
 check_smoke_export_residue() {
     export_residue=0
-    for file in he_minimal.chg atmpopdcp.txt density.cub density.cub.vmd.tcl
+    for file in he_minimal.chg atmpopdcp.txt density.cub density.cub.vmd.tcl CHGCAR CHGCAR.vmd.tcl exported.CHGCAR exported.CHGCAR.vmd.tcl
     do
         if [ -e "$repo_dir/$file" ]; then
             if [ "$export_residue" -eq 0 ]; then

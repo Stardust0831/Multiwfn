@@ -177,11 +177,13 @@ The smoke target rebuilds `Multiwfn_noGUI`, then runs
 `tools/gnu-nogui-smoke.sh`. The script generates temporary XYZ and cube files
 under `.build-env/smoke`, uses the tracked
 `tools/fixtures/he_minimal.mwfn` wavefunction fixture, backs up `settings.ini`,
-runs `Multiwfn_noGUI` for all seven fixtures, verifies that the structure and cube
+runs `Multiwfn_noGUI` for all eight fixtures, verifies that the structure and cube
 files reach the main menu, verifies that a real main-program `xyz` export writes
 both an XYZ file and a VMD Tcl scene while `vmdpath=none` prevents launching
 VMD, verifies that a real grid-data processing menu export writes both a cube
-file and a VMD Tcl scene with positive and negative isosurfaces, verifies that
+file and a VMD Tcl scene with positive and negative isosurfaces, verifies that a
+real file-export menu VASP grid export writes both a `CHGCAR` file and a VMD Tcl
+scene using VMD's `CHGCAR` molfile type, verifies that
 the `.mwfn` fixture can calculate electron density on a small grid, write
 `density.cub`, and generate `density.cub.vmd.tcl`, sources those generated VMD
 scenes through
@@ -204,7 +206,8 @@ After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 - GNU object files under `.build-env/gnu-obj`.
 - Generated smoke-test inputs and logs under `.build-env/smoke`.
 - Wavefunction-derived density cube and VMD scene files under
-  `.build-env/smoke/wfn-grid-export`.
+  `.build-env/smoke/wfn-grid-export`, plus VMD export fixtures under
+  `.build-env/smoke/vmd-*`.
 - No root `*.o`, root `*.mod`, or `noGUI/*.o` files.
 - No known root-level smoke export files such as `he_minimal.chg` or
   `atmpopdcp.txt`, and no root-level wavefunction-grid outputs such as
