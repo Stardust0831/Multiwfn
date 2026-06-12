@@ -126,7 +126,7 @@ gnu-noGUI-smoke: gnu-noGUI
 	test -s "$(SMOKE_VMD_EXPORT_XYZ)"; \
 	test -s "$(SMOKE_VMD_SCENE)"; \
 	grep -Fq '# Structure file: $(SMOKE_VMD_EXPORT_XYZ)' "$(SMOKE_VMD_SCENE)"; \
-	grep -Fq 'mol new [multiwfn_resolve_path "$(SMOKE_VMD_EXPORT_XYZ)"] type "xyz" waitfor all' "$(SMOKE_VMD_SCENE)"; \
+	grep -Fq 'mol new [multiwfn_resolve_path "exported.xyz"] type "xyz" waitfor all' "$(SMOKE_VMD_SCENE)"; \
 	grep -Fq 'mol color Element' "$(SMOKE_VMD_SCENE)"; \
 	tools/vmd-scene-source-check.sh "$(SMOKE_VMD_SCENE)"; \
 	check_stderr "$(SMOKE_VMD_ERR)" "GNU noGUI VMD structure export smoke"; \
@@ -143,7 +143,7 @@ gnu-noGUI-smoke: gnu-noGUI
 	test -s "$(SMOKE_VMD_EXPORT_CUBE)"; \
 	test -s "$(SMOKE_VMD_CUBE_SCENE)"; \
 	grep -Fq '# Cube file: $(SMOKE_VMD_EXPORT_CUBE)' "$(SMOKE_VMD_CUBE_SCENE)"; \
-	grep -Fq 'mol new [multiwfn_resolve_path "$(SMOKE_VMD_EXPORT_CUBE)"] type cube waitfor all' "$(SMOKE_VMD_CUBE_SCENE)"; \
+	grep -Fq 'mol new [multiwfn_resolve_path "exported.cub"] type cube waitfor all' "$(SMOKE_VMD_CUBE_SCENE)"; \
 	grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$(SMOKE_VMD_CUBE_SCENE)"; \
 	grep -Fq 'mol representation Isosurface -0.05000000 0 0 0 1 1' "$(SMOKE_VMD_CUBE_SCENE)"; \
 	tools/vmd-scene-source-check.sh "$(SMOKE_VMD_CUBE_SCENE)"; \

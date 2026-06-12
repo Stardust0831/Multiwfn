@@ -159,8 +159,9 @@ structure and cube files reach the main menu, verifies that a real main-program
 prevents launching VMD, verifies that a real grid-data processing menu export
 writes both a cube file and a VMD Tcl scene with positive and negative
 isosurfaces, sources those generated VMD scenes through
-`tools/vmd-scene-source-check.sh` when `tclsh` is available, verifies that the
-`.mwfn` point-property fixture prints
+`tools/vmd-scene-source-check.sh` from a temporary working directory when
+`tclsh` is available, verifies that their `mol new` data paths resolve to the
+exported files, verifies that the `.mwfn` point-property fixture prints
 representative real-space results, verifies that the `.mwfn` Mulliken fixture
 prints basis and atomic populations, and restores `settings.ini` before exiting.
 GFortran currently prints an IEEE floating-point exception flag note at program

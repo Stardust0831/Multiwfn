@@ -16,6 +16,12 @@ if [ -z "$tclsh_bin" ]; then
     exit 0
 fi
 
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/vmd-scene-source-check.XXXXXX")
+cleanup() {
+    rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+
 for scene_file
 do
     case "$scene_file" in
@@ -28,8 +34,15 @@ do
         exit 1
     fi
 
-    SCENE_UNDER_TEST=$scene_abs "$tclsh_bin" <<'EOF'
-proc mol {args} {}
+    SCENE_UNDER_TEST=$scene_abs SCENE_SOURCE_CWD=$tmp_dir "$tclsh_bin" <<'EOF'
+set multiwfn_mol_new_paths {}
+
+proc mol {args} {
+    global multiwfn_mol_new_paths
+    if {[llength $args] >= 2 && [lindex $args 0] eq "new"} {
+        lappend multiwfn_mol_new_paths [lindex $args 1]
+    }
+}
 proc display {args} {}
 proc axes {args} {}
 
@@ -37,10 +50,17 @@ if {![file exists $env(SCENE_UNDER_TEST)]} {
     error "scene file does not exist: $env(SCENE_UNDER_TEST)"
 }
 
+cd $env(SCENE_SOURCE_CWD)
 source $env(SCENE_UNDER_TEST)
 
 if {[llength [info procs multiwfn_resolve_path]] == 0} {
     error "multiwfn_resolve_path was not defined by scene"
+}
+
+foreach data_path $multiwfn_mol_new_paths {
+    if {![file exists $data_path]} {
+        error "resolved VMD data path does not exist when sourced from another CWD: $data_path"
+    }
 }
 EOF
 done

@@ -14,7 +14,7 @@ if (ivmdscene==0.and.ivmdrun==0) return
 call open_vmd_scene_file(scenefile,sceneunit,lopen,structfile)
 if (.not.lopen) return
 call write_vmd_scene_header(sceneunit,scenefile)
-call write_vmd_structure_molecule(sceneunit,structfile,filetype)
+call write_vmd_structure_molecule(sceneunit,structfile,filetype,scenefile)
 call write_vmd_scene_footer(sceneunit)
 close(sceneunit)
 
@@ -63,7 +63,7 @@ call open_vmd_scene_file(scenefile,sceneunit,lopen,cubefiles(1))
 if (.not.lopen) return
 call write_vmd_scene_header(sceneunit,scenefile)
 do ifile=1,nfile
-    call write_vmd_cube_molecule(sceneunit,cubefiles(ifile),isovalue)
+    call write_vmd_cube_molecule(sceneunit,cubefiles(ifile),isovalue,scenefile)
 end do
 call write_vmd_scene_footer(sceneunit)
 close(sceneunit)
@@ -90,7 +90,7 @@ if (ndataset<=0) return
 call open_vmd_scene_file(scenefile,sceneunit,lopen,cubefile)
 if (.not.lopen) return
 call write_vmd_scene_header(sceneunit,scenefile)
-call write_vmd_cube_dataset_molecule(sceneunit,cubefile,ndataset,isovalue)
+call write_vmd_cube_dataset_molecule(sceneunit,cubefile,ndataset,isovalue,scenefile)
 call write_vmd_scene_footer(sceneunit)
 close(sceneunit)
 
@@ -108,7 +108,7 @@ character(len=*),intent(in) :: cubefile,scenefile
 real*8,intent(in) :: isovalue
 
 call write_vmd_scene_header(ifileid,scenefile)
-call write_vmd_cube_molecule(ifileid,cubefile,isovalue)
+call write_vmd_cube_molecule(ifileid,cubefile,isovalue,scenefile)
 call write_vmd_scene_footer(ifileid)
 
 end subroutine
@@ -207,13 +207,17 @@ write(ifileid,"(a)") "mol material "//trim(c600material)
 end subroutine
 
 
-subroutine write_vmd_structure_molecule(ifileid,structfile,filetype)
+subroutine write_vmd_structure_molecule(ifileid,structfile,filetype,scenefile)
 implicit real*8 (a-h,o-z)
 integer,intent(in) :: ifileid
 character(len=*),intent(in) :: structfile,filetype
+character(len=*),intent(in),optional :: scenefile
 character(len=600) c600struct,c600type
+character(len=600) scenepath
 
-c600struct=vmd_tcl_dquote(structfile)
+scenepath=structfile
+if (present(scenefile)) scenepath=vmd_scene_data_path(structfile,scenefile)
+c600struct=vmd_tcl_dquote(scenepath)
 c600type=vmd_tcl_dquote(filetype)
 
 write(ifileid,"(a)") ""
@@ -233,18 +237,22 @@ write(ifileid,"(a)") "mol addrep top"
 end subroutine
 
 
-subroutine write_vmd_cube_molecule(ifileid,cubefile,isovalue)
+subroutine write_vmd_cube_molecule(ifileid,cubefile,isovalue,scenefile)
 use defvar
 implicit real*8 (a-h,o-z)
 integer,intent(in) :: ifileid
 character(len=*),intent(in) :: cubefile
+character(len=*),intent(in),optional :: scenefile
 real*8,intent(in) :: isovalue
 character(len=80) c80tmp
 character(len=600) c600cube
+character(len=600) scenepath
 
 write(c80tmp,"(f16.8)") abs(isovalue)
 c80tmp=adjustl(c80tmp)
-c600cube=vmd_tcl_dquote(cubefile)
+scenepath=cubefile
+if (present(scenefile)) scenepath=vmd_scene_data_path(cubefile,scenefile)
+c600cube=vmd_tcl_dquote(scenepath)
 
 write(ifileid,"(a)") ""
 write(ifileid,"(a)") "# Cube file: "//trim(cubefile)
@@ -270,18 +278,22 @@ end if
 end subroutine
 
 
-subroutine write_vmd_cube_dataset_molecule(ifileid,cubefile,ndataset,isovalue)
+subroutine write_vmd_cube_dataset_molecule(ifileid,cubefile,ndataset,isovalue,scenefile)
 use defvar
 implicit real*8 (a-h,o-z)
 integer,intent(in) :: ifileid,ndataset
 character(len=*),intent(in) :: cubefile
+character(len=*),intent(in),optional :: scenefile
 real*8,intent(in) :: isovalue
 character(len=80) c80tmp,c80idx,c80color
 character(len=600) c600cube
+character(len=600) scenepath
 
 write(c80tmp,"(f16.8)") abs(isovalue)
 c80tmp=adjustl(c80tmp)
-c600cube=vmd_tcl_dquote(cubefile)
+scenepath=cubefile
+if (present(scenefile)) scenepath=vmd_scene_data_path(cubefile,scenefile)
+c600cube=vmd_tcl_dquote(scenepath)
 
 write(ifileid,"(a)") ""
 write(ifileid,"(a)") "# Multi-dataset cube file: "//trim(cubefile)
@@ -439,5 +451,65 @@ end do
 if (ipos<=len(quoted)) quoted(ipos:ipos)=""""
 
 end function
+
+
+function vmd_scene_data_path(datafile,scenefile) result(scene_path)
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: datafile,scenefile
+character(len=600) :: scene_path
+character(len=600) :: datadir,database,scenedir,scenebase
+
+scene_path=datafile
+if (len_trim(datafile)==0.or.len_trim(scenefile)==0) return
+if (vmd_is_absolute_path(datafile)) return
+
+call vmd_split_path(datafile,datadir,database)
+call vmd_split_path(scenefile,scenedir,scenebase)
+
+if (len_trim(datadir)>0.and.len_trim(scenedir)>0) then
+    if (trim(datadir)==trim(scenedir)) scene_path=trim(database)
+end if
+
+end function
+
+
+logical function vmd_is_absolute_path(path)
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: path
+
+vmd_is_absolute_path=.false.
+if (len_trim(path)<=0) return
+
+if (path(1:1)=="/".or.path(1:1)=="\") then
+    vmd_is_absolute_path=.true.
+else if (len_trim(path)>=2) then
+    if (path(2:2)==":") vmd_is_absolute_path=.true.
+end if
+
+end function
+
+
+subroutine vmd_split_path(path,dir,base)
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: path
+character(len=600),intent(out) :: dir,base
+
+dir=" "
+base=path
+ilast=0
+do ipos=1,len_trim(path)
+    if (path(ipos:ipos)=="/".or.path(ipos:ipos)=="\") ilast=ipos
+end do
+
+if (ilast>0) then
+    if (ilast>1) dir=path(1:ilast-1)
+    if (ilast<len_trim(path)) then
+        base=path(ilast+1:len_trim(path))
+    else
+        base=" "
+    end if
+end if
+
+end subroutine
 
 end module

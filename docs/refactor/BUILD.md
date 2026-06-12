@@ -100,15 +100,17 @@ fixture must enter `Process grid data`, write the exported cube file, write
 `<exported.cub>.vmd.tcl`, and generate positive and negative isosurface
 representations. When `tclsh` is available, those end-to-end generated VMD
 scenes are also sourced with stubbed VMD commands by
-`tools/vmd-scene-source-check.sh`. The point-property fixture must print
-representative electron-density, kinetic-energy, and orbital-value lines; the
-Mulliken fixture must print basis-function population, atom population, and zero
-net charge for the helium fixture. The smoke target restores `settings.ini`
-after the run because Multiwfn updates `lastfile` during normal startup. The
-full verification wrapper checks that restoration worked by comparing
-`settings.ini` before and after the smoke test. The smoke test reports an IEEE
-floating-point exception flag note at shutdown; this known note is allowed by
-the smoke target, while any other stderr output causes the smoke test to fail.
+`tools/vmd-scene-source-check.sh` from a temporary working directory, and their
+`mol new` data paths must resolve to existing exported files. The point-property
+fixture must print representative electron-density, kinetic-energy, and
+orbital-value lines; the Mulliken fixture must print basis-function population,
+atom population, and zero net charge for the helium fixture. The smoke target
+restores `settings.ini` after the run because Multiwfn updates `lastfile` during
+normal startup. The full verification wrapper checks that restoration worked by
+comparing `settings.ini` before and after the smoke test. The smoke test reports
+an IEEE floating-point exception flag note at shutdown; this known note is
+allowed by the smoke target, while any other stderr output causes the smoke test
+to fail.
 
 All generated compiler packages, module files, smoke logs, temporary build
 artifacts, exported visualization files, and machine-local Makefile overrides
