@@ -346,3 +346,10 @@
   remain intentionally excluded until a multi-structure scene helper exists, so
   the default `vmdscenefile` path is not overwritten by a rapid sequence of
   related PQR files.
+- Added `maybe_write_vmd_structure_scene_list` for same-format structure
+  batches and routed the EDA-FF `atmint_tot.pqr`, `atmint_ele.pqr`,
+  `atmint_rep.pqr`, `atmint_disp.pqr`, and `atmint_vdW.pqr` exports through it.
+  The batch now writes one Tcl scene that loads all five PQR files, avoiding
+  repeated overwrites of the default `vmdscenefile` while still keeping
+  low-level structure writers side-effect free. The VMD bridge smoke test now
+  generates and sources a multi-structure PQR scene.

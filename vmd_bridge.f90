@@ -24,6 +24,33 @@ if (ivmdrun==1) call run_vmd_scene(scenefile)
 end subroutine
 
 
+subroutine maybe_write_vmd_structure_scene_list(structfiles,nfile,filetype)
+use defvar
+implicit real*8 (a-h,o-z)
+integer,intent(in) :: nfile
+character(len=*),intent(in) :: structfiles(nfile),filetype
+character(len=200) scenefile
+integer sceneunit
+logical lopen
+
+if (ivmdscene==0.and.ivmdrun==0) return
+if (nfile<=0) return
+
+call open_vmd_scene_file(scenefile,sceneunit,lopen,structfiles(1))
+if (.not.lopen) return
+call write_vmd_scene_header(sceneunit,scenefile)
+do ifile=1,nfile
+    call write_vmd_structure_molecule(sceneunit,structfiles(ifile),filetype,scenefile)
+end do
+call write_vmd_scene_footer(sceneunit)
+close(sceneunit)
+
+write(*,"(' VMD scene script has been written to ',a)") trim(scenefile)
+if (ivmdrun==1) call run_vmd_scene(scenefile)
+
+end subroutine
+
+
 subroutine maybe_write_vmd_cube_scene(cubefile,isovalue)
 use defvar
 implicit real*8 (a-h,o-z)

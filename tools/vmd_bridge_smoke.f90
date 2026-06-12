@@ -3,6 +3,7 @@ use defvar
 use vmd_bridge
 implicit none
 character(len=80) cubefiles(2)
+character(len=80) structfiles(3)
 character(len=600) command
 character(len=600) scene_dir
 
@@ -19,6 +20,12 @@ call maybe_write_vmd_structure_scene("structure dir/a$b[1]}.pdb","pdb")
 
 vmdscenefile=trim(scene_dir)//"/test_pqr_structure_scene.tcl"
 call maybe_write_vmd_structure_scene("charge dir/a$b[1]}.pqr","pqr")
+
+structfiles(1)="charge dir/a$b[1]}.pqr"
+structfiles(2)="charge dir/batch second.pqr"
+structfiles(3)="charge dir/batch_third.pqr"
+vmdscenefile=trim(scene_dir)//"/test_multi_structure_scene.tcl"
+call maybe_write_vmd_structure_scene_list(structfiles,3,"pqr")
 
 vmdscenefile=trim(scene_dir)//"/test_gro_structure_scene.tcl"
 call maybe_write_vmd_structure_scene("traj dir/a$b[1]}.gro","gro")

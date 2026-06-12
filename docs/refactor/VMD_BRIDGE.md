@@ -121,10 +121,13 @@ through VMD. The file export menu's explicit PBC PDB path writes `mol.pdb` and
 then uses the same structure-scene helper because it is a direct user export.
 The ESP charge fitting workflow's `ESPfitpt.pqr` and `ESPerr.pqr` point-cloud
 exports are also routed through the structure-scene helper, as are the atomic
-dispersion contribution exports `atomdisp.pqr` and `diffatomdisp.pqr`. PDB,
-XYZ, and GRO structure scenes use element coloring; PQR scenes use VMD's charge
-coloring so exported per-atom charges, ESP values, fitting errors, or atomic
-dispersion contributions are visible immediately.
+dispersion contribution exports `atomdisp.pqr` and `diffatomdisp.pqr`. The
+EDA-FF atom contribution batch exports `atmint_tot.pqr`, `atmint_ele.pqr`,
+`atmint_rep.pqr`, `atmint_disp.pqr`, and `atmint_vdW.pqr` through a
+multi-structure PQR scene, so one Tcl script loads all related contribution
+variants. PDB, XYZ, and GRO structure scenes use element coloring; PQR scenes
+use VMD's charge coloring so exported per-atom charges, ESP values, fitting
+errors, or atomic dispersion/interaction contributions are visible immediately.
 
 Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive
@@ -193,9 +196,10 @@ tools/vmd-scene-source-check.sh path/to/scene.vmd.tcl
 ```
 
 This compiles a minimal driver and verifies that generated Tcl scenes can load
-PDB, PQR, XYZ, and GRO structure files, a single cube file, multiple cube files,
-or a multi-dataset cube file; add molecular and positive/negative isosurface
-representations; and use the configured VMD material. It also checks the
+PDB, PQR, XYZ, and GRO structure files, multiple PQR structure files, a single
+cube file, multiple cube files, or a multi-dataset cube file; add molecular and
+positive/negative isosurface representations; and use the configured VMD
+material. It also checks the
 generated structure, cube/dataset comments, `auto` scene naming, relative data
 path resolution helper, and Tcl quoting for cube and scene paths containing
 spaces, backslashes, and Tcl-sensitive characters. It also checks Tcl quoting for

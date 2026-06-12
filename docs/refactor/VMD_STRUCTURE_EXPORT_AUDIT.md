@@ -21,8 +21,8 @@ Current counts:
 
 - Structure wrapper definitions in production Fortran sources: 4
 - Wrapper-level VMD structure bridge calls in production Fortran sources: 4
-- Explicit non-wrapper VMD structure bridge calls in production Fortran sources: 5
-- Total VMD structure bridge calls in production Fortran sources: 9
+- Explicit non-wrapper VMD structure bridge calls in production Fortran sources: 6
+- Total VMD structure bridge calls in production Fortran sources: 10
 
 ## Covered Structure Paths
 
@@ -48,6 +48,12 @@ The atomic dispersion contribution workflow can export `atomdisp.pqr` and
 contribution or its difference between systems. These single-file, user-selected
 exports are routed through direct PQR scene calls.
 
+The EDA-FF atom contribution workflow can export the related `atmint_tot.pqr`,
+`atmint_ele.pqr`, `atmint_rep.pqr`, `atmint_disp.pqr`, and `atmint_vdW.pqr`
+files in one menu action. These are routed through a multi-structure PQR scene
+call so one generated Tcl file loads all five charge-colored contribution
+variants.
+
 ## Intentionally Excluded
 
 Low-level writers such as `outpdb`, `outpqr`, `outxyz`, `outgro`, and
@@ -57,8 +63,6 @@ call site is a user-facing visualization export.
 
 Current examples of intentionally excluded direct writer calls include:
 
-- `EDA.f90`: batch `atmint_*.pqr` files from the energy decomposition workflow
-  are not routed until the bridge has a multi-structure scene helper; temporary
-  XYZ files used by dispersion workflows remain excluded.
+- `EDA.f90`: temporary XYZ files used by dispersion workflows remain excluded.
 - `surfana.f90`: PDB output used by molecular surface analysis internals.
 - `fileIO.f90`: CML/CIF exports are not routed through VMD in this bridge pass.
