@@ -147,3 +147,24 @@ Implementation implication:
 - If `LIB_noGUI_GNU` is overridden, the doctor reports the override and skips
   the default OpenBLAS file check under `GNU_PREFIX/lib`.
 - `Makefile.local.example` documents only real override variables.
+
+## 2026-06-12: VMD structure formats require verified plugin support
+
+Decision: Do not generate VMD scenes for Multiwfn CIF or CML exports until VMD
+support is verified from an official plugin source or an installed VMD build.
+
+Rationale:
+
+- A generated VMD scene is useful only if VMD can load the data file reliably.
+- The official VMD molfile plugin table checked on 2026-06-12 lists PDB, PQR,
+  GRO, Mol2, POSCAR, XSF, XYZ, and other structure readers, but does not list a
+  dedicated CIF or CML structure reader in that table.
+- Multiwfn can already export PDB/PQR/XYZ/GRO for the immediate bridge use case,
+  while CIF/CML support would need format-specific validation instead of a blind
+  helper call.
+
+Implementation implication:
+
+- Keep `outcif_wrapper` and direct `outcml` exports side-effect free for now.
+- If VMD support is confirmed later, record the exact `mol new ... type` token
+  and add a smoke-tested scene before routing those exports through the bridge.

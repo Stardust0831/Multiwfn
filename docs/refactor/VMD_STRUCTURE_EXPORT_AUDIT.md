@@ -71,3 +71,19 @@ Current examples of intentionally excluded direct writer calls include:
 - `EDA.f90`: temporary XYZ files used by dispersion workflows remain excluded.
 - `surfana.f90`: PDB output used by molecular surface analysis internals.
 - `fileIO.f90`: CML/CIF exports are not routed through VMD in this bridge pass.
+
+## Format Support Boundary
+
+CML and CIF are user-facing structure exports in Multiwfn, but they are not
+currently routed through the VMD bridge. The official VMD molfile plugin
+documentation checked on 2026-06-12 lists structure readers for formats such as
+PDB, PQR, GRO, Mol2, POSCAR, XSF, and XYZ, and lists Gaussian cube under
+volumetric data readers. It does not list a dedicated CIF or CML structure
+plugin in that official molfile table:
+
+- https://www.ks.uiuc.edu/Research/vmd/plugins/molfile/
+
+The bridge therefore avoids generating CIF/CML VMD scenes until support is
+verified against a reliable VMD plugin source or an installed VMD build. If CIF
+or CML support is added later, record the exact VMD `mol new ... type` token and
+add a smoke scene that can be sourced by `tools/vmd-scene-source-check.sh`.

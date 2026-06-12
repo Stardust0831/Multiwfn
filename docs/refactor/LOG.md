@@ -363,3 +363,8 @@
   first and remains the path used by smoke/full verification, while
   `tools/gnu-build.sh noGUI-incremental` reuses `.build-env/gnu-obj` and
   `.build-env/gnu-mod` for faster local compile checks during refactor work.
+- Checked the official VMD molfile plugin table while auditing remaining
+  structure exports. It lists documented structure readers such as PDB, PQR,
+  GRO, Mol2, POSCAR, XSF, and XYZ, but not a dedicated CIF or CML reader in that
+  table, so CIF/CML Multiwfn exports remain intentionally outside the VMD bridge
+  until exact VMD plugin support and `mol new ... type` handling are verified.

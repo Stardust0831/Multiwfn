@@ -132,6 +132,13 @@ PQR scenes use VMD's charge coloring so exported per-atom charges, ESP values,
 fitting errors, or atomic dispersion/interaction contributions are visible
 immediately.
 
+CIF and CML structure exports are intentionally not routed through VMD in this
+pass. The official VMD molfile plugin table checked on 2026-06-12 does not list
+dedicated CIF or CML structure plugins, so the bridge only generates scenes for
+formats whose VMD loading path is documented or covered by smoke tests. Future
+CIF/CML support should first verify the exact VMD plugin and `mol new ... type`
+token, then add a sourceable smoke scene.
+
 Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive
 characters escaped. This keeps paths with spaces, backslashes, brackets, dollar
