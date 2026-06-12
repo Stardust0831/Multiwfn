@@ -63,6 +63,7 @@ run_step "$script_dir/audit-helper-scripts.sh"
 run_step "$script_dir/audit-nogui-build.sh"
 run_step "$script_dir/audit-vmd-exports.sh" check
 run_step "$script_dir/audit-vmd-structure-exports.sh" check
+run_step "$script_dir/audit-gnu-smoke-stderr-smoke.sh"
 run_step "$script_dir/vmd-doctor-smoke.sh"
 run_step "$script_dir/vmd-open-scene-smoke.sh"
 run_step run_default_vmd_bridge_smoke

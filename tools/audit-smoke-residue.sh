@@ -24,6 +24,7 @@ check_quick_temp_residue() {
     if [ -d "$repo_dir/.build-env" ]; then
         residue=$(find "$repo_dir/.build-env" -maxdepth 1 -type d \( \
             -name 'nogui-build-audit.*' -o \
+            -name 'gnu-smoke-stderr-audit-smoke.*' -o \
             -name 'vmd-bridge-smoke.*' -o \
             -name 'vmd-doctor-smoke.*' -o \
             -name 'vmd-open-scene-smoke.*' \

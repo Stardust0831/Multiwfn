@@ -433,3 +433,7 @@
   empty, containing only the known GFortran `IEEE_INVALID_FLAG` shutdown note, or
   unexpected stderr, giving a narrow record for the roadmap item tracking that
   runtime note.
+- Added `tools/audit-gnu-smoke-stderr-smoke.sh` and wired it into quick
+  verification so the stderr audit itself is tested with synthetic empty, known,
+  repeated-known, unexpected, and missing-directory cases. Added its temporary
+  directory pattern to quick residue checks and `gnu-clean`.

@@ -87,9 +87,10 @@ tools/verify-refactor.sh full
 `env` runs the read-only GNU build environment doctor. `quick` runs
 `git diff --check`, the environment doctor, ignore-rule audit, helper-script
 mode/shebang audit, the noGUI build-boundary audit, VMD export audits, the narrow
-VMD path-doctor smoke test, the VMD open-scene helper smoke test, the VMD bridge
-smoke test under default smoke settings, and `tools/audit-smoke-residue.sh
-quick` to check that no default `.build-env/nogui-build-audit.*`,
+GNU smoke stderr audit self-test, VMD path-doctor smoke test, the VMD open-scene
+helper smoke test, the VMD bridge smoke test under default smoke settings, and
+`tools/audit-smoke-residue.sh quick` to check that no default
+`.build-env/nogui-build-audit.*`, `.build-env/gnu-smoke-stderr-audit-smoke.*`,
 `.build-env/vmd-doctor-smoke.*`, `.build-env/vmd-open-scene-smoke.*`, or
 `.build-env/vmd-bridge-smoke.*` directory was left behind. `full` also runs the
 GNU noGUI smoke test, classifies every smoke stderr file with
@@ -171,9 +172,9 @@ The smoke target and full verification keep using the clean `gnu-noGUI` path.
 `tools/gnu-build.sh clean` runs the GNU-specific `gnu-clean` Makefile target. It
 removes normal Multiwfn build outputs, `.build-env/gnu-mod`,
 `.build-env/gnu-obj`, `.build-env/smoke`, and temporary
-`.build-env/nogui-build-audit.*`, `.build-env/vmd-bridge-smoke.*`,
-`.build-env/vmd-doctor-smoke.*`, and `.build-env/vmd-open-scene-smoke.*`
-directories. It intentionally keeps
+`.build-env/nogui-build-audit.*`, `.build-env/gnu-smoke-stderr-audit-smoke.*`,
+`.build-env/vmd-bridge-smoke.*`, `.build-env/vmd-doctor-smoke.*`, and
+`.build-env/vmd-open-scene-smoke.*` directories. It intentionally keeps
 `.build-env/gnu` and `.build-env/pkgs` so cleaning build residue does not remove
 the local compiler environment or package cache.
 
