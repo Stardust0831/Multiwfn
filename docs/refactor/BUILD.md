@@ -59,16 +59,22 @@ The same noGUI build and smoke test can be run via:
 
 ```sh
 tools/gnu-build.sh noGUI
+tools/gnu-build.sh noGUI-incremental
 tools/gnu-build.sh smoke
 tools/gnu-build.sh vmd-smoke
 tools/gnu-build.sh doctor
 ```
 
-The wrapper defaults to the local conda-forge prefix, but honors `GNU_PREFIX`,
-`FC_GNU`, `CC_GNU`, `MAKE_GNU`, and `LIB_noGUI_GNU`. Relative tool paths are
-resolved from the repository root, matching the rest of the local build
-environment. This keeps compiler and BLAS experiments inside the source tree
-without editing global shell startup files.
+`tools/gnu-build.sh noGUI` remains a clean GNU noGUI build and is the stable
+pre-smoke build path. `tools/gnu-build.sh noGUI-incremental` reuses existing
+objects under `.build-env/gnu-obj` and modules under `.build-env/gnu-mod` for
+faster local edit/compile cycles; it is a development convenience, not a
+replacement for `tools/verify-refactor.sh full`. The wrapper defaults to the
+local conda-forge prefix, but honors `GNU_PREFIX`, `FC_GNU`, `CC_GNU`,
+`MAKE_GNU`, and `LIB_noGUI_GNU`. Relative tool paths are resolved from the
+repository root, matching the rest of the local build environment. This keeps
+compiler and BLAS experiments inside the source tree without editing global
+shell startup files.
 
 For refactor work, use the wrapper below before committing:
 
@@ -138,6 +144,9 @@ smoke-driven export files such as `he_minimal.chg`, `atmpopdcp.txt`,
 `density.cub`, or `density.cub.vmd.tcl`. The normal Intel-oriented object names
 remain the default when `OBJ_DIR` is not set; `gnu-noGUI` passes
 `OBJ_DIR=$(GNU_OBJ_DIR)` only to its noGUI sub-build.
+`gnu-noGUI-incremental` uses the same GNU object and module directories without
+running `gnu-clean`, so it is useful for fast local compiles after a small edit.
+The smoke target and full verification keep using the clean `gnu-noGUI` path.
 
 `tools/gnu-build.sh clean` runs the GNU-specific `gnu-clean` Makefile target. It
 removes normal Multiwfn build outputs, `.build-env/gnu-mod`,

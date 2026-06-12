@@ -55,7 +55,7 @@ SMOKE_VMD_CUBE_ERR ?= $(SMOKE_VMD_CUBE_DIR)/gnu-noGUI-vmd-cube-smoke.err
 
 -include Makefile.local
 
-.PHONY: default GUI noGUI gnu-noGUI gnu-noGUI-smoke gnu-clean clean cleanmultiwfn cleanlibreta
+.PHONY: default GUI noGUI gnu-noGUI gnu-noGUI-incremental gnu-noGUI-smoke gnu-clean clean cleanmultiwfn cleanlibreta
 
 obj = $(if $(OBJ_DIR),$(OBJ_DIR)/$(1),$(1))
 
@@ -98,6 +98,9 @@ noGUI: $(objects_noGUI) $(objects_common)
 gnu-noGUI:
 	$(MAKE) gnu-clean
 	rm -rf "$(GNU_MOD_DIR)" "$(GNU_OBJ_DIR)"
+	$(MAKE) gnu-noGUI-incremental
+
+gnu-noGUI-incremental:
 	mkdir -p "$(GNU_MOD_DIR)" "$(GNU_OBJ_DIR)"
 	$(MAKE) noGUI OBJ_DIR="$(GNU_OBJ_DIR)" FC="$(FC_GNU)" CC="$(CC_GNU)" OPT="$(OPT_GNU)" OPT1="$(OPT1_GNU)" LIB_noGUI="$(LIB_noGUI_GNU)" LIBRETA_DIAG= DISLIN_EMPTY_DIAG=
 

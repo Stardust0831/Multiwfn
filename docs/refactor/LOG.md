@@ -358,3 +358,8 @@
   IGM/IBSIW `atmdg.pdb` export now writes a VMD scene colored by Beta, matching
   the file's atomic delta-g contribution field. The bridge smoke test now
   verifies a Beta-colored PDB scene.
+- Split the GNU noGUI build entry into the existing clean `gnu-noGUI` target and
+  a new `gnu-noGUI-incremental` target. The clean target still runs `gnu-clean`
+  first and remains the path used by smoke/full verification, while
+  `tools/gnu-build.sh noGUI-incremental` reuses `.build-env/gnu-obj` and
+  `.build-env/gnu-mod` for faster local compile checks during refactor work.

@@ -159,6 +159,7 @@ Or use the convenience wrapper:
 tools/gnu-build.sh smoke
 tools/gnu-build.sh vmd-smoke
 tools/gnu-build.sh noGUI
+tools/gnu-build.sh noGUI-incremental
 tools/gnu-build.sh clean
 tools/gnu-build.sh doctor
 tools/verify-refactor.sh env
@@ -168,6 +169,9 @@ The wrapper forwards `GNU_PREFIX` and honors `FC_GNU`, `CC_GNU`, `MAKE_GNU`, and
 `LIB_noGUI_GNU`, so alternate local prefixes or local compiler experiments can
 use the same compiler, `make`, OpenBLAS library path, and runtime library path
 consistently without editing the tracked Makefile.
+The `noGUI-incremental` wrapper target uses the same GNU object and module
+directories but does not run `gnu-clean`; it is intended for quick local
+compile checks between full clean verification runs.
 
 The smoke target rebuilds `Multiwfn_noGUI`, then runs
 `tools/gnu-nogui-smoke.sh`. The script generates temporary XYZ and cube files

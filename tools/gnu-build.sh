@@ -40,11 +40,14 @@ case "$target" in
     noGUI|nogui)
         set -- gnu-noGUI "$@"
         ;;
+    noGUI-incremental|nogui-incremental|incremental)
+        set -- gnu-noGUI-incremental "$@"
+        ;;
     clean)
         set -- gnu-clean "$@"
         ;;
     *)
-        printf '%s\n' "Usage: tools/gnu-build.sh [doctor|smoke|vmd-smoke|noGUI|clean] [make-args...]"
+        printf '%s\n' "Usage: tools/gnu-build.sh [doctor|smoke|vmd-smoke|noGUI|noGUI-incremental|clean] [make-args...]"
         exit 2
         ;;
 esac
