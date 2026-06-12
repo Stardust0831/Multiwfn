@@ -75,3 +75,75 @@ Rationale:
   committed.
 - A tracked `Makefile.local.example` gives users a discoverable starting point
   while the ignored `Makefile.local` keeps experiments inside the source folder.
+
+## 2026-06-12: GNU noGUI as the first reproducible build path
+
+Decision: Treat the local GNU noGUI build as the first reproducible engineering
+gate, while preserving the upstream Intel-oriented defaults.
+
+Rationale:
+
+- The GUI build still depends on DISLIN, Motif, X11/OpenGL, and Intel-oriented
+  flags; forcing that path first would slow down non-GUI bridge work.
+- The noGUI target can exercise file parsing, wavefunction calculations, cube
+  export, population analysis, and VMD scene generation without requiring a
+  display stack.
+- Keeping GNU object and module files under `.build-env/gnu-obj` and
+  `.build-env/gnu-mod` avoids collisions with the original root-object Makefile
+  behavior.
+- A local `.build-env/gnu` prefix keeps compiler and OpenBLAS experiments inside
+  this source tree instead of changing the system environment.
+
+Implementation implication:
+
+- `gnu-noGUI` and `gnu-noGUI-smoke` remain wrapper targets around the existing
+  Makefile instead of replacing the build system.
+- `tools/verify-refactor.sh full` is required before treating build/noGUI
+  changes as stable.
+- Smoke fixtures should cover real user-facing workflows, not only linker
+  success.
+
+## 2026-06-12: VMD scene source checks are part of the contract
+
+Decision: Generated VMD Tcl scenes must be sourceable with stubbed VMD commands
+and must resolve their `mol new` data paths from the scene location.
+
+Rationale:
+
+- Text grep checks catch expected lines, but they do not prove Tcl syntax or
+  path resolution works when a saved scene is opened from another working
+  directory.
+- `vmdscenefile=auto` is most useful when the data file and scene can be moved
+  together and reopened later.
+- Running `tclsh` with stubbed `mol`, `display`, and `axes` commands gives a
+  low-cost regression check without depending on a VMD installation.
+
+Implementation implication:
+
+- `tools/vmd-scene-source-check.sh` is reused by both the narrow bridge smoke
+  test and the full noGUI smoke fixture.
+- Narrow bridge smoke creates dummy data files and sources all generated
+  structure, cube, multi-cube, and multi-dataset scenes.
+- noGUI smoke sources scenes produced by the real `Multiwfn_noGUI` export paths.
+
+## 2026-06-12: GNU tool overrides are explicit inputs
+
+Decision: GNU wrappers and diagnostics honor `GNU_PREFIX`, `FC_GNU`, `CC_GNU`,
+`MAKE_GNU`, and `LIB_noGUI_GNU` as explicit local override points.
+
+Rationale:
+
+- Different machines may need a different compiler, `make`, or BLAS path, but
+  those choices should not require editing tracked files or shell startup files.
+- The doctor should report the actual tools and link flags that the wrappers
+  will use, not only the default conda-forge prefix.
+- The VMD bridge smoke test should use the same Fortran compiler override as the
+  noGUI build.
+
+Implementation implication:
+
+- Relative tool override paths are interpreted relative to the repository root
+  by wrapper scripts.
+- If `LIB_noGUI_GNU` is overridden, the doctor reports the override and skips
+  the default OpenBLAS file check under `GNU_PREFIX/lib`.
+- `Makefile.local.example` documents only real override variables.

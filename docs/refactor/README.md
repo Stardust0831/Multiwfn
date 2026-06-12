@@ -37,11 +37,15 @@ Main local verification entry points:
 
 ```sh
 tools/bootstrap-gnu-env.sh
+tools/gnu-build.sh doctor
+tools/gnu-build.sh vmd-smoke
 tools/audit-ignore-rules.sh
 tools/audit-helper-scripts.sh
 tools/audit-nogui-build.sh
+tools/audit-smoke-residue.sh all
 tools/audit-vmd-exports.sh
 tools/audit-vmd-structure-exports.sh
+tools/vmd-scene-source-check.sh path/to/scene.vmd.tcl
 tools/vmd-doctor.sh
 tools/vmd-doctor-smoke.sh
 tools/verify-refactor.sh env

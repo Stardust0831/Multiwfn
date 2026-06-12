@@ -320,3 +320,7 @@
   uses the same `FC_GNU` compiler selection as the `gnu-noGUI` target, and the
   local Makefile example now documents real override variables instead of a
   stale `GNU_KEEP_OBJECTS` placeholder.
+- Updated `DECISIONS.md` to record the now-stable GNU noGUI build gate, the VMD
+  scene source-check contract, and explicit GNU tool override inputs. Refreshed
+  the refactor README verification list with the current wrapper and audit
+  entry points.
