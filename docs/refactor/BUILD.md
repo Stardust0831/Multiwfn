@@ -102,12 +102,14 @@ The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. The `gnu-noGUI-smoke` Makefile target delegates the runtime checks
 to `tools/gnu-nogui-smoke.sh` after rebuilding the binary, while preserving the
 same `SMOKE_*`, `GNU_PREFIX`, and `EXE_noGUI` override points for local
-debugging. The smoke script runs eight non-interactive fixtures: a three-atom
+debugging. The smoke script runs nine non-interactive fixtures: a three-atom
 water XYZ structure load, a real XYZ structure export that generates a VMD scene
 through the main program's `xyz` command, a minimal water cube grid load, a real
 cube export through the grid-data processing menu that generates a VMD scene, a
 real VASP `CHGCAR` grid export through the file export menu that generates a VMD
-scene with VMD's `CHGCAR` molfile type, a
+scene with VMD's `CHGCAR` molfile type, a real POSCAR structure export through
+the file export menu that generates a VMD scene with VMD's `POSCAR` molfile
+type, a
 minimal `.mwfn` wavefunction point-property calculation, and a minimal `.mwfn`
 Mulliken population analysis, and a `.mwfn` electron-density grid calculation
 that exports `density.cub` and its VMD scene from the spatial-region menu. The
@@ -117,8 +119,10 @@ fixture must write the exported XYZ file, write `<exported.xyz>.vmd.tcl`, and
 honor `-vmdrun -vmdpath none` without trying to launch VMD; the VMD cube-export
 fixture must enter `Process grid data`, write the exported cube file, write
 `<exported.cub>.vmd.tcl`, and generate positive and negative isosurface
-representations. The wavefunction grid-export fixture must calculate electron
-density on a small 3x3x3 grid, write `density.cub`, generate
+representations. The POSCAR structure-export fixture must load a minimal POSCAR
+with cell vectors, write `exported.POSCAR`, and write
+`exported.POSCAR.vmd.tcl` using VMD type `POSCAR`. The wavefunction grid-export
+fixture must calculate electron density on a small 3x3x3 grid, write `density.cub`, generate
 `density.cub.vmd.tcl`, and keep `vmdpath=none` non-launching. When `tclsh` is
 available, those end-to-end generated VMD scenes are also sourced with stubbed
 VMD commands by

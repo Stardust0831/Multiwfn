@@ -388,3 +388,8 @@
   `POSCAR` molfile type. The type token was verified from the VMD molfile
   `vaspposcarplugin` registration name, and the structure audit now tracks
   POSCAR as a covered wrapper.
+- Extended the GNU noGUI smoke test with an end-to-end POSCAR structure export
+  fixture. It loads a minimal water POSCAR with cell vectors, uses the real file
+  export menu to write `exported.POSCAR`, generates
+  `exported.POSCAR.vmd.tcl` with `vmdscenefile=auto`, and sources the generated
+  POSCAR-type VMD scene.

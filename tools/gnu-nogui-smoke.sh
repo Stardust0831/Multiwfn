@@ -7,6 +7,7 @@ EXE_noGUI=${EXE_noGUI:-Multiwfn_noGUI}
 SMOKE_DIR=${SMOKE_DIR:-.build-env/smoke}
 SMOKE_XYZ=${SMOKE_XYZ:-$SMOKE_DIR/water.xyz}
 SMOKE_CUBE=${SMOKE_CUBE:-$SMOKE_DIR/water-density.cub}
+SMOKE_POSCAR=${SMOKE_POSCAR:-$SMOKE_DIR/water.POSCAR}
 SMOKE_MWFN=${SMOKE_MWFN:-tools/fixtures/he_minimal.mwfn}
 SMOKE_OUT=${SMOKE_OUT:-$SMOKE_DIR/gnu-noGUI-smoke.out}
 SMOKE_ERR=${SMOKE_ERR:-$SMOKE_DIR/gnu-noGUI-smoke.err}
@@ -36,6 +37,11 @@ SMOKE_VMD_EXPORT_CHGCAR=${SMOKE_VMD_EXPORT_CHGCAR:-$SMOKE_VMD_VASP_DIR/exported.
 SMOKE_VMD_CHGCAR_SCENE=${SMOKE_VMD_CHGCAR_SCENE:-$SMOKE_VMD_EXPORT_CHGCAR.vmd.tcl}
 SMOKE_VMD_CHGCAR_OUT=${SMOKE_VMD_CHGCAR_OUT:-$SMOKE_VMD_VASP_DIR/gnu-noGUI-vmd-vasp-smoke.out}
 SMOKE_VMD_CHGCAR_ERR=${SMOKE_VMD_CHGCAR_ERR:-$SMOKE_VMD_VASP_DIR/gnu-noGUI-vmd-vasp-smoke.err}
+SMOKE_VMD_POSCAR_DIR=${SMOKE_VMD_POSCAR_DIR:-$SMOKE_DIR/vmd-poscar-export}
+SMOKE_VMD_EXPORT_POSCAR=${SMOKE_VMD_EXPORT_POSCAR:-$SMOKE_VMD_POSCAR_DIR/exported.POSCAR}
+SMOKE_VMD_POSCAR_SCENE=${SMOKE_VMD_POSCAR_SCENE:-$SMOKE_VMD_EXPORT_POSCAR.vmd.tcl}
+SMOKE_VMD_POSCAR_OUT=${SMOKE_VMD_POSCAR_OUT:-$SMOKE_VMD_POSCAR_DIR/gnu-noGUI-vmd-poscar-smoke.out}
+SMOKE_VMD_POSCAR_ERR=${SMOKE_VMD_POSCAR_ERR:-$SMOKE_VMD_POSCAR_DIR/gnu-noGUI-vmd-poscar-smoke.err}
 
 allowed_stderr='Note: The following floating-point exceptions are signalling: IEEE_INVALID_FLAG'
 
@@ -82,7 +88,7 @@ restore_settings() {
     fi
 }
 
-mkdir -p "$SMOKE_DIR" "$SMOKE_VMD_DIR" "$SMOKE_VMD_CUBE_DIR" "$SMOKE_VMD_VASP_DIR" "$SMOKE_WFN_GRID_DIR"
+mkdir -p "$SMOKE_DIR" "$SMOKE_VMD_DIR" "$SMOKE_VMD_CUBE_DIR" "$SMOKE_VMD_VASP_DIR" "$SMOKE_VMD_POSCAR_DIR" "$SMOKE_WFN_GRID_DIR"
 
 printf '%s\n%s\n%s\n%s\n%s\n' \
     '3' \
@@ -104,6 +110,19 @@ printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
 printf '%s\n%s\n' \
     '  0.120000E+00  0.080000E+00  0.080000E+00  0.040000E+00  0.080000E+00  0.040000E+00' \
     '  0.040000E+00  0.020000E+00' >> "$SMOKE_CUBE"
+
+printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+    'Water smoke POSCAR' \
+    '1.0' \
+    '6.0 0.0 0.0' \
+    '0.0 6.0 0.0' \
+    '0.0 0.0 6.0' \
+    'O H' \
+    '1 2' \
+    'Cartesian' \
+    '0.000000 0.000000 0.000000' \
+    '0.758602 0.000000 0.504284' \
+    '-0.758602 0.000000 0.504284' > "$SMOKE_POSCAR"
 
 cp settings.ini "$SMOKE_DIR/settings.ini.before"
 trap restore_settings EXIT HUP INT TERM
@@ -164,6 +183,21 @@ grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$SMOKE_VMD_CHGCAR
 tools/vmd-scene-source-check.sh "$SMOKE_VMD_CHGCAR_SCENE"
 check_stderr "$SMOKE_VMD_CHGCAR_ERR" "GNU noGUI VMD VASP grid export smoke"
 
+printf '%s\n%s\n%s\n%s\n%s\n%s\n' '100' '2' '27' "$SMOKE_VMD_EXPORT_POSCAR" '0' 'q' |
+    run_multiwfn "$SMOKE_POSCAR" -vmdrun -vmdpath none -vmdscene auto > "$SMOKE_VMD_POSCAR_OUT" 2> "$SMOKE_VMD_POSCAR_ERR"
+grep -q 'Loaded .*water.POSCAR successfully' "$SMOKE_VMD_POSCAR_OUT"
+grep -q 'Export system to various formats of files' "$SMOKE_VMD_POSCAR_OUT"
+grep -q 'VASP POSCAR file has been exported to .*exported.POSCAR' "$SMOKE_VMD_POSCAR_OUT"
+grep -q 'VMD scene script has been written to .*exported.POSCAR.vmd.tcl' "$SMOKE_VMD_POSCAR_OUT"
+grep -q 'VMD was not launched because vmdpath is empty or none' "$SMOKE_VMD_POSCAR_OUT"
+test -s "$SMOKE_VMD_EXPORT_POSCAR"
+test -s "$SMOKE_VMD_POSCAR_SCENE"
+grep -Fq "# Structure file: $SMOKE_VMD_EXPORT_POSCAR" "$SMOKE_VMD_POSCAR_SCENE"
+grep -Fq 'mol new [multiwfn_resolve_path "exported.POSCAR"] type "POSCAR" waitfor all' "$SMOKE_VMD_POSCAR_SCENE"
+grep -Fq 'mol color Element' "$SMOKE_VMD_POSCAR_SCENE"
+tools/vmd-scene-source-check.sh "$SMOKE_VMD_POSCAR_SCENE"
+check_stderr "$SMOKE_VMD_POSCAR_ERR" "GNU noGUI VMD POSCAR structure export smoke"
+
 printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$SMOKE_MWFN" '1' '0.2,0.0,0.0' '1' 'q' 'q' |
     run_multiwfn > "$SMOKE_MWFN_OUT" 2> "$SMOKE_MWFN_ERR"
 grep -q 'Loaded .*he_minimal.mwfn successfully' "$SMOKE_MWFN_OUT"
@@ -212,6 +246,7 @@ cat "$SMOKE_VMD_ERR"
 cat "$SMOKE_CUBE_ERR"
 cat "$SMOKE_VMD_CUBE_ERR"
 cat "$SMOKE_VMD_CHGCAR_ERR"
+cat "$SMOKE_VMD_POSCAR_ERR"
 cat "$SMOKE_MWFN_ERR"
 cat "$SMOKE_MULLIKEN_ERR"
 cat "$SMOKE_WFN_GRID_ERR"
