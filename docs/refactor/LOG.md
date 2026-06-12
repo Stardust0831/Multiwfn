@@ -405,3 +405,8 @@
   to write `exported.pqr`, generates `exported.pqr.vmd.tcl` with
   `vmdscenefile=auto`, and sources the generated PQR scene while checking VMD
   `Charge` coloring.
+- Extended the GNU noGUI smoke test with an end-to-end GRO structure export
+  fixture. It loads the minimal water POSCAR to provide cell vectors, uses the
+  real file export menu to write `exported.gro`, generates
+  `exported.gro.vmd.tcl` with `vmdscenefile=auto`, and sources the generated
+  GRO-type VMD scene.
