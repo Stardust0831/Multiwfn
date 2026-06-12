@@ -128,6 +128,7 @@ gnu-noGUI-smoke: gnu-noGUI
 	grep -Fq '# Structure file: $(SMOKE_VMD_EXPORT_XYZ)' "$(SMOKE_VMD_SCENE)"; \
 	grep -Fq 'mol new [multiwfn_resolve_path "$(SMOKE_VMD_EXPORT_XYZ)"] type "xyz" waitfor all' "$(SMOKE_VMD_SCENE)"; \
 	grep -Fq 'mol color Element' "$(SMOKE_VMD_SCENE)"; \
+	tools/vmd-scene-source-check.sh "$(SMOKE_VMD_SCENE)"; \
 	check_stderr "$(SMOKE_VMD_ERR)" "GNU noGUI VMD structure export smoke"; \
 	printf '%s\nq\n' "$(SMOKE_CUBE)" | LD_LIBRARY_PATH="$(GNU_PREFIX)/lib$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" timeout 12s ./$(EXE_noGUI) > "$(SMOKE_CUBE_OUT)" 2> "$(SMOKE_CUBE_ERR)"; \
 	grep -q 'Loaded .*water-density.cub successfully' "$(SMOKE_CUBE_OUT)"; \
@@ -145,6 +146,7 @@ gnu-noGUI-smoke: gnu-noGUI
 	grep -Fq 'mol new [multiwfn_resolve_path "$(SMOKE_VMD_EXPORT_CUBE)"] type cube waitfor all' "$(SMOKE_VMD_CUBE_SCENE)"; \
 	grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$(SMOKE_VMD_CUBE_SCENE)"; \
 	grep -Fq 'mol representation Isosurface -0.05000000 0 0 0 1 1' "$(SMOKE_VMD_CUBE_SCENE)"; \
+	tools/vmd-scene-source-check.sh "$(SMOKE_VMD_CUBE_SCENE)"; \
 	check_stderr "$(SMOKE_VMD_CUBE_ERR)" "GNU noGUI VMD cube export smoke"; \
 	printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$(SMOKE_MWFN)" '1' '0.2,0.0,0.0' '1' 'q' 'q' | LD_LIBRARY_PATH="$(GNU_PREFIX)/lib$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" timeout 12s ./$(EXE_noGUI) > "$(SMOKE_MWFN_OUT)" 2> "$(SMOKE_MWFN_ERR)"; \
 	grep -q 'Loaded .*he_minimal.mwfn successfully' "$(SMOKE_MWFN_OUT)"; \
