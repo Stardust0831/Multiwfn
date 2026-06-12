@@ -51,6 +51,9 @@ call maybe_write_vmd_cube_scene_list(cubefiles,2,0.05D0)
 vmdscenefile=trim(scene_dir)//"/test_dataset_scene.tcl"
 call maybe_write_vmd_cube_dataset_scene("multi dataset $[x]}.cub",3,0.05D0)
 
+vmdscenefile=trim(scene_dir)//"/test_vasp_grid_scene.tcl"
+call maybe_write_vmd_volumetric_scene("vasp grid/CHG$[1]}.vasp","CHGCAR",0.05D0)
+
 vmdscenefile=trim(scene_dir)//"/missing-dir/test_scene.tcl"
 call maybe_write_vmd_cube_scene("sample.cub",0.05D0)
 

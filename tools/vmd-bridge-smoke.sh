@@ -40,6 +40,7 @@ auto_xyz_scene_file="$build_dir/auto_structure.xyz.vmd.tcl"
 quoted_scene_file="$build_dir/test source \$[1]}.tcl"
 multi_scene_file="$build_dir/test_multi_scene.tcl"
 dataset_scene_file="$build_dir/test_dataset_scene.tcl"
+vasp_grid_scene_file="$build_dir/test_vasp_grid_scene.tcl"
 no_load_scene_file="$build_dir/no_load_scene.tcl"
 out_file="$build_dir/vmd_bridge_smoke.out"
 relative_path_note="# Relative data paths are first resolved beside this scene file, then from VMD's current working directory."
@@ -80,6 +81,7 @@ grep -Fq "VMD scene script has been written to $smoke_dir/test_multi_structure_s
 grep -Fq "VMD scene script has been written to $smoke_dir/test_gro_structure_scene.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/auto_structure.xyz.vmd.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/test_scene.tcl" "$out_file"
+grep -Fq "VMD scene script has been written to $smoke_dir/test_vasp_grid_scene.tcl" "$out_file"
 grep -Fq "VMD scene script was not written because the file could not be opened: $smoke_dir/missing-dir/test_scene.tcl" "$out_file"
 grep -Fq "POSIX command: '/opt/VMD app/vmd\$bin' -e 'scene dir/a'\\''b\$[x].tcl'" "$out_file"
 grep -Fq 'Windows command: "C:\Program Files\VMD\vmd.exe" -e "scene dir\test scene.tcl"' "$out_file"
@@ -127,8 +129,13 @@ grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$dataset_scene_fi
 grep -Fq 'mol representation Isosurface 0.05000000 1 0 0 1 1' "$dataset_scene_file"
 grep -Fq 'mol representation Isosurface 0.05000000 2 0 0 1 1' "$dataset_scene_file"
 grep -Fq 'mol representation Isosurface -0.05000000 2 0 0 1 1' "$dataset_scene_file"
+grep -Fq '# Volumetric map file: vasp grid/CHG$[1]}.vasp' "$vasp_grid_scene_file"
+grep -Fq '# VMD file type: CHGCAR' "$vasp_grid_scene_file"
+grep -Fq 'mol new [multiwfn_resolve_path "vasp grid/CHG\$\[1\]}.vasp"] type "CHGCAR" waitfor all' "$vasp_grid_scene_file"
+grep -Fq 'mol rename top "vasp grid/CHG\$\[1\]}.vasp"' "$vasp_grid_scene_file"
+grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$vasp_grid_scene_file"
 
-mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir" "$build_dir/sample dir"
+mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir" "$build_dir/sample dir" "$build_dir/vasp grid"
 : > "$build_dir/structure dir/a\$b[1]}.pdb"
 : > "$build_dir/structure dir/beta values.pdb"
 : > "$build_dir/charge dir/a\$b[1]}.pqr"
@@ -140,6 +147,7 @@ mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir
 : > "$build_dir/sample.cub"
 : > "$build_dir/sample dir/a\$b[1]}.cub"
 : > "$build_dir/multi dataset \$[x]}.cub"
+: > "$build_dir/vasp grid/CHG\$[1]}.vasp"
 
 "$script_dir/vmd-scene-source-check.sh" \
     "$structure_scene_file" \
@@ -151,7 +159,8 @@ mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir
     "$scene_file" \
     "$quoted_scene_file" \
     "$multi_scene_file" \
-    "$dataset_scene_file"
+    "$dataset_scene_file" \
+    "$vasp_grid_scene_file"
 
 if [ -n "$tclsh_bin" ]; then
     cat > "$no_load_scene_file" <<'EOF'

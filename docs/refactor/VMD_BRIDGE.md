@@ -87,6 +87,8 @@ Initial coverage:
 - Other functions part 1/2 exports for function-pair cubes, separated orbital
   cubes, multi-dataset `orbital.cub`, fitted orbital-combination grids, ICSS
   grids, and hyperpolarizability density grids.
+- VASP grid exports such as `CHGCAR` through the file export menu, loaded with
+  VMD's documented `CHGCAR` molfile type.
 
 Future work:
 
@@ -98,6 +100,12 @@ Future work:
 Coverage is being expanded at explicit user-facing export points instead of by
 adding side effects to the low-level `outcube` writer. This avoids launching VMD
 for temporary cube files used internally by calculations.
+
+VASP grid exports use the generic volumetric-map scene helper rather than the
+cube-specific helper. The VMD file type token for this path is `CHGCAR`, based
+on the VMD molfile `vaspchgcarplugin` registration name. The generated scene
+uses the same molecule, isosurface, material, path quoting, and scene-relative
+data resolution behavior as cube scenes.
 
 For workflows that export multiple cube files in one action, the bridge can now
 write a single VMD scene that loads all exported cube files. This is used for

@@ -150,6 +150,30 @@ if (ivmdrun==1) call run_vmd_scene(scenefile)
 end subroutine
 
 
+subroutine maybe_write_vmd_volumetric_scene(mapfile,filetype,isovalue)
+use defvar
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: mapfile,filetype
+real*8,intent(in) :: isovalue
+character(len=200) scenefile
+integer sceneunit
+logical lopen
+
+if (ivmdscene==0.and.ivmdrun==0) return
+
+call open_vmd_scene_file(scenefile,sceneunit,lopen,mapfile)
+if (.not.lopen) return
+call write_vmd_scene_header(sceneunit,scenefile)
+call write_vmd_volumetric_molecule(sceneunit,mapfile,filetype,isovalue,scenefile)
+call write_vmd_scene_footer(sceneunit)
+close(sceneunit)
+
+write(*,"(' VMD scene script has been written to ',a)") trim(scenefile)
+if (ivmdrun==1) call run_vmd_scene(scenefile)
+
+end subroutine
+
+
 subroutine write_vmd_cube_scene(ifileid,cubefile,isovalue,scenefile)
 use defvar
 implicit real*8 (a-h,o-z)
@@ -312,6 +336,49 @@ write(ifileid,"(a)") "# Cube file: "//trim(cubefile)
 write(ifileid,"(a)") "# Volumetric dataset index: 0"
 write(ifileid,"(a)") "mol new [multiwfn_resolve_path "//trim(c600cube)//"] type cube waitfor all"
 call write_vmd_molecule_name(ifileid,cubefile)
+write(ifileid,"(a)") "mol delrep 0 top"
+write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
+write(ifileid,"(a)") "mol color Element"
+call write_vmd_material(ifileid,"Opaque")
+write(ifileid,"(a)") "mol addrep top"
+write(ifileid,"(a)") "mol representation Isosurface "//trim(c80tmp)//" 0 0 0 1 1"
+write(ifileid,"(a)") "mol color ColorID 0"
+call write_vmd_material(ifileid,vmdmaterial)
+write(ifileid,"(a)") "mol addrep top"
+if (isosurshowboth==1) then
+    write(ifileid,"(a)") "mol representation Isosurface -"//trim(c80tmp)//" 0 0 0 1 1"
+    write(ifileid,"(a)") "mol color ColorID 1"
+    call write_vmd_material(ifileid,vmdmaterial)
+    write(ifileid,"(a)") "mol addrep top"
+end if
+
+end subroutine
+
+
+subroutine write_vmd_volumetric_molecule(ifileid,mapfile,filetype,isovalue,scenefile)
+use defvar
+implicit real*8 (a-h,o-z)
+integer,intent(in) :: ifileid
+character(len=*),intent(in) :: mapfile,filetype
+character(len=*),intent(in),optional :: scenefile
+real*8,intent(in) :: isovalue
+character(len=80) c80tmp
+character(len=600) c600map,c600type
+character(len=600) scenepath
+
+write(c80tmp,"(f16.8)") abs(isovalue)
+c80tmp=adjustl(c80tmp)
+scenepath=mapfile
+if (present(scenefile)) scenepath=vmd_scene_data_path(mapfile,scenefile)
+c600map=vmd_tcl_dquote(scenepath)
+c600type=vmd_tcl_dquote(filetype)
+
+write(ifileid,"(a)") ""
+write(ifileid,"(a)") "# Volumetric map file: "//trim(mapfile)
+write(ifileid,"(a)") "# VMD file type: "//trim(filetype)
+write(ifileid,"(a)") "# Volumetric dataset index: 0"
+write(ifileid,"(a)") "mol new [multiwfn_resolve_path "//trim(c600map)//"] type "//trim(c600type)//" waitfor all"
+call write_vmd_molecule_name(ifileid,mapfile)
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
 write(ifileid,"(a)") "mol color Element"

@@ -376,3 +376,7 @@
   before checking whether cell vectors are missing. Previously the normal path
   with existing cell vectors could reach the final `if (itmp==1)` test with
   `itmp` undefined.
+- Added a generic VMD volumetric-map scene helper and routed the file export
+  menu's VASP grid export through it using VMD's `CHGCAR` molfile type. The type
+  token was verified from the VMD molfile `vaspchgcarplugin` registration name,
+  and the bridge smoke test now generates and sources a CHGCAR-type scene.

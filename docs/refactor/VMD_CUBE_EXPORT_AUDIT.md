@@ -2,6 +2,9 @@
 
 This audit tracks why remaining `outcube` call sites do not always have a
 one-to-one `maybe_write_vmd_cube_scene` call immediately after them.
+It does not count non-cube volumetric exports. VASP grid exports such as
+`CHGCAR` are covered by `maybe_write_vmd_volumetric_scene` and documented in
+`docs/refactor/VMD_BRIDGE.md`.
 
 Regenerate the current count summary with:
 

@@ -385,6 +385,7 @@ else if (isel==37) then
     if (c200tmp==" ") c200tmp="CHGCAR"
     write(*,*) "Exporting..."
     call outVASPgrd(c200tmp,10)
+    call maybe_write_vmd_volumetric_scene(c200tmp,"CHGCAR",sur_value)
 end if
 end subroutine
 
