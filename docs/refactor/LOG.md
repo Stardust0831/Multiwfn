@@ -281,3 +281,8 @@
   `.build-env/smoke`, generates the corresponding `vmdscenefile=auto` Tcl scene,
   and checks that `-vmdrun -vmdpath none` does not launch an external VMD
   process.
+- Extended `gnu-noGUI-smoke` with an end-to-end VMD cube export fixture. The
+  fixture loads the minimal water cube file, enters the main-menu `Process grid
+  data` path, exports the present grid data through `outcube_wrapper`, checks
+  the generated `vmdscenefile=auto` scene, and verifies that positive and
+  negative isosurface representations are present without requiring VMD itself.

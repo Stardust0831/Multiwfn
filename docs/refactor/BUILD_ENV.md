@@ -153,10 +153,12 @@ and runtime library path consistently.
 
 The smoke target generates temporary XYZ and cube files under `.build-env/smoke`,
 uses the tracked `tools/fixtures/he_minimal.mwfn` wavefunction fixture, backs up
-`settings.ini`, runs `Multiwfn_noGUI` for all five fixtures, verifies that the
+`settings.ini`, runs `Multiwfn_noGUI` for all six fixtures, verifies that the
 structure and cube files reach the main menu, verifies that a real main-program
 `xyz` export writes both an XYZ file and a VMD Tcl scene while `vmdpath=none`
-prevents launching VMD, verifies that the `.mwfn` point-property fixture prints
+prevents launching VMD, verifies that a real grid-data processing menu export
+writes both a cube file and a VMD Tcl scene with positive and negative
+isosurfaces, verifies that the `.mwfn` point-property fixture prints
 representative real-space results, verifies that the `.mwfn` Mulliken fixture
 prints basis and atomic populations, and restores `settings.ini` before exiting.
 GFortran currently prints an IEEE floating-point exception flag note at program
