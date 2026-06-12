@@ -170,13 +170,15 @@ After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 - Generated smoke-test inputs and logs under `.build-env/smoke`.
 - No root `*.o`, root `*.mod`, or `noGUI/*.o` files.
 - No known root-level smoke export files such as `he_minimal.chg` or
-  `atmpopdcp.txt`.
+  `atmpopdcp.txt`. `tools/audit-smoke-residue.sh full` checks this together
+  with root object/module residue.
 
 Use `tools/gnu-build.sh clean` to remove the noGUI binary, transient object and
 module files, `.build-env/gnu-mod`, `.build-env/gnu-obj`, `.build-env/smoke`,
-temporary noGUI build audit directories, and temporary VMD bridge smoke
-directories. This cleanup keeps `.build-env/gnu` and `.build-env/pkgs` so the
-local compiler prefix and package cache remain available for the next build.
+temporary noGUI build audit directories, temporary VMD bridge smoke directories,
+and temporary VMD doctor smoke directories. This cleanup keeps `.build-env/gnu`
+and `.build-env/pkgs` so the local compiler prefix and package cache remain
+available for the next build.
 
 The `vmd-smoke` wrapper compiles only `define.f90`, `vmd_bridge.f90`, and a
 small test driver under `tools/` into `.build-env/vmd-bridge-smoke.<pid>` by

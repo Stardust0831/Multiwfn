@@ -270,3 +270,8 @@
 - Added a full-verification check for known GNU noGUI smoke export residues such
   as `he_minimal.chg` and `atmpopdcp.txt`, so future interaction-script changes
   fail loudly if they start leaving user-facing output files in the source root.
+- Factored smoke residue checks into `tools/audit-smoke-residue.sh` and routed
+  `tools/verify-refactor.sh quick`/`full` through it. The audit now owns quick
+  temporary-directory checks, root/noGUI object residue checks, and known
+  smoke-export residue checks. `gnu-clean` also removes temporary VMD doctor
+  smoke directories.

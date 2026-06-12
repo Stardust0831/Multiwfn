@@ -76,15 +76,15 @@ tools/verify-refactor.sh full
 `git diff --check`, the environment doctor, ignore-rule audit, helper-script
 mode/shebang audit, the noGUI build-boundary audit, VMD export audits, the narrow
 VMD path-doctor smoke test, the VMD bridge smoke test under default smoke
-settings, and a check that no default `.build-env/nogui-build-audit.*`,
-`.build-env/vmd-doctor-smoke.*`, or `.build-env/vmd-bridge-smoke.*` directory
-was left behind. `full` also runs the GNU noGUI smoke test and checks that root
-`*.o`, root `*.mod`, and `noGUI/*.o` files were not left behind. The full
+settings, and `tools/audit-smoke-residue.sh quick` to check that no default
+`.build-env/nogui-build-audit.*`, `.build-env/vmd-doctor-smoke.*`, or
+`.build-env/vmd-bridge-smoke.*` directory was left behind. `full` also runs the
+GNU noGUI smoke test and then uses `tools/audit-smoke-residue.sh full` to check
+that root `*.o`, root `*.mod`, `noGUI/*.o`, and known smoke-driven export files
+such as `he_minimal.chg` and `atmpopdcp.txt` were not left behind. The full
 wrapper also checks that `settings.ini` has the same checksum before and after
-the smoke test, and that known smoke-driven export files such as
-`he_minimal.chg` and `atmpopdcp.txt` were not created in the source root. This
-prevents the smoke target from silently leaving Multiwfn's `lastfile` update or
-user-facing analysis outputs in the working tree.
+the smoke test. This prevents the smoke target from silently leaving Multiwfn's
+`lastfile` update or user-facing analysis outputs in the working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. The smoke target now runs four non-interactive fixtures: a
@@ -117,7 +117,8 @@ normal Intel-oriented object names remain the default when `OBJ_DIR` is not set;
 removes normal Multiwfn build outputs, `.build-env/gnu-mod`,
 `.build-env/gnu-obj`, `.build-env/smoke`, and temporary
 `.build-env/nogui-build-audit.*` and
-`.build-env/vmd-bridge-smoke.*` directories. It intentionally keeps
+`.build-env/vmd-bridge-smoke.*`, and `.build-env/vmd-doctor-smoke.*`
+directories. It intentionally keeps
 `.build-env/gnu` and `.build-env/pkgs` so cleaning build residue does not remove
 the local compiler environment or package cache.
 
