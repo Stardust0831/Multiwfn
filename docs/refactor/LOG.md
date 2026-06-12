@@ -372,3 +372,7 @@
   only present as an input/read path in this source tree, while POSCAR has a
   user-facing export wrapper but still needs a verified VMD file type token or a
   real VMD load test before production scene generation is added.
+- Fixed `outVASPgrd` so its temporary-cell restoration flag is initialized
+  before checking whether cell vectors are missing. Previously the normal path
+  with existing cell vectors could reach the final `if (itmp==1)` test with
+  `itmp` undefined.

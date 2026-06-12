@@ -7735,6 +7735,7 @@ integer infomode
 character(len=*) outname
 
 !If cell information is not available, Use grid data vectors as cell vectors
+itmp=0
 if (all(cellv1==0)) then
     cellv1(:)=gridv1(:)*nx
     cellv2(:)=gridv2(:)*ny
