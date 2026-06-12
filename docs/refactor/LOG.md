@@ -230,3 +230,7 @@
   VMD executable from `settings.ini` or an explicit argument without launching
   VMD. This gives users a local check for `vmdpath`/`-vmdpath` while preserving
   the external-VMD license boundary.
+- Added `tools/vmd-doctor-smoke.sh` and included it in
+  `tools/verify-refactor.sh quick`. The smoke test covers help output, PATH
+  resolution, absolute executable paths, missing executable failures, and the
+  default `settings.ini` lookup without requiring VMD to be installed.

@@ -11,7 +11,7 @@ case "$mode" in
     *)
         printf '%s\n' "Usage: tools/verify-refactor.sh [env|quick|full]"
         printf '%s\n' "  env:   read-only GNU build environment diagnostics"
-        printf '%s\n' "  quick: env diagnostics + git diff check + ignore/helper/noGUI/VMD audits + VMD bridge smoke/residue checks"
+        printf '%s\n' "  quick: env diagnostics + git diff check + ignore/helper/noGUI/VMD audits + VMD doctor/bridge smoke/residue checks"
         printf '%s\n' "  full:  quick checks + GNU noGUI smoke + settings/object residue checks"
         exit 2
         ;;
@@ -33,7 +33,7 @@ run_default_vmd_bridge_smoke() {
 check_no_quick_temp_residue() {
     residue=
     if [ -d "$repo_dir/.build-env" ]; then
-        residue=$(find "$repo_dir/.build-env" -maxdepth 1 -type d \( -name 'nogui-build-audit.*' -o -name 'vmd-bridge-smoke.*' \) -print)
+        residue=$(find "$repo_dir/.build-env" -maxdepth 1 -type d \( -name 'nogui-build-audit.*' -o -name 'vmd-bridge-smoke.*' -o -name 'vmd-doctor-smoke.*' \) -print)
     fi
 
     if [ -n "$residue" ]; then
@@ -92,6 +92,7 @@ run_step "$script_dir/audit-helper-scripts.sh"
 run_step "$script_dir/audit-nogui-build.sh"
 run_step "$script_dir/audit-vmd-exports.sh" check
 run_step "$script_dir/audit-vmd-structure-exports.sh" check
+run_step "$script_dir/vmd-doctor-smoke.sh"
 run_step run_default_vmd_bridge_smoke
 run_step check_no_quick_temp_residue
 

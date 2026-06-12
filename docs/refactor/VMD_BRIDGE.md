@@ -46,6 +46,15 @@ or from the optional command-line argument, checks whether the executable can be
 found, and reports how to set `vmdpath` or `-vmdpath` when VMD is installed
 elsewhere.
 
+The doctor's own success and failure behavior is covered by:
+
+```sh
+tools/vmd-doctor-smoke.sh
+```
+
+This smoke test uses the local shell as a known executable and a generated
+missing path as a negative case, so it does not require VMD to be installed.
+
 ## Supported export paths
 
 Initial coverage:

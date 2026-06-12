@@ -42,6 +42,8 @@ tools/audit-helper-scripts.sh
 tools/audit-nogui-build.sh
 tools/audit-vmd-exports.sh
 tools/audit-vmd-structure-exports.sh
+tools/vmd-doctor.sh
+tools/vmd-doctor-smoke.sh
 tools/verify-refactor.sh env
 tools/verify-refactor.sh quick
 tools/verify-refactor.sh full
