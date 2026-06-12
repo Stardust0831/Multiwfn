@@ -81,8 +81,9 @@ installed.
 
 Initial coverage:
 
-- PDB, PQR, XYZ, GRO, and POSCAR structure exports through their interactive
-  wrappers, plus the explicit PBC PDB export path in the file export menu.
+- PDB, PQR, XYZ, GRO, POSCAR, and Molden structure exports through their
+  interactive wrappers, plus the explicit PBC PDB export path in the file
+  export menu.
 - Generic cube export through `outcube_wrapper`.
 - Main 3D grid post-processing cube export in `study3dim`.
 - CDFT cube exports for Fukui functions, dual descriptors, orbital-weighted
@@ -142,8 +143,8 @@ multi-dataset cubes, the VMD volumetric dataset index used by each isosurface
 representation. These comments are intended to make hand inspection and scene
 debugging easier without changing VMD behavior.
 
-Structure scenes are generated after the interactive PDB, PQR, XYZ, GRO, and
-POSCAR export wrappers finish writing the structure file. The low-level
+Structure scenes are generated after the interactive PDB, PQR, XYZ, GRO,
+POSCAR, and Molden export wrappers finish writing the structure file. The low-level
 structure writers remain side-effect free, so internal or batch writers are not
 forced through VMD. The file export menu's explicit PBC PDB path writes
 `mol.pdb` and then uses the same structure-scene helper because it is a direct
@@ -172,6 +173,13 @@ POSCAR structure exports use VMD's `POSCAR` molfile type, based on the VMD
 molfile `vaspposcarplugin` registration name. Mol2 is documented by VMD, but
 this source tree currently has Mol2 reading support rather than a Mol2 export
 wrapper to attach the bridge to.
+
+Molden structure exports use VMD's documented `.molden` reader without a
+hard-coded `type` argument. The generated scene emits `mol new <path> waitfor
+all`, letting VMD infer the file type from the `.molden` extension as described
+in the VMD user guide. This keeps the bridge on a documented loading path even
+though an exact Molden `type` token has not been verified from a local VMD
+installation or official plugin registration source.
 
 Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive
@@ -241,11 +249,12 @@ tools/vmd-scene-source-check.sh --require-tcl path/to/scene.vmd.tcl
 ```
 
 This compiles a minimal driver and verifies that generated Tcl scenes can load
-PDB, PQR, XYZ, GRO, and POSCAR structure files, multiple PQR structure files, a
-single cube file, multiple cube files, a multi-dataset cube file, or a CHGCAR
-volumetric map file; add molecular and positive/negative isosurface
+PDB, PQR, XYZ, GRO, POSCAR, and Molden structure files, multiple PQR structure
+files, a single cube file, multiple cube files, a multi-dataset cube file, or a
+CHGCAR volumetric map file; add molecular and positive/negative isosurface
 representations; and use the configured VMD material. It also checks custom
-structure coloring such as Beta-colored PDB scenes. It also checks the
+structure coloring such as Beta-colored PDB scenes and Molden autotype scene
+generation. It also checks the
 generated structure, cube/dataset comments, `auto` scene naming, relative data
 path resolution helper, and Tcl quoting for cube and scene paths containing
 spaces, backslashes, and Tcl-sensitive characters. It also checks Tcl quoting for

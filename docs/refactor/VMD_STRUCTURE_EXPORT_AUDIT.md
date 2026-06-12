@@ -19,20 +19,22 @@ counts.
 
 Current counts:
 
-- Structure wrapper definitions in production Fortran sources: 5
-- Wrapper-level VMD structure bridge calls in production Fortran sources: 5
+- Structure wrapper definitions in production Fortran sources: 6
+- Wrapper-level VMD structure bridge calls in production Fortran sources: 6
 - Explicit non-wrapper VMD structure bridge calls in production Fortran sources: 7
-- Total VMD structure bridge calls in production Fortran sources: 12
+- Total VMD structure bridge calls in production Fortran sources: 13
 
 ## Covered Structure Paths
 
-The five interactive wrappers covered by the bridge are:
+The six interactive wrappers covered by the bridge are:
 
 - `outpdb_wrapper`: writes PDB and then generates a PDB scene.
 - `outpqr_wrapper`: writes PQR and then generates a PQR scene.
 - `outxyz_wrapper`: writes XYZ and then generates an XYZ scene.
 - `outgro_wrapper`: writes GRO and then generates a GRO scene.
 - `outPOSCAR_wrapper`: writes POSCAR and then generates a POSCAR scene.
+- `outmolden_wrapper`: writes Molden input and then generates a scene that lets
+  VMD auto-detect the file type from the `.molden` extension.
 
 The file export menu also has an explicit PBC PDB path that writes `mol.pdb` via
 `outpdb_PBC`; this path is covered by a direct call to
@@ -78,9 +80,9 @@ Current examples of intentionally excluded direct writer calls include:
 CML and CIF are user-facing structure exports in Multiwfn, but they are not
 currently routed through the VMD bridge. The official VMD molfile plugin
 documentation checked on 2026-06-12 lists structure readers for formats such as
-PDB, PQR, GRO, Mol2, POSCAR, XSF, and XYZ, and lists Gaussian cube under
-volumetric data readers. It does not list a dedicated CIF or CML structure
-plugin in that official molfile table:
+PDB, PQR, GRO, Molden, Mol2, POSCAR, XSF, and XYZ, and lists Gaussian cube
+under volumetric data readers. It does not list a dedicated CIF or CML
+structure plugin in that official molfile table:
 
 - https://www.ks.uiuc.edu/Research/vmd/plugins/molfile/
 
@@ -88,6 +90,15 @@ The bridge therefore avoids generating CIF/CML VMD scenes until support is
 verified against a reliable VMD plugin source or an installed VMD build. If CIF
 or CML support is added later, record the exact VMD `mol new ... type` token and
 add a smoke scene that can be sourced by `tools/vmd-scene-source-check.sh`.
+
+Molden support uses VMD's documented `.molden` structure reader and omits the
+`type` argument in generated `mol new` commands. The VMD user guide documents
+that omitting `type` makes VMD guess the file type from the filename extension,
+so this avoids hard-coding an unverified Molden type token while still using a
+documented VMD loading path:
+
+- https://www.ks.uiuc.edu/Research/vmd/plugins/molfile/moldenplugin.html
+- https://www.ks.uiuc.edu/Research/vmd/current/ug/node140.html
 
 ## Remaining Structure Candidates
 

@@ -168,3 +168,30 @@ Implementation implication:
 - Keep `outcif_wrapper` and direct `outcml` exports side-effect free for now.
 - If VMD support is confirmed later, record the exact `mol new ... type` token
   and add a smoke-tested scene before routing those exports through the bridge.
+
+## 2026-06-12: Molden scenes use VMD extension auto-detection
+
+Decision: Route Multiwfn's `.molden` export wrapper through the VMD structure
+bridge, but omit the `type` argument in the generated `mol new` command.
+
+Rationale:
+
+- The official VMD molfile plugin table documents a read-only Molden structure
+  reader for `.molden` files.
+- The local environment does not currently have a VMD executable installed, and
+  the exact Molden plugin registration token was not verified from an installed
+  build or official source registration.
+- The VMD user guide documents that omitting `type` lets VMD guess the file type
+  from the filename extension, so `.molden` can use a documented loading path
+  without hard-coding an unverified token.
+
+Implementation implication:
+
+- `outmolden_wrapper` calls `maybe_write_vmd_structure_scene_autotype` after the
+  Molden file is written.
+- The generated scene still uses the same structure representation, molecule
+  naming, scene-relative path resolution, and Tcl quoting as explicit-type
+  structure scenes.
+- If a future installed-VMD check or official plugin source confirms a stable
+  Molden `type` token, this path can be converted to an explicit-type scene and
+  covered by the same smoke contract.

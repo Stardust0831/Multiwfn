@@ -36,6 +36,9 @@ call maybe_write_vmd_structure_scene("traj dir/a$b[1]}.gro","gro")
 vmdscenefile=trim(scene_dir)//"/test_poscar_structure_scene.tcl"
 call maybe_write_vmd_structure_scene("vasp dir/POS$[1]}.vasp","POSCAR")
 
+vmdscenefile=trim(scene_dir)//"/test_molden_structure_scene.tcl"
+call maybe_write_vmd_structure_scene_autotype("wavefunction dir/a$b[1]}.molden")
+
 vmdscenefile="auto"
 call maybe_write_vmd_structure_scene(trim(scene_dir)//"/auto_structure.xyz","xyz")
 

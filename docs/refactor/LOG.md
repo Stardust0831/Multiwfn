@@ -447,3 +447,14 @@
 - Added `--require-tcl` to `tools/vmd-scene-source-check.sh` and made
   `tools/vmd-open-scene.sh --check-only` use it, so check-only mode fails
   clearly instead of silently skipping validation when `tclsh` is unavailable.
+- Checked the official VMD molfile documentation for Molden support and the VMD
+  user guide for `mol new` behavior. VMD documents a read-only `.molden`
+  structure reader, and `mol new` can infer the file type from the filename
+  extension when `type` is omitted.
+- Added `maybe_write_vmd_structure_scene_autotype` so documented extension-based
+  VMD readers can be used without hard-coding an unverified type token. The
+  generated scene still uses scene-relative data path resolution, Tcl quoting,
+  molecule naming, and the normal structure representation.
+- Routed `outmolden_wrapper` through the autotype VMD structure bridge after the
+  Molden file is written. Updated the structure export audit, bridge
+  documentation, and narrow VMD bridge smoke test to cover the new Molden scene.

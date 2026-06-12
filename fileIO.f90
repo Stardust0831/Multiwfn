@@ -8024,6 +8024,7 @@ end subroutine
 subroutine outmolden_wrapper
 use util
 use defvar
+use vmd_bridge
 character(len=200) outname,c200tmp
 call path2filename(filename,c200tmp)
 write(*,*) "Input path for generating .molden file, e.g. C:\sunshine\riko.molden"
@@ -8033,6 +8034,7 @@ if (outname==" ") outname=trim(c200tmp)//".molden"
 write(*,*) "Exporting, please wait..."
 call outmolden(outname,10)
 write(*,*) "Exporting Molden input file finished!"
+call maybe_write_vmd_structure_scene_autotype(outname)
 end subroutine
 !!!------------------------- Output current wavefunction to Molden input file
 subroutine outmolden(outname,ifileid)
