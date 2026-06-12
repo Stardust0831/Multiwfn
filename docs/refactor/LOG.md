@@ -368,3 +368,7 @@
   GRO, Mol2, POSCAR, XSF, and XYZ, but not a dedicated CIF or CML reader in that
   table, so CIF/CML Multiwfn exports remain intentionally outside the VMD bridge
   until exact VMD plugin support and `mol new ... type` handling are verified.
+- Audited Mol2 and POSCAR as possible next structure bridge targets. Mol2 is
+  only present as an input/read path in this source tree, while POSCAR has a
+  user-facing export wrapper but still needs a verified VMD file type token or a
+  real VMD load test before production scene generation is added.

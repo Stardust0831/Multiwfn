@@ -87,3 +87,14 @@ The bridge therefore avoids generating CIF/CML VMD scenes until support is
 verified against a reliable VMD plugin source or an installed VMD build. If CIF
 or CML support is added later, record the exact VMD `mol new ... type` token and
 add a smoke scene that can be sourced by `tools/vmd-scene-source-check.sh`.
+
+## Remaining Structure Candidates
+
+- Mol2: VMD documents a Mol2 structure reader, but this source tree currently
+  exposes Mol2 as an input/read path rather than a user-facing structure export
+  path. There is no `outmol2` wrapper to route through the bridge.
+- POSCAR: Multiwfn has a user-facing `outPOSCAR_wrapper`, and VMD documents VASP
+  POSCAR/CONTCAR support. This is a plausible bridge candidate, but it is not
+  wired yet because the exact VMD `mol new ... type` token has not been verified
+  from an installed VMD build or plugin source. Do not guess the token in
+  production scene generation.

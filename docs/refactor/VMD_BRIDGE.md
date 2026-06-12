@@ -139,6 +139,12 @@ formats whose VMD loading path is documented or covered by smoke tests. Future
 CIF/CML support should first verify the exact VMD plugin and `mol new ... type`
 token, then add a sourceable smoke scene.
 
+POSCAR is a likely future structure target because Multiwfn can export POSCAR
+and VMD documents VASP POSCAR/CONTCAR support. It remains unwired until the
+exact VMD file type token is confirmed. Mol2 is documented by VMD, but this
+source tree currently has Mol2 reading support rather than a Mol2 export wrapper
+to attach the bridge to.
+
 Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive
 characters escaped. This keeps paths with spaces, backslashes, brackets, dollar
