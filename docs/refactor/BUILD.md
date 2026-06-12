@@ -81,8 +81,10 @@ settings, and a check that no default `.build-env/nogui-build-audit.*`,
 was left behind. `full` also runs the GNU noGUI smoke test and checks that root
 `*.o`, root `*.mod`, and `noGUI/*.o` files were not left behind. The full
 wrapper also checks that `settings.ini` has the same checksum before and after
-the smoke test, so the smoke target cannot silently leave Multiwfn's `lastfile`
-update in the working tree.
+the smoke test, and that known smoke-driven export files such as
+`he_minimal.chg` and `atmpopdcp.txt` were not created in the source root. This
+prevents the smoke target from silently leaving Multiwfn's `lastfile` update or
+user-facing analysis outputs in the working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. The smoke target now runs four non-interactive fixtures: a
@@ -106,9 +108,10 @@ patterns under the quick verification gate.
 
 The GNU noGUI path now writes `.mod` files to `.build-env/gnu-mod` and object
 files to `.build-env/gnu-obj`. After `gnu-noGUI-smoke`, the source root should
-contain `Multiwfn_noGUI` but no root `*.o`, root `*.mod`, or `noGUI/*.o` files.
-The normal Intel-oriented object names remain the default when `OBJ_DIR` is not
-set; `gnu-noGUI` passes `OBJ_DIR=$(GNU_OBJ_DIR)` only to its noGUI sub-build.
+contain `Multiwfn_noGUI` but no root `*.o`, root `*.mod`, `noGUI/*.o`, or known
+smoke-driven export files such as `he_minimal.chg` and `atmpopdcp.txt`. The
+normal Intel-oriented object names remain the default when `OBJ_DIR` is not set;
+`gnu-noGUI` passes `OBJ_DIR=$(GNU_OBJ_DIR)` only to its noGUI sub-build.
 
 `tools/gnu-build.sh clean` runs the GNU-specific `gnu-clean` Makefile target. It
 removes normal Multiwfn build outputs, `.build-env/gnu-mod`,

@@ -12,7 +12,7 @@ case "$mode" in
         printf '%s\n' "Usage: tools/verify-refactor.sh [env|quick|full]"
         printf '%s\n' "  env:   read-only GNU build environment diagnostics"
         printf '%s\n' "  quick: env diagnostics + git diff check + ignore/helper/noGUI/VMD audits + VMD doctor/bridge smoke/residue checks"
-        printf '%s\n' "  full:  quick checks + GNU noGUI smoke + settings/object residue checks"
+        printf '%s\n' "  full:  quick checks + GNU noGUI smoke + settings/object/export residue checks"
         exit 2
         ;;
 esac
@@ -59,6 +59,23 @@ check_no_object_residue() {
     fi
 }
 
+check_no_smoke_export_residue() {
+    status=0
+    for file in he_minimal.chg atmpopdcp.txt; do
+        if [ -e "$repo_dir/$file" ]; then
+            if [ "$status" -eq 0 ]; then
+                printf '%s\n' "Unexpected GNU noGUI smoke export residue:"
+            fi
+            printf '%s\n' "$repo_dir/$file"
+            status=1
+        fi
+    done
+
+    if [ "$status" -ne 0 ]; then
+        exit 1
+    fi
+}
+
 run_gnu_smoke_preserving_settings() {
     settings_file="$repo_dir/settings.ini"
     settings_before=$(cksum "$settings_file")
@@ -98,6 +115,7 @@ run_step check_no_quick_temp_residue
 
 if [ "$mode" = "full" ]; then
     run_step run_gnu_smoke_preserving_settings
+    run_step check_no_smoke_export_residue
     run_step check_no_object_residue
 fi
 

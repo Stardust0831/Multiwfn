@@ -27,7 +27,7 @@ branch grows and what work is still worth doing next.
   low-level writers such as `outcube`.
 - `tools/verify-refactor.sh quick` is the minimum pre-commit gate. `full` adds a
   GNU noGUI build/smoke test, `settings.ini` restoration check, and object
-  residue check.
+  and smoke-export residue checks.
 
 ## Next Useful Work
 

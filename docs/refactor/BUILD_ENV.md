@@ -169,6 +169,8 @@ After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 - GNU object files under `.build-env/gnu-obj`.
 - Generated smoke-test inputs and logs under `.build-env/smoke`.
 - No root `*.o`, root `*.mod`, or `noGUI/*.o` files.
+- No known root-level smoke export files such as `he_minimal.chg` or
+  `atmpopdcp.txt`.
 
 Use `tools/gnu-build.sh clean` to remove the noGUI binary, transient object and
 module files, `.build-env/gnu-mod`, `.build-env/gnu-obj`, `.build-env/smoke`,

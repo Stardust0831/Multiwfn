@@ -267,3 +267,6 @@
   path. The fixture enters main function 7, selects Mulliken population output,
   verifies basis and atom population lines, and explicitly answers `n` to the
   `.chg` export prompt so the smoke run does not leave user output files behind.
+- Added a full-verification check for known GNU noGUI smoke export residues such
+  as `he_minimal.chg` and `atmpopdcp.txt`, so future interaction-script changes
+  fail loudly if they start leaving user-facing output files in the source root.
