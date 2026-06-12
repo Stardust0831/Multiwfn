@@ -21,8 +21,8 @@ Current counts:
 
 - Structure wrapper definitions in production Fortran sources: 4
 - Wrapper-level VMD structure bridge calls in production Fortran sources: 4
-- Explicit non-wrapper VMD structure bridge calls in production Fortran sources: 6
-- Total VMD structure bridge calls in production Fortran sources: 10
+- Explicit non-wrapper VMD structure bridge calls in production Fortran sources: 7
+- Total VMD structure bridge calls in production Fortran sources: 11
 
 ## Covered Structure Paths
 
@@ -53,6 +53,11 @@ The EDA-FF atom contribution workflow can export the related `atmint_tot.pqr`,
 files in one menu action. These are routed through a multi-structure PQR scene
 call so one generated Tcl file loads all five charge-colored contribution
 variants.
+
+The IGM/IBSIW atomic contribution workflow can export `atmdg.pdb`, whose Beta
+and Occupancy fields carry atomic delta-g contribution measures. This user
+selected PDB export is routed through a direct scene call using VMD's Beta color
+method so the primary contribution field is visible immediately.
 
 ## Intentionally Excluded
 

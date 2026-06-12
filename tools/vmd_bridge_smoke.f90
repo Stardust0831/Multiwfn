@@ -18,6 +18,9 @@ isosurshowboth=1
 
 call maybe_write_vmd_structure_scene("structure dir/a$b[1]}.pdb","pdb")
 
+vmdscenefile=trim(scene_dir)//"/test_beta_structure_scene.tcl"
+call maybe_write_vmd_structure_scene_colored("structure dir/beta values.pdb","pdb","Beta")
+
 vmdscenefile=trim(scene_dir)//"/test_pqr_structure_scene.tcl"
 call maybe_write_vmd_structure_scene("charge dir/a$b[1]}.pqr","pqr")
 

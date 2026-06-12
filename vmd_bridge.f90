@@ -24,6 +24,29 @@ if (ivmdrun==1) call run_vmd_scene(scenefile)
 end subroutine
 
 
+subroutine maybe_write_vmd_structure_scene_colored(structfile,filetype,colormethod)
+use defvar
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: structfile,filetype,colormethod
+character(len=200) scenefile
+integer sceneunit
+logical lopen
+
+if (ivmdscene==0.and.ivmdrun==0) return
+
+call open_vmd_scene_file(scenefile,sceneunit,lopen,structfile)
+if (.not.lopen) return
+call write_vmd_scene_header(sceneunit,scenefile)
+call write_vmd_structure_molecule(sceneunit,structfile,filetype,scenefile,colormethod)
+call write_vmd_scene_footer(sceneunit)
+close(sceneunit)
+
+write(*,"(' VMD scene script has been written to ',a)") trim(scenefile)
+if (ivmdrun==1) call run_vmd_scene(scenefile)
+
+end subroutine
+
+
 subroutine maybe_write_vmd_structure_scene_list(structfiles,nfile,filetype)
 use defvar
 implicit real*8 (a-h,o-z)
@@ -234,18 +257,25 @@ write(ifileid,"(a)") "mol material "//trim(c600material)
 end subroutine
 
 
-subroutine write_vmd_structure_molecule(ifileid,structfile,filetype,scenefile)
+subroutine write_vmd_structure_molecule(ifileid,structfile,filetype,scenefile,colormethod)
 implicit real*8 (a-h,o-z)
 integer,intent(in) :: ifileid
 character(len=*),intent(in) :: structfile,filetype
 character(len=*),intent(in),optional :: scenefile
+character(len=*),intent(in),optional :: colormethod
 character(len=600) c600struct,c600type
 character(len=600) scenepath
+character(len=80) c80color
 
 scenepath=structfile
 if (present(scenefile)) scenepath=vmd_scene_data_path(structfile,scenefile)
 c600struct=vmd_tcl_dquote(scenepath)
 c600type=vmd_tcl_dquote(filetype)
+c80color="Element"
+if (trim(filetype)=="pqr".or.trim(filetype)=="PQR") c80color="Charge"
+if (present(colormethod)) then
+    if (len_trim(colormethod)>0) c80color=colormethod
+end if
 
 write(ifileid,"(a)") ""
 write(ifileid,"(a)") "# Structure file: "//trim(structfile)
@@ -253,11 +283,7 @@ write(ifileid,"(a)") "mol new [multiwfn_resolve_path "//trim(c600struct)//"] typ
 call write_vmd_molecule_name(ifileid,structfile)
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
-if (trim(filetype)=="pqr".or.trim(filetype)=="PQR") then
-    write(ifileid,"(a)") "mol color Charge"
-else
-    write(ifileid,"(a)") "mol color Element"
-end if
+write(ifileid,"(a)") "mol color "//trim(c80color)
 call write_vmd_material(ifileid,"Opaque")
 write(ifileid,"(a)") "mol addrep top"
 

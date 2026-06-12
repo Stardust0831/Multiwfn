@@ -353,3 +353,8 @@
   repeated overwrites of the default `vmdscenefile` while still keeping
   low-level structure writers side-effect free. The VMD bridge smoke test now
   generates and sources a multi-structure PQR scene.
+- Added `maybe_write_vmd_structure_scene_colored` for structure exports whose
+  useful visualization field is not the default element or charge color. The
+  IGM/IBSIW `atmdg.pdb` export now writes a VMD scene colored by Beta, matching
+  the file's atomic delta-g contribution field. The bridge smoke test now
+  verifies a Beta-colored PDB scene.

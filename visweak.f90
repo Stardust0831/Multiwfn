@@ -929,6 +929,7 @@ do while (.true.)
 				end do
 				write(10,"('END')")
 				close(10)
+                call maybe_write_vmd_structure_scene_colored("atmdg.pdb","pdb","Beta")
                 write(*,*) "Done! atmdg.pdb has been outputted to current folder"
 			end if
         else if (iouttype==2) then !atmdg.pqr & atmdg%.pqr

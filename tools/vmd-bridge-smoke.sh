@@ -32,6 +32,7 @@ mod_dir="$build_dir/mod"
 obj_dir="$build_dir/obj"
 scene_file="$build_dir/test_scene.tcl"
 structure_scene_file="$build_dir/test_structure_scene.tcl"
+beta_structure_scene_file="$build_dir/test_beta_structure_scene.tcl"
 pqr_structure_scene_file="$build_dir/test_pqr_structure_scene.tcl"
 multi_structure_scene_file="$build_dir/test_multi_structure_scene.tcl"
 gro_structure_scene_file="$build_dir/test_gro_structure_scene.tcl"
@@ -73,6 +74,7 @@ cd "$repo_dir"
 LD_LIBRARY_PATH="$gnu_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$build_dir/vmd_bridge_smoke" > "$out_file"
 
 grep -Fq "VMD scene script has been written to $smoke_dir/test_structure_scene.tcl" "$out_file"
+grep -Fq "VMD scene script has been written to $smoke_dir/test_beta_structure_scene.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/test_pqr_structure_scene.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/test_multi_structure_scene.tcl" "$out_file"
 grep -Fq "VMD scene script has been written to $smoke_dir/test_gro_structure_scene.tcl" "$out_file"
@@ -90,6 +92,8 @@ grep -Fq 'mol new [multiwfn_resolve_path "structure dir/a\$b\[1\]}.pdb"] type "p
 grep -Fq 'mol rename top "structure dir/a\$b\[1\]}.pdb"' "$structure_scene_file"
 grep -Fq 'mol representation CPK 1.000000 0.300000 16 16' "$structure_scene_file"
 grep -Fq 'mol color Element' "$structure_scene_file"
+grep -Fq 'mol new [multiwfn_resolve_path "structure dir/beta values.pdb"] type "pdb" waitfor all' "$beta_structure_scene_file"
+grep -Fq 'mol color Beta' "$beta_structure_scene_file"
 grep -Fq 'mol new [multiwfn_resolve_path "charge dir/a\$b\[1\]}.pqr"] type "pqr" waitfor all' "$pqr_structure_scene_file"
 grep -Fq 'mol rename top "charge dir/a\$b\[1\]}.pqr"' "$pqr_structure_scene_file"
 grep -Fq 'mol color Charge' "$pqr_structure_scene_file"
@@ -126,6 +130,7 @@ grep -Fq 'mol representation Isosurface -0.05000000 2 0 0 1 1' "$dataset_scene_f
 
 mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir" "$build_dir/sample dir"
 : > "$build_dir/structure dir/a\$b[1]}.pdb"
+: > "$build_dir/structure dir/beta values.pdb"
 : > "$build_dir/charge dir/a\$b[1]}.pqr"
 : > "$build_dir/charge dir/batch second.pqr"
 : > "$build_dir/charge dir/batch_third.pqr"
@@ -138,6 +143,7 @@ mkdir -p "$build_dir/structure dir" "$build_dir/charge dir" "$build_dir/traj dir
 
 "$script_dir/vmd-scene-source-check.sh" \
     "$structure_scene_file" \
+    "$beta_structure_scene_file" \
     "$pqr_structure_scene_file" \
     "$multi_structure_scene_file" \
     "$gro_structure_scene_file" \

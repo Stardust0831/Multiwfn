@@ -125,9 +125,12 @@ dispersion contribution exports `atomdisp.pqr` and `diffatomdisp.pqr`. The
 EDA-FF atom contribution batch exports `atmint_tot.pqr`, `atmint_ele.pqr`,
 `atmint_rep.pqr`, `atmint_disp.pqr`, and `atmint_vdW.pqr` through a
 multi-structure PQR scene, so one Tcl script loads all related contribution
-variants. PDB, XYZ, and GRO structure scenes use element coloring; PQR scenes
-use VMD's charge coloring so exported per-atom charges, ESP values, fitting
-errors, or atomic dispersion/interaction contributions are visible immediately.
+variants. The IGM/IBSIW `atmdg.pdb` export uses a colored PDB scene with VMD's
+Beta color method, because the Beta field carries the atomic delta-g
+contribution. Ordinary PDB, XYZ, and GRO structure scenes use element coloring;
+PQR scenes use VMD's charge coloring so exported per-atom charges, ESP values,
+fitting errors, or atomic dispersion/interaction contributions are visible
+immediately.
 
 Structure and cube paths in generated `mol new` commands and the header's manual
 `source` hint are emitted as Tcl double-quoted strings with Tcl-sensitive
@@ -199,7 +202,8 @@ This compiles a minimal driver and verifies that generated Tcl scenes can load
 PDB, PQR, XYZ, and GRO structure files, multiple PQR structure files, a single
 cube file, multiple cube files, or a multi-dataset cube file; add molecular and
 positive/negative isosurface representations; and use the configured VMD
-material. It also checks the
+material. It also checks custom structure coloring such as Beta-colored PDB
+scenes. It also checks the
 generated structure, cube/dataset comments, `auto` scene naming, relative data
 path resolution helper, and Tcl quoting for cube and scene paths containing
 spaces, backslashes, and Tcl-sensitive characters. It also checks Tcl quoting for
