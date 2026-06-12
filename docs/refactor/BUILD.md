@@ -90,19 +90,24 @@ The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
 and OpenBLAS. The `gnu-noGUI-smoke` Makefile target delegates the runtime checks
 to `tools/gnu-nogui-smoke.sh` after rebuilding the binary, while preserving the
 same `SMOKE_*`, `GNU_PREFIX`, and `EXE_noGUI` override points for local
-debugging. The smoke script runs six non-interactive fixtures: a three-atom
+debugging. The smoke script runs seven non-interactive fixtures: a three-atom
 water XYZ structure load, a real XYZ structure export that generates a VMD scene
 through the main program's `xyz` command, a minimal water cube grid load, a real
 cube export through the grid-data processing menu that generates a VMD scene, a
 minimal `.mwfn` wavefunction point-property calculation, and a minimal `.mwfn`
-Mulliken population analysis. The structure and cube load
+Mulliken population analysis, and a `.mwfn` electron-density grid calculation
+that exports `density.cub` and its VMD scene from the spatial-region menu. The
+structure and cube load
 fixtures must reach the main menu with status 0; the VMD structure-export
 fixture must write the exported XYZ file, write `<exported.xyz>.vmd.tcl`, and
 honor `-vmdrun -vmdpath none` without trying to launch VMD; the VMD cube-export
 fixture must enter `Process grid data`, write the exported cube file, write
 `<exported.cub>.vmd.tcl`, and generate positive and negative isosurface
-representations. When `tclsh` is available, those end-to-end generated VMD
-scenes are also sourced with stubbed VMD commands by
+representations. The wavefunction grid-export fixture must calculate electron
+density on a small 3x3x3 grid, write `density.cub`, generate
+`density.cub.vmd.tcl`, and keep `vmdpath=none` non-launching. When `tclsh` is
+available, those end-to-end generated VMD scenes are also sourced with stubbed
+VMD commands by
 `tools/vmd-scene-source-check.sh` from a temporary working directory, and their
 `mol new` data paths must resolve to existing exported files. The point-property
 fixture must print representative electron-density, kinetic-energy, and
@@ -159,4 +164,5 @@ Intel-oriented flags.
 4. Avoid requiring DISLIN/Motif for workflows that use VMD as the visualization
    backend.
 5. Add broader non-interactive fixtures for representative wavefunction-derived
-   analyses beyond the current structure and cube-load smoke tests.
+   analyses beyond the current minimal point, population, and density-grid
+   smoke tests.

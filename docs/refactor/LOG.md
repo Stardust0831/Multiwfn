@@ -298,5 +298,10 @@
 - Extracted the long `gnu-noGUI-smoke` Makefile recipe into
   `tools/gnu-nogui-smoke.sh`. The Makefile still rebuilds the GNU noGUI binary
   first and forwards the same `GNU_PREFIX`, `EXE_noGUI`, and `SMOKE_*` override
-  variables, but the six-fixture runtime smoke flow now lives in a standalone
+  variables, but the runtime smoke flow now lives in a standalone
   shell script that can be syntax-checked and maintained independently.
+- Extended `gnu-noGUI-smoke` with a wavefunction-derived grid export fixture.
+  The fixture runs main function 5 on `he_minimal.mwfn`, calculates electron
+  density on a tiny 3x3x3 grid in an isolated smoke directory, exports
+  `density.cub`, generates `density.cub.vmd.tcl` with VMD auto-scene flags, and
+  sources the generated VMD scene to confirm scene-relative data path resolution.

@@ -17,7 +17,9 @@ branch grows and what work is still worth doing next.
   minimal water cube grid, by running a real `xyz` structure export that writes
   a VMD Tcl scene, by running a real grid-data cube export that writes a VMD Tcl
   scene, and by running a minimal `.mwfn` wavefunction point-property calculation
-  and Mulliken population analysis.
+  and Mulliken population analysis, and by calculating electron density from the
+  `.mwfn` fixture on a small grid and exporting the resulting `density.cub` with
+  a VMD scene.
 - The GNU noGUI build keeps module files under `.build-env/gnu-mod` and object
   files under `.build-env/gnu-obj`, leaving the source root free of transient
   `*.o`/`*.mod` files after full verification.
@@ -34,10 +36,9 @@ branch grows and what work is still worth doing next.
 ## Next Useful Work
 
 1. Broaden non-interactive fixtures for wavefunction-derived analyses beyond the
-   current minimal `.mwfn` point-property and Mulliken smoke tests, especially
-   for menu paths that export grid data or use real-space integration machinery.
-   Prefer fixtures that exercise generated wavefunction-derived cube data rather
-   than only re-exporting a loaded cube file.
+   current minimal `.mwfn` point-property, Mulliken, and density-grid smoke
+   tests, especially for menu paths that use real-space integration machinery or
+   produce richer visualization semantics.
 2. Continue auditing specialized structure, cube, and non-cube visualization
    exports and route user-facing exports through VMD where the output maps
    cleanly to VMD.

@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-GNU_PREFIX=${GNU_PREFIX:-$(pwd)/.build-env/gnu}
+REPO_ROOT=$(pwd)
+GNU_PREFIX=${GNU_PREFIX:-$REPO_ROOT/.build-env/gnu}
 EXE_noGUI=${EXE_noGUI:-Multiwfn_noGUI}
 SMOKE_DIR=${SMOKE_DIR:-.build-env/smoke}
 SMOKE_XYZ=${SMOKE_XYZ:-$SMOKE_DIR/water.xyz}
@@ -15,6 +16,11 @@ SMOKE_MWFN_OUT=${SMOKE_MWFN_OUT:-$SMOKE_DIR/gnu-noGUI-mwfn-point-smoke.out}
 SMOKE_MWFN_ERR=${SMOKE_MWFN_ERR:-$SMOKE_DIR/gnu-noGUI-mwfn-point-smoke.err}
 SMOKE_MULLIKEN_OUT=${SMOKE_MULLIKEN_OUT:-$SMOKE_DIR/gnu-noGUI-mwfn-mulliken-smoke.out}
 SMOKE_MULLIKEN_ERR=${SMOKE_MULLIKEN_ERR:-$SMOKE_DIR/gnu-noGUI-mwfn-mulliken-smoke.err}
+SMOKE_WFN_GRID_DIR=${SMOKE_WFN_GRID_DIR:-$SMOKE_DIR/wfn-grid-export}
+SMOKE_WFN_GRID_EXPORT_CUBE=${SMOKE_WFN_GRID_EXPORT_CUBE:-$SMOKE_WFN_GRID_DIR/density.cub}
+SMOKE_WFN_GRID_SCENE=${SMOKE_WFN_GRID_SCENE:-$SMOKE_WFN_GRID_EXPORT_CUBE.vmd.tcl}
+SMOKE_WFN_GRID_OUT=${SMOKE_WFN_GRID_OUT:-$SMOKE_WFN_GRID_DIR/gnu-noGUI-wfn-grid-smoke.out}
+SMOKE_WFN_GRID_ERR=${SMOKE_WFN_GRID_ERR:-$SMOKE_WFN_GRID_DIR/gnu-noGUI-wfn-grid-smoke.err}
 SMOKE_VMD_DIR=${SMOKE_VMD_DIR:-$SMOKE_DIR/vmd-export}
 SMOKE_VMD_EXPORT_XYZ=${SMOKE_VMD_EXPORT_XYZ:-$SMOKE_VMD_DIR/exported.xyz}
 SMOKE_VMD_SCENE=${SMOKE_VMD_SCENE:-$SMOKE_VMD_EXPORT_XYZ.vmd.tcl}
@@ -28,12 +34,31 @@ SMOKE_VMD_CUBE_ERR=${SMOKE_VMD_CUBE_ERR:-$SMOKE_VMD_CUBE_DIR/gnu-noGUI-vmd-cube-
 
 allowed_stderr='Note: The following floating-point exceptions are signalling: IEEE_INVALID_FLAG'
 
+case $SMOKE_MWFN in
+    /*) SMOKE_MWFN_ABS=$SMOKE_MWFN ;;
+    *) SMOKE_MWFN_ABS=$REPO_ROOT/$SMOKE_MWFN ;;
+esac
+
+case $EXE_noGUI in
+    /*) EXE_noGUI_ABS=$EXE_noGUI ;;
+    *) EXE_noGUI_ABS=$REPO_ROOT/$EXE_noGUI ;;
+esac
+
 run_multiwfn() {
     lib_path=$GNU_PREFIX/lib
     if [ "${LD_LIBRARY_PATH:-}" ]; then
         lib_path=$lib_path:$LD_LIBRARY_PATH
     fi
-    LD_LIBRARY_PATH=$lib_path timeout 12s "./$EXE_noGUI" "$@"
+    LD_LIBRARY_PATH=$lib_path timeout 12s "$EXE_noGUI_ABS" "$@"
+}
+
+run_multiwfn_in_dir() {
+    run_dir=$1
+    shift
+    (
+        cd "$run_dir"
+        run_multiwfn "$@"
+    )
 }
 
 check_stderr() {
@@ -52,7 +77,7 @@ restore_settings() {
     fi
 }
 
-mkdir -p "$SMOKE_DIR" "$SMOKE_VMD_DIR" "$SMOKE_VMD_CUBE_DIR"
+mkdir -p "$SMOKE_DIR" "$SMOKE_VMD_DIR" "$SMOKE_VMD_CUBE_DIR" "$SMOKE_WFN_GRID_DIR"
 
 printf '%s\n%s\n%s\n%s\n%s\n' \
     '3' \
@@ -135,9 +160,36 @@ grep -q 'Atom     1(He)    Population:  2.00000000    Net charge:  0.00000000' "
 grep -q 'Total net charge:    0.00000000' "$SMOKE_MULLIKEN_OUT"
 check_stderr "$SMOKE_MULLIKEN_ERR" "GNU noGUI mwfn Mulliken smoke"
 
+cp settings.ini "$SMOKE_WFN_GRID_DIR/settings.ini"
+printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+    '5' \
+    '1' \
+    '5' \
+    '-1,-1,-1' \
+    '1,1,1' \
+    '3,3,3' \
+    '2' \
+    '0' \
+    'q' |
+    run_multiwfn_in_dir "$SMOKE_WFN_GRID_DIR" "$SMOKE_MWFN_ABS" -vmdrun -vmdpath none -vmdscene auto > "$SMOKE_WFN_GRID_OUT" 2> "$SMOKE_WFN_GRID_ERR"
+grep -q 'Loaded .*he_minimal.mwfn successfully' "$SMOKE_WFN_GRID_OUT"
+grep -q 'Available real space functions' "$SMOKE_WFN_GRID_OUT"
+grep -q 'Calculation of grid data took up wall clock time' "$SMOKE_WFN_GRID_OUT"
+grep -q 'Grid data has been exported to density.cub' "$SMOKE_WFN_GRID_OUT"
+grep -q 'VMD scene script has been written to density.cub.vmd.tcl' "$SMOKE_WFN_GRID_OUT"
+grep -q 'VMD was not launched because vmdpath is empty or none' "$SMOKE_WFN_GRID_OUT"
+test -s "$SMOKE_WFN_GRID_EXPORT_CUBE"
+test -s "$SMOKE_WFN_GRID_SCENE"
+grep -Fq '# Cube file: density.cub' "$SMOKE_WFN_GRID_SCENE"
+grep -Fq 'mol new [multiwfn_resolve_path "density.cub"] type cube waitfor all' "$SMOKE_WFN_GRID_SCENE"
+grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$SMOKE_WFN_GRID_SCENE"
+tools/vmd-scene-source-check.sh "$SMOKE_WFN_GRID_SCENE"
+check_stderr "$SMOKE_WFN_GRID_ERR" "GNU noGUI wavefunction grid export smoke"
+
 cat "$SMOKE_ERR"
 cat "$SMOKE_VMD_ERR"
 cat "$SMOKE_CUBE_ERR"
 cat "$SMOKE_VMD_CUBE_ERR"
 cat "$SMOKE_MWFN_ERR"
 cat "$SMOKE_MULLIKEN_ERR"
+cat "$SMOKE_WFN_GRID_ERR"
