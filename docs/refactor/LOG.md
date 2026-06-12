@@ -275,3 +275,9 @@
   temporary-directory checks, root/noGUI object residue checks, and known
   smoke-export residue checks. `gnu-clean` also removes temporary VMD doctor
   smoke directories.
+- Extended `gnu-noGUI-smoke` with an end-to-end VMD structure export fixture.
+  The fixture loads the water XYZ file via the real `Multiwfn_noGUI` binary,
+  enters the main-menu `xyz` export command, writes an exported XYZ file under
+  `.build-env/smoke`, generates the corresponding `vmdscenefile=auto` Tcl scene,
+  and checks that `-vmdrun -vmdpath none` does not launch an external VMD
+  process.

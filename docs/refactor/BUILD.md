@@ -87,19 +87,23 @@ the smoke test. This prevents the smoke target from silently leaving Multiwfn's
 `lastfile` update or user-facing analysis outputs in the working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
-and OpenBLAS. The smoke target now runs four non-interactive fixtures: a
-three-atom water XYZ structure load, a minimal water cube grid load, a minimal
-`.mwfn` wavefunction point-property calculation, and a minimal `.mwfn` Mulliken
-population analysis. The structure and cube fixtures must reach the main menu
-with status 0; the point-property fixture must print representative
-electron-density, kinetic-energy, and orbital-value lines; the Mulliken fixture
-must print basis-function population, atom population, and zero net charge for
-the helium fixture. The smoke target restores `settings.ini` after the run
-because Multiwfn updates `lastfile` during normal startup. The full verification
-wrapper checks that restoration worked by comparing `settings.ini` before and
-after the smoke test. The smoke test reports an IEEE floating-point exception
-flag note at shutdown; this known note is allowed by the smoke target, while any
-other stderr output causes the smoke test to fail.
+and OpenBLAS. The smoke target now runs five non-interactive fixtures: a
+three-atom water XYZ structure load, a real XYZ structure export that generates
+a VMD scene through the main program's `xyz` command, a minimal water cube grid
+load, a minimal `.mwfn` wavefunction point-property calculation, and a minimal
+`.mwfn` Mulliken population analysis. The structure and cube load fixtures must
+reach the main menu with status 0; the VMD structure-export fixture must write
+the exported XYZ file, write `<exported.xyz>.vmd.tcl`, and honor
+`-vmdrun -vmdpath none` without trying to launch VMD; the point-property fixture
+must print representative electron-density, kinetic-energy, and orbital-value
+lines; the Mulliken fixture must print basis-function population, atom
+population, and zero net charge for the helium fixture. The smoke target
+restores `settings.ini` after the run because Multiwfn updates `lastfile` during
+normal startup. The full verification wrapper checks that restoration worked by
+comparing `settings.ini` before and after the smoke test. The smoke test reports
+an IEEE floating-point exception flag note at shutdown; this known note is
+allowed by the smoke target, while any other stderr output causes the smoke test
+to fail.
 
 All generated compiler packages, module files, smoke logs, temporary build
 artifacts, exported visualization files, and machine-local Makefile overrides
