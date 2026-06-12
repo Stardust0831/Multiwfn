@@ -185,8 +185,9 @@ After a successful `gnu-noGUI-smoke`, the expected local build residue is:
   `.build-env/smoke/wfn-grid-export`.
 - No root `*.o`, root `*.mod`, or `noGUI/*.o` files.
 - No known root-level smoke export files such as `he_minimal.chg` or
-  `atmpopdcp.txt`. `tools/audit-smoke-residue.sh full` checks this together
-  with root object/module residue.
+  `atmpopdcp.txt`, and no root-level wavefunction-grid outputs such as
+  `density.cub` or `density.cub.vmd.tcl`. `tools/audit-smoke-residue.sh full`
+  checks this together with root object/module residue.
 
 Use `tools/gnu-build.sh clean` to remove the noGUI binary, transient object and
 module files, `.build-env/gnu-mod`, `.build-env/gnu-obj`, `.build-env/smoke`,

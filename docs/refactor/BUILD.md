@@ -128,9 +128,10 @@ patterns under the quick verification gate.
 The GNU noGUI path now writes `.mod` files to `.build-env/gnu-mod` and object
 files to `.build-env/gnu-obj`. After `gnu-noGUI-smoke`, the source root should
 contain `Multiwfn_noGUI` but no root `*.o`, root `*.mod`, `noGUI/*.o`, or known
-smoke-driven export files such as `he_minimal.chg` and `atmpopdcp.txt`. The
-normal Intel-oriented object names remain the default when `OBJ_DIR` is not set;
-`gnu-noGUI` passes `OBJ_DIR=$(GNU_OBJ_DIR)` only to its noGUI sub-build.
+smoke-driven export files such as `he_minimal.chg`, `atmpopdcp.txt`,
+`density.cub`, or `density.cub.vmd.tcl`. The normal Intel-oriented object names
+remain the default when `OBJ_DIR` is not set; `gnu-noGUI` passes
+`OBJ_DIR=$(GNU_OBJ_DIR)` only to its noGUI sub-build.
 
 `tools/gnu-build.sh clean` runs the GNU-specific `gnu-clean` Makefile target. It
 removes normal Multiwfn build outputs, `.build-env/gnu-mod`,

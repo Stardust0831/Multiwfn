@@ -305,3 +305,8 @@
   density on a tiny 3x3x3 grid in an isolated smoke directory, exports
   `density.cub`, generates `density.cub.vmd.tcl` with VMD auto-scene flags, and
   sources the generated VMD scene to confirm scene-relative data path resolution.
+- Extended the full smoke residue audit to fail if `density.cub` or
+  `density.cub.vmd.tcl` appears in the source root. The wavefunction-grid smoke
+  fixture intentionally runs in its own `.build-env/smoke/wfn-grid-export`
+  directory, because Multiwfn's spatial-region export writes the cube using a
+  fixed menu-derived filename.
