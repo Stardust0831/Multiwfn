@@ -26,8 +26,10 @@ fake_log="$smoke_dir/fake-vmd.log"
 help_out="$smoke_dir/help.out"
 dry_out="$smoke_dir/dry.out"
 check_out="$smoke_dir/check.out"
+check_only_out="$smoke_dir/check-only.out"
 run_out="$smoke_dir/run.out"
 none_out="$smoke_dir/none.out"
+none_check_only_out="$smoke_dir/none-check-only.out"
 missing_scene_out="$smoke_dir/missing-scene.out"
 missing_vmd_out="$smoke_dir/missing-vmd.out"
 bad_check_out="$smoke_dir/bad-check.out"
@@ -54,7 +56,7 @@ EOF
 chmod +x "$fake_vmd"
 
 "$script_dir/vmd-open-scene.sh" --help > "$help_out"
-grep -Fq "Usage: tools/vmd-open-scene.sh [--check] [--dry-run] [--vmdpath VMD_PATH] SCENE.vmd.tcl" "$help_out"
+grep -Fq "Usage: tools/vmd-open-scene.sh [--check|--check-only] [--dry-run] [--vmdpath VMD_PATH] SCENE.vmd.tcl" "$help_out"
 
 "$script_dir/vmd-open-scene.sh" --dry-run --vmdpath "$fake_vmd" "$scene_file" > "$dry_out"
 grep -Fq "VMD executable: $fake_vmd" "$dry_out"
@@ -64,6 +66,16 @@ grep -Fq "Dry run: would execute VMD with -e scene." "$dry_out"
 "$script_dir/vmd-open-scene.sh" --check --dry-run --vmdpath "$fake_vmd" "$checked_scene_file" > "$check_out"
 grep -Fq "VMD scene source check passed." "$check_out"
 grep -Fq "Dry run: would execute VMD with -e scene." "$check_out"
+
+"$script_dir/vmd-open-scene.sh" --check-only "$checked_scene_file" > "$check_only_out"
+grep -Fq "VMD scene source check passed." "$check_only_out"
+if grep -Fq "VMD executable:" "$check_only_out"; then
+    printf '%s\n' "check-only should not resolve or print a VMD executable."
+    exit 1
+fi
+
+"$script_dir/vmd-open-scene.sh" --check-only --vmdpath none "$checked_scene_file" > "$none_check_only_out"
+grep -Fq "VMD scene source check passed." "$none_check_only_out"
 
 FAKE_VMD_LOG="$fake_log" "$script_dir/vmd-open-scene.sh" --vmdpath "$fake_vmd" "$scene_file" > "$run_out"
 grep -Fq "VMD executable: $fake_vmd" "$run_out"

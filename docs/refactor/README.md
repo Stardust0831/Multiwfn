@@ -50,7 +50,7 @@ tools/audit-vmd-structure-exports.sh
 tools/vmd-scene-source-check.sh path/to/scene.vmd.tcl
 tools/vmd-doctor.sh
 tools/vmd-doctor-smoke.sh
-tools/vmd-open-scene.sh --check --dry-run path/to/scene.vmd.tcl
+tools/vmd-open-scene.sh --check-only path/to/scene.vmd.tcl
 tools/vmd-open-scene-smoke.sh
 tools/verify-refactor.sh env
 tools/verify-refactor.sh quick

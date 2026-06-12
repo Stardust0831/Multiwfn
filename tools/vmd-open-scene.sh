@@ -5,10 +5,11 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 dry_run=0
 check_scene=0
+check_only=0
 explicit_vmdpath=
 
 usage() {
-    printf '%s\n' "Usage: tools/vmd-open-scene.sh [--check] [--dry-run] [--vmdpath VMD_PATH] SCENE.vmd.tcl"
+    printf '%s\n' "Usage: tools/vmd-open-scene.sh [--check|--check-only] [--dry-run] [--vmdpath VMD_PATH] SCENE.vmd.tcl"
     printf '%s\n' "Opens an existing Multiwfn-generated VMD Tcl scene with a user-installed VMD."
     printf '%s\n' "The script reads settings.ini vmdpath when --vmdpath is not supplied."
 }
@@ -77,6 +78,11 @@ do
             check_scene=1
             shift
             ;;
+        --check-only)
+            check_scene=1
+            check_only=1
+            shift
+            ;;
         --vmdpath)
             if [ "$#" -lt 2 ]; then
                 usage
@@ -108,6 +114,11 @@ scene=$1
 if [ ! -f "$scene" ]; then
     printf '%s\n' "VMD scene file was not found: $scene" >&2
     exit 1
+fi
+
+if [ "$check_only" -eq 1 ]; then
+    "$script_dir/vmd-scene-source-check.sh" "$scene"
+    exit 0
 fi
 
 if [ -n "$explicit_vmdpath" ]; then

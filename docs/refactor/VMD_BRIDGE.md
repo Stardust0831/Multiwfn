@@ -63,6 +63,7 @@ An already generated scene can be opened through the repository-local helper:
 tools/vmd-open-scene.sh exported.cub.vmd.tcl
 tools/vmd-open-scene.sh --vmdpath /path/to/vmd exported.cub.vmd.tcl
 tools/vmd-open-scene.sh --check --dry-run exported.cub.vmd.tcl
+tools/vmd-open-scene.sh --check-only exported.cub.vmd.tcl
 ```
 
 The helper reads `vmdpath` from `settings.ini` unless `--vmdpath` is supplied,
@@ -70,9 +71,11 @@ verifies that the scene file exists, resolves the VMD executable, and then runs
 `vmd -e <scene>`. The dry-run mode reports the resolved executable and scene
 without launching VMD. With `--check`, it first reuses
 `tools/vmd-scene-source-check.sh` to source the scene with stubbed VMD commands
-and verify that referenced data files resolve. Its smoke test uses a generated
-fake VMD executable, so the quick verification gate still does not require VMD
-to be installed.
+and verify that referenced data files resolve. Use `--check-only` to run that
+scene validation without resolving or launching VMD, which is useful on systems
+where VMD is not installed yet. Its smoke test uses a generated fake VMD
+executable, so the quick verification gate still does not require VMD to be
+installed.
 
 ## Supported export paths
 

@@ -437,3 +437,7 @@
   verification so the stderr audit itself is tested with synthetic empty, known,
   repeated-known, unexpected, and missing-directory cases. Added its temporary
   directory pattern to quick residue checks and `gnu-clean`.
+- Added `--check-only` to `tools/vmd-open-scene.sh` so users can validate a
+  generated VMD scene through the reusable Tcl source check without resolving or
+  launching VMD. The open-scene smoke test now covers this path, including the
+  case where `--vmdpath none` is supplied.
