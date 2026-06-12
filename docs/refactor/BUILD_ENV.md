@@ -201,6 +201,8 @@ prints basis and atomic populations, and restores `settings.ini` before exiting.
 GFortran currently prints an IEEE floating-point exception flag note at program
 termination; this should be tracked during broader numerical validation. The
 stderr check allows only that exact note and fails on any other stderr line.
+After a full smoke run, `tools/audit-gnu-smoke-stderr.sh` summarizes which
+fixture stderr files are empty and which contain only the known note.
 `GNU_PREFIX`, `EXE_noGUI`, and all documented `SMOKE_*` paths can still be
 overridden through the Makefile target or by invoking the script directly from
 the source root.

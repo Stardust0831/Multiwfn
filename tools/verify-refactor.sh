@@ -70,6 +70,7 @@ run_step "$script_dir/audit-smoke-residue.sh" quick
 
 if [ "$mode" = "full" ]; then
     run_step run_gnu_smoke_preserving_settings
+    run_step "$script_dir/audit-gnu-smoke-stderr.sh"
     run_step "$script_dir/audit-smoke-residue.sh" full
 fi
 

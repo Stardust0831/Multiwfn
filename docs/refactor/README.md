@@ -39,6 +39,7 @@ Main local verification entry points:
 tools/bootstrap-gnu-env.sh
 tools/gnu-build.sh doctor
 tools/gnu-build.sh vmd-smoke
+tools/audit-gnu-smoke-stderr.sh
 tools/audit-ignore-rules.sh
 tools/audit-helper-scripts.sh
 tools/audit-nogui-build.sh

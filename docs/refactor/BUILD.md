@@ -92,9 +92,11 @@ smoke test under default smoke settings, and `tools/audit-smoke-residue.sh
 quick` to check that no default `.build-env/nogui-build-audit.*`,
 `.build-env/vmd-doctor-smoke.*`, `.build-env/vmd-open-scene-smoke.*`, or
 `.build-env/vmd-bridge-smoke.*` directory was left behind. `full` also runs the
-GNU noGUI smoke test and then uses `tools/audit-smoke-residue.sh full` to check
-that root `*.o`, root `*.mod`, `noGUI/*.o`, and known smoke-driven export files
-such as `he_minimal.chg` and `atmpopdcp.txt` were not left behind. The full
+GNU noGUI smoke test, classifies every smoke stderr file with
+`tools/audit-gnu-smoke-stderr.sh`, and then uses
+`tools/audit-smoke-residue.sh full` to check that root `*.o`, root `*.mod`,
+`noGUI/*.o`, and known smoke-driven export files such as `he_minimal.chg` and
+`atmpopdcp.txt` were not left behind. The full
 wrapper also checks that `settings.ini` has the same checksum before and after
 the smoke test. This prevents the smoke target from silently leaving Multiwfn's
 `lastfile` update or user-facing analysis outputs in the working tree.
@@ -147,7 +149,8 @@ normal startup. The full verification wrapper checks that restoration worked by
 comparing `settings.ini` before and after the smoke test. The smoke test reports
 an IEEE floating-point exception flag note at shutdown; this known note is
 allowed by the smoke target, while any other stderr output causes the smoke test
-to fail.
+to fail. The full wrapper also summarizes which stderr files are empty and which
+contain only the known note.
 
 All generated compiler packages, module files, smoke logs, temporary build
 artifacts, exported visualization files, and machine-local Makefile overrides

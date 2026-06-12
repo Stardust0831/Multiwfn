@@ -428,3 +428,8 @@
 - Added `.build-env/vmd-open-scene-smoke.*` to `gnu-clean` and the build
   cleanup documentation so the Makefile cleanup path matches the quick residue
   audit after adding the VMD open-scene helper smoke test.
+- Added `tools/audit-gnu-smoke-stderr.sh` and wired it into full verification
+  after the GNU noGUI smoke run. The audit summarizes each smoke `*.err` file as
+  empty, containing only the known GFortran `IEEE_INVALID_FLAG` shutdown note, or
+  unexpected stderr, giving a narrow record for the roadmap item tracking that
+  runtime note.
