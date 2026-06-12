@@ -186,7 +186,11 @@ write(ifileid,"(a)") "# Structure file: "//trim(structfile)
 write(ifileid,"(a)") "mol new "//trim(c600struct)//" type "//trim(c600type)//" waitfor all"
 write(ifileid,"(a)") "mol delrep 0 top"
 write(ifileid,"(a)") "mol representation CPK 1.000000 0.300000 16 16"
-write(ifileid,"(a)") "mol color Element"
+if (trim(filetype)=="pqr".or.trim(filetype)=="PQR") then
+    write(ifileid,"(a)") "mol color Charge"
+else
+    write(ifileid,"(a)") "mol color Element"
+end if
 write(ifileid,"(a)") "mol material Opaque"
 write(ifileid,"(a)") "mol addrep top"
 

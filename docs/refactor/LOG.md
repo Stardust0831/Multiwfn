@@ -234,3 +234,6 @@
   `tools/verify-refactor.sh quick`. The smoke test covers help output, PATH
   resolution, absolute executable paths, missing executable failures, and the
   default `settings.ini` lookup without requiring VMD to be installed.
+- Changed generated PQR structure scenes to use VMD `Charge` coloring while
+  leaving PDB, XYZ, and GRO structure scenes on `Element` coloring. The VMD
+  bridge smoke test now checks both branches.
