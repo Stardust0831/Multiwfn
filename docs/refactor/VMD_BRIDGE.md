@@ -192,9 +192,13 @@ spaces, backslashes, and Tcl-sensitive characters. It also checks Tcl quoting fo
 the configured VMD material. The smoke test covers the non-fatal error path for
 an unwritable scene location and VMD launch-command quoting for Linux/MacOS and
 Windows. Generated scenes also carry a header note describing relative file path
-resolution. Successful default runs clean their temporary `.build-env` smoke
-directory; use `VMD_SMOKE_KEEP=1` or set `VMD_SMOKE_DIR` when inspecting the
-generated Tcl files.
+resolution. When `tclsh` is available, the smoke test also stubs VMD's `mol`,
+`display`, and `axes` commands, sources a generated scene, and verifies the
+scene-relative, fallback, and absolute-path behavior of `multiwfn_resolve_path`.
+Successful default runs clean their temporary `.build-env` smoke directory; use
+`VMD_SMOKE_KEEP=1` or set `VMD_SMOKE_DIR` when inspecting the generated Tcl
+files. Set `TCLSH=/path/to/tclsh` to choose a specific Tcl interpreter for the
+source check.
 `tools/verify-refactor.sh quick` runs the smoke test with those debugging
 overrides unset and fails if a default `vmd-bridge-smoke.*` directory remains
 afterward.

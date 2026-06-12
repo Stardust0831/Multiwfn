@@ -259,3 +259,7 @@
 - Routed generated VMD `mol material` arguments through the same Tcl double-quote
   escaping helper used for paths and molecule names. The bridge smoke test now
   covers material strings containing whitespace, `$`, and brackets.
+- Extended `tools/vmd-bridge-smoke.sh` to source a generated scene with `tclsh`
+  when available, using stubbed VMD commands. This checks Tcl syntax and the real
+  behavior of `multiwfn_resolve_path` for scene-relative, missing relative, and
+  absolute paths.

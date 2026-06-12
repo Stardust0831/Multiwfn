@@ -9,6 +9,10 @@ case "$gnu_prefix" in
     *) gnu_prefix="$repo_dir/$gnu_prefix" ;;
 esac
 fc="$gnu_prefix/bin/x86_64-conda-linux-gnu-gfortran"
+tclsh_bin=${TCLSH:-}
+if [ -z "$tclsh_bin" ]; then
+    tclsh_bin=$(command -v tclsh || true)
+fi
 if [ "${VMD_SMOKE_DIR:-}" ]; then
     smoke_dir=$VMD_SMOKE_DIR
     cleanup_default=0
@@ -105,6 +109,37 @@ grep -Fq 'mol representation Isosurface 0.05000000 0 0 0 1 1' "$dataset_scene_fi
 grep -Fq 'mol representation Isosurface 0.05000000 1 0 0 1 1' "$dataset_scene_file"
 grep -Fq 'mol representation Isosurface 0.05000000 2 0 0 1 1' "$dataset_scene_file"
 grep -Fq 'mol representation Isosurface -0.05000000 2 0 0 1 1' "$dataset_scene_file"
+
+if [ -n "$tclsh_bin" ]; then
+    : > "$build_dir/sample.cub"
+    SCENE_UNDER_TEST="$quoted_scene_file" \
+    EXPECTED_SCENE_SAMPLE="$build_dir/sample.cub" \
+    "$tclsh_bin" <<'EOF'
+proc mol {args} {}
+proc display {args} {}
+proc axes {args} {}
+
+source $env(SCENE_UNDER_TEST)
+
+set resolved [file normalize [multiwfn_resolve_path "sample.cub"]]
+set expected [file normalize $env(EXPECTED_SCENE_SAMPLE)]
+if {$resolved ne $expected} {
+    error "scene-relative path resolution failed: $resolved != $expected"
+}
+
+set fallback [multiwfn_resolve_path "missing-sample.cub"]
+if {$fallback ne "missing-sample.cub"} {
+    error "missing relative path should fall back unchanged: $fallback"
+}
+
+set absolute [file normalize $env(EXPECTED_SCENE_SAMPLE)]
+if {[multiwfn_resolve_path $absolute] ne $absolute} {
+    error "absolute path should be passed through unchanged"
+}
+EOF
+else
+    printf '%s\n' "Skipping Tcl source check because tclsh was not found."
+fi
 
 if [ "$cleanup_default" -eq 1 ] && [ "${VMD_SMOKE_KEEP:-0}" != "1" ]; then
     printf '%s\n' "VMD bridge smoke test passed; temporary directory will be cleaned."
