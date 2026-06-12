@@ -421,3 +421,7 @@
   `tools/vmd-open-scene-smoke.sh` and wired it into the quick verification gate
   using a generated fake VMD executable, so this convenience path is tested
   without requiring VMD to be installed.
+- Extended `tools/vmd-open-scene.sh` with `--check`, which reuses
+  `tools/vmd-scene-source-check.sh` before launching or dry-running VMD. The
+  open-scene smoke test now covers a sourceable scene with a real data file and,
+  when `tclsh` is available, rejects a placeholder scene without a VMD data load.

@@ -180,10 +180,10 @@ unnecessary dependency from `vmd_bridge` to the large `util` module.
 
 `tools/vmd-open-scene.sh` is a small convenience wrapper for opening a generated
 scene after export. It validates the scene path, resolves `vmdpath` from
-`settings.ini` or `--vmdpath`, supports `--dry-run`, and then executes VMD with
-`-e <scene>`. Its smoke test uses a generated fake VMD executable and is part of
-the quick verification gate, so this helper remains covered without requiring a
-VMD installation.
+`settings.ini` or `--vmdpath`, supports `--dry-run`, can run the reusable scene
+source check with `--check`, and then executes VMD with `-e <scene>`. Its smoke
+test uses a generated fake VMD executable and is part of the quick verification
+gate, so this helper remains covered without requiring a VMD installation.
 
 Not verified locally:
 
