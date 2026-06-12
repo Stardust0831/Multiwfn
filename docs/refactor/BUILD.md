@@ -85,9 +85,12 @@ the smoke test, so the smoke target cannot silently leave Multiwfn's `lastfile`
 update in the working tree.
 
 The GNU noGUI build links successfully with local conda-forge GFortran 15.2.0
-and OpenBLAS. The smoke target now runs two non-interactive fixtures: a
-three-atom water XYZ structure load and a minimal water cube grid load. Both
-fixtures must reach the main menu with status 0. The smoke target restores
+and OpenBLAS. The smoke target now runs three non-interactive fixtures: a
+three-atom water XYZ structure load, a minimal water cube grid load, and a
+minimal `.mwfn` wavefunction point-property calculation. The structure and cube
+fixtures must reach the main menu with status 0; the `.mwfn` fixture must load
+successfully, enter main function 1, and print representative electron-density,
+kinetic-energy, and orbital-value lines. The smoke target restores
 `settings.ini` after the run because Multiwfn updates `lastfile` during normal
 startup. The full verification wrapper checks that restoration worked by
 comparing `settings.ini` before and after the smoke test. The smoke test reports

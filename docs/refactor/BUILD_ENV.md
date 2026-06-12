@@ -152,19 +152,20 @@ so alternate local prefixes use the same compiler, `make`, OpenBLAS library path
 and runtime library path consistently.
 
 The smoke target generates temporary XYZ and cube files under `.build-env/smoke`,
-backs up `settings.ini`, runs `Multiwfn_noGUI` for both fixtures, verifies that
-each file was loaded and the main menu was reached, and restores `settings.ini`
-before exiting. GFortran currently prints an IEEE floating-point exception flag
-note at program termination; this should be tracked during broader numerical
-validation. The stderr check allows only that exact note and fails on any other
-stderr line.
+uses the tracked `tools/fixtures/he_minimal.mwfn` wavefunction fixture, backs up
+`settings.ini`, runs `Multiwfn_noGUI` for all three fixtures, verifies that the
+structure and cube files reach the main menu, verifies that the `.mwfn` fixture
+prints representative point-property results, and restores `settings.ini` before
+exiting. GFortran currently prints an IEEE floating-point exception flag note at
+program termination; this should be tracked during broader numerical validation.
+The stderr check allows only that exact note and fails on any other stderr line.
 
 After a successful `gnu-noGUI-smoke`, the expected local build residue is:
 
 - `Multiwfn_noGUI` in the source root.
 - GNU `.mod` files under `.build-env/gnu-mod`.
 - GNU object files under `.build-env/gnu-obj`.
-- Smoke-test inputs and logs under `.build-env/smoke`.
+- Generated smoke-test inputs and logs under `.build-env/smoke`.
 - No root `*.o`, root `*.mod`, or `noGUI/*.o` files.
 
 Use `tools/gnu-build.sh clean` to remove the noGUI binary, transient object and

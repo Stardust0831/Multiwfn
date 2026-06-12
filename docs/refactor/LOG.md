@@ -248,3 +248,7 @@
   The bridge now quotes the executable path and scene path as separate command
   arguments, then passes the assembled command directly to `execute_command_line`.
   This avoids malformed commands when `vmdpath` contains spaces.
+- Added a tracked minimal `.mwfn` fixture and extended `gnu-noGUI-smoke` to load
+  it, enter main function 1, and verify representative point-property output.
+  This gives the GNU noGUI gate one real wavefunction-derived calculation in
+  addition to the existing structure and cube load checks.

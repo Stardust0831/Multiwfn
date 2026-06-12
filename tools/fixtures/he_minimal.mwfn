@@ -1,0 +1,39 @@
+# Minimal closed-shell helium-like .mwfn fixture for GNU noGUI smoke tests.
+Wfntype=   0
+Charge=       0.000000
+Naelec=       1.000000
+Nbelec=       1.000000
+E_tot= -2.85000000E+00
+VT_ratio=  2.00000000
+
+# Atom information
+Ncenter=       1
+$Centers
+     1 He   2   2.0      0.00000000      0.00000000      0.00000000
+
+# Basis function information
+Nbasis=           1
+Nindbasis=        1
+Nprims=           1
+Nshell=           1
+Nprimshell=       1
+$Shell types
+  0
+$Shell centers
+       1
+$Shell contraction degrees
+   1
+$Primitive exponents
+  1.00000000E+00
+$Contraction coefficients
+  1.00000000E+00
+
+# Orbital information (nindbasis orbitals)
+
+Index=         1
+Type= 0
+Energy= -9.00000000E-01
+Occ=  2.00000000
+Sym= A1
+$Coeff
+  1.00000000E+00

@@ -14,7 +14,8 @@ branch grows and what work is still worth doing next.
   wholesale build-system replacement.
 - The Linux noGUI build can be reproduced with the local conda-forge GNU prefix
   and OpenBLAS, then smoke-tested by loading both a water XYZ structure and a
-  minimal water cube grid.
+  minimal water cube grid, and by running a minimal `.mwfn` wavefunction
+  point-property calculation.
 - The GNU noGUI build keeps module files under `.build-env/gnu-mod` and object
   files under `.build-env/gnu-obj`, leaving the source root free of transient
   `*.o`/`*.mod` files after full verification.
@@ -30,8 +31,9 @@ branch grows and what work is still worth doing next.
 
 ## Next Useful Work
 
-1. Add representative non-interactive fixtures for wavefunction-derived analyses
-   beyond the current structure and cube-load smoke tests.
+1. Broaden non-interactive fixtures for wavefunction-derived analyses beyond the
+   current minimal `.mwfn` point-property smoke, especially for menu paths that
+   export grid data or use population/integration machinery.
 2. Continue auditing specialized structure, cube, and non-cube visualization
    exports and route user-facing exports through VMD where the output maps
    cleanly to VMD.

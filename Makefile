@@ -28,10 +28,13 @@ LIB_noGUI_GNU ?= -L$(GNU_PREFIX)/lib -lopenblas
 SMOKE_DIR ?= .build-env/smoke
 SMOKE_XYZ ?= $(SMOKE_DIR)/water.xyz
 SMOKE_CUBE ?= $(SMOKE_DIR)/water-density.cub
+SMOKE_MWFN ?= tools/fixtures/he_minimal.mwfn
 SMOKE_OUT ?= $(SMOKE_DIR)/gnu-noGUI-smoke.out
 SMOKE_ERR ?= $(SMOKE_DIR)/gnu-noGUI-smoke.err
 SMOKE_CUBE_OUT ?= $(SMOKE_DIR)/gnu-noGUI-cube-smoke.out
 SMOKE_CUBE_ERR ?= $(SMOKE_DIR)/gnu-noGUI-cube-smoke.err
+SMOKE_MWFN_OUT ?= $(SMOKE_DIR)/gnu-noGUI-mwfn-point-smoke.out
+SMOKE_MWFN_ERR ?= $(SMOKE_DIR)/gnu-noGUI-mwfn-point-smoke.err
 
 -include Makefile.local
 
@@ -106,9 +109,16 @@ gnu-noGUI-smoke: gnu-noGUI
 	printf '%s\nq\n' "$(SMOKE_CUBE)" | LD_LIBRARY_PATH="$(GNU_PREFIX)/lib$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" timeout 12s ./$(EXE_noGUI) > "$(SMOKE_CUBE_OUT)" 2> "$(SMOKE_CUBE_ERR)"; \
 	grep -q 'Loaded .*water-density.cub successfully' "$(SMOKE_CUBE_OUT)"; \
 	grep -q 'Main function menu' "$(SMOKE_CUBE_OUT)"; \
-	check_stderr "$(SMOKE_CUBE_ERR)" "GNU noGUI cube smoke"
+	check_stderr "$(SMOKE_CUBE_ERR)" "GNU noGUI cube smoke"; \
+	printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$(SMOKE_MWFN)" '1' '0.2,0.0,0.0' '1' 'q' 'q' | LD_LIBRARY_PATH="$(GNU_PREFIX)/lib$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" timeout 12s ./$(EXE_noGUI) > "$(SMOKE_MWFN_OUT)" 2> "$(SMOKE_MWFN_ERR)"; \
+	grep -q 'Loaded .*he_minimal.mwfn successfully' "$(SMOKE_MWFN_OUT)"; \
+	grep -q 'Density of all electrons:' "$(SMOKE_MWFN_OUT)"; \
+	grep -q 'Lagrangian kinetic energy G(r):' "$(SMOKE_MWFN_OUT)"; \
+	grep -q 'Wavefunction value for orbital' "$(SMOKE_MWFN_OUT)"; \
+	check_stderr "$(SMOKE_MWFN_ERR)" "GNU noGUI mwfn point smoke"
 	@cat "$(SMOKE_ERR)"
 	@cat "$(SMOKE_CUBE_ERR)"
+	@cat "$(SMOKE_MWFN_ERR)"
 
 gnu-clean:
 	$(MAKE) clean
