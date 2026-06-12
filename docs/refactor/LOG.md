@@ -315,3 +315,8 @@
   after creating matching dummy data files. This turns path resolution and Tcl
   syntax into an executable check for all VMD bridge scene variants, not only
   the single quoted-path cube scene.
+- Made the GNU build wrappers and environment doctor honor `FC_GNU`, `CC_GNU`,
+  `MAKE_GNU`, and `LIB_noGUI_GNU` overrides. The VMD bridge smoke wrapper now
+  uses the same `FC_GNU` compiler selection as the `gnu-noGUI` target, and the
+  local Makefile example now documents real override variables instead of a
+  stale `GNU_KEEP_OBJECTS` placeholder.

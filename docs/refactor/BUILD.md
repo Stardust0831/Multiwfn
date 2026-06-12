@@ -64,6 +64,12 @@ tools/gnu-build.sh vmd-smoke
 tools/gnu-build.sh doctor
 ```
 
+The wrapper defaults to the local conda-forge prefix, but honors `GNU_PREFIX`,
+`FC_GNU`, `CC_GNU`, `MAKE_GNU`, and `LIB_noGUI_GNU`. Relative tool paths are
+resolved from the repository root, matching the rest of the local build
+environment. This keeps compiler and BLAS experiments inside the source tree
+without editing global shell startup files.
+
 For refactor work, use the wrapper below before committing:
 
 ```sh

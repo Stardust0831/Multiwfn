@@ -24,8 +24,9 @@ tools/gnu-env-doctor.sh
 ```
 
 The doctor command is read-only. It reports the resolved `GNU_PREFIX`, package
-cache path, compiler and `make` versions, OpenBLAS availability, and whether
-`mamba`, `micromamba`, or `conda` are currently on `PATH`.
+cache path, `LIB_noGUI_GNU`, compiler and `make` versions, OpenBLAS
+availability, and whether `mamba`, `micromamba`, or `conda` are currently on
+`PATH`.
 
 Set `GNU_PREFIX` to use another prefix inside this source tree. Relative
 `GNU_PREFIX` values are interpreted relative to the repository root by the
@@ -36,6 +37,22 @@ GNU_PREFIX=.build-env/gnu-alt tools/bootstrap-gnu-env.sh
 GNU_PREFIX=.build-env/gnu-alt tools/gnu-build.sh smoke
 GNU_PREFIX=.build-env/gnu-alt tools/gnu-build.sh vmd-smoke
 ```
+
+The GNU wrappers also honor the same local override variables used by the
+Makefile's `gnu-noGUI` target:
+
+```sh
+FC_GNU=.build-env/gnu/bin/x86_64-conda-linux-gnu-gfortran \
+CC_GNU=.build-env/gnu/bin/x86_64-conda-linux-gnu-gcc \
+MAKE_GNU=.build-env/gnu/bin/make \
+LIB_noGUI_GNU="-L$PWD/.build-env/gnu/lib -lopenblas" \
+tools/gnu-build.sh doctor
+```
+
+Relative `FC_GNU`, `CC_GNU`, and `MAKE_GNU` paths are interpreted relative to
+the repository root by the wrapper scripts. If `LIB_noGUI_GNU` is overridden,
+the doctor reports the value and skips the default OpenBLAS file check under
+`GNU_PREFIX/lib`, because the library may intentionally live elsewhere.
 
 The equivalent manual command is:
 
@@ -147,9 +164,10 @@ tools/gnu-build.sh doctor
 tools/verify-refactor.sh env
 ```
 
-The wrapper forwards `GNU_PREFIX` to the Makefile and the VMD bridge smoke test,
-so alternate local prefixes use the same compiler, `make`, OpenBLAS library path,
-and runtime library path consistently.
+The wrapper forwards `GNU_PREFIX` and honors `FC_GNU`, `CC_GNU`, `MAKE_GNU`, and
+`LIB_noGUI_GNU`, so alternate local prefixes or local compiler experiments can
+use the same compiler, `make`, OpenBLAS library path, and runtime library path
+consistently without editing the tracked Makefile.
 
 The smoke target rebuilds `Multiwfn_noGUI`, then runs
 `tools/gnu-nogui-smoke.sh`. The script generates temporary XYZ and cube files

@@ -8,7 +8,11 @@ case "$gnu_prefix" in
     /*) ;;
     *) gnu_prefix="$repo_dir/$gnu_prefix" ;;
 esac
-make_bin="$gnu_prefix/bin/make"
+make_bin=${MAKE_GNU:-"$gnu_prefix/bin/make"}
+case "$make_bin" in
+    /*) ;;
+    *) make_bin="$repo_dir/$make_bin" ;;
+esac
 
 target=${1:-smoke}
 shift || true
@@ -18,8 +22,9 @@ if [ "$target" = "doctor" ]; then
 fi
 
 if [ ! -x "$make_bin" ]; then
-    printf '%s\n' "GNU build prefix was not found at $gnu_prefix"
-    printf '%s\n' "Create or verify it with: tools/bootstrap-gnu-env.sh"
+    printf '%s\n' "GNU make was not found or is not executable at $make_bin"
+    printf '%s\n' "Create or verify the local prefix with: tools/bootstrap-gnu-env.sh"
+    printf '%s\n' "Or set MAKE_GNU to a make executable inside this source tree."
     exit 1
 fi
 

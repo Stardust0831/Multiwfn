@@ -8,7 +8,11 @@ case "$gnu_prefix" in
     /*) ;;
     *) gnu_prefix="$repo_dir/$gnu_prefix" ;;
 esac
-fc="$gnu_prefix/bin/x86_64-conda-linux-gnu-gfortran"
+fc=${FC_GNU:-"$gnu_prefix/bin/x86_64-conda-linux-gnu-gfortran"}
+case "$fc" in
+    /*) ;;
+    *) fc="$repo_dir/$fc" ;;
+esac
 tclsh_bin=${TCLSH:-}
 if [ -z "$tclsh_bin" ]; then
     tclsh_bin=$(command -v tclsh || true)
@@ -38,8 +42,9 @@ out_file="$build_dir/vmd_bridge_smoke.out"
 relative_path_note="# Relative data paths are first resolved beside this scene file, then from VMD's current working directory."
 
 if [ ! -x "$fc" ]; then
-    printf '%s\n' "GNU Fortran compiler was not found at $gnu_prefix"
+    printf '%s\n' "GNU Fortran compiler was not found or is not executable at $fc"
     printf '%s\n' "Create or verify it with: tools/bootstrap-gnu-env.sh"
+    printf '%s\n' "Or set FC_GNU to a compiler executable."
     exit 1
 fi
 

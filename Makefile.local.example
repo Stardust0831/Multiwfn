@@ -22,9 +22,10 @@
 # gnu-noGUI Makefile target.
 # GNU_PREFIX = $(CURDIR)/.build-env/gnu
 # GNU_MOD_DIR = $(CURDIR)/.build-env/gnu-mod
+# GNU_OBJ_DIR = $(CURDIR)/.build-env/gnu-obj
 # FC_GNU = $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gfortran
 # CC_GNU = $(GNU_PREFIX)/bin/x86_64-conda-linux-gnu-gcc
 # LIB_noGUI_GNU = -L$(GNU_PREFIX)/lib -lopenblas
 
-# Keep root/noGUI object files after gnu-noGUI for debugging.
-# GNU_KEEP_OBJECTS = 1
+# Wrapper-only override for tools/gnu-build.sh and tools/gnu-env-doctor.sh.
+# MAKE_GNU = $(GNU_PREFIX)/bin/make
