@@ -441,3 +441,6 @@
   generated VMD scene through the reusable Tcl source check without resolving or
   launching VMD. The open-scene smoke test now covers this path, including the
   case where `--vmdpath none` is supplied.
+- Improved `tools/vmd-scene-source-check.sh` diagnostics so a failing scene
+  check reports the scene file path before the Tcl error. The open-scene smoke
+  negative check now asserts that this context is present.

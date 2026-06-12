@@ -104,6 +104,7 @@ if command -v "${TCLSH:-tclsh}" >/dev/null 2>&1; then
         printf '%s\n' "Expected vmd-open-scene --check to reject a scene without mol new."
         exit 1
     fi
+    grep -Fq "VMD scene source check failed for: $scene_file" "$bad_check_out"
     grep -Eq "multiwfn_resolve_path was not defined|scene did not issue any mol new" "$bad_check_out"
 fi
 

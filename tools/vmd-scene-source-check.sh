@@ -34,7 +34,7 @@ do
         exit 1
     fi
 
-    SCENE_UNDER_TEST=$scene_abs SCENE_SOURCE_CWD=$tmp_dir "$tclsh_bin" <<'EOF'
+    SCENE_UNDER_TEST=$scene_abs SCENE_DISPLAY_PATH=$scene_file SCENE_SOURCE_CWD=$tmp_dir "$tclsh_bin" <<'EOF'
 if {[catch {
 set multiwfn_mol_new_paths {}
 
@@ -68,6 +68,7 @@ foreach data_path $multiwfn_mol_new_paths {
     }
 }
 } multiwfn_scene_source_error]} {
+    puts stderr "VMD scene source check failed for: $env(SCENE_DISPLAY_PATH)"
     puts stderr $multiwfn_scene_source_error
     exit 1
 }
