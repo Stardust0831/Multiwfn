@@ -17,7 +17,8 @@ structure writers free of automatic side effects.
 
 Settings in `settings.ini`:
 
-- `vmdpath`: VMD executable path. Default: `"vmd"`.
+- `vmdpath`: VMD executable path. Default: `"vmd"`. Use `none`
+  case-insensitively to skip launching VMD while still allowing scene generation.
 - `vmdscenefile`: generated Tcl scene path. Default: `"multiwfn_scene.tcl"`.
   Set to `auto` to write `<exported-file>.vmd.tcl` beside each exported
   structure or cube file.
@@ -44,7 +45,8 @@ tools/vmd-doctor.sh /path/to/vmd
 The doctor is intentionally read-only. It resolves `vmdpath` from `settings.ini`
 or from the optional command-line argument, checks whether the executable can be
 found, and reports how to set `vmdpath` or `-vmdpath` when VMD is installed
-elsewhere.
+elsewhere. It treats empty paths and `none`/`None`/`NONE` as an explicit
+disabled VMD executable.
 
 The doctor's own success and failure behavior is covered by:
 
@@ -142,6 +144,8 @@ the host command shell before calling `execute_command_line`. Linux/MacOS use
 single-quote shell quoting with embedded single quotes escaped; Windows keeps
 double-quoted command arguments. The bridge smoke test verifies the command
 string construction without requiring VMD to be installed.
+If `vmdpath` is empty or set to `none` in any letter case, `ivmdrun` reports
+that VMD was not launched and leaves the generated scene file in place.
 
 Relative file paths in generated scenes are resolved by VMD from its current
 working directory. This matches the normal `-vmdrun` path because Multiwfn

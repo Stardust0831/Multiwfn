@@ -241,3 +241,6 @@
   molecules are labeled by the exported structure or cube path in VMD's molecule
   list. The bridge smoke test checks Tcl quoting for renamed structure, cube,
   and multi-dataset cube molecules.
+- Made `vmdpath=none` handling case-insensitive in both the Fortran bridge and
+  `tools/vmd-doctor.sh`. `NONE` now disables launch attempts instead of being
+  treated as an executable name; smoke tests cover both paths.

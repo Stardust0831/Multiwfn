@@ -54,4 +54,7 @@ vmdpath="C:\Program Files\VMD\vmd.exe"
 call build_vmd_run_command("scene dir\test scene.tcl",command)
 write(*,"('Windows command: ',a)") trim(command)
 
+vmdpath="NONE"
+call run_vmd_scene("disabled scene.tcl")
+
 end program

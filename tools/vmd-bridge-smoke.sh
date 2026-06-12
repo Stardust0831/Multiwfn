@@ -68,6 +68,7 @@ grep -Fq "VMD scene script has been written to $smoke_dir/test_scene.tcl" "$out_
 grep -Fq "VMD scene script was not written because the file could not be opened: $smoke_dir/missing-dir/test_scene.tcl" "$out_file"
 grep -Fq "POSIX command: '/opt/VMD app/vmd\$bin' -e 'scene dir/a'\\''b\$[x].tcl'" "$out_file"
 grep -Fq 'Windows command: "C:\Program Files\VMD\vmd.exe" -e "scene dir\test scene.tcl"' "$out_file"
+grep -Fq 'VMD was not launched because vmdpath is empty or none' "$out_file"
 grep -Fq '# Structure file: structure dir/a$b[1]}.pdb' "$structure_scene_file"
 grep -Fq '# Relative file paths are resolved by VMD from its current working directory.' "$structure_scene_file"
 grep -Fq 'mol new "structure dir/a\$b\[1\]}.pdb" type "pdb" waitfor all' "$structure_scene_file"

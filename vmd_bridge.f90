@@ -293,13 +293,33 @@ end do
 end subroutine
 
 
+logical function vmd_is_disabled_path(vmdexe)
+implicit real*8 (a-h,o-z)
+character(len=*),intent(in) :: vmdexe
+character(len=200) c200exe
+
+c200exe=adjustl(vmdexe)
+vmd_is_disabled_path=.false.
+
+if (len_trim(c200exe)==0) then
+    vmd_is_disabled_path=.true.
+else if (len_trim(c200exe)==4) then
+    if ((c200exe(1:1)=="n".or.c200exe(1:1)=="N").and.&
+        (c200exe(2:2)=="o".or.c200exe(2:2)=="O").and.&
+        (c200exe(3:3)=="n".or.c200exe(3:3)=="N").and.&
+        (c200exe(4:4)=="e".or.c200exe(4:4)=="E")) vmd_is_disabled_path=.true.
+end if
+
+end function
+
+
 subroutine run_vmd_scene(scenefile)
 use defvar
 implicit real*8 (a-h,o-z)
 character(len=*),intent(in) :: scenefile
 character(len=600) command
 
-if (vmdpath==" ".or.vmdpath=="none") then
+if (vmd_is_disabled_path(vmdpath)) then
     write(*,"(a)") " VMD was not launched because vmdpath is empty or none"
     return
 end if

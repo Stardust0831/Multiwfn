@@ -22,6 +22,7 @@ help_out="$smoke_dir/help.out"
 path_out="$smoke_dir/path.out"
 absolute_out="$smoke_dir/absolute.out"
 missing_out="$smoke_dir/missing.out"
+none_out="$smoke_dir/none.out"
 settings_out="$smoke_dir/settings.out"
 
 "$script_dir/vmd-doctor.sh" --help > "$help_out"
@@ -42,6 +43,13 @@ if "$script_dir/vmd-doctor.sh" "$smoke_dir/missing-vmd" > "$missing_out" 2>&1; t
     exit 1
 fi
 grep -Fq "MISSING executable file was not found: $smoke_dir/missing-vmd" "$missing_out"
+
+if "$script_dir/vmd-doctor.sh" NONE > "$none_out" 2>&1; then
+    printf '%s\n' "Expected vmd-doctor to fail for NONE."
+    exit 1
+fi
+grep -Fq "configured path: NONE" "$none_out"
+grep -Fq "MISSING VMD executable path is empty or none." "$none_out"
 
 if "$script_dir/vmd-doctor.sh" > "$settings_out" 2>&1; then
     grep -Fq "source: settings.ini" "$settings_out"

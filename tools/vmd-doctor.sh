@@ -57,11 +57,13 @@ printf '%s\n' "  repo: $repo_dir"
 printf '%s\n' "  source: $source_desc"
 printf '%s\n' "  configured path: ${vmdpath:-<empty>}"
 
-if [ -z "$vmdpath" ] || [ "$vmdpath" = "none" ]; then
-    printf '%s\n' "MISSING VMD executable path is empty or none."
-    printf '%s\n' "Set settings.ini vmdpath or pass -vmdpath when running Multiwfn."
-    exit 1
-fi
+case "$vmdpath" in
+    ""|[Nn][Oo][Nn][Ee])
+        printf '%s\n' "MISSING VMD executable path is empty or none."
+        printf '%s\n' "Set settings.ini vmdpath or pass -vmdpath when running Multiwfn."
+        exit 1
+        ;;
+esac
 
 case "$vmdpath" in
     */*|*\\*)
