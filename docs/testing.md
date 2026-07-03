@@ -13,9 +13,10 @@ runner.
 
 Windows package testing extracts the release zip in a normal PowerShell step
 outside the MSYS2 shell and removes MSYS2 paths from `PATH` before running a
-smoke test. The workflow also checks the PE import table and fails if compiler
-or math DLLs such as `libgfortran-5.dll`, `libquadmath`, `libgcc_s`,
-`libwinpthread`, or `libopenblas` remain as external dependencies.
+smoke test. The workflow reads the PE import table and copies required
+non-system MSYS2 runtime DLLs beside the executable before zipping, so missing
+runtime DLLs are caught by the package test rather than hidden by the
+development shell.
 
 The tests intentionally use tiny text fixtures generated at runtime:
 

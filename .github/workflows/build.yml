@@ -109,17 +109,50 @@ jobs:
         run: |
           bash tests/functional/run_nogui_tests.sh "$PWD/build/Multiwfn_noGUI.exe"
 
-      - name: Check Windows DLL dependencies
+      - name: Collect Windows runtime DLL dependencies
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          objdump -p build/Multiwfn_noGUI.exe | tee windows-dlls.log
-          forbidden='DLL Name: (libopenblas|libgfortran|libgcc_s|libquadmath|libgomp|libwinpthread|liblapack|libblas)'
-          if grep -Ei "$forbidden" windows-dlls.log; then
-            echo "::error::Windows executable still depends on redistributable compiler/math DLLs; static linking is incomplete."
-            exit 1
-          fi
+          mkdir -p package/Multiwfn_noGUI-Windows
+          cp build/Multiwfn_noGUI.exe package/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe
+          cp LICENSE.txt package/Multiwfn_noGUI-Windows/LICENSE.txt
+          cp settings.ini package/Multiwfn_noGUI-Windows/settings.ini
+          : > package/Multiwfn_noGUI-Windows/windows-dlls.log
+          processed=""
+          while :; do
+            changed=0
+            for binary in package/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe package/Multiwfn_noGUI-Windows/*.dll; do
+              [ -e "$binary" ] || continue
+              case " $processed " in
+                *" $binary "*) continue ;;
+              esac
+              processed="$processed $binary"
+              objdump -p "$binary" | tee -a package/Multiwfn_noGUI-Windows/windows-dlls.log
+              for dll in $(objdump -p "$binary" | awk '/DLL Name:/ {print $3}'); do
+                case "$dll" in
+                  KERNEL32.dll|msvcrt.dll|USER32.dll|ADVAPI32.dll|SHELL32.dll|WS2_32.dll|bcrypt.dll|api-ms-win-*.dll)
+                    ;;
+                  *)
+                    dll_path="$(command -v "$dll" || true)"
+                    if [ -z "$dll_path" ] && [ -f "$MINGW_PREFIX/bin/$dll" ]; then
+                      dll_path="$MINGW_PREFIX/bin/$dll"
+                    fi
+                    if [ -z "$dll_path" ]; then
+                      echo "::error::Could not locate runtime DLL $dll"
+                      exit 1
+                    fi
+                    if [ ! -f "package/Multiwfn_noGUI-Windows/$dll" ]; then
+                      cp "$dll_path" package/Multiwfn_noGUI-Windows/
+                      changed=1
+                    fi
+                    ;;
+                esac
+              done
+            done
+            [ "$changed" -eq 1 ] || break
+          done
+          find package/Multiwfn_noGUI-Windows -maxdepth 1 -type f -printf '%f\n' | sort
 
       - name: Package Linux release candidate
         if: runner.os == 'Linux'
@@ -128,6 +161,7 @@ jobs:
           mkdir -p package/Multiwfn_noGUI-Linux/lib dist
           cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
           cp LICENSE.txt package/Multiwfn_noGUI-Linux/LICENSE.txt
+          cp settings.ini package/Multiwfn_noGUI-Linux/settings.ini
           ldd package/Multiwfn_noGUI-Linux/Multiwfn_noGUI | tee package/Multiwfn_noGUI-Linux/ldd.txt
           awk '/=> \// {print $3}' package/Multiwfn_noGUI-Linux/ldd.txt | while read -r lib; do
             base="$(basename "$lib")"
@@ -164,6 +198,7 @@ jobs:
           mkdir -p package/Multiwfn_noGUI-macOS dist
           cp build/Multiwfn_noGUI package/Multiwfn_noGUI-macOS/Multiwfn_noGUI
           cp LICENSE.txt package/Multiwfn_noGUI-macOS/LICENSE.txt
+          cp settings.ini package/Multiwfn_noGUI-macOS/settings.ini
           otool -L package/Multiwfn_noGUI-macOS/Multiwfn_noGUI | tee package/Multiwfn_noGUI-macOS/otool.txt
           tar -czf dist/Multiwfn_noGUI-macOS.tar.gz -C package Multiwfn_noGUI-macOS
 
@@ -180,9 +215,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force package/Multiwfn_noGUI-Windows, dist | Out-Null
-          Copy-Item build/Multiwfn_noGUI.exe package/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe
-          Copy-Item LICENSE.txt package/Multiwfn_noGUI-Windows/LICENSE.txt
+          New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path package/Multiwfn_noGUI-Windows/* -DestinationPath dist/Multiwfn_noGUI-Windows.zip -Force
 
       - name: Test Windows release candidate outside MSYS2
@@ -251,7 +284,7 @@ jobs:
           Validation in CI:
           - Linux, macOS, and Windows release-candidate packages built with GNU Fortran.
           - Linux package extracted and tested in a clean Ubuntu container without installing BLAS/LAPACK.
-          - Windows zip extracted and smoke-tested outside the MSYS2 shell, with compiler/math DLL imports rejected.
+          - Windows zip extracted and smoke-tested outside the MSYS2 shell, with required MSYS2 runtime DLLs copied beside the executable.
           - Geometry-only XYZ loading and structure analysis workflow.
           - Gaussian cube loading, grid statistics, and cube export workflow.
 
@@ -267,8 +300,11 @@ jobs:
           test -s release-assets/LICENSE.txt
           cmp LICENSE.txt release-assets/LICENSE.txt
           tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/settings.ini
           tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/settings.ini
           unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx LICENSE.txt
+          unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx settings.ini
 
       - name: Create GitHub release
         env:

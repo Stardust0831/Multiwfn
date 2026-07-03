@@ -12,21 +12,22 @@ Current release packaging:
 - `LICENSE.txt`
 - `SHA256SUMS.txt`
 
-Each platform archive includes the noGUI executable and `LICENSE.txt`. The
-Linux archive may also include a `lib/` directory containing runtime libraries
-collected from `ldd`, with the executable rpath set to load them from beside the
-binary. The standalone `LICENSE.txt` asset is also uploaded so the release page
-exposes the original Multiwfn terms directly.
+Each platform archive includes the noGUI executable, `LICENSE.txt`, and
+`settings.ini`. The Linux archive may also include a `lib/` directory
+containing runtime libraries collected from `ldd`, with the executable rpath set
+to load them from beside the binary. The standalone `LICENSE.txt` asset is also
+uploaded so the release page exposes the original Multiwfn terms directly.
 
 The release workflow explicitly verifies license packaging before publishing:
 the standalone release license must match the source-tree `LICENSE.txt`, and
 each Linux, macOS, and Windows archive must contain `LICENSE.txt`.
 
-Windows releases are intended to be self-contained. The CI build links GNU
-Fortran runtime and BLAS/LAPACK dependencies statically where possible and
-checks the generated `Multiwfn_noGUI.exe` import table before uploading the
-artifact. A release must not depend on MSYS2/OpenBLAS DLLs such as
-`libgfortran-5.dll` being installed on the user's machine.
+Windows releases are intended to be self-contained while preserving OpenMP.
+The upstream Windows binary package was checked only for layout reference: it
+places its executable, `settings.ini`, license, and runtime DLLs in the top
+directory. This project does not copy upstream DLLs. Instead, CI links
+dependencies statically where practical, then copies any remaining non-system
+runtime DLLs from the MSYS2 UCRT64 toolchain beside `Multiwfn_noGUI.exe`.
 
 The release job uploads packages that were already built and tested by the
 platform matrix. It does not reconstruct platform archives from raw executables.

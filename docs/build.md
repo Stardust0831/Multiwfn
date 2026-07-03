@@ -29,14 +29,10 @@ handled separately.
   GMP, FLINT, and ARB where applicable.
 - `MULTIWFN_WINDOWS_STATIC_LINK=ON` is enabled by default on Windows. It asks
   CMake to prefer static BLAS/LAPACK libraries and links GNU Fortran runtime
-  libraries statically so the release zip does not require MSYS2/OpenBLAS DLLs
-  on the user's machine.
+  libraries statically where practical.
   In the MSYS2 UCRT64 CI build, this also forces BLAS/LAPACK to
   `$MINGW_PREFIX/lib/libopenblas.a`; relying only on automatic BLAS detection
   may select the OpenBLAS import library and leave DLL dependencies.
-  OpenMP is disabled for this Windows redistribution build because the GNU
-  OpenMP runtime can otherwise reintroduce dynamic `libgomp`/`libwinpthread`
-  dependencies.
   Static OpenBLAS may still reference GNU/OpenMP runtime symbols, so the
   Windows link line also adds available static `libgomp.a`,
   `libwinpthread.a`, `libquadmath.a`, and `libgfortran.a` by full path.
@@ -45,10 +41,11 @@ The default CI build leaves fractional-derivative support off.
 BLAS and LAPACK are required because Multiwfn calls routines such as `DGEMM`,
 `DSYEV`, and `DGEEV` directly.
 
-On Windows, CI checks the executable import table with `objdump -p` and fails
-if redistributable compiler or math DLLs such as `libopenblas`,
-`libgfortran`, `libgcc_s`, `libquadmath`, `libgomp`, `libwinpthread`,
-`liblapack`, or `libblas` still appear.
+On Windows, CI reads the executable import table with `objdump -p` and copies
+non-system runtime DLLs from the MSYS2 UCRT64 toolchain into the release
+candidate directory beside `Multiwfn_noGUI.exe`. This preserves OpenMP instead
+of disabling it merely to avoid DLLs. The release zip is then extracted and
+tested outside the MSYS2 shell with MSYS2 paths removed from `PATH`.
 
 On Linux, the release candidate package is assembled before artifact upload.
 The workflow copies non-glibc libraries reported by `ldd` into a package-local
