@@ -50,8 +50,22 @@ the same conservative approach: keep Multiwfn's existing OpenMP code and link it
 through CMake's `OpenMP::OpenMP_Fortran` target when available, rather than
 changing parallel regions in the Fortran sources.
 
+The macOS build repository's `source_dist` branch is a full source snapshot, not
+a small patch set against the Linux source. It differs from the 2026.6.2 Linux
+source in many Fortran files, so it should not be copied wholesale when the goal
+is a minimal, auditable port.
+
+GNU Fortran Release builds should avoid CMake's default `-O3` for this codebase.
+The upstream Makefile uses `-O2` for the general build and lowers `O1.f90` and
+`libreta_hybrid/blockhrr_012345.f90` to `-O1`. The CMake build mirrors that
+shape for GNU Fortran to reduce compile-time risk and stay closer to the
+validated upstream build profile.
+
 CI run history so far:
 
 - Run 1 failed in build before detailed logs were available.
 - Run 2 failed in build; local minimal reproduction identified the
   `DFTxclib.F` preprocessing issue above.
+- Run 3 built and smoke-tested successfully on macOS and Windows. Ubuntu stayed
+  in the build step much longer than the other platforms, consistent with GNU
+  Fortran spending excessive time under the previous default `-O3` profile.

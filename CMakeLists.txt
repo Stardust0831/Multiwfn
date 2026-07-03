@@ -17,6 +17,10 @@ set(CMAKE_Fortran_PREPROCESS ON)
 set(CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mod")
 
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+  foreach(flag_var CMAKE_Fortran_FLAGS_RELEASE CMAKE_Fortran_FLAGS_RELWITHDEBINFO)
+    string(REPLACE "-O3" "-O2" ${flag_var} "${${flag_var}}")
+  endforeach()
+
   add_compile_options(
     $<$<COMPILE_LANGUAGE:Fortran>:-ffree-line-length-none>
     $<$<COMPILE_LANGUAGE:Fortran>:-fallow-argument-mismatch>
@@ -98,6 +102,14 @@ set(MULTIWFN_CORE_SOURCES
 # DFTxclib.F uses fixed-form continuation lines beginning with '#'. Running it
 # through cpp makes GNU Fortran report "invalid preprocessing directive".
 set_source_files_properties(DFTxclib.F PROPERTIES Fortran_PREPROCESS OFF)
+
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+  set_source_files_properties(
+    O1.f90
+    libreta_hybrid/blockhrr_012345.f90
+    PROPERTIES COMPILE_OPTIONS "$<$<CONFIG:Release>:-O1>"
+  )
+endif()
 
 if(MULTIWFN_WITH_FD)
   find_package(PkgConfig REQUIRED)

@@ -11,6 +11,7 @@ jobs:
   nogui:
     name: noGUI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
