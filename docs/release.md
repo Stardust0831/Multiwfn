@@ -49,3 +49,9 @@ of the CMake release build.
 - `v2026.6.2-nogui.2`: published by GitHub Actions run 9. The source tree
   includes `LICENSE.txt`; the release page has a standalone `LICENSE.txt`
   asset; Linux/macOS tarballs and the Windows zip also contain `LICENSE.txt`.
+- `v2026.6.2-nogui.3`: published by GitHub Actions run 19. This release keeps
+  OpenMP enabled where CMake finds it, packages `settings.ini`, tests the Linux
+  tarball in a clean Ubuntu container, and tests the Windows zip outside the
+  MSYS2 shell after collecting required MSYS2 runtime DLLs beside the
+  executable. Upstream Windows package layout was used only as a reference;
+  upstream DLLs were not copied.
