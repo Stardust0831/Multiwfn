@@ -9,7 +9,12 @@ Current release packaging:
 - `Multiwfn_noGUI-Linux.tar.gz`
 - `Multiwfn_noGUI-macOS.tar.gz`
 - `Multiwfn_noGUI-Windows.zip`
+- `LICENSE.txt`
 - `SHA256SUMS.txt`
+
+Each platform archive includes the noGUI executable and `LICENSE.txt`. The
+standalone `LICENSE.txt` asset is also uploaded so the release page exposes the
+original Multiwfn terms directly.
 
 The release job uses the built-in `GITHUB_TOKEN` and `gh release create` on the
 GitHub-hosted Ubuntu runner. Local machines only need to push an annotated tag,

@@ -123,6 +123,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download binaries
         uses: actions/download-artifact@v4
         with:
@@ -132,14 +135,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          tar -czf release-assets/Multiwfn_noGUI-Linux.tar.gz -C release-artifacts/Multiwfn_noGUI-Linux Multiwfn_noGUI
-          tar -czf release-assets/Multiwfn_noGUI-macOS.tar.gz -C release-artifacts/Multiwfn_noGUI-macOS Multiwfn_noGUI
-          zip -j release-assets/Multiwfn_noGUI-Windows.zip release-artifacts/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe
+          cp LICENSE.txt release-assets/LICENSE.txt
+          cp release-artifacts/Multiwfn_noGUI-Linux/Multiwfn_noGUI release-assets/Multiwfn_noGUI
+          tar -czf release-assets/Multiwfn_noGUI-Linux.tar.gz -C release-assets Multiwfn_noGUI LICENSE.txt
+          rm release-assets/Multiwfn_noGUI
+          cp release-artifacts/Multiwfn_noGUI-macOS/Multiwfn_noGUI release-assets/Multiwfn_noGUI
+          tar -czf release-assets/Multiwfn_noGUI-macOS.tar.gz -C release-assets Multiwfn_noGUI LICENSE.txt
+          rm release-assets/Multiwfn_noGUI
+          cp release-artifacts/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe release-assets/Multiwfn_noGUI.exe
+          zip -j release-assets/Multiwfn_noGUI-Windows.zip release-assets/Multiwfn_noGUI.exe release-assets/LICENSE.txt
+          rm release-assets/Multiwfn_noGUI.exe
           sha256sum release-assets/* > release-assets/SHA256SUMS.txt
           cat > RELEASE_NOTES.md <<'EOF'
           Cross-platform noGUI build of Multiwfn 2026.6.2.
 
           This release keeps the upstream Fortran source behavior and adds a minimal CMake/GitHub Actions build path for noGUI binaries.
+          The upstream Multiwfn license is included as LICENSE.txt in this release and inside each platform archive.
 
           Validation in CI:
           - Linux, macOS, and Windows builds with GNU Fortran.

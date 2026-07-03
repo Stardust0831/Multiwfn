@@ -10,6 +10,9 @@ The CMake build currently targets `Multiwfn_noGUI` only. This avoids DISLIN,
 Motif, X11, and OpenGL so CI can build on Linux, macOS, and Windows with GNU
 Fortran.
 
+The repository includes the upstream Multiwfn license terms in `LICENSE.txt`.
+Release assets must carry this file alongside the binaries.
+
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
