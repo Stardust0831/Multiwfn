@@ -31,6 +31,9 @@ handled separately.
   CMake to prefer static BLAS/LAPACK libraries and links GNU Fortran runtime
   libraries statically so the release zip does not require MSYS2/OpenBLAS DLLs
   on the user's machine.
+  In the MSYS2 UCRT64 CI build, this also forces BLAS/LAPACK to
+  `$MINGW_PREFIX/lib/libopenblas.a`; relying only on automatic BLAS detection
+  may select the OpenBLAS import library and leave DLL dependencies.
 
 The default CI build leaves fractional-derivative support off.
 BLAS and LAPACK are required because Multiwfn calls routines such as `DGEMM`,

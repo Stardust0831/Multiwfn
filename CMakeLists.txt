@@ -8,11 +8,20 @@ option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF
 option(MULTIWFN_WINDOWS_STATIC_LINK "Prefer static runtime and math libraries for Windows redistribution" ON)
 
 if(WIN32 AND MULTIWFN_WINDOWS_STATIC_LINK)
-  set(BLA_STATIC ON)
+  set(BLA_STATIC ON CACHE BOOL "Prefer static BLAS/LAPACK libraries" FORCE)
+  set(BLA_VENDOR OpenBLAS CACHE STRING "Use OpenBLAS for static Windows builds" FORCE)
+  set(_multiwfn_mingw_openblas "$ENV{MINGW_PREFIX}/lib/libopenblas.a")
+  if(EXISTS "${_multiwfn_mingw_openblas}")
+    set(BLAS_LIBRARIES "${_multiwfn_mingw_openblas}" CACHE FILEPATH "Static OpenBLAS library" FORCE)
+    set(LAPACK_LIBRARIES "${_multiwfn_mingw_openblas}" CACHE FILEPATH "Static OpenBLAS LAPACK library" FORCE)
+  endif()
 endif()
 
 find_package(BLAS REQUIRED)
 find_package(LAPACK REQUIRED)
+
+message(STATUS "BLAS libraries: ${BLAS_LIBRARIES}")
+message(STATUS "LAPACK libraries: ${LAPACK_LIBRARIES}")
 
 if(MULTIWFN_BUILD_GUI)
   message(FATAL_ERROR "The CMake build currently supports noGUI only; use the original Makefile for the GUI build.")

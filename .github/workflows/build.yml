@@ -61,6 +61,8 @@ jobs:
         shell: msys2 {0}
         run: |
           set -o pipefail
+          test -s "$MINGW_PREFIX/lib/libopenblas.a"
+          ls -l "$MINGW_PREFIX"/lib/libopenblas*
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
           cmake --build build --parallel 2>&1 | tee build.log
 
