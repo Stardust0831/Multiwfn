@@ -162,6 +162,16 @@ jobs:
           - Fractional-derivative support is disabled in the default CI build.
           EOF
 
+      - name: Verify license packaging
+        run: |
+          set -euo pipefail
+          test -s LICENSE.txt
+          test -s release-assets/LICENSE.txt
+          cmp LICENSE.txt release-assets/LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx LICENSE.txt
+          unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx LICENSE.txt
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
