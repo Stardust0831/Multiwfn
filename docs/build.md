@@ -26,3 +26,32 @@ handled separately.
   GMP, FLINT, and ARB where applicable.
 
 The default CI build leaves fractional-derivative support off.
+BLAS and LAPACK are required because Multiwfn calls routines such as `DGEMM`,
+`DSYEV`, and `DGEEV` directly.
+
+## 2026.6.2 noGUI Port Notes
+
+The CMake noGUI source list should stay close to the upstream `Makefile`.
+In particular, noGUI still compiles the original `GUI.f90`; it only replaces
+DISLIN and mouse rotation dependencies with the upstream empty noGUI stubs.
+Replacing `GUI.f90` with a smaller local stub caused the build to diverge from
+the original dependency graph.
+
+GNU Fortran preprocessing has to be selective. `define.f90` contains `_WIN32`
+preprocessor branches, so global preprocessing is still required. However,
+`DFTxclib.F` contains fixed-form continuation lines beginning with `#`; if CMake
+preprocesses that file, gfortran reports many `invalid preprocessing directive`
+errors. The CMake build therefore leaves global Fortran preprocessing on and
+sets `Fortran_PREPROCESS OFF` only for `DFTxclib.F`.
+
+The macOS CMake build maintained by digital-chemistry-laboratory also links
+BLAS/LAPACK explicitly and treats OpenMP as a build option. This CMake port uses
+the same conservative approach: keep Multiwfn's existing OpenMP code and link it
+through CMake's `OpenMP::OpenMP_Fortran` target when available, rather than
+changing parallel regions in the Fortran sources.
+
+CI run history so far:
+
+- Run 1 failed in build before detailed logs were available.
+- Run 2 failed in build; local minimal reproduction identified the
+  `DFTxclib.F` preprocessing issue above.

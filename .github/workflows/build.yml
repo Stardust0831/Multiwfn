@@ -24,7 +24,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gfortran cmake ninja-build
+          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -42,19 +42,53 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc-fortran
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-openblas
 
       - name: Configure and build
         if: runner.os != 'Windows'
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel
+          set -o pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
+          cmake --build build --parallel 2>&1 | tee build.log
 
       - name: Configure and build on Windows
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel
+          set -o pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
+          cmake --build build --parallel 2>&1 | tee build.log
+
+      - name: Summarize build failure
+        if: failure() && runner.os != 'Windows'
+        run: |
+          {
+            echo "## Build failure tail"
+            echo
+            echo '```text'
+            tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped)' build.log configure.log 2>/dev/null || true)"
+          if [ -n "$first_error" ]; then
+            echo "::error::$first_error"
+          fi
+
+      - name: Summarize Windows build failure
+        if: failure() && runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          {
+            echo "## Build failure tail"
+            echo
+            echo '```text'
+            tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped)' build.log configure.log 2>/dev/null || true)"
+          if [ -n "$first_error" ]; then
+            echo "::error::$first_error"
+          fi
 
       - name: Smoke test
         if: runner.os != 'Windows'

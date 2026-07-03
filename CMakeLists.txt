@@ -6,6 +6,9 @@ option(MULTIWFN_BUILD_GUI "Build the DISLIN/Motif GUI executable" OFF)
 option(MULTIWFN_WITH_OPENMP "Enable OpenMP when the compiler supports it" ON)
 option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF)
 
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+
 if(MULTIWFN_BUILD_GUI)
   message(FATAL_ERROR "The CMake build currently supports noGUI only; use the original Makefile for the GUI build.")
 endif()
@@ -15,7 +18,6 @@ set(CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mod")
 
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
   add_compile_options(
-    $<$<COMPILE_LANGUAGE:Fortran>:-cpp>
     $<$<COMPILE_LANGUAGE:Fortran>:-ffree-line-length-none>
     $<$<COMPILE_LANGUAGE:Fortran>:-fallow-argument-mismatch>
     $<$<COMPILE_LANGUAGE:Fortran>:-fallow-invalid-boz>
@@ -93,6 +95,10 @@ set(MULTIWFN_CORE_SOURCES
   ext/2F2.f90
 )
 
+# DFTxclib.F uses fixed-form continuation lines beginning with '#'. Running it
+# through cpp makes GNU Fortran report "invalid preprocessing directive".
+set_source_files_properties(DFTxclib.F PROPERTIES Fortran_PREPROCESS OFF)
+
 if(MULTIWFN_WITH_FD)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(GMP REQUIRED gmp)
@@ -107,6 +113,7 @@ endif()
 
 add_executable(Multiwfn_noGUI ${MULTIWFN_CORE_SOURCES})
 target_include_directories(Multiwfn_noGUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/ext")
+target_link_libraries(Multiwfn_noGUI PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 
 if(MULTIWFN_WITH_FD)
   target_include_directories(Multiwfn_noGUI PRIVATE ${GMP_INCLUDE_DIRS} ${FLINT_INCLUDE_DIRS} ${ARB_INCLUDE_DIRS})
