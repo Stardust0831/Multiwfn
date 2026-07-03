@@ -20,6 +20,12 @@ The release workflow explicitly verifies license packaging before publishing:
 the standalone release license must match the source-tree `LICENSE.txt`, and
 each Linux, macOS, and Windows archive must contain `LICENSE.txt`.
 
+Windows releases are intended to be self-contained. The CI build links GNU
+Fortran runtime and BLAS/LAPACK dependencies statically where possible and
+checks the generated `Multiwfn_noGUI.exe` import table before uploading the
+artifact. A release must not depend on MSYS2/OpenBLAS DLLs being installed on
+the user's machine.
+
 The release job uses the built-in `GITHUB_TOKEN` and `gh release create` on the
 GitHub-hosted Ubuntu runner. Local machines only need to push an annotated tag,
 for example:

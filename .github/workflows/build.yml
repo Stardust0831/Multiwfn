@@ -106,6 +106,18 @@ jobs:
         run: |
           bash tests/functional/run_nogui_tests.sh "$PWD/build/Multiwfn_noGUI.exe"
 
+      - name: Check Windows DLL dependencies
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          objdump -p build/Multiwfn_noGUI.exe | tee windows-dlls.log
+          forbidden='DLL Name: (libopenblas|libgfortran|libgcc_s|libquadmath|libgomp|libwinpthread|liblapack|libblas)'
+          if grep -Ei "$forbidden" windows-dlls.log; then
+            echo "::error::Windows executable still depends on redistributable compiler/math DLLs; static linking is incomplete."
+            exit 1
+          fi
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:

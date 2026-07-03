@@ -27,10 +27,19 @@ handled separately.
 - `MULTIWFN_WITH_OPENMP=ON` enables OpenMP when CMake can find compiler support.
 - `MULTIWFN_WITH_FD=ON` enables fractional-derivative support and requires
   GMP, FLINT, and ARB where applicable.
+- `MULTIWFN_WINDOWS_STATIC_LINK=ON` is enabled by default on Windows. It asks
+  CMake to prefer static BLAS/LAPACK libraries and links GNU Fortran runtime
+  libraries statically so the release zip does not require MSYS2/OpenBLAS DLLs
+  on the user's machine.
 
 The default CI build leaves fractional-derivative support off.
 BLAS and LAPACK are required because Multiwfn calls routines such as `DGEMM`,
 `DSYEV`, and `DGEEV` directly.
+
+On Windows, CI checks the executable import table with `objdump -p` and fails
+if redistributable compiler or math DLLs such as `libopenblas`,
+`libgfortran`, `libgcc_s`, `libquadmath`, `libgomp`, `libwinpthread`,
+`liblapack`, or `libblas` still appear.
 
 ## 2026.6.2 noGUI Port Notes
 

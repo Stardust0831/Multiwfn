@@ -5,6 +5,11 @@ project(Multiwfn LANGUAGES C Fortran)
 option(MULTIWFN_BUILD_GUI "Build the DISLIN/Motif GUI executable" OFF)
 option(MULTIWFN_WITH_OPENMP "Enable OpenMP when the compiler supports it" ON)
 option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF)
+option(MULTIWFN_WINDOWS_STATIC_LINK "Prefer static runtime and math libraries for Windows redistribution" ON)
+
+if(WIN32 AND MULTIWFN_WINDOWS_STATIC_LINK)
+  set(BLA_STATIC ON)
+endif()
 
 find_package(BLAS REQUIRED)
 find_package(LAPACK REQUIRED)
@@ -126,6 +131,10 @@ endif()
 add_executable(Multiwfn_noGUI ${MULTIWFN_CORE_SOURCES})
 target_include_directories(Multiwfn_noGUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/ext")
 target_link_libraries(Multiwfn_noGUI PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+
+if(WIN32 AND MULTIWFN_WINDOWS_STATIC_LINK AND CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+  target_link_options(Multiwfn_noGUI PRIVATE -static -static-libgcc -static-libgfortran)
+endif()
 
 if(MULTIWFN_WITH_FD)
   target_include_directories(Multiwfn_noGUI PRIVATE ${GMP_INCLUDE_DIRS} ${FLINT_INCLUDE_DIRS} ${ARB_INCLUDE_DIRS})
