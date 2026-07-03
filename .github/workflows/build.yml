@@ -1,0 +1,79 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  nogui:
+    name: noGUI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake ninja-build
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install gcc cmake ninja
+          echo "FC=$(ls $(brew --prefix)/bin/gfortran-* | sort -V | tail -n 1)" >> "$GITHUB_ENV"
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc-fortran
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Configure and build
+        if: runner.os != 'Windows'
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Configure and build on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Smoke test
+        if: runner.os != 'Windows'
+        run: |
+          printf '3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n' > water.xyz
+          printf 'q\n' | ./build/Multiwfn_noGUI water.xyz
+
+      - name: Smoke test on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          printf '3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n' > water.xyz
+          printf 'q\n' | ./build/Multiwfn_noGUI.exe water.xyz
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: Multiwfn_noGUI-${{ runner.os }}
+          path: |
+            build/Multiwfn_noGUI
+            build/Multiwfn_noGUI.exe
+          if-no-files-found: error
