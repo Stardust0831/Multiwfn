@@ -32,8 +32,6 @@ endif()
 
 set(MULTIWFN_CORE_SOURCES
   noGUI/dislin_mod_empty.f90
-  noGUI/GUI_empty.f90
-  noGUI/plot_external_empty.f90
   define.f90
   util.f90
   noGUI/dislin_d_empty.f90
@@ -43,6 +41,7 @@ set(MULTIWFN_CORE_SOURCES
   libreta_hybrid/libreta.f90
   function.f90
   plot.f90
+  GUI.f90
   sub.f90
   integral.f90
   Lebedev-Laikov.F
