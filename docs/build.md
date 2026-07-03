@@ -37,6 +37,9 @@ handled separately.
   OpenMP is disabled for this Windows redistribution build because the GNU
   OpenMP runtime can otherwise reintroduce dynamic `libgomp`/`libwinpthread`
   dependencies.
+  Static OpenBLAS may still reference GNU/OpenMP runtime symbols, so the
+  Windows link line also adds available static `libgomp.a`,
+  `libwinpthread.a`, `libquadmath.a`, and `libgfortran.a` by full path.
 
 The default CI build leaves fractional-derivative support off.
 BLAS and LAPACK are required because Multiwfn calls routines such as `DGEMM`,

@@ -19,6 +19,13 @@ if(WIN32 AND MULTIWFN_WINDOWS_STATIC_LINK)
     set(BLAS_LIBRARIES "${_multiwfn_mingw_openblas}" CACHE FILEPATH "Static OpenBLAS library" FORCE)
     set(LAPACK_LIBRARIES "${_multiwfn_mingw_openblas}" CACHE FILEPATH "Static OpenBLAS LAPACK library" FORCE)
   endif()
+  set(MULTIWFN_WINDOWS_STATIC_EXTRA_LIBRARIES "")
+  foreach(_multiwfn_static_lib gomp winpthread quadmath gfortran)
+    set(_multiwfn_static_path "$ENV{MINGW_PREFIX}/lib/lib${_multiwfn_static_lib}.a")
+    if(EXISTS "${_multiwfn_static_path}")
+      list(APPEND MULTIWFN_WINDOWS_STATIC_EXTRA_LIBRARIES "${_multiwfn_static_path}")
+    endif()
+  endforeach()
 endif()
 
 find_package(BLAS REQUIRED)
@@ -147,6 +154,7 @@ target_link_libraries(Multiwfn_noGUI PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIE
 
 if(WIN32 AND MULTIWFN_WINDOWS_STATIC_LINK AND CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
   target_link_options(Multiwfn_noGUI PRIVATE -static -static-libgcc -static-libgfortran)
+  target_link_libraries(Multiwfn_noGUI PRIVATE ${MULTIWFN_WINDOWS_STATIC_EXTRA_LIBRARIES})
 endif()
 
 if(MULTIWFN_WITH_FD)
