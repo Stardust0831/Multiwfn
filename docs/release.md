@@ -1,0 +1,24 @@
+# Release Notes
+
+GitHub Releases are produced by the `build` workflow when a `v*` tag is pushed.
+The release job waits for all three noGUI matrix builds and functional tests to
+pass before publishing assets.
+
+Current release packaging:
+
+- `Multiwfn_noGUI-Linux.tar.gz`
+- `Multiwfn_noGUI-macOS.tar.gz`
+- `Multiwfn_noGUI-Windows.zip`
+- `SHA256SUMS.txt`
+
+The release job uses the built-in `GITHUB_TOKEN` and `gh release create` on the
+GitHub-hosted Ubuntu runner. Local machines only need to push an annotated tag,
+for example:
+
+```sh
+git tag -a v2026.6.2-nogui.1 -m "Multiwfn 2026.6.2 noGUI cross-platform build"
+git push origin v2026.6.2-nogui.1
+```
+
+The release remains noGUI-only. The original DISLIN/Motif GUI path is not part
+of the CMake release build.

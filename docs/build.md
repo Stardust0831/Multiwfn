@@ -72,3 +72,6 @@ CI run history so far:
 - Run 4 succeeded on Linux, macOS, and Windows after mirroring the upstream
   GNU Fortran optimization profile. All three jobs built `Multiwfn_noGUI`, ran
   the water XYZ smoke test, and uploaded artifacts.
+- Run 5 succeeded on Linux, macOS, and Windows after replacing the simple quit
+  smoke test with functional noGUI checks for geometry analysis and cube
+  read/export workflows.
