@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Multiwfn 3Dmol Viewer</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="panel" aria-label="Controls">
+        <div class="brand">
+          <h1>Multiwfn Viewer</h1>
+          <span id="status">Ready</span>
+        </div>
+
+        <section class="group">
+          <h2>Structure</h2>
+          <label class="file-row">
+            <span>File</span>
+            <input id="structure-file" type="file" accept=".xyz,.pdb,.sdf,.mol,.mol2,.pqr,.cif">
+          </label>
+          <div class="control-grid">
+            <label>
+              <span>Format</span>
+              <select id="structure-format">
+                <option value="auto">Auto</option>
+                <option value="xyz">XYZ</option>
+                <option value="pdb">PDB</option>
+                <option value="sdf">SDF/MOL</option>
+                <option value="mol2">MOL2</option>
+                <option value="pqr">PQR</option>
+              </select>
+            </label>
+            <label>
+              <span>Style</span>
+              <select id="model-style">
+                <option value="stick">Stick</option>
+                <option value="sphere">Sphere</option>
+                <option value="line">Line</option>
+                <option value="ballstick">Ball+Stick</option>
+              </select>
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="sample-xyz" type="button">Sample XYZ</button>
+            <button id="reset-view" type="button">Center</button>
+          </div>
+        </section>
+
+        <section class="group">
+          <h2>Cube</h2>
+          <label class="file-row">
+            <span>File</span>
+            <input id="cube-file" type="file" accept=".cub,.cube">
+          </label>
+          <div class="control-grid">
+            <label>
+              <span>Iso</span>
+              <input id="iso-value" type="number" min="0.0001" step="0.005" value="0.015">
+            </label>
+            <label>
+              <span>Opacity</span>
+              <input id="surface-opacity" type="range" min="0.05" max="1" step="0.05" value="0.68">
+            </label>
+          </div>
+          <div class="checks">
+            <label><input id="show-positive" type="checkbox" checked> Positive</label>
+            <label><input id="show-negative" type="checkbox" checked> Negative</label>
+          </div>
+          <div class="button-row">
+            <button id="sample-cube" type="button">Sample Cube</button>
+            <button id="clear-cube" type="button">Clear Cube</button>
+          </div>
+        </section>
+
+        <section class="group compact">
+          <h2>View</h2>
+          <div class="checks">
+            <label><input id="ambient-occlusion" type="checkbox" checked> AO</label>
+            <label><input id="outline" type="checkbox" checked> Outline</label>
+            <label><input id="spin" type="checkbox"> Spin</label>
+          </div>
+        </section>
+      </aside>
+
+      <section class="viewport-wrap" aria-label="3D viewer">
+        <div id="viewer"></div>
+        <div class="hud">
+          <span id="model-label">No structure</span>
+          <span id="cube-label">No cube</span>
+        </div>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
