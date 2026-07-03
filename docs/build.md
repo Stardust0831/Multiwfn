@@ -69,3 +69,6 @@ CI run history so far:
 - Run 3 built and smoke-tested successfully on macOS and Windows. Ubuntu stayed
   in the build step much longer than the other platforms, consistent with GNU
   Fortran spending excessive time under the previous default `-O3` profile.
+- Run 4 succeeded on Linux, macOS, and Windows after mirroring the upstream
+  GNU Fortran optimization profile. All three jobs built `Multiwfn_noGUI`, ran
+  the water XYZ smoke test, and uploaded artifacts.
