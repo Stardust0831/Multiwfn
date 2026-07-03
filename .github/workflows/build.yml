@@ -29,7 +29,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev
+          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev patchelf
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -120,13 +120,100 @@ jobs:
             exit 1
           fi
 
-      - name: Upload binary
+      - name: Package Linux release candidate
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          mkdir -p package/Multiwfn_noGUI-Linux/lib dist
+          cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
+          cp LICENSE.txt package/Multiwfn_noGUI-Linux/LICENSE.txt
+          ldd package/Multiwfn_noGUI-Linux/Multiwfn_noGUI | tee package/Multiwfn_noGUI-Linux/ldd.txt
+          awk '/=> \// {print $3}' package/Multiwfn_noGUI-Linux/ldd.txt | while read -r lib; do
+            base="$(basename "$lib")"
+            case "$base" in
+              libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*)
+                ;;
+              *)
+                cp -n "$lib" package/Multiwfn_noGUI-Linux/lib/
+                ;;
+            esac
+          done
+          if compgen -G "package/Multiwfn_noGUI-Linux/lib/*" > /dev/null; then
+            patchelf --set-rpath '$ORIGIN/lib' package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
+          fi
+          tar -czf dist/Multiwfn_noGUI-Linux.tar.gz -C package Multiwfn_noGUI-Linux
+
+      - name: Test Linux release candidate in clean container
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          rm -rf clean-test
+          mkdir clean-test
+          tar -xzf dist/Multiwfn_noGUI-Linux.tar.gz -C clean-test
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ubuntu:24.04 \
+            bash tests/functional/run_nogui_tests.sh /work/clean-test/Multiwfn_noGUI-Linux/Multiwfn_noGUI
+
+      - name: Package macOS release candidate
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          mkdir -p package/Multiwfn_noGUI-macOS dist
+          cp build/Multiwfn_noGUI package/Multiwfn_noGUI-macOS/Multiwfn_noGUI
+          cp LICENSE.txt package/Multiwfn_noGUI-macOS/LICENSE.txt
+          otool -L package/Multiwfn_noGUI-macOS/Multiwfn_noGUI | tee package/Multiwfn_noGUI-macOS/otool.txt
+          tar -czf dist/Multiwfn_noGUI-macOS.tar.gz -C package Multiwfn_noGUI-macOS
+
+      - name: Test macOS release candidate
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          rm -rf clean-test
+          mkdir clean-test
+          tar -xzf dist/Multiwfn_noGUI-macOS.tar.gz -C clean-test
+          bash tests/functional/run_nogui_tests.sh "$PWD/clean-test/Multiwfn_noGUI-macOS/Multiwfn_noGUI"
+
+      - name: Package Windows release candidate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package/Multiwfn_noGUI-Windows, dist | Out-Null
+          Copy-Item build/Multiwfn_noGUI.exe package/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe
+          Copy-Item LICENSE.txt package/Multiwfn_noGUI-Windows/LICENSE.txt
+          Compress-Archive -Path package/Multiwfn_noGUI-Windows/* -DestinationPath dist/Multiwfn_noGUI-Windows.zip -Force
+
+      - name: Test Windows release candidate outside MSYS2
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Remove-Item -Recurse -Force clean-test -ErrorAction SilentlyContinue
+          Expand-Archive dist/Multiwfn_noGUI-Windows.zip -DestinationPath clean-test
+          $env:Path = (($env:Path -split ';') | Where-Object { $_ -notmatch 'msys64' }) -join ';'
+          $work = Join-Path $PWD "clean-test-work"
+          Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $work | Out-Null
+          @"
+          3
+          water
+          O 0 0 0
+          H 0 0 0.96
+          H 0.92 0 -0.24
+          "@ | Set-Content -Path "$work/water.xyz" -Encoding ascii
+          "26`n1`n`nq`n0`nq`n" | & "$PWD/clean-test/Multiwfn_noGUI.exe" "$work/water.xyz" > "$work/geometry.out"
+          Select-String -Path "$work/geometry.out" -SimpleMatch "Formula: H2 O1" | Out-Null
+          Select-String -Path "$work/geometry.out" -SimpleMatch "Geometry center (X/Y/Z):    0.30666667    0.00000000    0.24000000 Angstrom" | Out-Null
+
+      - name: Upload release candidate package
         uses: actions/upload-artifact@v4
         with:
-          name: Multiwfn_noGUI-${{ runner.os }}
+          name: Multiwfn_noGUI-package-${{ runner.os }}
           path: |
-            build/Multiwfn_noGUI
-            build/Multiwfn_noGUI.exe
+            dist/Multiwfn_noGUI-Linux.tar.gz
+            dist/Multiwfn_noGUI-macOS.tar.gz
+            dist/Multiwfn_noGUI-Windows.zip
           if-no-files-found: error
 
   release:
@@ -150,15 +237,9 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
           cp LICENSE.txt release-assets/LICENSE.txt
-          cp release-artifacts/Multiwfn_noGUI-Linux/Multiwfn_noGUI release-assets/Multiwfn_noGUI
-          tar -czf release-assets/Multiwfn_noGUI-Linux.tar.gz -C release-assets Multiwfn_noGUI LICENSE.txt
-          rm release-assets/Multiwfn_noGUI
-          cp release-artifacts/Multiwfn_noGUI-macOS/Multiwfn_noGUI release-assets/Multiwfn_noGUI
-          tar -czf release-assets/Multiwfn_noGUI-macOS.tar.gz -C release-assets Multiwfn_noGUI LICENSE.txt
-          rm release-assets/Multiwfn_noGUI
-          cp release-artifacts/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe release-assets/Multiwfn_noGUI.exe
-          zip -j release-assets/Multiwfn_noGUI-Windows.zip release-assets/Multiwfn_noGUI.exe release-assets/LICENSE.txt
-          rm release-assets/Multiwfn_noGUI.exe
+          cp release-artifacts/Multiwfn_noGUI-package-Linux/Multiwfn_noGUI-Linux.tar.gz release-assets/
+          cp release-artifacts/Multiwfn_noGUI-package-macOS/Multiwfn_noGUI-macOS.tar.gz release-assets/
+          cp release-artifacts/Multiwfn_noGUI-package-Windows/Multiwfn_noGUI-Windows.zip release-assets/
           sha256sum release-assets/* > release-assets/SHA256SUMS.txt
           cat > RELEASE_NOTES.md <<'EOF'
           Cross-platform noGUI build of Multiwfn 2026.6.2.
@@ -167,7 +248,9 @@ jobs:
           The upstream Multiwfn license is included as LICENSE.txt in this release and inside each platform archive.
 
           Validation in CI:
-          - Linux, macOS, and Windows builds with GNU Fortran.
+          - Linux, macOS, and Windows release-candidate packages built with GNU Fortran.
+          - Linux package extracted and tested in a clean Ubuntu container without installing BLAS/LAPACK.
+          - Windows zip extracted and smoke-tested outside the MSYS2 shell, with compiler/math DLL imports rejected.
           - Geometry-only XYZ loading and structure analysis workflow.
           - Gaussian cube loading, grid statistics, and cube export workflow.
 
@@ -182,8 +265,8 @@ jobs:
           test -s LICENSE.txt
           test -s release-assets/LICENSE.txt
           cmp LICENSE.txt release-assets/LICENSE.txt
-          tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx LICENSE.txt
-          tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/LICENSE.txt
           unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx LICENSE.txt
 
       - name: Create GitHub release

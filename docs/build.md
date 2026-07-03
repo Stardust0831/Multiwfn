@@ -34,6 +34,9 @@ handled separately.
   In the MSYS2 UCRT64 CI build, this also forces BLAS/LAPACK to
   `$MINGW_PREFIX/lib/libopenblas.a`; relying only on automatic BLAS detection
   may select the OpenBLAS import library and leave DLL dependencies.
+  OpenMP is disabled for this Windows redistribution build because the GNU
+  OpenMP runtime can otherwise reintroduce dynamic `libgomp`/`libwinpthread`
+  dependencies.
 
 The default CI build leaves fractional-derivative support off.
 BLAS and LAPACK are required because Multiwfn calls routines such as `DGEMM`,
@@ -43,6 +46,13 @@ On Windows, CI checks the executable import table with `objdump -p` and fails
 if redistributable compiler or math DLLs such as `libopenblas`,
 `libgfortran`, `libgcc_s`, `libquadmath`, `libgomp`, `libwinpthread`,
 `liblapack`, or `libblas` still appear.
+
+On Linux, the release candidate package is assembled before artifact upload.
+The workflow copies non-glibc libraries reported by `ldd` into a package-local
+`lib/` directory and sets the executable rpath to `$ORIGIN/lib` with
+`patchelf`. The tarball is then extracted and tested inside a clean
+`ubuntu:24.04` container, which catches missing BLAS/LAPACK or Fortran runtime
+dependencies that would be hidden on the development runner.
 
 ## 2026.6.2 noGUI Port Notes
 

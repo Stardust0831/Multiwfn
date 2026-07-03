@@ -13,8 +13,10 @@ Current release packaging:
 - `SHA256SUMS.txt`
 
 Each platform archive includes the noGUI executable and `LICENSE.txt`. The
-standalone `LICENSE.txt` asset is also uploaded so the release page exposes the
-original Multiwfn terms directly.
+Linux archive may also include a `lib/` directory containing runtime libraries
+collected from `ldd`, with the executable rpath set to load them from beside the
+binary. The standalone `LICENSE.txt` asset is also uploaded so the release page
+exposes the original Multiwfn terms directly.
 
 The release workflow explicitly verifies license packaging before publishing:
 the standalone release license must match the source-tree `LICENSE.txt`, and
@@ -23,8 +25,11 @@ each Linux, macOS, and Windows archive must contain `LICENSE.txt`.
 Windows releases are intended to be self-contained. The CI build links GNU
 Fortran runtime and BLAS/LAPACK dependencies statically where possible and
 checks the generated `Multiwfn_noGUI.exe` import table before uploading the
-artifact. A release must not depend on MSYS2/OpenBLAS DLLs being installed on
-the user's machine.
+artifact. A release must not depend on MSYS2/OpenBLAS DLLs such as
+`libgfortran-5.dll` being installed on the user's machine.
+
+The release job uploads packages that were already built and tested by the
+platform matrix. It does not reconstruct platform archives from raw executables.
 
 The release job uses the built-in `GITHUB_TOKEN` and `gh release create` on the
 GitHub-hosted Ubuntu runner. Local machines only need to push an annotated tag,
