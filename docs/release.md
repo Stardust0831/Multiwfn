@@ -27,3 +27,9 @@ git push origin v2026.6.2-nogui.1
 
 The release remains noGUI-only. The original DISLIN/Motif GUI path is not part
 of the CMake release build.
+
+## Published Releases
+
+- `v2026.6.2-nogui.2`: published by GitHub Actions run 9. The source tree
+  includes `LICENSE.txt`; the release page has a standalone `LICENSE.txt`
+  asset; Linux/macOS tarballs and the Windows zip also contain `LICENSE.txt`.

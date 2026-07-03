@@ -78,3 +78,5 @@ CI run history so far:
 - Run 5 succeeded on Linux, macOS, and Windows after replacing the simple quit
   smoke test with functional noGUI checks for geometry analysis and cube
   read/export workflows.
+- Run 9 succeeded for tag `v2026.6.2-nogui.2`. It rebuilt all three platform
+  binaries, reran the functional tests, and completed the release job.
