@@ -5,7 +5,7 @@ H 0 0 0.96
 H 0.92 0 -0.24
 `;
 
-const sampleCube = `Test cube
+const sampleHomoCube = `Sample HOMO cube
 Generated for Multiwfn viewer
     1    0.000000    0.000000    0.000000
     3    0.450000    0.000000    0.000000
@@ -19,10 +19,29 @@ Generated for Multiwfn viewer
   0.00000E+00  5.00000E-03  0.00000E+00
 `;
 
+const sampleLumoCube = `Sample LUMO cube
+Generated for Multiwfn viewer
+    1    0.000000    0.000000    0.000000
+    3    0.450000    0.000000    0.000000
+    3    0.000000    0.450000    0.000000
+    3    0.000000    0.000000    0.450000
+    8    0.000000    0.000000    0.000000    0.000000
+  0.00000E+00 -4.00000E-03  0.00000E+00 -4.00000E-03 -1.60000E-02 -4.00000E-03
+  0.00000E+00 -4.00000E-03  0.00000E+00  6.00000E-03  1.60000E-02  6.00000E-03
+ -4.00000E-03 -2.60000E-02 -4.00000E-03  6.00000E-03  1.60000E-02  6.00000E-03
+  0.00000E+00 -4.00000E-03  0.00000E+00 -4.00000E-03 -1.60000E-02 -4.00000E-03
+  0.00000E+00 -4.00000E-03  0.00000E+00
+`;
+
 const atomicSymbols = {
   1: 'H', 2: 'He', 3: 'Li', 4: 'Be', 5: 'B', 6: 'C', 7: 'N', 8: 'O',
   9: 'F', 10: 'Ne', 11: 'Na', 12: 'Mg', 13: 'Al', 14: 'Si', 15: 'P',
   16: 'S', 17: 'Cl', 18: 'Ar', 35: 'Br', 53: 'I'
+};
+
+const orbitalStyles = {
+  homo: { label: 'HOMO', positive: '#2457d6', negative: '#c8324f' },
+  lumo: { label: 'LUMO', positive: '#0f8f62', negative: '#d88422' }
 };
 
 const state = {
@@ -30,9 +49,11 @@ const state = {
   modelData: '',
   modelFormat: 'xyz',
   modelName: '',
-  cubeData: '',
-  cubeName: '',
-  surfaces: []
+  activeOrbital: 'homo',
+  orbitals: {
+    homo: { data: '', name: '' },
+    lumo: { data: '', name: '' }
+  }
 };
 
 const els = {
@@ -43,6 +64,7 @@ const els = {
   structureFile: document.getElementById('structure-file'),
   structureFormat: document.getElementById('structure-format'),
   modelStyle: document.getElementById('model-style'),
+  orbitalSlot: document.getElementById('orbital-slot'),
   cubeFile: document.getElementById('cube-file'),
   isoValue: document.getElementById('iso-value'),
   opacity: document.getElementById('surface-opacity'),
@@ -100,27 +122,31 @@ function renderScene(zoom = false) {
     state.viewer.setStyle({}, styleFor(els.modelStyle.value));
   }
 
-  if (state.cubeData) {
+  const loadedOrbitals = Object.values(state.orbitals).filter((orbital) => orbital.data);
+  if (loadedOrbitals.length) {
     if (!state.modelData) {
-      const xyz = xyzFromCube(state.cubeData);
+      const xyz = xyzFromCube(loadedOrbitals[0].data);
       if (xyz) {
         state.viewer.addModel(xyz, 'xyz');
         state.viewer.setStyle({}, styleFor(els.modelStyle.value));
       }
     }
-    drawSurfaces();
+    Object.entries(state.orbitals).forEach(([slot, orbital]) => {
+      if (orbital.data) drawSurfaces(slot, orbital.data);
+    });
   }
 
   if (zoom) state.viewer.zoomTo();
   state.viewer.render();
 }
 
-function drawSurfaces() {
+function drawSurfaces(slot, cubeData) {
   const iso = Math.abs(Number(els.isoValue.value) || 0.015);
   const opacity = Number(els.opacity.value) || 0.68;
+  const colors = orbitalStyles[slot] || orbitalStyles.homo;
   let vol;
   try {
-    vol = new $3Dmol.VolumeData(state.cubeData, 'cube');
+    vol = new $3Dmol.VolumeData(cubeData, 'cube');
   } catch (error) {
     setStatus('Cube error', false);
     return;
@@ -128,7 +154,7 @@ function drawSurfaces() {
   if (els.showPositive.checked) {
     state.viewer.addIsosurface(vol, {
       isoval: iso,
-      color: '#2457d6',
+      color: colors.positive,
       opacity,
       smoothness: 8
     });
@@ -136,11 +162,17 @@ function drawSurfaces() {
   if (els.showNegative.checked) {
     state.viewer.addIsosurface(vol, {
       isoval: -iso,
-      color: '#c8324f',
+      color: colors.negative,
       opacity,
       smoothness: 8
     });
   }
+}
+
+function updateOrbitalLabel() {
+  const loaded = Object.entries(state.orbitals)
+    .map(([slot, orbital]) => `${orbitalStyles[slot].label}: ${orbital.name || 'No cube'}`);
+  els.cubeLabel.textContent = loaded.join(' · ');
 }
 
 function xyzFromCube(cubeText) {
@@ -169,12 +201,34 @@ function loadStructure(text, name, format) {
   setStatus('Loaded');
 }
 
-function loadCube(text, name) {
-  state.cubeData = text;
-  state.cubeName = name || 'Cube';
-  els.cubeLabel.textContent = `${state.cubeName} · cube`;
+function loadCube(text, name, slot = state.activeOrbital) {
+  const orbital = state.orbitals[slot];
+  if (!orbital) return;
+  orbital.data = text;
+  orbital.name = name || `${orbitalStyles[slot].label}.cube`;
+  updateOrbitalLabel();
   renderScene(true);
   setStatus('Loaded');
+}
+
+function clearCube(slot = state.activeOrbital) {
+  const orbital = state.orbitals[slot];
+  if (!orbital) return;
+  orbital.data = '';
+  orbital.name = '';
+  updateOrbitalLabel();
+  renderScene(false);
+  setStatus('Ready');
+}
+
+function clearAllCubes() {
+  Object.keys(state.orbitals).forEach((slot) => {
+    state.orbitals[slot].data = '';
+    state.orbitals[slot].name = '';
+  });
+  updateOrbitalLabel();
+  renderScene(false);
+  setStatus('Ready');
 }
 
 function readFile(file, callback) {
@@ -200,20 +254,32 @@ function bindEvents() {
     readFile(file, loadCube);
   });
 
+  els.orbitalSlot.addEventListener('change', () => {
+    state.activeOrbital = els.orbitalSlot.value;
+  });
+
   document.getElementById('sample-xyz').addEventListener('click', () => {
     loadStructure(sampleXYZ, 'water.xyz', 'xyz');
   });
 
-  document.getElementById('sample-cube').addEventListener('click', () => {
-    loadCube(sampleCube, 'sample-orbital.cube');
+  document.getElementById('sample-homo').addEventListener('click', () => {
+    state.activeOrbital = 'homo';
+    els.orbitalSlot.value = 'homo';
+    loadCube(sampleHomoCube, 'sample-homo.cube', 'homo');
+  });
+
+  document.getElementById('sample-lumo').addEventListener('click', () => {
+    state.activeOrbital = 'lumo';
+    els.orbitalSlot.value = 'lumo';
+    loadCube(sampleLumoCube, 'sample-lumo.cube', 'lumo');
   });
 
   document.getElementById('clear-cube').addEventListener('click', () => {
-    state.cubeData = '';
-    state.cubeName = '';
-    els.cubeLabel.textContent = 'No cube';
-    renderScene(false);
-    setStatus('Ready');
+    clearCube();
+  });
+
+  document.getElementById('clear-all-cubes').addEventListener('click', () => {
+    clearAllCubes();
   });
 
   document.getElementById('reset-view').addEventListener('click', () => {
@@ -243,6 +309,7 @@ function init() {
     antialias: true
   });
   bindEvents();
+  updateOrbitalLabel();
   loadStructure(sampleXYZ, 'water.xyz', 'xyz');
 }
 

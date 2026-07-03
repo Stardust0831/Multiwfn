@@ -50,7 +50,14 @@
         </section>
 
         <section class="group">
-          <h2>Cube</h2>
+          <h2>Orbitals</h2>
+          <label>
+            <span>Slot</span>
+            <select id="orbital-slot">
+              <option value="homo">HOMO</option>
+              <option value="lumo">LUMO</option>
+            </select>
+          </label>
           <label class="file-row">
             <span>File</span>
             <input id="cube-file" type="file" accept=".cub,.cube">
@@ -70,8 +77,10 @@
             <label><input id="show-negative" type="checkbox" checked> Negative</label>
           </div>
           <div class="button-row">
-            <button id="sample-cube" type="button">Sample Cube</button>
-            <button id="clear-cube" type="button">Clear Cube</button>
+            <button id="sample-homo" type="button">Sample HOMO</button>
+            <button id="sample-lumo" type="button">Sample LUMO</button>
+            <button id="clear-cube" type="button">Clear Slot</button>
+            <button id="clear-all-cubes" type="button">Clear All</button>
           </div>
         </section>
 
@@ -89,7 +98,7 @@
         <div id="viewer"></div>
         <div class="hud">
           <span id="model-label">No structure</span>
-          <span id="cube-label">No cube</span>
+          <span id="cube-label">No orbitals</span>
         </div>
       </section>
     </main>
