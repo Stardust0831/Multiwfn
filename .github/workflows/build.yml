@@ -91,18 +91,16 @@ jobs:
             echo "::error::$first_error"
           fi
 
-      - name: Smoke test
+      - name: Functional tests
         if: runner.os != 'Windows'
         run: |
-          printf '3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n' > water.xyz
-          printf 'q\n' | ./build/Multiwfn_noGUI water.xyz
+          bash tests/functional/run_nogui_tests.sh "$PWD/build/Multiwfn_noGUI"
 
-      - name: Smoke test on Windows
+      - name: Functional tests on Windows
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          printf '3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n' > water.xyz
-          printf 'q\n' | ./build/Multiwfn_noGUI.exe water.xyz
+          bash tests/functional/run_nogui_tests.sh "$PWD/build/Multiwfn_noGUI.exe"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
