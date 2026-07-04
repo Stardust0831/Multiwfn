@@ -44,6 +44,11 @@ git push origin v2026.6.2-nogui.1
 The release remains noGUI-only. The original DISLIN/Motif GUI path is not part
 of the CMake release build.
 
+Windows noGUI executables embed `Multiwfn.ico` through `Multiwfn.rc`. The icon
+asset follows the upstream Multiwfn visual identity and is carried with the same
+source/release license obligations as the rest of this redistributed Multiwfn
+package.
+
 ## Published Releases
 
 - `v2026.6.2-nogui.2`: published by GitHub Actions run 9. The source tree
