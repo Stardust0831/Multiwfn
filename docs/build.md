@@ -53,10 +53,10 @@ libraries reported by `ldd` into a package-local `lib/` directory and builds the
 executable with an `$ORIGIN/lib` rpath. It rejects Linux release candidates that
 reference GLIBC symbols newer than 2.28, then extracts and tests the tarball in
 a clean Rocky Linux 8 container without installing BLAS/LAPACK. The container
-enables the Rocky CRB/PowerTools repository plus EPEL and uses Rocky-provided
-`cmake3` with Ninja, rather than the GitHub runner's newer tools, so the entire
-Linux release build stays on the older runtime baseline without dropping the
-intended CMake/Ninja build path.
+enables the Rocky PowerTools repository when present plus EPEL and uses
+Rocky-provided `cmake` with Ninja, rather than the GitHub runner's newer tools,
+so the entire Linux release build stays on the older runtime baseline without
+dropping the intended CMake/Ninja build path.
 
 ## 2026.6.2 noGUI Port Notes
 
