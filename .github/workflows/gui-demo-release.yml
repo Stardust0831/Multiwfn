@@ -13,7 +13,7 @@ jobs:
   prerelease:
     name: Publish 3Dmol GUI demo prerelease
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -47,8 +47,20 @@ jobs:
           mkdir -p "package/${pkg}/docs"
           mkdir -p "package/${pkg}/frontend"
           mkdir -p "package/${pkg}/bin"
+          mkdir -p "package/${pkg}/lib"
           mkdir -p "package/${pkg}/tools"
           cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${pkg}/bin/Multiwfn_3DmolGUI"
+          ldd build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${pkg}/ldd.txt"
+          awk '/=> \// {print $3}' "package/${pkg}/ldd.txt" | while read -r lib; do
+            base="$(basename "$lib")"
+            case "$base" in
+              libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
+                ;;
+              *)
+                cp -L -n "$lib" "package/${pkg}/lib/"
+                ;;
+            esac
+          done
           cp tools/multiwfn_3dmol_server.py "package/${pkg}/tools/"
           cp README.md "package/${pkg}/README.md"
           cp LICENSE.txt "package/${pkg}/LICENSE.txt"
@@ -62,6 +74,7 @@ jobs:
           set -eu
           HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
           export MULTIWFN_3DMOL_HOME="$HERE"
+          export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           cd "$HERE"
           exec "$HERE/bin/Multiwfn_3DmolGUI" "$@"
           EOF
@@ -78,6 +91,10 @@ jobs:
           ```sh
           ./Multiwfn_3DmolGUI.sh
           ```
+
+          Python 3 is required for the local 3Dmol HTTP service. Runtime
+          libraries detected by `ldd` are bundled under `lib/` and loaded by
+          the wrapper script.
 
           When a Multiwfn workflow calls GUI entry points such as `drawmolgui`,
           `drawisosurgui`, `drawplanegui`, `setboxGUI`, or `miniGUI`, the demo
@@ -104,6 +121,7 @@ jobs:
 
           Highlights:
           - Linux demo executable `Multiwfn_3DmolGUI`, built with a new `module GUI` backend compiled in place of the legacy DISLIN GUI.
+          - The package includes detected Linux runtime libraries under `lib/`; use `./Multiwfn_3DmolGUI.sh` so `LD_LIBRARY_PATH` is set correctly.
           - GUI entry points such as `drawmolgui`, `drawisosurgui`, `drawplanegui`, `setboxGUI`, and `miniGUI` now write a 3Dmol session and start a bundled local HTTP service.
           - The session exports the current structure and available `cubmat`/`cubmattmp` grids, then opens the 3Dmol/Plotly frontend through a `multiwfnGui` manifest.
           - The frontend includes structure loading, cube isosurfaces, cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots, PNG export, and manifest export.
