@@ -16,6 +16,12 @@ official binary.
 - `smoke`: small grids for quick validation of the harness.
 - `standard`: default practical comparison size.
 - `full`: larger grids for less noisy timing on dedicated runners.
+- `stress`: a narrow long-running comparison. It keeps the Mayer bond-order
+  matrix case, one large 4-thread ELF grid case on `phenanthrene.fch`, and one
+  larger-molecule ELF grid case on `excit/D-pi-A.fchk`. On local Linux
+  calibration, the official binary needed about 50 s for the 300^3 phenanthrene
+  ELF case. The D-pi-A case is included for larger-molecule coverage, while the
+  phenanthrene 300^3 case is the primary roughly one-minute pressure point.
 
 Covered workload categories:
 
@@ -23,6 +29,8 @@ Covered workload categories:
   matrix-heavy paths that call BLAS-backed multiplication.
 - `parallel-grid`: density and ELF cube generation from `phenanthrene.fch`,
   run with one and multiple Multiwfn threads.
+- `large-system-parallel-grid`: ELF cube generation from the larger official
+  example `excit/D-pi-A.fchk`.
 - `real-space-grid-io`: synthetic cube load, grid processing, and cube export.
 - `geometry-baseline`: C60 structural analysis in `standard` and `full` suites.
 
@@ -50,6 +58,11 @@ Artifacts contain:
 - `results.json`
 - `comparisons.json`
 - per-version/per-case stdout, stderr, and generated outputs
+
+Generated cube files are deleted after their statistics are recorded by
+default, so artifacts stay small even for `full` and `stress`. Use the
+`keep_generated_outputs` workflow input only when debugging a specific
+numerical mismatch.
 
 ## Local Run
 

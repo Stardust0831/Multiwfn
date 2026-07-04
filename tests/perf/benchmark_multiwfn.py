@@ -49,11 +49,16 @@ class Case:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--suite", choices=["smoke", "standard", "full"], default="standard")
+    parser.add_argument("--suite", choices=["smoke", "standard", "full", "stress"], default="standard")
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--work-dir", type=Path, default=Path("perf-work"))
     parser.add_argument("--output-dir", type=Path, default=Path("perf-results"))
     parser.add_argument("--versions", default="official,project-prebaseline,project-current")
+    parser.add_argument(
+        "--keep-generated-outputs",
+        action="store_true",
+        help="Keep generated cube/text outputs in per-case run directories. By default only statistics are kept.",
+    )
     args = parser.parse_args()
 
     if args.repeats < 1:
@@ -76,7 +81,7 @@ def main() -> int:
         signatures[case.name] = {}
         for runner in runners:
             for repeat in range(1, args.repeats + 1):
-                result = run_case(runner, examples_dir, case, repeat, args.output_dir)
+                result = run_case(runner, examples_dir, case, repeat, args.output_dir, args.keep_generated_outputs)
                 results.append(result)
                 if repeat == 1:
                     signatures[case.name][runner.name] = {
@@ -221,14 +226,19 @@ def build_cases(suite: str, system: str) -> list[Case]:
         cube_n = 40
         threads = [1, 2]
     elif suite == "full":
-        density_grid = "96,96,96"
-        elf_grid = "86,86,86"
-        cube_n = 120
+        density_grid = "220,220,220"
+        elf_grid = "220,220,220"
+        cube_n = 160
         threads = [1, 4]
+    elif suite == "stress":
+        density_grid = "260,260,260"
+        elf_grid = "300,300,300"
+        cube_n = 180
+        threads = [4]
     else:
-        density_grid = "72,72,72"
-        elf_grid = "66,66,66"
-        cube_n = 96
+        density_grid = "160,160,160"
+        elf_grid = "180,180,180"
+        cube_n = 128
         threads = [1, 4]
 
     cases: list[Case] = [
@@ -272,6 +282,20 @@ def build_cases(suite: str, system: str) -> list[Case]:
             )
         )
 
+    if suite == "stress":
+        cases.append(
+            Case(
+                "large_system_elf_grid_4t",
+                "excit/D-pi-A.fchk",
+                ["5", "9", "4", "120,120,120", "2", "0", "q"],
+                "ELF.cub",
+                "large-system-parallel-grid",
+                4,
+            )
+        )
+        stress_cases = {"matrix_mayer_bond_order", "elf_grid_4t", "large_system_elf_grid_4t"}
+        return [case for case in cases if case.name in stress_cases]
+
     if suite != "smoke":
         cases.append(
             Case(
@@ -286,7 +310,14 @@ def build_cases(suite: str, system: str) -> list[Case]:
     return cases
 
 
-def run_case(runner: Runner, examples_dir: Path, case: Case, repeat: int, output_dir: Path) -> dict[str, object]:
+def run_case(
+    runner: Runner,
+    examples_dir: Path,
+    case: Case,
+    repeat: int,
+    output_dir: Path,
+    keep_generated_outputs: bool,
+) -> dict[str, object]:
     case_dir = output_dir / "runs" / runner.name / case.name / f"repeat-{repeat}"
     case_dir.mkdir(parents=True, exist_ok=True)
 
@@ -335,6 +366,8 @@ def run_case(runner: Runner, examples_dir: Path, case: Case, repeat: int, output
         if not output_path.exists():
             raise RuntimeError(f"{runner.name}/{case.name} did not produce {case.output_file}")
         output_stats = cube_stats(output_path)
+        if not keep_generated_outputs:
+            output_path.unlink()
 
     numeric_digest = numeric_output_digest(proc.stdout)
     success = required_markers_present(case, proc.stdout)
@@ -368,6 +401,7 @@ def prepare_input(input_name: str, examples_dir: Path, case_dir: Path) -> Path:
     if not src.exists():
         raise FileNotFoundError(f"Missing official example input: {src}")
     dst = case_dir / input_name
+    dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
     return dst
 

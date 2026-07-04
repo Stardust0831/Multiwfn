@@ -1,82 +1,90 @@
 # Upstream Tracking
 
-This fork tracks official Multiwfn source releases without letting automation
-rewrite `main`. The automated part is discovery only: it checks the official
-Multiwfn pages for Linux source archives named
-`Multiwfn_YYYY.M.D_src_Linux.zip`, compares the newest archive with the version
-currently imported in `Multiwfn.f90`, and publishes a workflow summary and
-artifact. A maintainer performs the import, patch replay, review, and merge.
+This fork keeps official Multiwfn source updates away from `main` until a
+maintainer reviews them. The daily updater writes to a dedicated branch,
+currently `upstream-tracking`, and then dispatches the normal build workflow on
+that branch. A maintainer can inspect the branch and manually merge or cherry
+pick into `main`.
 
-## Automation Scope
+## Workflows
 
-- Workflow: `.github/workflows/check-upstream.yml`
-- Checker: `tools/upstream/check_multiwfn_release.py`
-- Default upstream pages:
-  - `http://sobereva.com/multiwfn/`
-  - `http://sobereva.com/multiwfn/download.html`
-  - `http://sobereva.com/multiwfn/misc/`
-- Current version source: the `Version YYYY.M.D` string in `Multiwfn.f90`
-- Output: GitHub step summary, `multiwfn-upstream-check` artifact, and, when
-  explicitly enabled, an `upstream` issue for a newer source archive
+- `.github/workflows/track-upstream-source.yml`
+  - scheduled daily and also manually runnable;
+  - checks the official Multiwfn pages for Linux source archives named
+    `Multiwfn_YYYY.M.D_src_Linux.zip`;
+  - creates or updates `upstream-tracking`;
+  - imports the official source archive into that branch;
+  - commits `.multiwfn-upstream-manifest.json` with the archive URL, filename,
+    SHA256, and imported file list;
+  - dispatches `build.yml` on `upstream-tracking` after a successful import
+    commit.
+- `.github/workflows/check-upstream.yml`
+  - manual diagnostic workflow only;
+  - reports whether a newer official archive exists;
+  - can optionally open or update an `upstream` issue.
 
-The workflow has `contents: read` permission and does not commit, tag, push, or
-open an automatic merge path into `main`.
-
-Issue creation is opt-in. For a manual run, set `create_issue` to `true`. For
-scheduled runs, set the repository variable `MULTIWFN_UPSTREAM_CREATE_ISSUE` to
-`true`; otherwise the schedule only records the check summary and artifact.
+The updater uses `GITHUB_TOKEN`. GitHub does not normally run `push` workflows
+from commits made by that token, so the updater explicitly starts `build.yml`
+with `workflow_dispatch` after it pushes the tracking branch.
 
 ## Branch Policy
 
-Use a dedicated branch such as `upstream-tracking` or a prerelease branch such
-as `prerelease/YYYY.M.D`. The normal route is:
+`main` is for reviewed project work. `upstream-tracking` is for following the
+official source stream and proving whether the current build/test infrastructure
+still works against it.
 
-1. Let the scheduled workflow or a manual `workflow_dispatch` run detect a new
-   official source archive.
-2. Create or update the dedicated tracking branch from the current fork state.
-3. Import the official source snapshot in one commit.
-4. Replay local changes as modular patch commits.
-5. Run build and functional checks.
-6. Open a PR from the tracking branch for human review.
-7. Merge only after the official license, source provenance, and local patch
-   boundaries are clear.
+The normal route is:
 
-Never configure this workflow to push directly to `main`. If future automation
-is added to download or unpack archives, it should target only the dedicated
-tracking branch and should stop at opening a PR.
+1. `track-upstream-source` detects a newer official source archive.
+2. The workflow imports it into `upstream-tracking` and commits the snapshot.
+3. The workflow dispatches `build.yml` on `upstream-tracking`.
+4. A maintainer reviews the branch, build result, license/provenance notes, and
+   any required local patch updates.
+5. A maintainer opens or merges a PR into `main` manually.
 
-## Source Snapshot Import Rules
+Do not configure the updater to push directly to `main`. Release automation
+from the tracking branch should remain prerelease/manual until the source import
+and local patch boundaries have been reviewed.
 
-- Preserve the official `LICENSE.txt` and any license text shipped in the source
-  archive.
-- Keep an audit trail of the official archive URL, filename, download time, and
-  SHA256 hash in the import commit message or PR description.
-- Make the first import commit as close to the official archive contents as this
-  repository layout allows.
-- Do not mix fork-specific CMake, CI, noGUI, packaging, or documentation changes
-  into the raw import commit.
-- If a file is intentionally omitted from the official archive import, document
-  the reason in the PR.
+## Import Behavior
 
-## Modular Patch Strategy
+The importer is `tools/upstream/import_multiwfn_source.py`. It downloads the
+official Linux source zip, verifies the archive shape, imports files from the
+single top-level archive directory into the repository root, and writes a
+manifest:
 
-After the raw import commit, replay fork changes as small topic commits. Keep
-the boundaries understandable:
+```text
+.multiwfn-upstream-manifest.json
+```
 
-- build system and compiler compatibility
-- noGUI stubs and release packaging
-- functional tests and test fixtures
-- GitHub Actions changes
-- documentation
-- platform-specific runtime packaging
+On later imports, files recorded in the previous manifest but absent from the
+new archive are removed. Files that are not official source files, such as
+GitHub workflows, CMake files, tests, tools, and docs, are left in place.
 
-This patch shape makes it possible to compare official behavior with local
-behavior, bisect regressions, and drop or rewrite one local patch without
-disturbing the imported upstream snapshot.
+This means `upstream-tracking` is not a pristine mirror branch. It is an
+integration branch containing:
 
-## Manual Check
+- official Multiwfn source files from the latest detected archive;
+- this fork's build, packaging, CI, tests, and updater tools.
 
-Run the checker locally from the repository root:
+That shape is intentional: GitHub can build and test the imported source on the
+tracking branch before anything reaches `main`.
+
+## Source Snapshot Rules
+
+- Preserve the official `LICENSE.txt` and any license text shipped in the
+  source archive.
+- Keep the official archive URL, filename, SHA256 hash, and imported file list
+  in `.multiwfn-upstream-manifest.json`.
+- Keep local build/CI/packaging changes modular so they can be reviewed apart
+  from the official source import.
+- If the official source layout changes enough that CMake source lists or noGUI
+  stubs need adjustment, let the tracking branch build fail first, then fix it
+  in a separate reviewed commit or PR.
+
+## Manual Runs
+
+Run the diagnostic checker locally from the repository root:
 
 ```sh
 python3 tools/upstream/check_multiwfn_release.py \
@@ -84,21 +92,10 @@ python3 tools/upstream/check_multiwfn_release.py \
   --summary-out /tmp/multiwfn-upstream.md
 ```
 
-Use `--url` to add another official index page if the source archive is moved.
-Use `--current-version YYYY.M.D` to compare against a version that is not yet
-reflected in `Multiwfn.f90`.
+Run an import locally only in a disposable branch or worktree:
 
-## PR or Issue Summary
-
-When a newer archive is found, the PR or tracking issue should include:
-
-- official archive filename and URL
-- SHA256 hash of the downloaded archive
-- current imported version and target upstream version
-- a short list of imported, omitted, or renamed files
-- local patch commits replayed after the snapshot import
-- validation commands and results
-- any license or redistribution notes
-
-The release path remains prerelease/manual until the tracking PR has been
-reviewed and merged by a maintainer.
+```sh
+python3 tools/upstream/import_multiwfn_source.py \
+  --archive-url http://sobereva.com/multiwfn/misc/Multiwfn_2026.7.3_src_Linux.zip \
+  --summary-out /tmp/multiwfn-import.md
+```

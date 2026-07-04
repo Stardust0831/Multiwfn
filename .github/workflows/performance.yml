@@ -12,6 +12,7 @@ on:
           - smoke
           - standard
           - full
+          - stress
       repeats:
         description: Repetitions per case
         required: true
@@ -20,6 +21,11 @@ on:
         description: Comma-separated versions to compare
         required: true
         default: official,project-prebaseline,project-current
+      keep_generated_outputs:
+        description: Keep generated cube/text outputs in the artifact.
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -53,12 +59,17 @@ jobs:
           if ! command -v "$py" >/dev/null 2>&1; then
             py=python
           fi
+          args=()
+          if [ "${{ inputs.keep_generated_outputs }}" = "true" ]; then
+            args+=(--keep-generated-outputs)
+          fi
           "$py" tests/perf/benchmark_multiwfn.py \
             --suite "${{ inputs.suite }}" \
             --repeats "${{ inputs.repeats }}" \
             --versions "${{ inputs.versions }}" \
             --work-dir perf-work \
-            --output-dir perf-results
+            --output-dir perf-results \
+            "${args[@]}"
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4

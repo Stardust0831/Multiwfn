@@ -1,8 +1,6 @@
 name: check-upstream
 
 on:
-  schedule:
-    - cron: '23 3 * * *'
   workflow_dispatch:
     inputs:
       create_issue:

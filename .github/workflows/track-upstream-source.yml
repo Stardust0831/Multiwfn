@@ -1,0 +1,125 @@
+name: track-upstream-source
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch maintained with imported official upstream source.
+        required: true
+        default: upstream-tracking
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: track-upstream-source
+  cancel-in-progress: false
+
+jobs:
+  update-branch:
+    name: Update upstream tracking branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Stage updater tools
+        id: tools
+        run: |
+          set -euo pipefail
+          tools_dir="$RUNNER_TEMP/multiwfn-upstream-tools"
+          results_dir="$RUNNER_TEMP/multiwfn-upstream-check"
+          mkdir -p "$tools_dir" "$results_dir"
+          cp tools/upstream/check_multiwfn_release.py "$tools_dir/"
+          cp tools/upstream/import_multiwfn_source.py "$tools_dir/"
+          echo "tools_dir=$tools_dir" >> "$GITHUB_OUTPUT"
+          echo "results_dir=$results_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Select target branch
+        id: branch
+        run: |
+          set -euo pipefail
+          branch="${{ inputs.target_branch || 'upstream-tracking' }}"
+          echo "target=$branch" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git switch "$branch"
+            git pull --ff-only origin "$branch"
+          else
+            git switch -c "$branch"
+          fi
+
+      - name: Check official source archive
+        id: upstream
+        run: |
+          set -euo pipefail
+          results_dir="${{ steps.tools.outputs.results_dir }}"
+          python3 "${{ steps.tools.outputs.tools_dir }}/check_multiwfn_release.py" \
+            --json-out "$results_dir/result.json" \
+            --summary-out "$results_dir/check-summary.md"
+          cat "$results_dir/check-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path(os.environ["RESULTS_DIR"], "result.json").read_text())
+          latest = result.get("latest") or {}
+          print(f"newer_available={str(result['newer_available']).lower()}")
+          print(f"current_version={result['current_version']}")
+          print(f"latest_version={latest.get('version', '')}")
+          print(f"latest_name={latest.get('name', '')}")
+          print(f"latest_url={latest.get('url', '')}")
+          PY
+        env:
+          RESULTS_DIR: ${{ steps.tools.outputs.results_dir }}
+
+      - name: Import official source archive
+        if: steps.upstream.outputs.newer_available == 'true'
+        run: |
+          set -euo pipefail
+          python3 "${{ steps.tools.outputs.tools_dir }}/import_multiwfn_source.py" \
+            --archive-url "${{ steps.upstream.outputs.latest_url }}" \
+            --summary-out "${{ steps.tools.outputs.results_dir }}/import-summary.md"
+          cat "${{ steps.tools.outputs.results_dir }}/import-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit imported source
+        id: commit
+        if: steps.upstream.outputs.newer_available == 'true'
+        run: |
+          set -euo pipefail
+          git add .
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "Import official Multiwfn ${{ steps.upstream.outputs.latest_version }} source"
+          git push origin "HEAD:${{ steps.branch.outputs.target }}"
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch build workflow on tracking branch
+        if: steps.commit.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run build.yml --ref "${{ steps.branch.outputs.target }}"
+
+      - name: Upload tracking result
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiwfn-upstream-tracking
+          path: ${{ steps.tools.outputs.results_dir }}/
+          if-no-files-found: error
