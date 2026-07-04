@@ -338,6 +338,9 @@ jobs:
           Notes:
           - These are noGUI binaries; DISLIN/Motif GUI support is intentionally outside this release.
           - Fractional-derivative support is disabled in the default CI build.
+
+          Acknowledgements:
+          - Thanks to @bane-dysta for contributing the Windows executable icon in PR #2.
           EOF
 
       - name: Verify license packaging
