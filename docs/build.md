@@ -47,12 +47,12 @@ candidate directory beside `Multiwfn_noGUI.exe`. This preserves OpenMP instead
 of disabling it merely to avoid DLLs. The release zip is then extracted and
 tested outside the MSYS2 shell with MSYS2 paths removed from `PATH`.
 
-On Linux, the release candidate package is assembled before artifact upload.
-The workflow copies non-glibc libraries reported by `ldd` into a package-local
-`lib/` directory and sets the executable rpath to `$ORIGIN/lib` with
-`patchelf`. The tarball is then extracted and tested inside a clean
-`ubuntu:24.04` container, which catches missing BLAS/LAPACK or Fortran runtime
-dependencies that would be hidden on the development runner.
+On Linux, the release candidate package is built inside a Rocky Linux 8
+container to keep the glibc baseline at 2.28. The workflow copies non-glibc
+libraries reported by `ldd` into a package-local `lib/` directory and builds the
+executable with an `$ORIGIN/lib` rpath. It rejects Linux release candidates that
+reference GLIBC symbols newer than 2.28, then extracts and tests the tarball in
+a clean Rocky Linux 8 container without installing BLAS/LAPACK.
 
 ## 2026.6.2 noGUI Port Notes
 
