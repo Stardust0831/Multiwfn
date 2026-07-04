@@ -1,0 +1,806 @@
+Unable to find image 'rockylinux:8' locally
+8: Pulling from library/rockylinux
+9088cdb84e39: Pulling fs layer
+9088cdb84e39: Verifying Checksum
+9088cdb84e39: Download complete
+9088cdb84e39: Pull complete
+Digest: sha256:9794037624aaa6212aeada1d28861ef5e0a935adaf93e4ef79837119f2a2d04c
+Status: Downloaded newer image for rockylinux:8
+## System
+NAME="Rocky Linux"
+VERSION="8.9 (Green Obsidian)"
+ID="rocky"
+ID_LIKE="rhel centos fedora"
+VERSION_ID="8.9"
+PLATFORM_ID="platform:el8"
+PRETTY_NAME="Rocky Linux 8.9 (Green Obsidian)"
+ANSI_COLOR="0;32"
+LOGO="fedora-logo-icon"
+CPE_NAME="cpe:/o:rocky:rocky:8:GA"
+HOME_URL="https://rockylinux.org/"
+BUG_REPORT_URL="https://bugs.rockylinux.org/"
+SUPPORT_END="2029-05-31"
+ROCKY_SUPPORT_PRODUCT="Rocky-Linux-8"
+ROCKY_SUPPORT_PRODUCT_VERSION="8.9"
+REDHAT_SUPPORT_PRODUCT="Rocky Linux"
+REDHAT_SUPPORT_PRODUCT_VERSION="8.9"
+
+## Setup
+dnf -y install dnf-plugins-core && if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi && dnf -y install epel-release && dnf -y install gcc-toolset-12-gcc gcc-toolset-12-gcc-gfortran gcc-toolset-12-gcc-c++ make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
+Rocky Linux 8 - AppStream                        36 MB/s |  30 MB     00:00    
+Rocky Linux 8 - BaseOS                           59 MB/s |  64 MB     00:01    
+Rocky Linux 8 - Extras                           74 kB/s |  15 kB     00:00    
+Dependencies resolved.
+================================================================================
+ Package                       Arch        Version            Repository   Size
+================================================================================
+Installing:
+ dnf-plugins-core              noarch      4.0.21-25.el8      baseos       76 k
+Installing dependencies:
+ dbus-glib                     x86_64      0.110-2.el8        baseos      126 k
+ python3-dateutil              noarch      1:2.6.1-6.el8      baseos      250 k
+ python3-dbus                  x86_64      1.2.4-15.el8       baseos      133 k
+ python3-dnf-plugins-core      noarch      4.0.21-25.el8      baseos      262 k
+ python3-six                   noarch      1.11.0-8.el8       baseos       37 k
+ python3-systemd               x86_64      234-8.el8          baseos       80 k
+
+Transaction Summary
+================================================================================
+Install  7 Packages
+
+Total download size: 963 k
+Installed size: 2.6 M
+Downloading Packages:
+(1/7): dnf-plugins-core-4.0.21-25.el8.noarch.rp 193 kB/s |  76 kB     00:00    
+(2/7): dbus-glib-0.110-2.el8.x86_64.rpm         297 kB/s | 126 kB     00:00    
+(3/7): python3-dateutil-2.6.1-6.el8.noarch.rpm  528 kB/s | 250 kB     00:00    
+(4/7): python3-six-1.11.0-8.el8.noarch.rpm      559 kB/s |  37 kB     00:00    
+(5/7): python3-dbus-1.2.4-15.el8.x86_64.rpm     866 kB/s | 133 kB     00:00    
+(6/7): python3-systemd-234-8.el8.x86_64.rpm     1.0 MB/s |  80 kB     00:00    
+(7/7): python3-dnf-plugins-core-4.0.21-25.el8.n 1.3 MB/s | 262 kB     00:00    
+--------------------------------------------------------------------------------
+Total                                           1.4 MB/s | 963 kB     00:00     
+Rocky Linux 8 - BaseOS                          1.6 MB/s | 1.6 kB     00:00    
+Importing GPG key 0x6D745A60:
+ Userid     : "Release Engineering <infrastructure@rockylinux.org>"
+ Fingerprint: 7051 C470 A929 F454 CEBE 37B7 15AF 5DAC 6D74 5A60
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-rockyofficial
+Key imported successfully
+Running transaction check
+Transaction check succeeded.
+Running transaction test
+Transaction test succeeded.
+Running transaction
+  Preparing        :                                                        1/1 
+  Installing       : python3-systemd-234-8.el8.x86_64                       1/7 
+  Installing       : python3-six-1.11.0-8.el8.noarch                        2/7 
+  Installing       : python3-dateutil-1:2.6.1-6.el8.noarch                  3/7 
+  Installing       : dbus-glib-0.110-2.el8.x86_64                           4/7 
+  Running scriptlet: dbus-glib-0.110-2.el8.x86_64                           4/7 
+  Installing       : python3-dbus-1.2.4-15.el8.x86_64                       5/7 
+  Installing       : python3-dnf-plugins-core-4.0.21-25.el8.noarch          6/7 
+  Installing       : dnf-plugins-core-4.0.21-25.el8.noarch                  7/7 
+  Running scriptlet: dnf-plugins-core-4.0.21-25.el8.noarch                  7/7 
+  Verifying        : dbus-glib-0.110-2.el8.x86_64                           1/7 
+  Verifying        : dnf-plugins-core-4.0.21-25.el8.noarch                  2/7 
+  Verifying        : python3-dateutil-1:2.6.1-6.el8.noarch                  3/7 
+  Verifying        : python3-dbus-1.2.4-15.el8.x86_64                       4/7 
+  Verifying        : python3-dnf-plugins-core-4.0.21-25.el8.noarch          5/7 
+  Verifying        : python3-six-1.11.0-8.el8.noarch                        6/7 
+  Verifying        : python3-systemd-234-8.el8.x86_64                       7/7 
+
+Installed:
+  dbus-glib-0.110-2.el8.x86_64                                                  
+  dnf-plugins-core-4.0.21-25.el8.noarch                                         
+  python3-dateutil-1:2.6.1-6.el8.noarch                                         
+  python3-dbus-1.2.4-15.el8.x86_64                                              
+  python3-dnf-plugins-core-4.0.21-25.el8.noarch                                 
+  python3-six-1.11.0-8.el8.noarch                                               
+  python3-systemd-234-8.el8.x86_64                                              
+
+Complete!
+Rocky Linux 8 - PowerTools                      5.4 MB/s | 5.7 MB     00:01    
+Last metadata expiration check: 0:00:02 ago on Sat Jul  4 11:20:57 2026.
+Dependencies resolved.
+================================================================================
+ Package               Architecture    Version            Repository       Size
+================================================================================
+Installing:
+ epel-release          noarch          8-22.el8           extras           25 k
+
+Transaction Summary
+================================================================================
+Install  1 Package
+
+Total download size: 25 k
+Installed size: 34 k
+Downloading Packages:
+epel-release-8-22.el8.noarch.rpm                109 kB/s |  25 kB     00:00    
+--------------------------------------------------------------------------------
+Total                                            88 kB/s |  25 kB     00:00     
+Running transaction check
+Transaction check succeeded.
+Running transaction test
+Transaction test succeeded.
+Running transaction
+  Preparing        :                                                        1/1 
+  Installing       : epel-release-8-22.el8.noarch                           1/1 
+  Running scriptlet: epel-release-8-22.el8.noarch                           1/1 
+Many EPEL packages require the CodeReady Builder (CRB) repository.
+It is recommended that you run /usr/bin/crb enable to enable the CRB repository.
+
+  Verifying        : epel-release-8-22.el8.noarch                           1/1 
+
+Installed:
+  epel-release-8-22.el8.noarch                                                  
+
+Complete!
+Extra Packages for Enterprise Linux 8 - x86_64   15 MB/s |  14 MB     00:00    
+Last metadata expiration check: 0:00:04 ago on Sat Jul  4 11:21:02 2026.
+Package binutils-2.30-123.el8.x86_64 is already installed.
+Package tar-2:1.30-9.el8.x86_64 is already installed.
+Package gzip-1.9-13.el8_5.x86_64 is already installed.
+Package curl-7.61.1-33.el8.x86_64 is already installed.
+Dependencies resolved.
+====================================================================================================
+ Package                            Arch    Version                                Repository   Size
+====================================================================================================
+Installing:
+ blas-devel                         x86_64  3.8.0-9.el8_10                         powertools   25 k
+ cmake                              x86_64  3.26.5-2.el8                           appstream    14 M
+ findutils                          x86_64  1:4.6.0-24.el8_10                      baseos      526 k
+ gcc-toolset-12-gcc                 x86_64  12.2.1-7.8.el8_10                      appstream    44 M
+ gcc-toolset-12-gcc-c++             x86_64  12.2.1-7.8.el8_10                      appstream    13 M
+ gcc-toolset-12-gcc-gfortran        x86_64  12.2.1-7.8.el8_10                      appstream    14 M
+ lapack-devel                       x86_64  3.8.0-9.el8_10                         powertools   88 k
+ make                               x86_64  1:4.2.1-11.el8                         baseos      497 k
+ python36                           x86_64  3.6.8-39.module+el8.10.0+1910+234ad790 appstream    18 k
+ unzip                              x86_64  6.0-48.el8_10                          baseos      195 k
+Upgrading:
+ audit-libs                         x86_64  3.1.2-1.el8_10.1                       baseos      124 k
+ binutils                           x86_64  2.30-128.el8_10                        baseos      5.8 M
+ curl                               x86_64  7.61.1-34.el8_10.11                    baseos      354 k
+ elfutils-libelf                    x86_64  0.190-2.el8                            baseos      232 k
+ elfutils-libs                      x86_64  0.190-2.el8                            baseos      304 k
+ glibc                              x86_64  2.28-251.el8_10.37                     baseos      2.2 M
+ glibc-common                       x86_64  2.28-251.el8_10.37                     baseos      1.0 M
+ glibc-minimal-langpack             x86_64  2.28-251.el8_10.37                     baseos       73 k
+ libcurl-minimal                    x86_64  7.61.1-34.el8_10.11                    baseos      293 k
+ libgcc                             x86_64  8.5.0-28.el8_10                        baseos       81 k
+ tar                                x86_64  2:1.30-11.el8_10                       baseos      838 k
+Installing dependencies:
+ blas                               x86_64  3.8.0-9.el8_10                         appstream   426 k
+ checkpolicy                        x86_64  2.9-1.el8                              baseos      345 k
+ cmake-data                         noarch  3.26.5-2.el8                           appstream   1.9 M
+ cmake-filesystem                   x86_64  3.26.5-2.el8                           appstream    44 k
+ cmake-rpm-macros                   noarch  3.26.5-2.el8                           appstream    43 k
+ cpp                                x86_64  8.5.0-28.el8_10                        appstream    10 M
+ diffutils                          x86_64  3.6-6.el8                              baseos      358 k
+ elfutils-debuginfod-client         x86_64  0.190-2.el8                            baseos       76 k
+ emacs-filesystem                   noarch  1:26.1-15.el8_10                       baseos       70 k
+ environment-modules                x86_64  4.5.2-4.el8                            baseos      421 k
+ gcc                                x86_64  8.5.0-28.el8_10                        appstream    23 M
+ gcc-gfortran                       x86_64  8.5.0-28.el8_10                        appstream    12 M
+ gcc-toolset-12-binutils            x86_64  2.38-17.el8                            appstream   6.5 M
+ gcc-toolset-12-binutils-gold       x86_64  2.38-17.el8                            appstream   871 k
+ gcc-toolset-12-libquadmath-devel   x86_64  12.2.1-7.8.el8_10                      appstream   184 k
+ gcc-toolset-12-libstdc++-devel     x86_64  12.2.1-7.8.el8_10                      appstream   3.4 M
+ gcc-toolset-12-runtime             x86_64  12.0-6.el8                             appstream    27 k
+ glibc-devel                        x86_64  2.28-251.el8_10.37                     baseos       91 k
+ glibc-headers                      x86_64  2.28-251.el8_10.37                     baseos      496 k
+ groff-base                         x86_64  1.22.3-18.el8                          baseos      1.0 M
+ isl                                x86_64  0.16.1-6.el8                           appstream   834 k
+ kernel-headers                     x86_64  4.18.0-553.137.1.el8_10                baseos       12 M
+ lapack                             x86_64  3.8.0-9.el8_10                         appstream   8.6 M
+ libgfortran                        x86_64  8.5.0-28.el8_10                        baseos      645 k
+ libgomp                            x86_64  8.5.0-28.el8_10                        baseos      208 k
+ libmpc                             x86_64  1.1.0-9.1.el8                          appstream    60 k
+ libpipeline                        x86_64  1.5.0-2.el8                            baseos       53 k
+ libpkgconf                         x86_64  1.4.2-1.el8                            baseos       34 k
+ libquadmath                        x86_64  8.5.0-28.el8_10                        baseos      172 k
+ libquadmath-devel                  x86_64  8.5.0-28.el8_10                        appstream    26 k
+ libselinux-utils                   x86_64  2.9-8.el8                              baseos      242 k
+ libuv                              x86_64  1:1.41.1-2.el8_10                      appstream   155 k
+ libxcrypt-devel                    x86_64  4.1.1-6.el8                            baseos       24 k
+ man-db                             x86_64  2.7.6.1-18.el8                         baseos      886 k
+ pkgconf                            x86_64  1.4.2-1.el8                            baseos       37 k
+ pkgconf-m4                         noarch  1.4.2-1.el8                            baseos       16 k
+ pkgconf-pkg-config                 x86_64  1.4.2-1.el8                            baseos       14 k
+ platform-python-pip                noarch  9.0.3-24.el8.rocky.0                   baseos      1.6 M
+ policycoreutils                    x86_64  2.9-26.el8_10                          baseos      376 k
+ policycoreutils-python-utils       noarch  2.9-26.el8_10                          baseos      253 k
+ procps-ng                          x86_64  3.3.15-14.el8                          baseos      329 k
+ python3-audit                      x86_64  3.1.2-1.el8_10.1                       baseos       87 k
+ python3-libselinux                 x86_64  2.9-8.el8                              baseos      282 k
+ python3-libsemanage                x86_64  2.9-9.el8_6                            baseos      127 k
+ python3-pip                        noarch  9.0.3-24.el8.rocky.0                   appstream    20 k
+ python3-policycoreutils            noarch  2.9-26.el8_10                          baseos      2.3 M
+ python3-setools                    x86_64  4.3.0-5.el8                            baseos      626 k
+ python3-setuptools                 noarch  39.2.0-7.el8                           baseos      162 k
+ scl-utils                          x86_64  1:2.0.2-16.el8                         appstream    46 k
+ tcl                                x86_64  1:8.6.8-2.el8                          baseos      1.1 M
+ vim-filesystem                     noarch  2:8.0.1763-24.el8_10                   appstream    51 k
+Installing weak dependencies:
+ glibc-gconv-extra                  x86_64  2.28-251.el8_10.37                     baseos      1.6 M
+ glibc-langpack-en                  x86_64  2.28-251.el8_10.37                     baseos      834 k
+Enabling module streams:
+ python36                                   3.6                                                     
+
+Transaction Summary
+====================================================================================================
+Install  63 Packages
+Upgrade  11 Packages
+
+Total download size: 193 M
+Downloading Packages:
+(1/74): blas-3.8.0-9.el8_10.x86_64.rpm          1.3 MB/s | 426 kB     00:00    
+(2/74): cmake-filesystem-3.26.5-2.el8.x86_64.rp 1.2 MB/s |  44 kB     00:00    
+(3/74): cmake-rpm-macros-3.26.5-2.el8.noarch.rp 1.2 MB/s |  43 kB     00:00    
+(4/74): cmake-data-3.26.5-2.el8.noarch.rpm      4.0 MB/s | 1.9 MB     00:00    
+(5/74): cmake-3.26.5-2.el8.x86_64.rpm            16 MB/s |  14 MB     00:00    
+(6/74): cpp-8.5.0-28.el8_10.x86_64.rpm           17 MB/s |  10 MB     00:00    
+(7/74): gcc-gfortran-8.5.0-28.el8_10.x86_64.rpm  30 MB/s |  12 MB     00:00    
+(8/74): gcc-8.5.0-28.el8_10.x86_64.rpm           29 MB/s |  23 MB     00:00    
+(9/74): gcc-toolset-12-binutils-gold-2.38-17.el  13 MB/s | 871 kB     00:00    
+(10/74): gcc-toolset-12-binutils-2.38-17.el8.x8  21 MB/s | 6.5 MB     00:00    
+(11/74): gcc-toolset-12-gcc-c++-12.2.1-7.8.el8_  19 MB/s |  13 MB     00:00    
+(12/74): gcc-toolset-12-libquadmath-devel-12.2. 4.2 MB/s | 184 kB     00:00    
+(13/74): gcc-toolset-12-gcc-gfortran-12.2.1-7.8  16 MB/s |  14 MB     00:00    
+(14/74): gcc-toolset-12-libstdc++-devel-12.2.1-  19 MB/s | 3.4 MB     00:00    
+(15/74): gcc-toolset-12-runtime-12.0-6.el8.x86_ 757 kB/s |  27 kB     00:00    
+(16/74): isl-0.16.1-6.el8.x86_64.rpm             13 MB/s | 834 kB     00:00    
+(17/74): libmpc-1.1.0-9.1.el8.x86_64.rpm        1.5 MB/s |  60 kB     00:00    
+(18/74): libquadmath-devel-8.5.0-28.el8_10.x86_ 703 kB/s |  26 kB     00:00    
+(19/74): libuv-1.41.1-2.el8_10.x86_64.rpm       3.5 MB/s | 155 kB     00:00    
+(20/74): python3-pip-9.0.3-24.el8.rocky.0.noarc 541 kB/s |  20 kB     00:00    
+(21/74): python36-3.6.8-39.module+el8.10.0+1910 510 kB/s |  18 kB     00:00    
+(22/74): scl-utils-2.0.2-16.el8.x86_64.rpm      1.2 MB/s |  46 kB     00:00    
+(23/74): vim-filesystem-8.0.1763-24.el8_10.noar 1.3 MB/s |  51 kB     00:00    
+(24/74): lapack-3.8.0-9.el8_10.x86_64.rpm        18 MB/s | 8.6 MB     00:00    
+(25/74): checkpolicy-2.9-1.el8.x86_64.rpm       1.2 MB/s | 345 kB     00:00    
+(26/74): elfutils-debuginfod-client-0.190-2.el8 1.5 MB/s |  76 kB     00:00    
+(27/74): emacs-filesystem-26.1-15.el8_10.noarch 1.8 MB/s |  70 kB     00:00    
+(28/74): diffutils-3.6-6.el8.x86_64.rpm         1.4 MB/s | 358 kB     00:00    
+(29/74): environment-modules-4.5.2-4.el8.x86_64 4.9 MB/s | 421 kB     00:00    
+(30/74): glibc-devel-2.28-251.el8_10.37.x86_64. 2.5 MB/s |  91 kB     00:00    
+(31/74): findutils-4.6.0-24.el8_10.x86_64.rpm   5.3 MB/s | 526 kB     00:00    
+(32/74): glibc-headers-2.28-251.el8_10.37.x86_6 7.4 MB/s | 496 kB     00:00    
+(33/74): gcc-toolset-12-gcc-12.2.1-7.8.el8_10.x  23 MB/s |  44 MB     00:01    
+(34/74): glibc-gconv-extra-2.28-251.el8_10.37.x 8.9 MB/s | 1.6 MB     00:00    
+(35/74): glibc-langpack-en-2.28-251.el8_10.37.x 7.9 MB/s | 834 kB     00:00    
+(36/74): libgfortran-8.5.0-28.el8_10.x86_64.rpm  12 MB/s | 645 kB     00:00    
+(37/74): libgomp-8.5.0-28.el8_10.x86_64.rpm     6.0 MB/s | 208 kB     00:00    
+(38/74): libpipeline-1.5.0-2.el8.x86_64.rpm     1.1 MB/s |  53 kB     00:00    
+(39/74): libpkgconf-1.4.2-1.el8.x86_64.rpm      1.0 MB/s |  34 kB     00:00    
+(40/74): kernel-headers-4.18.0-553.137.1.el8_10  56 MB/s |  12 MB     00:00    
+(41/74): libquadmath-8.5.0-28.el8_10.x86_64.rpm 3.5 MB/s | 172 kB     00:00    
+(42/74): libxcrypt-devel-4.1.1-6.el8.x86_64.rpm 770 kB/s |  24 kB     00:00    
+(43/74): libselinux-utils-2.9-8.el8.x86_64.rpm  4.9 MB/s | 242 kB     00:00    
+(44/74): make-4.2.1-11.el8.x86_64.rpm           8.5 MB/s | 497 kB     00:00    
+(45/74): groff-base-1.22.3-18.el8.x86_64.rpm    3.1 MB/s | 1.0 MB     00:00    
+(46/74): man-db-2.7.6.1-18.el8.x86_64.rpm        14 MB/s | 886 kB     00:00    
+(47/74): pkgconf-1.4.2-1.el8.x86_64.rpm         1.2 MB/s |  37 kB     00:00    
+(48/74): pkgconf-m4-1.4.2-1.el8.noarch.rpm      511 kB/s |  16 kB     00:00    
+(49/74): pkgconf-pkg-config-1.4.2-1.el8.x86_64. 452 kB/s |  14 kB     00:00    
+(50/74): policycoreutils-python-utils-2.9-26.el 5.1 MB/s | 253 kB     00:00    
+(51/74): policycoreutils-2.9-26.el8_10.x86_64.r 6.4 MB/s | 376 kB     00:00    
+(52/74): platform-python-pip-9.0.3-24.el8.rocky  18 MB/s | 1.6 MB     00:00    
+(53/74): python3-audit-3.1.2-1.el8_10.1.x86_64. 1.7 MB/s |  87 kB     00:00    
+(54/74): procps-ng-3.3.15-14.el8.x86_64.rpm     5.8 MB/s | 329 kB     00:00    
+(55/74): python3-libselinux-2.9-8.el8.x86_64.rp 4.6 MB/s | 282 kB     00:00    
+(56/74): python3-libsemanage-2.9-9.el8_6.x86_64 2.3 MB/s | 127 kB     00:00    
+(57/74): python3-setools-4.3.0-5.el8.x86_64.rpm  11 MB/s | 626 kB     00:00    
+(58/74): python3-policycoreutils-2.9-26.el8_10.  26 MB/s | 2.3 MB     00:00    
+(59/74): python3-setuptools-39.2.0-7.el8.noarch 2.9 MB/s | 162 kB     00:00    
+(60/74): unzip-6.0-48.el8_10.x86_64.rpm         3.9 MB/s | 195 kB     00:00    
+(61/74): tcl-8.6.8-2.el8.x86_64.rpm              16 MB/s | 1.1 MB     00:00    
+(62/74): audit-libs-3.1.2-1.el8_10.1.x86_64.rpm 2.1 MB/s | 124 kB     00:00    
+(63/74): binutils-2.30-128.el8_10.x86_64.rpm     53 MB/s | 5.8 MB     00:00    
+(64/74): curl-7.61.1-34.el8_10.11.x86_64.rpm    6.3 MB/s | 354 kB     00:00    
+(65/74): blas-devel-3.8.0-9.el8_10.x86_64.rpm    85 kB/s |  25 kB     00:00    
+(66/74): elfutils-libelf-0.190-2.el8.x86_64.rpm 4.3 MB/s | 232 kB     00:00    
+(67/74): elfutils-libs-0.190-2.el8.x86_64.rpm   6.0 MB/s | 304 kB     00:00    
+(68/74): glibc-2.28-251.el8_10.37.x86_64.rpm     47 MB/s | 2.2 MB     00:00    
+(69/74): lapack-devel-3.8.0-9.el8_10.x86_64.rpm 250 kB/s |  88 kB     00:00    
+(70/74): glibc-common-2.28-251.el8_10.37.x86_64  25 MB/s | 1.0 MB     00:00    
+(71/74): glibc-minimal-langpack-2.28-251.el8_10 1.4 MB/s |  73 kB     00:00    
+(72/74): libcurl-minimal-7.61.1-34.el8_10.11.x8 5.3 MB/s | 293 kB     00:00    
+(73/74): libgcc-8.5.0-28.el8_10.x86_64.rpm      1.6 MB/s |  81 kB     00:00    
+(74/74): tar-1.30-11.el8_10.x86_64.rpm           16 MB/s | 838 kB     00:00    
+--------------------------------------------------------------------------------
+Total                                            44 MB/s | 193 MB     00:04     
+Running transaction check
+Transaction check succeeded.
+Running transaction test
+Transaction test succeeded.
+Running transaction
+  Preparing        :                                                        1/1 
+  Upgrading        : libgcc-8.5.0-28.el8_10.x86_64                         1/85 
+  Running scriptlet: libgcc-8.5.0-28.el8_10.x86_64                         1/85 
+  Installing       : cmake-rpm-macros-3.26.5-2.el8.noarch                  2/85 
+  Installing       : cmake-filesystem-3.26.5-2.el8.x86_64                  3/85 
+  Installing       : glibc-langpack-en-2.28-251.el8_10.37.x86_64           4/85 
+  Upgrading        : glibc-common-2.28-251.el8_10.37.x86_64                5/85 
+  Running scriptlet: glibc-2.28-251.el8_10.37.x86_64                       6/85 
+  Upgrading        : glibc-2.28-251.el8_10.37.x86_64                       6/85 
+  Running scriptlet: glibc-2.28-251.el8_10.37.x86_64                       6/85 
+  Installing       : glibc-gconv-extra-2.28-251.el8_10.37.x86_64           7/85 
+  Running scriptlet: glibc-gconv-extra-2.28-251.el8_10.37.x86_64           7/85 
+  Installing       : libmpc-1.1.0-9.1.el8.x86_64                           8/85 
+  Installing       : libquadmath-8.5.0-28.el8_10.x86_64                    9/85 
+  Running scriptlet: libquadmath-8.5.0-28.el8_10.x86_64                    9/85 
+  Installing       : libgfortran-8.5.0-28.el8_10.x86_64                   10/85 
+  Running scriptlet: libgfortran-8.5.0-28.el8_10.x86_64                   10/85 
+  Installing       : python3-libselinux-2.9-8.el8.x86_64                  11/85 
+  Upgrading        : libcurl-minimal-7.61.1-34.el8_10.11.x86_64           12/85 
+  Installing       : blas-3.8.0-9.el8_10.x86_64                           13/85 
+  Running scriptlet: blas-3.8.0-9.el8_10.x86_64                           13/85 
+  Installing       : libgomp-8.5.0-28.el8_10.x86_64                       14/85 
+  Running scriptlet: libgomp-8.5.0-28.el8_10.x86_64                       14/85 
+  Installing       : make-1:4.2.1-11.el8.x86_64                           15/85 
+  Running scriptlet: make-1:4.2.1-11.el8.x86_64                           15/85 
+  Upgrading        : audit-libs-3.1.2-1.el8_10.1.x86_64                   16/85 
+  Upgrading        : elfutils-libelf-0.190-2.el8.x86_64                   17/85 
+  Upgrading        : elfutils-libs-0.190-2.el8.x86_64                     18/85 
+  Installing       : elfutils-debuginfod-client-0.190-2.el8.x86_64        19/85 
+  Installing       : python3-audit-3.1.2-1.el8_10.1.x86_64                20/85 
+  Installing       : lapack-3.8.0-9.el8_10.x86_64                         21/85 
+  Running scriptlet: lapack-3.8.0-9.el8_10.x86_64                         21/85 
+  Installing       : python3-libsemanage-2.9-9.el8_6.x86_64               22/85 
+  Installing       : python3-setools-4.3.0-5.el8.x86_64                   23/85 
+  Installing       : cpp-8.5.0-28.el8_10.x86_64                           24/85 
+  Running scriptlet: cpp-8.5.0-28.el8_10.x86_64                           24/85 
+  Installing       : isl-0.16.1-6.el8.x86_64                              25/85 
+  Running scriptlet: isl-0.16.1-6.el8.x86_64                              25/85 
+  Installing       : libuv-1:1.41.1-2.el8_10.x86_64                       26/85 
+  Installing       : checkpolicy-2.9-1.el8.x86_64                         27/85 
+  Installing       : diffutils-3.6-6.el8.x86_64                           28/85 
+  Running scriptlet: diffutils-3.6-6.el8.x86_64                           28/85 
+  Installing       : groff-base-1.22.3-18.el8.x86_64                      29/85 
+  Installing       : libpipeline-1.5.0-2.el8.x86_64                       30/85 
+  Running scriptlet: libpipeline-1.5.0-2.el8.x86_64                       30/85 
+  Running scriptlet: man-db-2.7.6.1-18.el8.x86_64                         31/85 
+  Installing       : man-db-2.7.6.1-18.el8.x86_64                         31/85 
+  Running scriptlet: man-db-2.7.6.1-18.el8.x86_64                         31/85 
+  Installing       : libpkgconf-1.4.2-1.el8.x86_64                        32/85 
+  Installing       : pkgconf-1.4.2-1.el8.x86_64                           33/85 
+  Installing       : libselinux-utils-2.9-8.el8.x86_64                    34/85 
+  Installing       : policycoreutils-2.9-26.el8_10.x86_64                 35/85 
+  Running scriptlet: policycoreutils-2.9-26.el8_10.x86_64                 35/85 
+  Installing       : python3-policycoreutils-2.9-26.el8_10.noarch         36/85 
+  Installing       : policycoreutils-python-utils-2.9-26.el8_10.noarch    37/85 
+  Installing       : procps-ng-3.3.15-14.el8.x86_64                       38/85 
+  Installing       : tcl-1:8.6.8-2.el8.x86_64                             39/85 
+  Running scriptlet: tcl-1:8.6.8-2.el8.x86_64                             39/85 
+  Installing       : environment-modules-4.5.2-4.el8.x86_64               40/85 
+  Running scriptlet: environment-modules-4.5.2-4.el8.x86_64               40/85 
+  Installing       : scl-utils-1:2.0.2-16.el8.x86_64                      41/85 
+  Installing       : gcc-toolset-12-runtime-12.0-6.el8.x86_64             42/85 
+  Running scriptlet: gcc-toolset-12-runtime-12.0-6.el8.x86_64             42/85 
+ValueError: SELinux policy is not managed or store cannot be accessed.
+
+  Installing       : gcc-toolset-12-binutils-gold-2.38-17.el8.x86_64      43/85 
+  Running scriptlet: gcc-toolset-12-binutils-gold-2.38-17.el8.x86_64      43/85 
+  Installing       : gcc-toolset-12-binutils-2.38-17.el8.x86_64           44/85 
+  Running scriptlet: gcc-toolset-12-binutils-2.38-17.el8.x86_64           44/85 
+  Installing       : gcc-toolset-12-libstdc++-devel-12.2.1-7.8.el8_10.x   45/85 
+  Upgrading        : binutils-2.30-128.el8_10.x86_64                      46/85 
+  Running scriptlet: binutils-2.30-128.el8_10.x86_64                      46/85 
+  Installing       : python3-setuptools-39.2.0-7.el8.noarch               47/85 
+  Installing       : platform-python-pip-9.0.3-24.el8.rocky.0.noarch      48/85 
+  Installing       : python36-3.6.8-39.module+el8.10.0+1910+234ad790.x8   49/85 
+  Running scriptlet: python36-3.6.8-39.module+el8.10.0+1910+234ad790.x8   49/85 
+  Installing       : python3-pip-9.0.3-24.el8.rocky.0.noarch              50/85 
+  Installing       : pkgconf-m4-1.4.2-1.el8.noarch                        51/85 
+  Installing       : pkgconf-pkg-config-1.4.2-1.el8.x86_64                52/85 
+  Installing       : kernel-headers-4.18.0-553.137.1.el8_10.x86_64        53/85 
+  Running scriptlet: glibc-headers-2.28-251.el8_10.37.x86_64              54/85 
+  Installing       : glibc-headers-2.28-251.el8_10.37.x86_64              54/85 
+  Installing       : libxcrypt-devel-4.1.1-6.el8.x86_64                   55/85 
+  Installing       : glibc-devel-2.28-251.el8_10.37.x86_64                56/85 
+  Running scriptlet: glibc-devel-2.28-251.el8_10.37.x86_64                56/85 
+  Installing       : gcc-8.5.0-28.el8_10.x86_64                           57/85 
+  Running scriptlet: gcc-8.5.0-28.el8_10.x86_64                           57/85 
+  Installing       : libquadmath-devel-8.5.0-28.el8_10.x86_64             58/85 
+  Installing       : gcc-gfortran-8.5.0-28.el8_10.x86_64                  59/85 
+  Running scriptlet: gcc-gfortran-8.5.0-28.el8_10.x86_64                  59/85 
+  Installing       : blas-devel-3.8.0-9.el8_10.x86_64                     60/85 
+  Installing       : emacs-filesystem-1:26.1-15.el8_10.noarch             61/85 
+  Installing       : vim-filesystem-2:8.0.1763-24.el8_10.noarch           62/85 
+  Installing       : cmake-data-3.26.5-2.el8.noarch                       63/85 
+  Installing       : cmake-3.26.5-2.el8.x86_64                            64/85 
+  Installing       : lapack-devel-3.8.0-9.el8_10.x86_64                   65/85 
+  Upgrading        : curl-7.61.1-34.el8_10.11.x86_64                      66/85 
+  Installing       : findutils-1:4.6.0-24.el8_10.x86_64                   67/85 
+  Running scriptlet: findutils-1:4.6.0-24.el8_10.x86_64                   67/85 
+  Installing       : unzip-6.0-48.el8_10.x86_64                           68/85 
+  Upgrading        : glibc-minimal-langpack-2.28-251.el8_10.37.x86_64     69/85 
+  Upgrading        : tar-2:1.30-11.el8_10.x86_64                          70/85 
+  Running scriptlet: tar-2:1.30-11.el8_10.x86_64                          70/85 
+  Installing       : gcc-toolset-12-gcc-12.2.1-7.8.el8_10.x86_64          71/85 
+  Installing       : gcc-toolset-12-libquadmath-devel-12.2.1-7.8.el8_10   72/85 
+  Installing       : gcc-toolset-12-gcc-gfortran-12.2.1-7.8.el8_10.x86_   73/85 
+  Running scriptlet: gcc-toolset-12-gcc-gfortran-12.2.1-7.8.el8_10.x86_   73/85 
+  Installing       : gcc-toolset-12-gcc-c++-12.2.1-7.8.el8_10.x86_64      74/85 
+  Cleanup          : elfutils-libs-0.189-3.el8.x86_64                     75/85 
+  Running scriptlet: binutils-2.30-123.el8.x86_64                         76/85 
+  Cleanup          : binutils-2.30-123.el8.x86_64                         76/85 
+  Running scriptlet: binutils-2.30-123.el8.x86_64                         76/85 
+  Cleanup          : curl-7.61.1-33.el8.x86_64                            77/85 
+  Cleanup          : libcurl-minimal-7.61.1-33.el8.x86_64                 78/85 
+  Running scriptlet: tar-2:1.30-9.el8.x86_64                              79/85 
+  Cleanup          : tar-2:1.30-9.el8.x86_64                              79/85 
+  Cleanup          : audit-libs-3.0.7-5.el8.x86_64                        80/85 
+  Cleanup          : elfutils-libelf-0.189-3.el8.x86_64                   81/85 
+  Cleanup          : glibc-2.28-236.el8_9.7.x86_64                        82/85 
+  Cleanup          : glibc-minimal-langpack-2.28-236.el8_9.7.x86_64       83/85 
+  Cleanup          : glibc-common-2.28-236.el8_9.7.x86_64                 84/85 
+  Cleanup          : libgcc-8.5.0-20.el8.x86_64                           85/85 
+  Running scriptlet: libgcc-8.5.0-20.el8.x86_64                           85/85 
+  Running scriptlet: glibc-common-2.28-251.el8_10.37.x86_64               85/85 
+  Running scriptlet: man-db-2.7.6.1-18.el8.x86_64                         85/85 
+  Verifying        : blas-3.8.0-9.el8_10.x86_64                            1/85 
+  Verifying        : cmake-3.26.5-2.el8.x86_64                             2/85 
+  Verifying        : cmake-data-3.26.5-2.el8.noarch                        3/85 
+  Verifying        : cmake-filesystem-3.26.5-2.el8.x86_64                  4/85 
+  Verifying        : cmake-rpm-macros-3.26.5-2.el8.noarch                  5/85 
+  Verifying        : cpp-8.5.0-28.el8_10.x86_64                            6/85 
+  Verifying        : gcc-8.5.0-28.el8_10.x86_64                            7/85 
+  Verifying        : gcc-gfortran-8.5.0-28.el8_10.x86_64                   8/85 
+  Verifying        : gcc-toolset-12-binutils-2.38-17.el8.x86_64            9/85 
+  Verifying        : gcc-toolset-12-binutils-gold-2.38-17.el8.x86_64      10/85 
+  Verifying        : gcc-toolset-12-gcc-12.2.1-7.8.el8_10.x86_64          11/85 
+  Verifying        : gcc-toolset-12-gcc-c++-12.2.1-7.8.el8_10.x86_64      12/85 
+  Verifying        : gcc-toolset-12-gcc-gfortran-12.2.1-7.8.el8_10.x86_   13/85 
+  Verifying        : gcc-toolset-12-libquadmath-devel-12.2.1-7.8.el8_10   14/85 
+  Verifying        : gcc-toolset-12-libstdc++-devel-12.2.1-7.8.el8_10.x   15/85 
+  Verifying        : gcc-toolset-12-runtime-12.0-6.el8.x86_64             16/85 
+  Verifying        : isl-0.16.1-6.el8.x86_64                              17/85 
+  Verifying        : lapack-3.8.0-9.el8_10.x86_64                         18/85 
+  Verifying        : libmpc-1.1.0-9.1.el8.x86_64                          19/85 
+  Verifying        : libquadmath-devel-8.5.0-28.el8_10.x86_64             20/85 
+  Verifying        : libuv-1:1.41.1-2.el8_10.x86_64                       21/85 
+  Verifying        : python3-pip-9.0.3-24.el8.rocky.0.noarch              22/85 
+  Verifying        : python36-3.6.8-39.module+el8.10.0+1910+234ad790.x8   23/85 
+  Verifying        : scl-utils-1:2.0.2-16.el8.x86_64                      24/85 
+  Verifying        : vim-filesystem-2:8.0.1763-24.el8_10.noarch           25/85 
+  Verifying        : checkpolicy-2.9-1.el8.x86_64                         26/85 
+  Verifying        : diffutils-3.6-6.el8.x86_64                           27/85 
+  Verifying        : elfutils-debuginfod-client-0.190-2.el8.x86_64        28/85 
+  Verifying        : emacs-filesystem-1:26.1-15.el8_10.noarch             29/85 
+  Verifying        : environment-modules-4.5.2-4.el8.x86_64               30/85 
+  Verifying        : findutils-1:4.6.0-24.el8_10.x86_64                   31/85 
+  Verifying        : glibc-devel-2.28-251.el8_10.37.x86_64                32/85 
+  Verifying        : glibc-gconv-extra-2.28-251.el8_10.37.x86_64          33/85 
+  Verifying        : glibc-headers-2.28-251.el8_10.37.x86_64              34/85 
+  Verifying        : glibc-langpack-en-2.28-251.el8_10.37.x86_64          35/85 
+  Verifying        : groff-base-1.22.3-18.el8.x86_64                      36/85 
+  Verifying        : kernel-headers-4.18.0-553.137.1.el8_10.x86_64        37/85 
+  Verifying        : libgfortran-8.5.0-28.el8_10.x86_64                   38/85 
+  Verifying        : libgomp-8.5.0-28.el8_10.x86_64                       39/85 
+  Verifying        : libpipeline-1.5.0-2.el8.x86_64                       40/85 
+  Verifying        : libpkgconf-1.4.2-1.el8.x86_64                        41/85 
+  Verifying        : libquadmath-8.5.0-28.el8_10.x86_64                   42/85 
+  Verifying        : libselinux-utils-2.9-8.el8.x86_64                    43/85 
+  Verifying        : libxcrypt-devel-4.1.1-6.el8.x86_64                   44/85 
+  Verifying        : make-1:4.2.1-11.el8.x86_64                           45/85 
+  Verifying        : man-db-2.7.6.1-18.el8.x86_64                         46/85 
+  Verifying        : pkgconf-1.4.2-1.el8.x86_64                           47/85 
+  Verifying        : pkgconf-m4-1.4.2-1.el8.noarch                        48/85 
+  Verifying        : pkgconf-pkg-config-1.4.2-1.el8.x86_64                49/85 
+  Verifying        : platform-python-pip-9.0.3-24.el8.rocky.0.noarch      50/85 
+  Verifying        : policycoreutils-2.9-26.el8_10.x86_64                 51/85 
+  Verifying        : policycoreutils-python-utils-2.9-26.el8_10.noarch    52/85 
+  Verifying        : procps-ng-3.3.15-14.el8.x86_64                       53/85 
+  Verifying        : python3-audit-3.1.2-1.el8_10.1.x86_64                54/85 
+  Verifying        : python3-libselinux-2.9-8.el8.x86_64                  55/85 
+  Verifying        : python3-libsemanage-2.9-9.el8_6.x86_64               56/85 
+  Verifying        : python3-policycoreutils-2.9-26.el8_10.noarch         57/85 
+  Verifying        : python3-setools-4.3.0-5.el8.x86_64                   58/85 
+  Verifying        : python3-setuptools-39.2.0-7.el8.noarch               59/85 
+  Verifying        : tcl-1:8.6.8-2.el8.x86_64                             60/85 
+  Verifying        : unzip-6.0-48.el8_10.x86_64                           61/85 
+  Verifying        : blas-devel-3.8.0-9.el8_10.x86_64                     62/85 
+  Verifying        : lapack-devel-3.8.0-9.el8_10.x86_64                   63/85 
+  Verifying        : audit-libs-3.1.2-1.el8_10.1.x86_64                   64/85 
+  Verifying        : audit-libs-3.0.7-5.el8.x86_64                        65/85 
+  Verifying        : binutils-2.30-128.el8_10.x86_64                      66/85 
+  Verifying        : binutils-2.30-123.el8.x86_64                         67/85 
+  Verifying        : curl-7.61.1-34.el8_10.11.x86_64                      68/85 
+  Verifying        : curl-7.61.1-33.el8.x86_64                            69/85 
+  Verifying        : elfutils-libelf-0.190-2.el8.x86_64                   70/85 
+  Verifying        : elfutils-libelf-0.189-3.el8.x86_64                   71/85 
+  Verifying        : elfutils-libs-0.190-2.el8.x86_64                     72/85 
+  Verifying        : elfutils-libs-0.189-3.el8.x86_64                     73/85 
+  Verifying        : glibc-2.28-251.el8_10.37.x86_64                      74/85 
+  Verifying        : glibc-2.28-236.el8_9.7.x86_64                        75/85 
+  Verifying        : glibc-common-2.28-251.el8_10.37.x86_64               76/85 
+  Verifying        : glibc-common-2.28-236.el8_9.7.x86_64                 77/85 
+  Verifying        : glibc-minimal-langpack-2.28-251.el8_10.37.x86_64     78/85 
+  Verifying        : glibc-minimal-langpack-2.28-236.el8_9.7.x86_64       79/85 
+  Verifying        : libcurl-minimal-7.61.1-34.el8_10.11.x86_64           80/85 
+  Verifying        : libcurl-minimal-7.61.1-33.el8.x86_64                 81/85 
+  Verifying        : libgcc-8.5.0-28.el8_10.x86_64                        82/85 
+  Verifying        : libgcc-8.5.0-20.el8.x86_64                           83/85 
+  Verifying        : tar-2:1.30-11.el8_10.x86_64                          84/85 
+  Verifying        : tar-2:1.30-9.el8.x86_64                              85/85 
+
+Upgraded:
+  audit-libs-3.1.2-1.el8_10.1.x86_64                                            
+  binutils-2.30-128.el8_10.x86_64                                               
+  curl-7.61.1-34.el8_10.11.x86_64                                               
+  elfutils-libelf-0.190-2.el8.x86_64                                            
+  elfutils-libs-0.190-2.el8.x86_64                                              
+  glibc-2.28-251.el8_10.37.x86_64                                               
+  glibc-common-2.28-251.el8_10.37.x86_64                                        
+  glibc-minimal-langpack-2.28-251.el8_10.37.x86_64                              
+  libcurl-minimal-7.61.1-34.el8_10.11.x86_64                                    
+  libgcc-8.5.0-28.el8_10.x86_64                                                 
+  tar-2:1.30-11.el8_10.x86_64                                                   
+Installed:
+  blas-3.8.0-9.el8_10.x86_64                                                    
+  blas-devel-3.8.0-9.el8_10.x86_64                                              
+  checkpolicy-2.9-1.el8.x86_64                                                  
+  cmake-3.26.5-2.el8.x86_64                                                     
+  cmake-data-3.26.5-2.el8.noarch                                                
+  cmake-filesystem-3.26.5-2.el8.x86_64                                          
+  cmake-rpm-macros-3.26.5-2.el8.noarch                                          
+  cpp-8.5.0-28.el8_10.x86_64                                                    
+  diffutils-3.6-6.el8.x86_64                                                    
+  elfutils-debuginfod-client-0.190-2.el8.x86_64                                 
+  emacs-filesystem-1:26.1-15.el8_10.noarch                                      
+  environment-modules-4.5.2-4.el8.x86_64                                        
+  findutils-1:4.6.0-24.el8_10.x86_64                                            
+  gcc-8.5.0-28.el8_10.x86_64                                                    
+  gcc-gfortran-8.5.0-28.el8_10.x86_64                                           
+  gcc-toolset-12-binutils-2.38-17.el8.x86_64                                    
+  gcc-toolset-12-binutils-gold-2.38-17.el8.x86_64                               
+  gcc-toolset-12-gcc-12.2.1-7.8.el8_10.x86_64                                   
+  gcc-toolset-12-gcc-c++-12.2.1-7.8.el8_10.x86_64                               
+  gcc-toolset-12-gcc-gfortran-12.2.1-7.8.el8_10.x86_64                          
+  gcc-toolset-12-libquadmath-devel-12.2.1-7.8.el8_10.x86_64                     
+  gcc-toolset-12-libstdc++-devel-12.2.1-7.8.el8_10.x86_64                       
+  gcc-toolset-12-runtime-12.0-6.el8.x86_64                                      
+  glibc-devel-2.28-251.el8_10.37.x86_64                                         
+  glibc-gconv-extra-2.28-251.el8_10.37.x86_64                                   
+  glibc-headers-2.28-251.el8_10.37.x86_64                                       
+  glibc-langpack-en-2.28-251.el8_10.37.x86_64                                   
+  groff-base-1.22.3-18.el8.x86_64                                               
+  isl-0.16.1-6.el8.x86_64                                                       
+  kernel-headers-4.18.0-553.137.1.el8_10.x86_64                                 
+  lapack-3.8.0-9.el8_10.x86_64                                                  
+  lapack-devel-3.8.0-9.el8_10.x86_64                                            
+  libgfortran-8.5.0-28.el8_10.x86_64                                            
+  libgomp-8.5.0-28.el8_10.x86_64                                                
+  libmpc-1.1.0-9.1.el8.x86_64                                                   
+  libpipeline-1.5.0-2.el8.x86_64                                                
+  libpkgconf-1.4.2-1.el8.x86_64                                                 
+  libquadmath-8.5.0-28.el8_10.x86_64                                            
+  libquadmath-devel-8.5.0-28.el8_10.x86_64                                      
+  libselinux-utils-2.9-8.el8.x86_64                                             
+  libuv-1:1.41.1-2.el8_10.x86_64                                                
+  libxcrypt-devel-4.1.1-6.el8.x86_64                                            
+  make-1:4.2.1-11.el8.x86_64                                                    
+  man-db-2.7.6.1-18.el8.x86_64                                                  
+  pkgconf-1.4.2-1.el8.x86_64                                                    
+  pkgconf-m4-1.4.2-1.el8.noarch                                                 
+  pkgconf-pkg-config-1.4.2-1.el8.x86_64                                         
+  platform-python-pip-9.0.3-24.el8.rocky.0.noarch                               
+  policycoreutils-2.9-26.el8_10.x86_64                                          
+  policycoreutils-python-utils-2.9-26.el8_10.noarch                             
+  procps-ng-3.3.15-14.el8.x86_64                                                
+  python3-audit-3.1.2-1.el8_10.1.x86_64                                         
+  python3-libselinux-2.9-8.el8.x86_64                                           
+  python3-libsemanage-2.9-9.el8_6.x86_64                                        
+  python3-pip-9.0.3-24.el8.rocky.0.noarch                                       
+  python3-policycoreutils-2.9-26.el8_10.noarch                                  
+  python3-setools-4.3.0-5.el8.x86_64                                            
+  python3-setuptools-39.2.0-7.el8.noarch                                        
+  python36-3.6.8-39.module+el8.10.0+1910+234ad790.x86_64                        
+  scl-utils-1:2.0.2-16.el8.x86_64                                               
+  tcl-1:8.6.8-2.el8.x86_64                                                      
+  unzip-6.0-48.el8_10.x86_64                                                    
+  vim-filesystem-2:8.0.1763-24.el8_10.noarch                                    
+
+Complete!
+
+## Toolchain
+/opt/rh/gcc-toolset-12/root/usr/bin/gcc
+/opt/rh/gcc-toolset-12/root/usr/bin/gfortran
+gcc (GCC) 12.2.1 20221121 (Red Hat 12.2.1-7)
+Copyright (C) 2022 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+GNU Fortran (GCC) 12.2.1 20221121 (Red Hat 12.2.1-7)
+Copyright (C) 2022 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+cmake version 3.26.5
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+1.13.2
+-- The C compiler identification is GNU 12.2.1
+-- The Fortran compiler identification is GNU 12.2.1
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /opt/rh/gcc-toolset-12/root/usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting Fortran compiler ABI info
+-- Detecting Fortran compiler ABI info - done
+-- Check for working Fortran compiler: /opt/rh/gcc-toolset-12/root/usr/bin/gfortran - skipped
+-- Looking for Fortran sgemm
+-- Looking for Fortran sgemm - not found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+-- Looking for pthread_create in pthreads
+-- Looking for pthread_create in pthreads - not found
+-- Looking for pthread_create in pthread
+-- Looking for pthread_create in pthread - found
+-- Found Threads: TRUE  
+-- Looking for Fortran sgemm
+-- Looking for Fortran sgemm - found
+-- Found BLAS: /usr/lib64/libblas.so  
+-- Looking for Fortran cheev
+-- Looking for Fortran cheev - not found
+-- Looking for Fortran cheev
+-- Looking for Fortran cheev - found
+-- Found LAPACK: /usr/lib64/liblapack.so;/usr/lib64/libblas.so  
+-- BLAS libraries: /usr/lib64/libblas.so
+-- LAPACK libraries: /usr/lib64/liblapack.so;/usr/lib64/libblas.so
+-- Performing Test MULTIWFN_SUPPORTS__fallow_argument_mismatch
+-- Performing Test MULTIWFN_SUPPORTS__fallow_argument_mismatch - Success
+-- Performing Test MULTIWFN_SUPPORTS__fallow_invalid_boz
+-- Performing Test MULTIWFN_SUPPORTS__fallow_invalid_boz - Success
+-- Found OpenMP_C: -fopenmp (found version "4.5") 
+-- Found OpenMP_Fortran: -fopenmp (found version "4.5") 
+-- Found OpenMP: TRUE (found version "4.5")  
+-- Configuring done (1.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: /work/build-rocky8-gcc-toolset12-o2
+[1/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/noGUI/dislin_mod_empty.f90-pp.f90
+[2/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/define.f90-pp.f90
+[3/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/util.f90-pp.f90
+[4/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/noGUI/dislin_d_empty.f90-pp.f90
+[5/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/noGUI/mouse_rotate_empty.f90-pp.f90
+[6/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/Bspline.f90-pp.f90
+[7/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/sym.F-pp.f
+[8/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/libreta.f90-pp.f90
+[9/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/plot.f90-pp.f90
+[10/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/function.f90-pp.f90
+[11/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/GUI.f90-pp.f90
+[12/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/sub.f90-pp.f90
+[13/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/integral.f90-pp.f90
+[14/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/Lebedev-Laikov.F-pp.f
+[15/123] Generating Fortran dependencies for /work/DFTxclib.F
+[16/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/fparser.f90-pp.f90
+[17/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/edflib.f90-pp.f90
+[18/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/spectrum.f90-pp.f90
+[19/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/fileIO.f90-pp.f90
+[20/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/Multiwfn.f90-pp.f90
+[21/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/DOS.f90-pp.f90
+[22/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/LSB.f90-pp.f90
+[23/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/0123dim.f90-pp.f90
+[24/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/ext/frj.f90-pp.f90
+[25/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/population.f90-pp.f90
+[26/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/orbcomp.f90-pp.f90
+[27/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/bondorder.f90-pp.f90
+[28/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/topology.f90-pp.f90
+[29/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/excittrans.f90-pp.f90
+[30/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/otherfunc.f90-pp.f90
+[31/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/otherfunc2.f90-pp.f90
+[32/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/otherfunc3.f90-pp.f90
+[33/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/O1.f90-pp.f90
+[34/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/procgriddata.f90-pp.f90
+[35/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/surfana.f90-pp.f90
+[36/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/AdNDP.f90-pp.f90
+[37/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/fuzzy.f90-pp.f90
+[38/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/CDA.f90-pp.f90
+[39/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/basin.f90-pp.f90
+[40/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/orbloc.f90-pp.f90
+[41/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/visweak.f90-pp.f90
+[42/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/EDA.f90-pp.f90
+[43/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/CDFT.f90-pp.f90
+[44/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/ETS_NOCV.f90-pp.f90
+[45/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/NAONBO.f90-pp.f90
+[46/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/atmraddens.f90-pp.f90
+[47/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/grid.f90-pp.f90
+[48/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/PBC.f90-pp.f90
+[49/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/hyper_polar.f90-pp.f90
+[50/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/deloc_aromat.f90-pp.f90
+[51/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/cp2kmate.f90-pp.f90
+[52/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/minpack.f90-pp.f90
+[53/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/ean.f90-pp.f90
+[54/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/hrr_012345.f90-pp.f90
+[55/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/eanvrr_012345.f90-pp.f90
+[56/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/blockhrr_012345.f90-pp.f90
+[57/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/boysfunc.f90-pp.f90
+[58/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/naiveeri.f90-pp.f90
+[59/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/ryspoly.f90-pp.f90
+[60/123] Building Fortran preprocessed CMakeFiles/Multiwfn_noGUI.dir/ext/2F2.f90-pp.f90
+[61/123] Generating Fortran dyndep file CMakeFiles/Multiwfn_noGUI.dir/Fortran.dd
+[62/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/noGUI/dislin_mod_empty.f90.o
+[63/123] Building C object CMakeFiles/Multiwfn_noGUI.dir/ext/no2F2.c.o
+[64/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/define.f90.o
+[65/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/noGUI/dislin_d_empty.f90.o
+[66/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/noGUI/mouse_rotate_empty.f90.o
+[67/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/util.f90.o
+[68/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/Bspline.f90.o
+[69/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/sym.F.o
+[70/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/Lebedev-Laikov.F.o
+[71/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/integral.f90.o
+[72/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/edflib.f90.o
+[73/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/fparser.f90.o
+[74/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/DFTxclib.F.o
+[75/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/bondorder.f90.o
+[76/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/O1.f90.o
+[77/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/CDA.f90.o
+[78/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/EDA.f90.o
+[79/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/atmraddens.f90.o
+[80/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/fileIO.f90.o
+[81/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/NAONBO.f90.o
+[82/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/PBC.f90.o
+[83/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/minpack.f90.o
+[84/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/cp2kmate.f90.o
+[85/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/hrr_012345.f90.o
+[86/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/blockhrr_012345.f90.o
+[87/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/ryspoly.f90.o
+[88/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/naiveeri.f90.o
+[89/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/ext/2F2.f90.o
+[90/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/boysfunc.f90.o
+[91/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/eanvrr_012345.f90.o
+[92/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/ean.f90.o
+[93/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/libreta_hybrid/libreta.f90.o
+[94/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/function.f90.o
+[95/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/plot.f90.o
+[96/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/GUI.f90.o
+[97/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/sub.f90.o
+[98/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/DOS.f90.o
+[99/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/Multiwfn.f90.o
+[100/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/spectrum.f90.o
+[101/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/LSB.f90.o
+[102/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/0123dim.f90.o
+[103/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/ext/frj.f90.o
+[104/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/orbcomp.f90.o
+[105/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/population.f90.o
+[106/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/topology.f90.o
+[107/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/otherfunc.f90.o
+[108/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/excittrans.f90.o
+[109/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/otherfunc2.f90.o
+[110/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/otherfunc3.f90.o
+[111/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/procgriddata.f90.o
+[112/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/surfana.f90.o
+[113/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/AdNDP.f90.o
+[114/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/fuzzy.f90.o
+[115/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/basin.f90.o
+[116/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/orbloc.f90.o
+[117/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/visweak.f90.o
+[118/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/CDFT.f90.o
+[119/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/grid.f90.o
+[120/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/ETS_NOCV.f90.o
+[121/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/deloc_aromat.f90.o
+[122/123] Building Fortran object CMakeFiles/Multiwfn_noGUI.dir/hyper_polar.f90.o
+[123/123] Linking Fortran executable Multiwfn_noGUI
+Note: The following floating-point exceptions are signalling: IEEE_INVALID_FLAG
+Note: The following floating-point exceptions are signalling: IEEE_INVALID_FLAG
+noGUI functional tests passed
+	linux-vdso.so.1 (0x00007fd19a107000)
+	libblas.so.3 => /lib64/libblas.so.3 (0x00007fd199bac000)
+	liblapack.so.3 => /lib64/liblapack.so.3 (0x00007fd19930e000)
+	libgomp.so.1 => /lib64/libgomp.so.1 (0x00007fd1990d6000)
+	libpthread.so.0 => /lib64/libpthread.so.0 (0x00007fd198eb6000)
+	libgfortran.so.5 => /lib64/libgfortran.so.5 (0x00007fd198a37000)
+	libm.so.6 => /lib64/libm.so.6 (0x00007fd1986b5000)
+	libmvec.so.1 => /lib64/libmvec.so.1 (0x00007fd19848a000)
+	libgcc_s.so.1 => /lib64/libgcc_s.so.1 (0x00007fd198272000)
+	libquadmath.so.0 => /lib64/libquadmath.so.0 (0x00007fd198031000)
+	libc.so.6 => /lib64/libc.so.6 (0x00007fd197c5b000)
+	libdl.so.2 => /lib64/libdl.so.2 (0x00007fd197a57000)
+	/lib64/ld-linux-x86-64.so.2 (0x00007fd199e00000)
+	libz.so.1 => /lib64/libz.so.1 (0x00007fd19783f000)
+Traceback (most recent call last):
+  File "tools/perf/run_grid_benchmark.py", line 158, in <module>
+    raise SystemExit(main())
+  File "tools/perf/run_grid_benchmark.py", line 105, in main
+    timeout=900,
+  File "/usr/lib64/python3.6/subprocess.py", line 423, in run
+    with Popen(*popenargs, **kwargs) as process:
+TypeError: __init__() got an unexpected keyword argument 'text'
