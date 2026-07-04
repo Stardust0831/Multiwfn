@@ -1,0 +1,2 @@
+#define IDI_MULTIWFN 101
+IDI_MULTIWFN ICON "Multiwfn.ico"

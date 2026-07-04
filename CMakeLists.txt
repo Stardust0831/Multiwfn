@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.20)
 
 project(Multiwfn LANGUAGES C Fortran)
 
+if(WIN32)
+  enable_language(RC)
+endif()
+
 option(MULTIWFN_BUILD_GUI "Build the DISLIN/Motif GUI executable" OFF)
 option(MULTIWFN_WITH_OPENMP "Enable OpenMP when the compiler supports it" ON)
 option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF)
@@ -145,6 +149,10 @@ else()
 endif()
 
 add_executable(Multiwfn_noGUI ${MULTIWFN_CORE_SOURCES})
+
+if(WIN32)
+  target_sources(Multiwfn_noGUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.rc")
+endif()
 target_include_directories(Multiwfn_noGUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/ext")
 target_link_libraries(Multiwfn_noGUI PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 
