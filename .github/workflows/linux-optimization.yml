@@ -1,0 +1,124 @@
+name: linux-optimization
+
+on:
+  push:
+    branches: [perf/linux-optimization]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  variant:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: rocky8-gcc8-o2
+            image: rockylinux:8
+            compat_check: "true"
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2
+            enable: ":"
+            setup: >-
+              dnf -y install dnf-plugins-core &&
+              if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
+              dnf -y install epel-release &&
+              dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
+
+          - name: rocky8-gcc8-o3
+            image: rockylinux:8
+            compat_check: "true"
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
+            enable: ":"
+            setup: >-
+              dnf -y install dnf-plugins-core &&
+              if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
+              dnf -y install epel-release &&
+              dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
+
+          - name: rocky8-gcc8-o3-fno-math-errno
+            image: rockylinux:8
+            compat_check: "true"
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3 -DMULTIWFN_GNU_EXTRA_FLAGS=-fno-math-errno
+            enable: ":"
+            setup: >-
+              dnf -y install dnf-plugins-core &&
+              if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
+              dnf -y install epel-release &&
+              dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
+
+          - name: rocky8-gcc-toolset12-o3
+            image: rockylinux:8
+            compat_check: "true"
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
+            enable: source /opt/rh/gcc-toolset-12/enable
+            setup: >-
+              dnf -y install dnf-plugins-core &&
+              if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
+              dnf -y install epel-release &&
+              dnf -y install gcc-toolset-12-gcc gcc-toolset-12-gcc-gfortran gcc-toolset-12-gcc-c++ make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
+
+          - name: rocky8-gcc-toolset13-o3
+            image: rockylinux:8
+            compat_check: "true"
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
+            enable: source /opt/rh/gcc-toolset-13/enable
+            setup: >-
+              dnf -y install dnf-plugins-core &&
+              if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
+              dnf -y install epel-release &&
+              dnf -y install gcc-toolset-13-gcc gcc-toolset-13-gcc-gfortran gcc-toolset-13-gcc-c++ make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
+
+          - name: ubuntu24-gcc13-o3-fast
+            image: ubuntu:24.04
+            compat_check: "false"
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
+            enable: ":"
+            setup: >-
+              apt-get update &&
+              DEBIAN_FRONTEND=noninteractive apt-get install -y
+              ca-certificates gcc gfortran make cmake ninja-build libblas-dev liblapack-dev binutils findutils tar gzip curl unzip python3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run variant in container
+        env:
+          VARIANT: ${{ matrix.name }}
+          SETUP_SCRIPT: ${{ matrix.setup }}
+          ENABLE_SCRIPT: ${{ matrix.enable }}
+          CMAKE_EXTRA: ${{ matrix.cmake_extra }}
+          COMPAT_CHECK: ${{ matrix.compat_check }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e VARIANT \
+            -e SETUP_SCRIPT \
+            -e ENABLE_SCRIPT \
+            -e CMAKE_EXTRA \
+            -e COMPAT_CHECK \
+            "${{ matrix.image }}" \
+            bash tools/perf/build_linux_variant.sh 2>&1 | tee "linux-optimization-${{ matrix.name }}.log"
+
+      - name: Append benchmark summary
+        if: always()
+        run: |
+          if [ -f "perf-results/${{ matrix.name }}/summary.md" ]; then
+            cat "perf-results/${{ matrix.name }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload variant results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-optimization-${{ matrix.name }}
+          path: |
+            linux-optimization-${{ matrix.name }}.log
+            perf-results/${{ matrix.name }}/
+          if-no-files-found: ignore
