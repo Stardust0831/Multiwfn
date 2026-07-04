@@ -51,6 +51,16 @@ repeats=2
 versions=official,project-prebaseline,project-current
 ```
 
+After a release includes `Multiwfn_noGUI-Linux-optimized.tar.gz`, Linux
+benchmarks can explicitly include the Ubuntu 22.04/GCC 16 optimized package:
+
+```text
+versions=official,project-current,project-current-optimized
+```
+
+This selector is Linux-only. It is not part of the default list because older
+releases did not publish the optimized asset.
+
 Artifacts contain:
 
 - `summary.md`

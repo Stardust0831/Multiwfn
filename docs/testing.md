@@ -12,6 +12,12 @@ glibc 2.28 baseline. The container test does not install BLAS/LAPACK, so it
 verifies that the Linux package carries the runtime math and Fortran libraries
 it needs, rather than accidentally relying on the development runner.
 
+The separate Linux optimized release candidate is built on Ubuntu 22.04 with
+GCC/GFortran 16 and tested after extraction in a clean Ubuntu 22.04 container.
+It keeps the same noGUI functional coverage as the compatibility package, but
+its purpose is performance on newer systems rather than broad old-glibc
+compatibility.
+
 Windows package testing extracts the release zip in a normal PowerShell step
 outside the MSYS2 shell and removes MSYS2 paths from `PATH` before running a
 smoke test. The workflow reads the PE import table and copies required

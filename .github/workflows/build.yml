@@ -297,10 +297,82 @@ jobs:
             dist/Multiwfn_noGUI-Windows.zip
           if-no-files-found: error
 
+  linux-optimized:
+    name: noGUI (Linux optimized GCC 16)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install optimized Linux dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y gcc-16 gfortran-16 cmake ninja-build libblas-dev liblapack-dev binutils tar gzip
+          gcc-16 --version
+          gfortran-16 --version
+          cmake --version
+          ninja --version
+
+      - name: Build, test, and package optimized Linux
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-linux-optimized -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-16 \
+            -DCMAKE_Fortran_COMPILER=gfortran-16 \
+            -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" \
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 \
+            2>&1 | tee configure-linux-optimized.log
+          cmake --build build-linux-optimized --parallel 2 2>&1 | tee build-linux-optimized.log
+          bash tests/functional/run_nogui_tests.sh "$PWD/build-linux-optimized/Multiwfn_noGUI"
+
+          mkdir -p package/Multiwfn_noGUI-Linux-optimized/lib dist
+          cp build-linux-optimized/Multiwfn_noGUI package/Multiwfn_noGUI-Linux-optimized/Multiwfn_noGUI
+          cp LICENSE.txt package/Multiwfn_noGUI-Linux-optimized/LICENSE.txt
+          cp settings.ini package/Multiwfn_noGUI-Linux-optimized/settings.ini
+          ldd package/Multiwfn_noGUI-Linux-optimized/Multiwfn_noGUI | tee package/Multiwfn_noGUI-Linux-optimized/ldd.txt
+          awk '/=> \// {print $3}' package/Multiwfn_noGUI-Linux-optimized/ldd.txt | while read -r lib; do
+            base="$(basename "$lib")"
+            case "$base" in
+              libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
+                ;;
+              *)
+                cp -n "$lib" package/Multiwfn_noGUI-Linux-optimized/lib/
+                ;;
+            esac
+          done
+          readelf --version-info package/Multiwfn_noGUI-Linux-optimized/Multiwfn_noGUI package/Multiwfn_noGUI-Linux-optimized/lib/* \
+            > package/Multiwfn_noGUI-Linux-optimized/glibc-version-info.txt 2>/dev/null || true
+          tar -czf dist/Multiwfn_noGUI-Linux-optimized.tar.gz -C package Multiwfn_noGUI-Linux-optimized
+
+      - name: Test optimized Linux release candidate in clean Ubuntu 22.04 container
+        run: |
+          set -euo pipefail
+          rm -rf clean-test-optimized
+          mkdir clean-test-optimized
+          tar -xzf dist/Multiwfn_noGUI-Linux-optimized.tar.gz -C clean-test-optimized
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ubuntu:22.04 \
+            bash tests/functional/run_nogui_tests.sh /work/clean-test-optimized/Multiwfn_noGUI-Linux-optimized/Multiwfn_noGUI
+
+      - name: Upload optimized Linux release candidate package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Multiwfn_noGUI-package-Linux-optimized
+          path: dist/Multiwfn_noGUI-Linux-optimized.tar.gz
+          if-no-files-found: error
+
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: nogui
+    needs: [nogui, linux-optimized]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -319,6 +391,7 @@ jobs:
           mkdir -p release-assets
           cp LICENSE.txt release-assets/LICENSE.txt
           cp release-artifacts/Multiwfn_noGUI-package-Linux/Multiwfn_noGUI-Linux.tar.gz release-assets/
+          cp release-artifacts/Multiwfn_noGUI-package-Linux-optimized/Multiwfn_noGUI-Linux-optimized.tar.gz release-assets/
           cp release-artifacts/Multiwfn_noGUI-package-macOS/Multiwfn_noGUI-macOS.tar.gz release-assets/
           cp release-artifacts/Multiwfn_noGUI-package-Windows/Multiwfn_noGUI-Windows.zip release-assets/
           sha256sum release-assets/* > release-assets/SHA256SUMS.txt
@@ -331,12 +404,14 @@ jobs:
           Validation in CI:
           - Linux, macOS, and Windows release-candidate packages built with GNU Fortran.
           - Linux package built on a glibc 2.28 Rocky Linux 8 baseline, then extracted and tested in a clean Rocky Linux 8 container without installing BLAS/LAPACK.
+          - Linux optimized package built on Ubuntu 22.04 with GCC/GFortran 16 from the Ubuntu Toolchain PPA, then extracted and tested in a clean Ubuntu 22.04 container.
           - Windows zip extracted and smoke-tested outside the MSYS2 shell, with required MSYS2 runtime DLLs copied beside the executable.
           - Geometry-only XYZ loading and structure analysis workflow.
           - Gaussian cube loading, grid statistics, and cube export workflow.
 
           Notes:
           - These are noGUI binaries; DISLIN/Motif GUI support is intentionally outside this release.
+          - The regular Linux package targets older glibc systems; the Linux optimized package targets newer systems and is intended for performance testing/use where Ubuntu 22.04-compatible glibc is acceptable.
           - Fractional-derivative support is disabled in the default CI build.
           EOF
 
@@ -348,6 +423,8 @@ jobs:
           cmp LICENSE.txt release-assets/LICENSE.txt
           tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/LICENSE.txt
           tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/settings.ini
+          tar -tzf release-assets/Multiwfn_noGUI-Linux-optimized.tar.gz | grep -Fx Multiwfn_noGUI-Linux-optimized/LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-Linux-optimized.tar.gz | grep -Fx Multiwfn_noGUI-Linux-optimized/settings.ini
           tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/LICENSE.txt
           tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/settings.ini
           unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx LICENSE.txt
