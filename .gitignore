@@ -4,6 +4,9 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 compile_commands.json
+.build-env/
+perf-work/
+perf-results/
 Multiwfn
 Multiwfn_noGUI
 *.exe
@@ -17,3 +20,6 @@ Multiwfn_noGUI
 *.dylib
 *.so
 *.out
+__pycache__/
+*.py[cod]
+*.pdf

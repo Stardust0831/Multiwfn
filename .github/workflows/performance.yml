@@ -1,0 +1,68 @@
+name: performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Benchmark suite size
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - standard
+          - full
+      repeats:
+        description: Repetitions per case
+        required: true
+        default: "2"
+      versions:
+        description: Comma-separated versions to compare
+        required: true
+        default: official,project-prebaseline,project-current
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: benchmark (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 --version || python --version
+          7z || true
+
+      - name: Run performance benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          py=python3
+          if ! command -v "$py" >/dev/null 2>&1; then
+            py=python
+          fi
+          "$py" tests/perf/benchmark_multiwfn.py \
+            --suite "${{ inputs.suite }}" \
+            --repeats "${{ inputs.repeats }}" \
+            --versions "${{ inputs.versions }}" \
+            --work-dir perf-work \
+            --output-dir perf-results
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiwfn-performance-${{ runner.os }}-${{ inputs.suite }}
+          path: perf-results
+          if-no-files-found: error
