@@ -15,3 +15,5 @@ Current experiment goals:
   reference.
 
 Results are committed back under `ci-results/linux-optimization/<run-id>/`.
+Debug runs use a 160^3 ELF grid first; promising variants can be rerun with the
+full 300^3 grid after the compiler matrix is validated.
