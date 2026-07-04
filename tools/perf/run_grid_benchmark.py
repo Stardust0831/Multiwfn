@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Run one Multiwfn grid benchmark against a local executable."""
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import json
@@ -15,7 +13,7 @@ import time
 from pathlib import Path
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
     parser.add_argument("--settings", type=Path, required=True)
@@ -29,13 +27,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def write_settings(src: Path, dst: Path, threads: int) -> None:
+def write_settings(src, dst, threads):
     text = src.read_text(encoding="utf-8", errors="replace")
     text = re.sub(r"(?m)^(\s*nthreads\s*=\s*)\d+", rf"\g<1>{threads}", text)
     dst.write_text(text, encoding="utf-8")
 
 
-def cube_stats(path: Path) -> dict[str, object]:
+def cube_stats(path):
     with path.open("r", encoding="utf-8", errors="replace") as fh:
         fh.readline()
         fh.readline()
@@ -71,7 +69,7 @@ def cube_stats(path: Path) -> dict[str, object]:
     }
 
 
-def main() -> int:
+def main():
     args = parse_args()
     args.work_dir.mkdir(parents=True, exist_ok=True)
     args.summary_out.parent.mkdir(parents=True, exist_ok=True)
