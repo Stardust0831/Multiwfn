@@ -75,6 +75,12 @@ preprocesses that file, gfortran reports many `invalid preprocessing directive`
 errors. The CMake build therefore leaves global Fortran preprocessing on and
 sets `Fortran_PREPROCESS OFF` only for `DFTxclib.F`.
 
+GNU Fortran compatibility flags are probed before use. Newer gfortran versions
+need options such as `-fallow-argument-mismatch` and `-fallow-invalid-boz` for
+legacy Fortran sources, while Rocky Linux 8's GCC 8 does not recognize those
+options and does not need them for the same diagnostics. The CMake build keeps
+one source tree by adding only the flags supported by the active compiler.
+
 The macOS CMake build maintained by digital-chemistry-laboratory also links
 BLAS/LAPACK explicitly and treats OpenMP as a build option. This CMake port uses
 the same conservative approach: keep Multiwfn's existing OpenMP code and link it

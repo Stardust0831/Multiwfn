@@ -6,6 +6,8 @@ if(WIN32)
   enable_language(RC)
 endif()
 
+include(CheckFortranCompilerFlag)
+
 option(MULTIWFN_BUILD_GUI "Build the DISLIN/Motif GUI executable" OFF)
 option(MULTIWFN_WITH_OPENMP "Enable OpenMP when the compiler supports it" ON)
 option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF)
@@ -46,12 +48,20 @@ if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     string(REPLACE "-O3" "-O2" ${flag_var} "${${flag_var}}")
   endforeach()
 
-  add_compile_options(
-    $<$<COMPILE_LANGUAGE:Fortran>:-ffree-line-length-none>
-    $<$<COMPILE_LANGUAGE:Fortran>:-fallow-argument-mismatch>
-    $<$<COMPILE_LANGUAGE:Fortran>:-fallow-invalid-boz>
-    $<$<COMPILE_LANGUAGE:Fortran>:-std=legacy>
+  set(MULTIWFN_GNU_FORTRAN_FLAGS
+    -ffree-line-length-none
+    -std=legacy
   )
+  foreach(flag -fallow-argument-mismatch -fallow-invalid-boz)
+    string(MAKE_C_IDENTIFIER "MULTIWFN_SUPPORTS_${flag}" flag_var)
+    check_fortran_compiler_flag("${flag}" "${flag_var}")
+    if(${flag_var})
+      list(APPEND MULTIWFN_GNU_FORTRAN_FLAGS "${flag}")
+    endif()
+  endforeach()
+  foreach(flag IN LISTS MULTIWFN_GNU_FORTRAN_FLAGS)
+    add_compile_options($<$<COMPILE_LANGUAGE:Fortran>:${flag}>)
+  endforeach()
 elseif(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
   add_compile_options(
     $<$<COMPILE_LANGUAGE:Fortran>:-fpp>
