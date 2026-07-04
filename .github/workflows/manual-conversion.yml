@@ -1,0 +1,65 @@
+name: manual-conversion
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Manual source
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - pinned
+      format:
+        description: Output format
+        required: true
+        default: all
+        type: choice
+        options:
+          - markdown
+          - pages
+          - sections
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    name: Convert Multiwfn manual
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install converter dependency
+        run: |
+          python3 -m pip install pypdf
+
+      - name: Convert manual
+        run: |
+          set -euo pipefail
+          args=(--format "${{ inputs.format }}" --output-dir build/manual)
+          if [ "${{ inputs.source }}" = "latest" ]; then
+            args+=(--latest)
+          fi
+          python3 tools/manual/convert_manual.py "${args[@]}"
+          {
+            echo "## Manual conversion"
+            echo
+            find build/manual -maxdepth 2 -type f \
+              ! -name '*.pdf' \
+              -printf '%p\n' | sort
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload converted manual
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiwfn-manual-converted-${{ inputs.source }}-${{ inputs.format }}
+          path: |
+            build/manual/**
+            !build/manual/*.pdf
+          if-no-files-found: error
