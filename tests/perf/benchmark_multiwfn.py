@@ -114,10 +114,6 @@ def prepare_runners(system: str, selected: list[str], work_dir: Path) -> tuple[l
             runner = prepare_project_release(system, PRE_BASELINE_TAG, name, downloads, packages)
         elif name == "project-current":
             runner = prepare_project_release(system, CURRENT_TAG, name, downloads, packages)
-        elif name == "project-current-optimized":
-            if system != "linux":
-                raise SystemExit("project-current-optimized is only available on Linux")
-            runner = prepare_project_release(system, CURRENT_TAG, name, downloads, packages, optimized=True)
         else:
             raise SystemExit(f"Unknown version selector: {name}")
         runners.append(runner)
@@ -147,16 +143,9 @@ def prepare_official(system: str, downloads: Path, packages: Path) -> Runner:
     return Runner("official", exe, root, find_settings(root))
 
 
-def prepare_project_release(
-    system: str,
-    tag: str,
-    name: str,
-    downloads: Path,
-    packages: Path,
-    optimized: bool = False,
-) -> Runner:
+def prepare_project_release(system: str, tag: str, name: str, downloads: Path, packages: Path) -> Runner:
     if system == "linux":
-        archive_name = "Multiwfn_noGUI-Linux-optimized.tar.gz" if optimized else "Multiwfn_noGUI-Linux.tar.gz"
+        archive_name = "Multiwfn_noGUI-Linux.tar.gz"
     else:
         archive_name = "Multiwfn_noGUI-Windows.zip"
     archive = downloads / f"{tag}-{archive_name}"

@@ -60,14 +60,6 @@ build-time tool. The final executable is still built by the Rocky 8 compiler
 and libraries, keeping the older runtime baseline without dropping the intended
 CMake/Ninja build path.
 
-CI also builds a separate `Multiwfn_noGUI-Linux-optimized.tar.gz` package on
-Ubuntu 22.04 with GCC/GFortran 16 from the Ubuntu Toolchain PPA. This package is
-performance-oriented and does not replace the Rocky Linux 8 compatibility
-package. It uses the same package-local `lib/` plus `$ORIGIN/lib` layout for
-non-glibc runtime libraries, but its system C library baseline is Ubuntu 22.04
-glibc 2.35. The optimized package is extracted and tested in a clean
-Ubuntu 22.04 container.
-
 ## 2026.6.2 noGUI Port Notes
 
 The CMake noGUI source list should stay close to the upstream `Makefile`.
@@ -113,9 +105,6 @@ recovering performance on heavy real-space grid workloads. The setting was
 validated on the `perf/linux-optimization` branch with the 300^3 ELF benchmark:
 the Rocky Linux 8/glibc 2.28 build kept identical cube hashes and improved the
 internal grid time from 155 s to 130 s in GitHub Actions.
-The Ubuntu 22.04 optimized Linux package uses the same hot-source `O3` override
-so performance comparisons isolate the newer compiler/runtime stack rather than
-changing source-level optimization policy.
 
 CI run history so far:
 
