@@ -5,11 +5,12 @@ freshly built noGUI executable on Linux, macOS, and Windows. The workflow also
 packages release candidates inside the platform build jobs and tests those
 packages before uploading artifacts.
 
-Linux package testing is intentionally done in a clean `ubuntu:24.04` container
-after extracting the release tarball. The container test does not install
-BLAS/LAPACK, so it verifies that the Linux package carries the runtime math and
-Fortran libraries it needs, rather than accidentally relying on the development
-runner.
+Linux package testing is intentionally done in a clean Rocky Linux 8 container
+after extracting the release tarball. The Linux release candidate is also built
+in Rocky Linux 8 so the executable and bundled non-glibc libraries target a
+glibc 2.28 baseline. The container test does not install BLAS/LAPACK, so it
+verifies that the Linux package carries the runtime math and Fortran libraries
+it needs, rather than accidentally relying on the development runner.
 
 Windows package testing extracts the release zip in a normal PowerShell step
 outside the MSYS2 shell and removes MSYS2 paths from `PATH` before running a

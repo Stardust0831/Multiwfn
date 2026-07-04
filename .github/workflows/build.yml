@@ -28,8 +28,43 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev patchelf
+          docker version
+
+      - name: Build, test, and package Linux in glibc 2.28 container
+        if: runner.os == 'Linux'
+        run: |
+          set -o pipefail
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            rockylinux:8 \
+            bash -lc '
+              set -euo pipefail
+              dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip
+              cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
+              cmake --build build --parallel 2 2>&1 | tee build.log
+              bash tests/functional/run_nogui_tests.sh /work/build/Multiwfn_noGUI
+              mkdir -p package/Multiwfn_noGUI-Linux/lib dist
+              cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
+              cp LICENSE.txt package/Multiwfn_noGUI-Linux/LICENSE.txt
+              cp settings.ini package/Multiwfn_noGUI-Linux/settings.ini
+              ldd package/Multiwfn_noGUI-Linux/Multiwfn_noGUI | tee package/Multiwfn_noGUI-Linux/ldd.txt
+              awk "/=> \\// {print \\$3}" package/Multiwfn_noGUI-Linux/ldd.txt | while read -r lib; do
+                base="$(basename "$lib")"
+                case "$base" in
+                  libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
+                    ;;
+                  *)
+                    cp -n "$lib" package/Multiwfn_noGUI-Linux/lib/
+                    ;;
+                esac
+              done
+              if readelf --version-info package/Multiwfn_noGUI-Linux/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/lib/* 2>/dev/null | grep -E "GLIBC_2\\.(29|[3-9][0-9])"; then
+                echo "Found GLIBC symbols newer than 2.28 in Linux release candidate" >&2
+                exit 1
+              fi
+              tar -czf dist/Multiwfn_noGUI-Linux.tar.gz -C package Multiwfn_noGUI-Linux
+            '
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -50,7 +85,7 @@ jobs:
             mingw-w64-ucrt-x86_64-openblas
 
       - name: Configure and build
-        if: runner.os != 'Windows'
+        if: runner.os == 'macOS'
         run: |
           set -o pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
@@ -99,7 +134,7 @@ jobs:
           fi
 
       - name: Functional tests
-        if: runner.os != 'Windows'
+        if: runner.os == 'macOS'
         run: |
           bash tests/functional/run_nogui_tests.sh "$PWD/build/Multiwfn_noGUI"
 
@@ -154,31 +189,7 @@ jobs:
           done
           find package/Multiwfn_noGUI-Windows -maxdepth 1 -type f -printf '%f\n' | sort
 
-      - name: Package Linux release candidate
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          mkdir -p package/Multiwfn_noGUI-Linux/lib dist
-          cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
-          cp LICENSE.txt package/Multiwfn_noGUI-Linux/LICENSE.txt
-          cp settings.ini package/Multiwfn_noGUI-Linux/settings.ini
-          ldd package/Multiwfn_noGUI-Linux/Multiwfn_noGUI | tee package/Multiwfn_noGUI-Linux/ldd.txt
-          awk '/=> \// {print $3}' package/Multiwfn_noGUI-Linux/ldd.txt | while read -r lib; do
-            base="$(basename "$lib")"
-            case "$base" in
-              libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*)
-                ;;
-              *)
-                cp -n "$lib" package/Multiwfn_noGUI-Linux/lib/
-                ;;
-            esac
-          done
-          if compgen -G "package/Multiwfn_noGUI-Linux/lib/*" > /dev/null; then
-            patchelf --set-rpath '$ORIGIN/lib' package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
-          fi
-          tar -czf dist/Multiwfn_noGUI-Linux.tar.gz -C package Multiwfn_noGUI-Linux
-
-      - name: Test Linux release candidate in clean container
+      - name: Test Linux release candidate in clean glibc 2.28 container
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
@@ -188,7 +199,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/work" \
             -w /work \
-            ubuntu:24.04 \
+            rockylinux:8 \
             bash tests/functional/run_nogui_tests.sh /work/clean-test/Multiwfn_noGUI-Linux/Multiwfn_noGUI
 
       - name: Package macOS release candidate
@@ -283,7 +294,7 @@ jobs:
 
           Validation in CI:
           - Linux, macOS, and Windows release-candidate packages built with GNU Fortran.
-          - Linux package extracted and tested in a clean Ubuntu container without installing BLAS/LAPACK.
+          - Linux package built on a glibc 2.28 Rocky Linux 8 baseline, then extracted and tested in a clean Rocky Linux 8 container without installing BLAS/LAPACK.
           - Windows zip extracted and smoke-tested outside the MSYS2 shell, with required MSYS2 runtime DLLs copied beside the executable.
           - Geometry-only XYZ loading and structure analysis workflow.
           - Gaussian cube loading, grid statistics, and cube export workflow.
