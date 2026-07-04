@@ -40,9 +40,13 @@ jobs:
             rockylinux:8 \
             bash -lc '
               set -euo pipefail
-              dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip
-              cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
-              cmake --build build --parallel 2 2>&1 | tee build.log
+              dnf -y install dnf-plugins-core
+              dnf config-manager --set-enabled powertools || true
+              dnf -y install epel-release || true
+              dnf -y install gcc gcc-gfortran make cmake3 ninja-build blas-devel lapack-devel binutils findutils tar gzip
+              cmake3 --version
+              cmake3 -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
+              cmake3 --build build --parallel 2 2>&1 | tee build.log
               bash tests/functional/run_nogui_tests.sh /work/build/Multiwfn_noGUI
               mkdir -p package/Multiwfn_noGUI-Linux/lib dist
               cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
