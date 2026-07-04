@@ -97,7 +97,7 @@ def main():
     proc = subprocess.run(
         [str(args.exe), str(input_path)],
         input=commands,
-        text=True,
+        universal_newlines=True,
         cwd=args.work_dir,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
