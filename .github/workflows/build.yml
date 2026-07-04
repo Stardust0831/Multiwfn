@@ -53,7 +53,7 @@ jobs:
               chmod +x /usr/local/bin/ninja
               cmake --version
               ninja --version
-              cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
+              cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 2>&1 | tee configure.log
               cmake --build build --parallel 2 2>&1 | tee build.log
               bash tests/functional/run_nogui_tests.sh /work/build/Multiwfn_noGUI
               mkdir -p package/Multiwfn_noGUI-Linux/lib dist

@@ -98,6 +98,14 @@ The upstream Makefile uses `-O2` for the general build and lowers `O1.f90` and
 shape for GNU Fortran to reduce compile-time risk and stay closer to the
 validated upstream build profile.
 
+Linux release builds additionally pass `MULTIWFN_GNU_HOT_OPT_LEVEL=O3` for a
+small set of grid-heavy sources: `function.f90`, `grid.f90`, `util.f90`, and
+`libreta_hybrid/libreta.f90`. This keeps the global GNU profile at `O2` while
+recovering performance on heavy real-space grid workloads. The setting was
+validated on the `perf/linux-optimization` branch with the 300^3 ELF benchmark:
+the Rocky Linux 8/glibc 2.28 build kept identical cube hashes and improved the
+internal grid time from 155 s to 130 s in GitHub Actions.
+
 CI run history so far:
 
 - Run 1 failed in build before detailed logs were available.
