@@ -42,16 +42,14 @@ jobs:
               set -euo pipefail
               cat /etc/redhat-release
               dnf -y install dnf-plugins-core
+              dnf config-manager --set-enabled crb || true
               dnf config-manager --set-enabled powertools || true
-              dnf -y install gcc gcc-gfortran make cmake ninja-build blas-devel lapack-devel binutils findutils tar gzip
-              if command -v cmake3 >/dev/null 2>&1; then
-                cmake_cmd=cmake3
-              else
-                cmake_cmd=cmake
-              fi
-              "$cmake_cmd" --version
-              "$cmake_cmd" -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
-              "$cmake_cmd" --build build --parallel 2 2>&1 | tee build.log
+              dnf -y install epel-release
+              dnf -y install gcc gcc-gfortran make cmake3 ninja-build blas-devel lapack-devel binutils findutils tar gzip
+              cmake3 --version
+              ninja --version
+              cmake3 -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
+              cmake3 --build build --parallel 2 2>&1 | tee build.log
               bash tests/functional/run_nogui_tests.sh /work/build/Multiwfn_noGUI
               mkdir -p package/Multiwfn_noGUI-Linux/lib dist
               cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
