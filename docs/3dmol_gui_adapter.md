@@ -29,7 +29,9 @@ DISLIN implementation.
 ## Backend Shape
 
 The preferred implementation is a new Fortran GUI adapter layer that keeps
-calculation routines untouched:
+calculation routines untouched. The current demo implements this shape in
+`noGUI/GUI_3dmol.f90` and can be selected with
+`-DMULTIWFN_GUI_BACKEND=3dmol`.
 
 1. Keep the original public `module GUI` procedure signatures.
 2. In each GUI entry, snapshot the same global state that the DISLIN GUI would
@@ -141,10 +143,10 @@ the mode and default controls should be initialized from `multiwfnGui`.
 
 1. Add frontend modes matching `GUI_mode` and initialize control groups from
    `multiwfnGui.entry`.
-2. Add a Fortran artifact exporter module that writes structure, cube, and
-   manifest files without requiring DISLIN.
-3. Add an optional build switch that compiles a `module GUI` replacement backed
-   by this exporter.
+2. Extend the Fortran artifact exporter so it covers more original GUI state
+   and overlays, beyond the current structure plus `cubmat`/`cubmattmp` demo.
+3. Harden the optional build switch that compiles a `module GUI` replacement
+   backed by this exporter.
 4. Start with `drawisosurgui`, `drawmolgui`, `drawplanegui`, and `setboxGUI`;
    these cover the most important visual and grid workflows.
 5. Add topology, surface extrema, basin, and domain overlays as structured JSON

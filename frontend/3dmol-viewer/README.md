@@ -43,10 +43,11 @@ loads a small periodic slab, repeats the display cell, renders a density-like
 isosurface, and colors that surface by a separate ESP-like cube. It is not a
 physical calculation result.
 
-The workbench does not invoke Multiwfn directly. The intended boundary is:
-Multiwfn or a wrapper writes structure/cube artifacts, then this frontend reads
-those files. This keeps the visualization replacement independent from the
-calculation source.
+The workbench does not run wavefunction calculations itself. In the current
+GUI-demo build, `noGUI/GUI_3dmol.f90` is compiled as Multiwfn's `module GUI`;
+when a GUI entry point is invoked, Multiwfn writes structure/cube artifacts and
+a manifest, then starts `tools/multiwfn_3dmol_server.py` so this frontend can
+load the generated session.
 
 Example manifest:
 

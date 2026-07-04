@@ -19,6 +19,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev zip
+
+      - name: Build 3Dmol GUI demo executable
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-3dmol-gui -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMULTIWFN_GUI_BACKEND=3dmol \
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
+          cmake --build build-3dmol-gui --parallel 2
+          test -x build-3dmol-gui/Multiwfn_3DmolGUI
+
       - name: Package demo
         run: |
           set -euo pipefail
@@ -30,12 +46,52 @@ jobs:
           pkg="Multiwfn-3dmol-gui-demo-${tag}"
           mkdir -p "package/${pkg}/docs"
           mkdir -p "package/${pkg}/frontend"
+          mkdir -p "package/${pkg}/bin"
+          mkdir -p "package/${pkg}/tools"
+          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${pkg}/bin/Multiwfn_3DmolGUI"
+          cp tools/multiwfn_3dmol_server.py "package/${pkg}/tools/"
           cp README.md "package/${pkg}/README.md"
           cp LICENSE.txt "package/${pkg}/LICENSE.txt"
+          cp settings.ini "package/${pkg}/settings.ini"
           cp -R frontend/3dmol-viewer "package/${pkg}/frontend/"
           cp docs/3dmol_gui_adapter.md "package/${pkg}/docs/"
           cp docs/visualization.md "package/${pkg}/docs/"
           cp docs/gui_architecture.md "package/${pkg}/docs/"
+          cat > "package/${pkg}/Multiwfn_3DmolGUI.sh" <<'EOF'
+          #!/usr/bin/env sh
+          set -eu
+          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+          export MULTIWFN_3DMOL_HOME="$HERE"
+          cd "$HERE"
+          exec "$HERE/bin/Multiwfn_3DmolGUI" "$@"
+          EOF
+          chmod +x "package/${pkg}/Multiwfn_3DmolGUI.sh"
+          cat > "package/${pkg}/README.demo.md" <<'EOF'
+          # Multiwfn 3Dmol GUI Demo
+
+          This prerelease contains a Linux demo executable, `Multiwfn_3DmolGUI`,
+          built with a 3Dmol GUI backend compiled in place of the legacy DISLIN
+          `module GUI`.
+
+          Run from this directory:
+
+          ```sh
+          ./Multiwfn_3DmolGUI.sh
+          ```
+
+          When a Multiwfn workflow calls GUI entry points such as `drawmolgui`,
+          `drawisosurgui`, `drawplanegui`, `setboxGUI`, or `miniGUI`, the demo
+          writes a session under `multiwfn_3dmol_session/`, starts the bundled
+          local HTTP service, and opens the 3Dmol/Plotly frontend with the
+          generated manifest.
+
+          This is still a demo. It proves the replacement-backend shape and
+          currently exports structure plus available `cubmat`/`cubmattmp` grids;
+          interactive callbacks that mutate Multiwfn state, such as a full
+          `setboxGUI` round trip, are not complete yet.
+
+          Original Multiwfn license terms are included in `LICENSE.txt`.
+          EOF
           cd package
           zip -qr "../${pkg}.zip" "${pkg}"
           cd ..
@@ -44,13 +100,14 @@ jobs:
       - name: Write release notes
         run: |
           cat > release_notes.md <<'EOF'
-          This prerelease publishes an early 3Dmol/Plotly GUI demo for the Multiwfn engineering fork.
+          This prerelease publishes an early Multiwfn executable with a 3Dmol/Plotly GUI demo backend.
 
           Highlights:
-          - Static 3Dmol workbench with structure loading, cube isosurfaces, cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots, PNG export, and manifest export.
-          - Synthetic Periodic ESP example for checking the frontend behavior.
-          - Manifest field `multiwfnGui` starts aligning the frontend with original `GUI.f90` entry points such as `drawmolgui`, `drawisosurgui`, `drawplanegui`, and `setboxGUI`.
-          - This is not a replacement for the official DISLIN GUI yet; it is a frontend demo and adapter design preview.
+          - Linux demo executable `Multiwfn_3DmolGUI`, built with a new `module GUI` backend compiled in place of the legacy DISLIN GUI.
+          - GUI entry points such as `drawmolgui`, `drawisosurgui`, `drawplanegui`, `setboxGUI`, and `miniGUI` now write a 3Dmol session and start a bundled local HTTP service.
+          - The session exports the current structure and available `cubmat`/`cubmattmp` grids, then opens the 3Dmol/Plotly frontend through a `multiwfnGui` manifest.
+          - The frontend includes structure loading, cube isosurfaces, cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots, PNG export, and manifest export.
+          - This is still a demo. Full interactive callbacks that mutate Multiwfn state, including a complete `setboxGUI` round trip, are not finished.
 
           The repository also includes CI/CMake engineering work for noGUI builds:
           - GitHub Actions builds and tests Linux, macOS, and Windows.
@@ -75,9 +132,20 @@ jobs:
             git tag "$tag"
             git push origin "$tag"
           fi
-          gh release create "$tag" "$ZIP_PATH" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "3Dmol GUI demo preview" \
-            --notes-file release_notes.md \
-            --prerelease
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "3Dmol GUI demo preview" \
+              --notes-file release_notes.md \
+              --prerelease
+            gh release upload "$tag" "$ZIP_PATH" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$tag" "$ZIP_PATH" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "3Dmol GUI demo preview" \
+              --notes-file release_notes.md \
+              --prerelease
+          fi

@@ -19,19 +19,23 @@ carry that license.
   the zip outside the MSYS2 development shell.
 - A scheduled upstream-source tracking workflow that can check official
   Multiwfn source archives and maintain a dedicated tracking branch.
-- A frontend-only 3Dmol.js/Plotly GUI demo under `frontend/3dmol-viewer`.
+- A 3Dmol.js/Plotly GUI backend demo under `frontend/3dmol-viewer` and
+  `noGUI/GUI_3dmol.f90`.
 
 ## 3Dmol GUI Demo
 
-The GUI work is currently a demo and design prototype. It does not replace the
-Fortran GUI backend yet.
+The GUI work is currently a demo and design prototype. It can be compiled as a
+replacement `module GUI` backend, but it is not a complete replacement for all
+legacy DISLIN callbacks yet.
 
 The intended direction is compatibility with Multiwfn's original `GUI.f90`
 interaction model. The web frontend should become a 3Dmol/Plotly backend for
 the existing GUI workflows, not merely a generic cube viewer. The planned
 adapter keeps original entry points such as `drawmolgui`,
 `drawisosurgui(iallowsetstyle)`, `drawplanegui(...)`, and `setboxGUI`, while
-exporting structure, cube, plot, and overlay artifacts for the frontend.
+exporting structure, cube, plot, and overlay artifacts for the frontend. The
+current `3dmol` backend writes a session manifest and starts a local HTTP
+service through `tools/multiwfn_3dmol_server.py`.
 
 Run the current demo locally:
 
@@ -47,10 +51,22 @@ cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots,
 PNG export, and manifest export. The `Periodic ESP` sample is synthetic test
 data for checking the UI; it is not a physical Multiwfn calculation.
 
+Build the current GUI backend demo:
+
+```sh
+cmake -S . -B build-3dmol-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol
+cmake --build build-3dmol-gui --parallel
+```
+
+Run `Multiwfn_3DmolGUI` from a checkout or release package. When a workflow
+invokes a GUI entry point, Multiwfn writes `multiwfn_3dmol_session/`, launches a
+local service, and opens the 3Dmol frontend with the generated manifest.
+
 GUI demo prereleases are published separately from the official-style noGUI
 packages. A tag named `gui-demo-preview-*` triggers the dedicated
 `gui-demo-release` workflow and creates a GitHub prerelease containing the
-static demo, adapter notes, and `LICENSE.txt`.
+Linux `Multiwfn_3DmolGUI` demo executable, frontend, service script, adapter
+notes, `settings.ini`, and `LICENSE.txt`.
 
 See:
 
@@ -69,6 +85,9 @@ cmake --build build --parallel
 
 The original upstream `Makefile` is kept for the traditional upstream build
 path. The CMake path is intentionally narrow and CI-oriented.
+
+Passing `-DMULTIWFN_GUI_BACKEND=3dmol` switches the CMake build from the legacy
+DISLIN GUI module to the demo 3Dmol backend and produces `Multiwfn_3DmolGUI`.
 
 See `docs/build.md` and `docs/release.md` for platform details.
 

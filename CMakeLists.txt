@@ -12,6 +12,8 @@ option(MULTIWFN_BUILD_GUI "Build the DISLIN/Motif GUI executable" OFF)
 option(MULTIWFN_WITH_OPENMP "Enable OpenMP when the compiler supports it" ON)
 option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF)
 option(MULTIWFN_WINDOWS_STATIC_LINK "Prefer static runtime and math libraries for Windows redistribution" ON)
+set(MULTIWFN_GUI_BACKEND "dislin" CACHE STRING "GUI backend used by the CMake build: dislin or 3dmol")
+set_property(CACHE MULTIWFN_GUI_BACKEND PROPERTY STRINGS dislin 3dmol)
 set(MULTIWFN_GNU_OPT_LEVEL "O2" CACHE STRING "GNU Fortran optimization level for Release builds")
 set(MULTIWFN_GNU_HOT_OPT_LEVEL "" CACHE STRING "Optional GNU Fortran optimization level for selected hot sources")
 set(MULTIWFN_GNU_EXTRA_FLAGS "" CACHE STRING "Extra GNU Fortran compile flags, separated by spaces")
@@ -41,6 +43,10 @@ message(STATUS "LAPACK libraries: ${LAPACK_LIBRARIES}")
 
 if(MULTIWFN_BUILD_GUI)
   message(FATAL_ERROR "The CMake build currently supports noGUI only; use the original Makefile for the GUI build.")
+endif()
+
+if(NOT MULTIWFN_GUI_BACKEND MATCHES "^(dislin|3dmol)$")
+  message(FATAL_ERROR "MULTIWFN_GUI_BACKEND must be dislin or 3dmol")
 endif()
 
 set(CMAKE_Fortran_PREPROCESS ON)
@@ -96,7 +102,6 @@ set(MULTIWFN_CORE_SOURCES
   libreta_hybrid/libreta.f90
   function.f90
   plot.f90
-  GUI.f90
   sub.f90
   integral.f90
   Lebedev-Laikov.F
@@ -148,6 +153,14 @@ set(MULTIWFN_CORE_SOURCES
   ext/2F2.f90
 )
 
+set(MULTIWFN_GUI_SOURCE GUI.f90)
+set(MULTIWFN_EXECUTABLE_NAME Multiwfn_noGUI)
+if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
+  set(MULTIWFN_GUI_SOURCE noGUI/GUI_3dmol.f90)
+  set(MULTIWFN_EXECUTABLE_NAME Multiwfn_3DmolGUI)
+endif()
+list(INSERT MULTIWFN_CORE_SOURCES 10 "${MULTIWFN_GUI_SOURCE}")
+
 # DFTxclib.F uses fixed-form continuation lines beginning with '#'. Running it
 # through cpp makes GNU Fortran report "invalid preprocessing directive".
 set_source_files_properties(DFTxclib.F PROPERTIES Fortran_PREPROCESS OFF)
@@ -181,32 +194,32 @@ else()
   list(APPEND MULTIWFN_CORE_SOURCES ext/no2F2.c)
 endif()
 
-add_executable(Multiwfn_noGUI ${MULTIWFN_CORE_SOURCES})
+add_executable(${MULTIWFN_EXECUTABLE_NAME} ${MULTIWFN_CORE_SOURCES})
 
 if(WIN32)
-  target_sources(Multiwfn_noGUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.rc")
+  target_sources(${MULTIWFN_EXECUTABLE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.rc")
 endif()
-target_include_directories(Multiwfn_noGUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/ext")
-target_link_libraries(Multiwfn_noGUI PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+target_include_directories(${MULTIWFN_EXECUTABLE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/ext")
+target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 
 if(WIN32 AND MULTIWFN_WINDOWS_STATIC_LINK AND CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
-  target_link_options(Multiwfn_noGUI PRIVATE -static -static-libgcc -static-libgfortran)
-  target_link_libraries(Multiwfn_noGUI PRIVATE ${MULTIWFN_WINDOWS_STATIC_EXTRA_LIBRARIES})
+  target_link_options(${MULTIWFN_EXECUTABLE_NAME} PRIVATE -static -static-libgcc -static-libgfortran)
+  target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${MULTIWFN_WINDOWS_STATIC_EXTRA_LIBRARIES})
 endif()
 
 if(MULTIWFN_WITH_FD)
-  target_include_directories(Multiwfn_noGUI PRIVATE ${GMP_INCLUDE_DIRS} ${FLINT_INCLUDE_DIRS} ${ARB_INCLUDE_DIRS})
-  target_link_libraries(Multiwfn_noGUI PRIVATE ${GMP_LINK_LIBRARIES} ${FLINT_LINK_LIBRARIES} ${ARB_LINK_LIBRARIES})
+  target_include_directories(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${GMP_INCLUDE_DIRS} ${FLINT_INCLUDE_DIRS} ${ARB_INCLUDE_DIRS})
+  target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${GMP_LINK_LIBRARIES} ${FLINT_LINK_LIBRARIES} ${ARB_LINK_LIBRARIES})
 endif()
 
 if(MULTIWFN_WITH_OPENMP)
   find_package(OpenMP)
   if(OpenMP_Fortran_FOUND)
-    target_link_libraries(Multiwfn_noGUI PRIVATE OpenMP::OpenMP_Fortran)
+    target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE OpenMP::OpenMP_Fortran)
   else()
     message(WARNING "OpenMP was requested but not found; continuing without OpenMP.")
   endif()
 endif()
 
-install(TARGETS Multiwfn_noGUI RUNTIME DESTINATION bin)
+install(TARGETS ${MULTIWFN_EXECUTABLE_NAME} RUNTIME DESTINATION bin)
 install(FILES settings.ini DESTINATION etc/multiwfn)

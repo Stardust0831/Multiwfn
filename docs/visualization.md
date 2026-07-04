@@ -1,13 +1,15 @@
 # Visualization Notes
 
-The current visualization work keeps the Multiwfn Fortran core unchanged. The
-usable frontend is a static 3Dmol.js workbench under `frontend/3dmol-viewer`.
-The VMD bridge idea is not the active path; only the artifact-bridge boundary is
-kept.
+The current visualization work keeps the Multiwfn Fortran calculation modules
+unchanged. The frontend is a 3Dmol.js workbench under `frontend/3dmol-viewer`,
+and the demo GUI backend is `noGUI/GUI_3dmol.f90`. The VMD bridge idea is not
+the active path; only the artifact-bridge boundary is kept.
 
 ## Current Boundary
 
 - Multiwfn remains responsible for wavefunction analysis and cube generation.
+- The optional `MULTIWFN_GUI_BACKEND=3dmol` CMake build compiles a replacement
+  `module GUI` that preserves the original GUI entry point names.
 - The frontend reads structure files, Gaussian cube files, and optional JSON
   manifests from disk or HTTP.
 - HOMO, LUMO, density, ELF, ESP, and custom cube data are represented as
@@ -23,7 +25,7 @@ kept.
   artifacts.
 
 This keeps the code path non-invasive: no Fortran menu or analysis routine is
-changed for visualization yet.
+changed for visualization. The demo only swaps the GUI module boundary.
 
 ## Manual Review Focus
 
