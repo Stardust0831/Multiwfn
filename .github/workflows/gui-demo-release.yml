@@ -151,19 +151,11 @@ jobs:
             git push origin "$tag"
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$tag" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "3Dmol GUI demo preview" \
-              --notes-file release_notes.md \
-              --prerelease
-            gh release upload "$tag" "$ZIP_PATH" \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-          else
-            gh release create "$tag" "$ZIP_PATH" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "3Dmol GUI demo preview" \
-              --notes-file release_notes.md \
-              --prerelease
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
           fi
+          gh release create "$tag" "$ZIP_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "3Dmol GUI demo preview" \
+            --notes-file release_notes.md \
+            --prerelease
