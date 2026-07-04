@@ -40,13 +40,18 @@ jobs:
             rockylinux:8 \
             bash -lc '
               set -euo pipefail
+              cat /etc/redhat-release
               dnf -y install dnf-plugins-core
               dnf config-manager --set-enabled powertools || true
-              dnf -y install epel-release || true
-              dnf -y install gcc gcc-gfortran make cmake3 ninja-build blas-devel lapack-devel binutils findutils tar gzip
-              cmake3 --version
-              cmake3 -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
-              cmake3 --build build --parallel 2 2>&1 | tee build.log
+              dnf -y install gcc gcc-gfortran make cmake ninja-build blas-devel lapack-devel binutils findutils tar gzip
+              if command -v cmake3 >/dev/null 2>&1; then
+                cmake_cmd=cmake3
+              else
+                cmake_cmd=cmake
+              fi
+              "$cmake_cmd" --version
+              "$cmake_cmd" -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
+              "$cmake_cmd" --build build --parallel 2 2>&1 | tee build.log
               bash tests/functional/run_nogui_tests.sh /work/build/Multiwfn_noGUI
               mkdir -p package/Multiwfn_noGUI-Linux/lib dist
               cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
@@ -68,7 +73,7 @@ jobs:
                 exit 1
               fi
               tar -czf dist/Multiwfn_noGUI-Linux.tar.gz -C package Multiwfn_noGUI-Linux
-            '
+            ' 2>&1 | tee linux-container.log
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -113,10 +118,10 @@ jobs:
             echo "## Build failure tail"
             echo
             echo '```text'
-            tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || true
+            tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || tail -n 200 linux-container.log 2>/dev/null || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped)' build.log configure.log 2>/dev/null || true)"
+          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped|No match for argument|Unable to find a match|Problem:|No such file)' build.log configure.log linux-container.log 2>/dev/null || true)"
           if [ -n "$first_error" ]; then
             echo "::error::$first_error"
           fi

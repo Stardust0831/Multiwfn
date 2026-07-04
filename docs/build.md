@@ -53,7 +53,7 @@ libraries reported by `ldd` into a package-local `lib/` directory and builds the
 executable with an `$ORIGIN/lib` rpath. It rejects Linux release candidates that
 reference GLIBC symbols newer than 2.28, then extracts and tests the tarball in
 a clean Rocky Linux 8 container without installing BLAS/LAPACK. The container
-uses Rocky's `cmake3` package rather than the GitHub runner's CMake so the
+uses Rocky's own CMake package rather than the GitHub runner's CMake so the
 entire Linux release build stays on the older runtime baseline.
 
 ## 2026.6.2 noGUI Port Notes
