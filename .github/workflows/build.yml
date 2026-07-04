@@ -42,8 +42,10 @@ jobs:
               set -euo pipefail
               cat /etc/redhat-release
               dnf -y install dnf-plugins-core
-              dnf config-manager --set-enabled crb || true
-              dnf config-manager --set-enabled powertools || true
+              dnf repolist all
+              if dnf repolist all | grep -q "^powertools"; then
+                dnf config-manager --set-enabled powertools
+              fi
               dnf -y install epel-release
               dnf -y install gcc gcc-gfortran make cmake3 ninja-build blas-devel lapack-devel binutils findutils tar gzip
               cmake3 --version
@@ -75,9 +77,14 @@ jobs:
           status=${PIPESTATUS[0]}
           echo "Linux container status: $status"
           if [ "$status" -ne 0 ]; then
-            tail -n 80 linux-container.log | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g' | while IFS= read -r line; do
-              echo "::error::$line"
-            done
+            {
+              for log in configure.log build.log linux-container.log; do
+                [ -f "$log" ] || continue
+                echo "===== $log tail ====="
+                tail -n 120 "$log"
+              done
+            } > linux-failure-tail.log
+            python3 -c 'from pathlib import Path; message = Path("linux-failure-tail.log").read_text(errors="replace")[-6000:] or "Linux container failed before logs were written"; message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"); print(f"::error file=linux-container.log::{message}")'
           fi
           exit "$status"
 
