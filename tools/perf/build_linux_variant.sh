@@ -6,6 +6,7 @@ setup_script="${SETUP_SCRIPT:?SETUP_SCRIPT is required}"
 enable_script="${ENABLE_SCRIPT:-:}"
 cmake_extra="${CMAKE_EXTRA:-}"
 compat_check="${COMPAT_CHECK:-true}"
+bench_grid="${BENCH_GRID:-300,300,300}"
 
 build_dir="build-${variant}"
 result_dir="perf-results/${variant}"
@@ -77,7 +78,7 @@ python3 tools/perf/run_grid_benchmark.py \
   --settings "$PWD/settings.ini" \
   --input "$example_input" \
   --property-menu 9 \
-  --grid 300,300,300 \
+  --grid "$bench_grid" \
   --threads 4 \
   --work-dir "$PWD/$result_dir/work" \
   --summary-out "$PWD/$result_dir/benchmark-summary.md" \

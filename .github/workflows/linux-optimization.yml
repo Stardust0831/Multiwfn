@@ -3,10 +3,16 @@ name: linux-optimization
 on:
   push:
     branches: [perf/linux-optimization]
+    paths-ignore:
+      - 'ci-results/**'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: linux-optimization-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   variant:
@@ -20,6 +26,7 @@ jobs:
           - name: rocky8-gcc8-o2
             image: rockylinux:8
             compat_check: "true"
+            bench_grid: 160,160,160
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2
             enable: ":"
             setup: >-
@@ -31,6 +38,7 @@ jobs:
           - name: rocky8-gcc8-o2-hot-o3
             image: rockylinux:8
             compat_check: "true"
+            bench_grid: 160,160,160
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
             enable: ":"
             setup: >-
@@ -42,6 +50,7 @@ jobs:
           - name: rocky8-gcc8-o2-hot-o3-fno-math-errno
             image: rockylinux:8
             compat_check: "true"
+            bench_grid: 160,160,160
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 -DMULTIWFN_GNU_EXTRA_FLAGS=-fno-math-errno
             enable: ":"
             setup: >-
@@ -53,6 +62,7 @@ jobs:
           - name: rocky8-gcc-toolset12-o2
             image: rockylinux:8
             compat_check: "true"
+            bench_grid: 160,160,160
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2
             enable: source /opt/rh/gcc-toolset-12/enable
             setup: >-
@@ -64,6 +74,7 @@ jobs:
           - name: rocky8-gcc-toolset12-o2-hot-o3
             image: rockylinux:8
             compat_check: "true"
+            bench_grid: 160,160,160
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
             enable: source /opt/rh/gcc-toolset-12/enable
             setup: >-
@@ -75,6 +86,7 @@ jobs:
           - name: ubuntu24-gcc13-o3-fast
             image: ubuntu:24.04
             compat_check: "false"
+            bench_grid: 160,160,160
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
             enable: ":"
             setup: >-
@@ -93,6 +105,7 @@ jobs:
           ENABLE_SCRIPT: ${{ matrix.enable }}
           CMAKE_EXTRA: ${{ matrix.cmake_extra }}
           COMPAT_CHECK: ${{ matrix.compat_check }}
+          BENCH_GRID: ${{ matrix.bench_grid }}
         run: |
           set -euo pipefail
           docker run --rm \
@@ -103,6 +116,7 @@ jobs:
             -e ENABLE_SCRIPT \
             -e CMAKE_EXTRA \
             -e COMPAT_CHECK \
+            -e BENCH_GRID \
             "${{ matrix.image }}" \
             bash tools/perf/build_linux_variant.sh 2>&1 | tee "linux-optimization-${{ matrix.name }}.log"
 
