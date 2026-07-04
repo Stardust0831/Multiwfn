@@ -33,7 +33,7 @@ jobs:
       - name: Build, test, and package Linux in glibc 2.28 container
         if: runner.os == 'Linux'
         run: |
-          set -o pipefail
+          set +e
           docker run --rm \
             -v "$PWD:/work" \
             -w /work \
@@ -72,6 +72,9 @@ jobs:
               fi
               tar -czf dist/Multiwfn_noGUI-Linux.tar.gz -C package Multiwfn_noGUI-Linux
             ' 2>&1 | tee linux-container.log
+          status=${PIPESTATUS[0]}
+          echo "Linux container status: $status"
+          exit "$status"
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -123,6 +126,17 @@ jobs:
           if [ -n "$first_error" ]; then
             echo "::error::$first_error"
           fi
+
+      - name: Upload Linux failure logs
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-failure-logs
+          path: |
+            linux-container.log
+            configure.log
+            build.log
+          if-no-files-found: ignore
 
       - name: Summarize Windows build failure
         if: failure() && runner.os == 'Windows'
