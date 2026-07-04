@@ -61,7 +61,7 @@ jobs:
               cp LICENSE.txt package/Multiwfn_noGUI-Linux/LICENSE.txt
               cp settings.ini package/Multiwfn_noGUI-Linux/settings.ini
               ldd package/Multiwfn_noGUI-Linux/Multiwfn_noGUI | tee package/Multiwfn_noGUI-Linux/ldd.txt
-              awk "/=> \\// {print \\$3}" package/Multiwfn_noGUI-Linux/ldd.txt | while read -r lib; do
+              awk '\''/=> \// {print $3}'\'' package/Multiwfn_noGUI-Linux/ldd.txt | while read -r lib; do
                 base="$(basename "$lib")"
                 case "$base" in
                   libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
