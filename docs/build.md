@@ -52,7 +52,9 @@ container to keep the glibc baseline at 2.28. The workflow copies non-glibc
 libraries reported by `ldd` into a package-local `lib/` directory and builds the
 executable with an `$ORIGIN/lib` rpath. It rejects Linux release candidates that
 reference GLIBC symbols newer than 2.28, then extracts and tests the tarball in
-a clean Rocky Linux 8 container without installing BLAS/LAPACK.
+a clean Rocky Linux 8 container without installing BLAS/LAPACK. The container
+uses Rocky's `cmake3` package rather than the GitHub runner's CMake so the
+entire Linux release build stays on the older runtime baseline.
 
 ## 2026.6.2 noGUI Port Notes
 
