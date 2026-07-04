@@ -21,11 +21,17 @@ adapter boundary in front of existing routines.
 The practical target is therefore:
 
 - keep Fortran computation and file I/O unchanged;
-- bypass DISLIN rendering in the noGUI build;
+- keep the original public `module GUI` entry points as the compatibility
+  contract;
+- bypass DISLIN rendering in the noGUI/3Dmol build;
 - expose results as standard artifacts such as XYZ, PDB, cube, text tables, and
   optional metadata manifests;
 - let the frontend own camera, style, surface display, labels, measurement, and
   other presentation concerns.
+
+The active frontend target is the independent 3Dmol.js workbench in
+`frontend/3dmol-viewer`. VMD is not part of the current replacement path. The
+compatibility-oriented adapter plan is in `docs/3dmol_gui_adapter.md`.
 
 ## Current Code Shape
 
@@ -78,17 +84,23 @@ presentation backend over shared analysis state.
 
 ## Existing Frontend
 
-`frontend/3dmol-viewer` is already a frontend-only prototype. It does not invoke
-Multiwfn. It can:
+`frontend/3dmol-viewer` is already a frontend-only workbench. It does not
+invoke Multiwfn. It can:
 
 - load structures from XYZ, PDB, SDF/MOL, MOL2, and PQR text files;
 - load Gaussian cube files;
-- keep separate HOMO and LUMO cube slots;
-- draw positive and negative isosurfaces with adjustable isovalue and opacity;
+- keep independent cube layers for HOMO, LUMO, density, ELF, ESP, and custom
+  scalar fields;
+- draw signed, positive-only, and negative-only isosurfaces with adjustable
+  isovalue, opacity, colors, surface smoothness, ambient occlusion, and outline;
+- handle camera, axes, labels, spin, PNG export, and lightweight manifest
+  export;
 - extract atom positions from a cube file when no separate structure is loaded.
 
 That prototype matches the least invasive integration boundary: Multiwfn
-produces structure and cube files, and the browser renders them.
+produces structure and cube files, and the browser renders them. However, the
+longer-term replacement should still mirror the original `GUI.f90` modes rather
+than becoming an unrelated file viewer.
 
 ## Artifact Boundary
 
@@ -149,6 +161,15 @@ Responsibilities:
 This is the safest path because it avoids Fortran changes and uses the current
 noGUI build exactly as intended.
 
+The wrapper should remain a separate program or script. Its only contract with
+the frontend is a directory of artifacts plus a manifest. This prevents UI
+iteration from forcing rebuilds of Multiwfn itself.
+
+This phase is useful for proving rendering behavior, but it is not the final
+interaction model. The manifest should already include original GUI semantics
+such as `entry=drawisosurgui`, `GUI_mode=3`, `sur_value`, and
+`iallowsetstyle`, so the frontend state matches Multiwfn's old GUI concepts.
+
 Limitations:
 
 - menu scripting is brittle when prompts change;
@@ -173,6 +194,23 @@ Possible commands:
 
 The adapter can be a separate Fortran file, a batch mode in the main program, or
 an external process wrapper if avoiding Fortran edits remains a hard rule.
+
+For GUI replacement, the preferred thin adapter is a replacement backend for
+`module GUI` that preserves the public procedure names:
+
+- `drawmolgui`;
+- `drawisosurgui(iallowsetstyle)`;
+- `drawplanegui(init1,end1,init2,end2,init3,end3,idrawtype)`;
+- `drawmoltopogui`;
+- `drawsurfanalysis`;
+- `drawbasinintgui`;
+- `drawdomaingui`;
+- `setboxGUI`;
+- `miniGUI`.
+
+This adapter can be compiled instead of the DISLIN `GUI.f90` in a future
+`MULTIWFN_GUI_BACKEND=3dmol` build while leaving the computation modules'
+existing calls unchanged.
 
 ### Phase 3: Module Boundary Cleanup
 

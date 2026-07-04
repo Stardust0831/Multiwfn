@@ -3,102 +3,369 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Multiwfn 3Dmol Viewer</title>
+    <title>Multiwfn 3Dmol Workbench</title>
     <link rel="stylesheet" href="styles.css">
     <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-3.0.1.min.js"></script>
   </head>
   <body>
     <main class="app-shell">
-      <aside class="panel" aria-label="Controls">
-        <div class="brand">
-          <h1>Multiwfn Viewer</h1>
+      <aside class="sidebar" aria-label="Controls">
+        <header class="brand">
+          <div>
+            <h1>Multiwfn</h1>
+            <p>3Dmol Workbench</p>
+          </div>
           <span id="status">Ready</span>
-        </div>
+        </header>
 
-        <section class="group">
-          <h2>Structure</h2>
-          <label class="file-row">
-            <span>File</span>
-            <input id="structure-file" type="file" accept=".xyz,.pdb,.sdf,.mol,.mol2,.pqr,.cif">
-          </label>
-          <div class="control-grid">
-            <label>
-              <span>Format</span>
-              <select id="structure-format">
-                <option value="auto">Auto</option>
-                <option value="xyz">XYZ</option>
-                <option value="pdb">PDB</option>
-                <option value="sdf">SDF/MOL</option>
-                <option value="mol2">MOL2</option>
-                <option value="pqr">PQR</option>
-              </select>
+        <nav class="tabs" aria-label="Control sections">
+          <button class="tab is-active" data-tab="scene" type="button">Scene</button>
+          <button class="tab" data-tab="layers" type="button">Cubes</button>
+          <button class="tab" data-tab="periodic" type="button">Periodic</button>
+          <button class="tab" data-tab="slices" type="button">Slices</button>
+          <button class="tab" data-tab="plots" type="button">Plots</button>
+          <button class="tab" data-tab="style" type="button">Style</button>
+          <button class="tab" data-tab="export" type="button">Export</button>
+        </nav>
+
+        <section id="tab-scene" class="tab-panel is-active">
+          <div class="group">
+            <h2>Structure</h2>
+            <label class="file-row">
+              <span>Structure file</span>
+              <input id="structure-file" type="file" accept=".xyz,.pdb,.sdf,.mol,.mol2,.pqr,.cif">
             </label>
-            <label>
-              <span>Style</span>
-              <select id="model-style">
-                <option value="stick">Stick</option>
-                <option value="sphere">Sphere</option>
-                <option value="line">Line</option>
-                <option value="ballstick">Ball+Stick</option>
-              </select>
-            </label>
+            <div class="control-grid">
+              <label>
+                <span>Format</span>
+                <select id="structure-format">
+                  <option value="auto">Auto</option>
+                  <option value="xyz">XYZ</option>
+                  <option value="pdb">PDB</option>
+                  <option value="sdf">SDF/MOL</option>
+                  <option value="mol2">MOL2</option>
+                  <option value="pqr">PQR</option>
+                  <option value="cif">CIF</option>
+                </select>
+              </label>
+              <label>
+                <span>Representation</span>
+                <select id="model-style">
+                  <option value="stick">Stick</option>
+                  <option value="ballstick" selected>Ball+Stick</option>
+                  <option value="sphere">Spacefill</option>
+                  <option value="line">Wire</option>
+                  <option value="cartoon">Cartoon</option>
+                </select>
+              </label>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>Atom scale</span>
+                <input id="atom-scale" type="range" min="0.12" max="0.75" step="0.01" value="0.24">
+              </label>
+              <label>
+                <span>Bond radius</span>
+                <input id="bond-radius" type="range" min="0.04" max="0.32" step="0.01" value="0.14">
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="sample-xyz" type="button">Sample</button>
+              <button id="reset-view" type="button">Center</button>
+              <button id="clear-structure" type="button">Clear</button>
+            </div>
           </div>
-          <div class="button-row">
-            <button id="sample-xyz" type="button">Sample XYZ</button>
-            <button id="reset-view" type="button">Center</button>
+
+          <div class="group">
+            <h2>Workspace</h2>
+            <label class="file-row">
+              <span>Manifest</span>
+              <input id="manifest-file" type="file" accept=".json,application/json">
+            </label>
+            <div class="button-row">
+              <button id="load-query-manifest" type="button">Load URL</button>
+              <button id="sample-scene" type="button">Sample Scene</button>
+              <button id="sample-periodic-esp" type="button">Periodic ESP</button>
+            </div>
           </div>
         </section>
 
-        <section class="group">
-          <h2>Orbitals</h2>
-          <label>
-            <span>Slot</span>
-            <select id="orbital-slot">
-              <option value="homo">HOMO</option>
-              <option value="lumo">LUMO</option>
-            </select>
-          </label>
-          <label class="file-row">
-            <span>File</span>
-            <input id="cube-file" type="file" accept=".cub,.cube">
-          </label>
-          <div class="control-grid">
-            <label>
-              <span>Iso</span>
-              <input id="iso-value" type="number" min="0.0001" step="0.005" value="0.015">
+        <section id="tab-layers" class="tab-panel">
+          <div class="group">
+            <h2>Cube Layer</h2>
+            <label class="file-row">
+              <span>Cube file</span>
+              <input id="cube-file" type="file" accept=".cub,.cube">
             </label>
-            <label>
-              <span>Opacity</span>
-              <input id="surface-opacity" type="range" min="0.05" max="1" step="0.05" value="0.68">
-            </label>
+            <div class="control-grid">
+              <label>
+                <span>Role</span>
+                <select id="cube-role">
+                  <option value="homo">HOMO</option>
+                  <option value="lumo">LUMO</option>
+                  <option value="density">Density</option>
+                  <option value="elf">ELF</option>
+                  <option value="esp">ESP</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label>
+                <span>Mode</span>
+                <select id="surface-mode">
+                  <option value="signed">Signed</option>
+                  <option value="positive">Positive</option>
+                  <option value="negative">Negative</option>
+                </select>
+              </label>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>Isovalue</span>
+                <input id="iso-value" type="number" min="0.000001" step="0.005" value="0.015">
+              </label>
+              <label>
+                <span>Opacity</span>
+                <input id="surface-opacity" type="range" min="0.05" max="1" step="0.05" value="0.68">
+              </label>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>Positive color</span>
+                <input id="positive-color" type="color" value="#2869d8">
+              </label>
+              <label>
+                <span>Negative color</span>
+                <input id="negative-color" type="color" value="#d6435f">
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="add-cube-layer" type="button">Add Layer</button>
+              <button id="sample-homo" type="button">HOMO</button>
+              <button id="sample-lumo" type="button">LUMO</button>
+              <button id="clear-cubes" type="button">Clear Cubes</button>
+            </div>
           </div>
-          <div class="checks">
-            <label><input id="show-positive" type="checkbox" checked> Positive</label>
-            <label><input id="show-negative" type="checkbox" checked> Negative</label>
-          </div>
-          <div class="button-row">
-            <button id="sample-homo" type="button">Sample HOMO</button>
-            <button id="sample-lumo" type="button">Sample LUMO</button>
-            <button id="clear-cube" type="button">Clear Slot</button>
-            <button id="clear-all-cubes" type="button">Clear All</button>
+
+          <div class="group layer-group">
+            <h2>Layers</h2>
+            <div id="layer-list" class="layer-list"></div>
           </div>
         </section>
 
-        <section class="group compact">
-          <h2>View</h2>
-          <div class="checks">
-            <label><input id="ambient-occlusion" type="checkbox" checked> AO</label>
-            <label><input id="outline" type="checkbox" checked> Outline</label>
-            <label><input id="spin" type="checkbox"> Spin</label>
+        <section id="tab-periodic" class="tab-panel">
+          <div class="group">
+            <h2>Cell</h2>
+            <div class="checks">
+              <label><input id="periodic-enabled" type="checkbox"> Periodic</label>
+              <label><input id="show-unit-cell" type="checkbox" checked> Unit cell</label>
+              <label><input id="tile-cubes" type="checkbox"> Tile cube surfaces</label>
+            </div>
+            <div class="control-grid triple">
+              <label>
+                <span>a vector</span>
+                <input id="cell-a" type="text" value="6.0, 0.0, 0.0">
+              </label>
+              <label>
+                <span>b vector</span>
+                <input id="cell-b" type="text" value="0.0, 6.0, 0.0">
+              </label>
+              <label>
+                <span>c vector</span>
+                <input id="cell-c" type="text" value="0.0, 0.0, 6.0">
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="cell-from-cube" type="button">Cell From Cube</button>
+              <button id="apply-periodic" type="button">Apply</button>
+            </div>
+          </div>
+          <div class="group">
+            <h2>Expansion Range</h2>
+            <div class="control-grid triple">
+              <label>
+                <span>A range</span>
+                <input id="range-a" type="text" value="0, 1">
+              </label>
+              <label>
+                <span>B range</span>
+                <input id="range-b" type="text" value="0, 1">
+              </label>
+              <label>
+                <span>C range</span>
+                <input id="range-c" type="text" value="0, 1">
+              </label>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>Structure repeat</span>
+                <select id="structure-repeat-mode">
+                  <option value="range" selected>Fractional range</option>
+                  <option value="integer">Integer supercell</option>
+                </select>
+              </label>
+              <label>
+                <span>Cube repeat cap</span>
+                <input id="cube-repeat-cap" type="number" min="1" max="27" step="1" value="8">
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-slices" class="tab-panel">
+          <div class="group">
+            <h2>Cube Slice</h2>
+            <div class="control-grid">
+              <label>
+                <span>Cube</span>
+                <select id="slice-layer"></select>
+              </label>
+              <label>
+                <span>Plane</span>
+                <select id="slice-axis">
+                  <option value="z" selected>XY at Z</option>
+                  <option value="y">XZ at Y</option>
+                  <option value="x">YZ at X</option>
+                </select>
+              </label>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>Position</span>
+                <input id="slice-position" type="range" min="0" max="1" step="0.01" value="0.5">
+              </label>
+              <label>
+                <span>Colors</span>
+                <select id="slice-colormap">
+                  <option value="RdBu" selected>Red-Blue</option>
+                  <option value="Viridis">Viridis</option>
+                  <option value="Jet">Jet</option>
+                  <option value="Portland">Portland</option>
+                </select>
+              </label>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>Color min</span>
+                <input id="slice-min" type="number" step="0.001" placeholder="Auto">
+              </label>
+              <label>
+                <span>Color max</span>
+                <input id="slice-max" type="number" step="0.001" placeholder="Auto">
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="draw-slice" type="button">Draw Slice</button>
+              <button id="sample-slice" type="button">Sample Slice</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-plots" class="tab-panel">
+          <div class="group">
+            <h2>2D Data</h2>
+            <label class="file-row">
+              <span>CSV or JSON</span>
+              <input id="plot-file" type="file" accept=".csv,.json,text/csv,application/json">
+            </label>
+            <div class="control-grid">
+              <label>
+                <span>Type</span>
+                <select id="plot-type">
+                  <option value="line" selected>Curve</option>
+                  <option value="heatmap">Filled map</option>
+                </select>
+              </label>
+              <label>
+                <span>Colors</span>
+                <select id="plot-colormap">
+                  <option value="RdBu">Red-Blue</option>
+                  <option value="Viridis" selected>Viridis</option>
+                  <option value="Jet">Jet</option>
+                </select>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="load-plot-file" type="button">Load Plot</button>
+              <button id="sample-curve" type="button">Sample Curve</button>
+              <button id="sample-map" type="button">Sample Map</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-style" class="tab-panel">
+          <div class="group">
+            <h2>Display</h2>
+            <div class="checks">
+              <label><input id="show-structure" type="checkbox" checked> Structure</label>
+              <label><input id="show-labels" type="checkbox"> Atom labels</label>
+              <label><input id="show-axes" type="checkbox" checked> Axes</label>
+              <label><input id="ambient-occlusion" type="checkbox" checked> Ambient occlusion</label>
+              <label><input id="outline" type="checkbox" checked> Outline</label>
+              <label><input id="spin" type="checkbox"> Spin</label>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>Background</span>
+                <select id="background">
+                  <option value="studio" selected>Studio</option>
+                  <option value="paper">Paper</option>
+                  <option value="graphite">Graphite</option>
+                  <option value="black">Black</option>
+                </select>
+              </label>
+              <label>
+                <span>Smoothing</span>
+                <select id="surface-quality">
+                  <option value="0">None</option>
+                  <option value="1" selected>Light</option>
+                  <option value="2">Smooth</option>
+                  <option value="4">Heavy</option>
+                </select>
+              </label>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>AO strength</span>
+                <input id="ao-strength" type="range" min="0" max="1.2" step="0.05" value="0.72">
+              </label>
+              <label>
+                <span>Outline width</span>
+                <input id="outline-width" type="range" min="0.005" max="0.08" step="0.005" value="0.035">
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-export" class="tab-panel">
+          <div class="group">
+            <h2>Output</h2>
+            <div class="button-row">
+              <button id="save-png" type="button">PNG</button>
+              <button id="save-state" type="button">Manifest</button>
+              <button id="fit-scene" type="button">Fit</button>
+            </div>
+          </div>
+          <div class="group">
+            <h2>Status</h2>
+            <dl class="stats">
+              <div><dt>Structure</dt><dd id="stat-structure">None</dd></div>
+              <div><dt>Atoms</dt><dd id="stat-atoms">0</dd></div>
+              <div><dt>Cubes</dt><dd id="stat-cubes">0</dd></div>
+              <div><dt>Grid points</dt><dd id="stat-grid">0</dd></div>
+            </dl>
           </div>
         </section>
       </aside>
 
       <section class="viewport-wrap" aria-label="3D viewer">
         <div id="viewer"></div>
+        <div id="plot-panel" class="plot-panel is-hidden" aria-label="2D plot">
+          <div id="plot-view"></div>
+        </div>
         <div class="hud">
           <span id="model-label">No structure</span>
-          <span id="cube-label">No orbitals</span>
+          <span id="cube-label">No cube layers</span>
         </div>
       </section>
     </main>
