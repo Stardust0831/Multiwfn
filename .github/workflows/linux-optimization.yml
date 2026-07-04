@@ -26,7 +26,7 @@ jobs:
           - name: rocky8-gcc8-o2
             image: rockylinux:8
             compat_check: "true"
-            bench_grid: 160,160,160
+            bench_grid: 300,300,300
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2
             enable: ":"
             setup: >-
@@ -38,20 +38,8 @@ jobs:
           - name: rocky8-gcc8-o2-hot-o3
             image: rockylinux:8
             compat_check: "true"
-            bench_grid: 160,160,160
+            bench_grid: 300,300,300
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
-            enable: ":"
-            setup: >-
-              dnf -y install dnf-plugins-core &&
-              if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
-              dnf -y install epel-release &&
-              dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
-
-          - name: rocky8-gcc8-o2-hot-o3-fno-math-errno
-            image: rockylinux:8
-            compat_check: "true"
-            bench_grid: 160,160,160
-            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 -DMULTIWFN_GNU_EXTRA_FLAGS=-fno-math-errno
             enable: ":"
             setup: >-
               dnf -y install dnf-plugins-core &&
@@ -62,7 +50,7 @@ jobs:
           - name: rocky8-gcc-toolset12-o2
             image: rockylinux:8
             compat_check: "true"
-            bench_grid: 160,160,160
+            bench_grid: 300,300,300
             cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2
             enable: source /opt/rh/gcc-toolset-12/enable
             setup: >-
@@ -70,29 +58,6 @@ jobs:
               if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
               dnf -y install epel-release &&
               dnf -y install gcc-toolset-12-gcc gcc-toolset-12-gcc-gfortran gcc-toolset-12-gcc-c++ make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
-
-          - name: rocky8-gcc-toolset12-o2-hot-o3
-            image: rockylinux:8
-            compat_check: "true"
-            bench_grid: 160,160,160
-            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
-            enable: source /opt/rh/gcc-toolset-12/enable
-            setup: >-
-              dnf -y install dnf-plugins-core &&
-              if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
-              dnf -y install epel-release &&
-              dnf -y install gcc-toolset-12-gcc gcc-toolset-12-gcc-gfortran gcc-toolset-12-gcc-c++ make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
-
-          - name: ubuntu24-gcc13-o3-fast
-            image: ubuntu:24.04
-            compat_check: "false"
-            bench_grid: 160,160,160
-            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
-            enable: ":"
-            setup: >-
-              apt-get update &&
-              DEBIAN_FRONTEND=noninteractive apt-get install -y
-              ca-certificates gcc gfortran make cmake ninja-build libblas-dev liblapack-dev binutils findutils tar gzip curl unzip python3
 
     steps:
       - name: Checkout
