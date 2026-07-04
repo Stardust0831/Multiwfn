@@ -47,11 +47,11 @@ jobs:
                 dnf config-manager --set-enabled powertools
               fi
               dnf -y install epel-release
-              dnf -y install gcc gcc-gfortran make cmake3 ninja-build blas-devel lapack-devel binutils findutils tar gzip
-              cmake3 --version
+              dnf -y install gcc gcc-gfortran make cmake ninja-build blas-devel lapack-devel binutils findutils tar gzip
+              cmake --version
               ninja --version
-              cmake3 -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
-              cmake3 --build build --parallel 2 2>&1 | tee build.log
+              cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
+              cmake --build build --parallel 2 2>&1 | tee build.log
               bash tests/functional/run_nogui_tests.sh /work/build/Multiwfn_noGUI
               mkdir -p package/Multiwfn_noGUI-Linux/lib dist
               cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
@@ -84,7 +84,7 @@ jobs:
                 tail -n 120 "$log"
               done
             } > linux-failure-tail.log
-            python3 -c 'from pathlib import Path; message = Path("linux-failure-tail.log").read_text(errors="replace")[-6000:] or "Linux container failed before logs were written"; message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"); print(f"::error file=linux-container.log::{message}")'
+            python3 -c 'from pathlib import Path; message = Path("linux-failure-tail.log").read_text(errors="replace")[-3500:] or "Linux container failed before logs were written"; message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"); print(f"::error file=linux-container.log::{message}")'
           fi
           exit "$status"
 
