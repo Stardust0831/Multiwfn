@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   variant:
@@ -28,10 +28,10 @@ jobs:
               dnf -y install epel-release &&
               dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
 
-          - name: rocky8-gcc8-o3
+          - name: rocky8-gcc8-o2-hot-o3
             image: rockylinux:8
             compat_check: "true"
-            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
             enable: ":"
             setup: >-
               dnf -y install dnf-plugins-core &&
@@ -39,10 +39,10 @@ jobs:
               dnf -y install epel-release &&
               dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
 
-          - name: rocky8-gcc8-o3-fno-math-errno
+          - name: rocky8-gcc8-o2-hot-o3-fno-math-errno
             image: rockylinux:8
             compat_check: "true"
-            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3 -DMULTIWFN_GNU_EXTRA_FLAGS=-fno-math-errno
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 -DMULTIWFN_GNU_EXTRA_FLAGS=-fno-math-errno
             enable: ":"
             setup: >-
               dnf -y install dnf-plugins-core &&
@@ -50,10 +50,10 @@ jobs:
               dnf -y install epel-release &&
               dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
 
-          - name: rocky8-gcc-toolset12-o3
+          - name: rocky8-gcc-toolset12-o2
             image: rockylinux:8
             compat_check: "true"
-            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2
             enable: source /opt/rh/gcc-toolset-12/enable
             setup: >-
               dnf -y install dnf-plugins-core &&
@@ -61,16 +61,16 @@ jobs:
               dnf -y install epel-release &&
               dnf -y install gcc-toolset-12-gcc gcc-toolset-12-gcc-gfortran gcc-toolset-12-gcc-c++ make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
 
-          - name: rocky8-gcc-toolset13-o3
+          - name: rocky8-gcc-toolset12-o2-hot-o3
             image: rockylinux:8
             compat_check: "true"
-            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O3
-            enable: source /opt/rh/gcc-toolset-13/enable
+            cmake_extra: -DMULTIWFN_GNU_OPT_LEVEL=O2 -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
+            enable: source /opt/rh/gcc-toolset-12/enable
             setup: >-
               dnf -y install dnf-plugins-core &&
               if dnf repolist all | grep -q "^powertools"; then dnf config-manager --set-enabled powertools; fi &&
               dnf -y install epel-release &&
-              dnf -y install gcc-toolset-13-gcc gcc-toolset-13-gcc-gfortran gcc-toolset-13-gcc-c++ make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
+              dnf -y install gcc-toolset-12-gcc gcc-toolset-12-gcc-gfortran gcc-toolset-12-gcc-c++ make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip python3
 
           - name: ubuntu24-gcc13-o3-fast
             image: ubuntu:24.04
@@ -122,3 +122,58 @@ jobs:
             linux-optimization-${{ matrix.name }}.log
             perf-results/${{ matrix.name }}/
           if-no-files-found: ignore
+
+  aggregate:
+    name: aggregate-results
+    runs-on: ubuntu-latest
+    needs: variant
+    if: always()
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Download variant artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ci-results/linux-optimization/${{ github.run_id }}
+          pattern: linux-optimization-*
+
+      - name: Write aggregate summary
+        run: |
+          set -euo pipefail
+          root="ci-results/linux-optimization/${{ github.run_id }}"
+          summary="$root/README.md"
+          {
+            echo "# Linux Optimization Run ${{ github.run_id }}"
+            echo
+            echo "- Branch: \`${{ github.ref_name }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "## Variants"
+            echo
+          } > "$summary"
+          find "$root" -mindepth 2 -name summary.md | sort | while read -r file; do
+            variant="$(basename "$(dirname "$file")")"
+            echo "### ${variant#linux-optimization-}" >> "$summary"
+            echo >> "$summary"
+            cat "$file" >> "$summary"
+            echo >> "$summary"
+          done
+          cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit aggregate results
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "ci-results/linux-optimization/${{ github.run_id }}"
+          if git diff --cached --quiet; then
+            echo "No optimization results to commit"
+            exit 0
+          fi
+          git commit -m "Add Linux optimization results ${{ github.run_id }}"
+          git push origin "HEAD:${{ github.ref_name }}"

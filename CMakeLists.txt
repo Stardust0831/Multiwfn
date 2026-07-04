@@ -13,6 +13,7 @@ option(MULTIWFN_WITH_OPENMP "Enable OpenMP when the compiler supports it" ON)
 option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF)
 option(MULTIWFN_WINDOWS_STATIC_LINK "Prefer static runtime and math libraries for Windows redistribution" ON)
 set(MULTIWFN_GNU_OPT_LEVEL "O2" CACHE STRING "GNU Fortran optimization level for Release builds")
+set(MULTIWFN_GNU_HOT_OPT_LEVEL "" CACHE STRING "Optional GNU Fortran optimization level for selected hot sources")
 set(MULTIWFN_GNU_EXTRA_FLAGS "" CACHE STRING "Extra GNU Fortran compile flags, separated by spaces")
 
 if(WIN32 AND MULTIWFN_WINDOWS_STATIC_LINK)
@@ -48,6 +49,9 @@ set(CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mod")
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
   if(NOT MULTIWFN_GNU_OPT_LEVEL MATCHES "^O[0-3s]$")
     message(FATAL_ERROR "MULTIWFN_GNU_OPT_LEVEL must be one of O0, O1, O2, O3, Os")
+  endif()
+  if(MULTIWFN_GNU_HOT_OPT_LEVEL AND NOT MULTIWFN_GNU_HOT_OPT_LEVEL MATCHES "^O[0-3s]$")
+    message(FATAL_ERROR "MULTIWFN_GNU_HOT_OPT_LEVEL must be empty or one of O0, O1, O2, O3, Os")
   endif()
   foreach(flag_var CMAKE_Fortran_FLAGS_RELEASE CMAKE_Fortran_FLAGS_RELWITHDEBINFO)
     string(REGEX REPLACE "(^| )-O[0-3s]( |$)" " -${MULTIWFN_GNU_OPT_LEVEL} " ${flag_var} "${${flag_var}}")
@@ -154,6 +158,15 @@ if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     libreta_hybrid/blockhrr_012345.f90
     PROPERTIES COMPILE_OPTIONS "$<$<CONFIG:Release>:-O1>"
   )
+  if(MULTIWFN_GNU_HOT_OPT_LEVEL)
+    set_source_files_properties(
+      function.f90
+      grid.f90
+      util.f90
+      libreta_hybrid/libreta.f90
+      PROPERTIES COMPILE_OPTIONS "$<$<CONFIG:Release>:-${MULTIWFN_GNU_HOT_OPT_LEVEL}>"
+    )
+  endif()
 endif()
 
 if(MULTIWFN_WITH_FD)
