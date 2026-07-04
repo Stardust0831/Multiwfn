@@ -47,7 +47,10 @@ jobs:
                 dnf config-manager --set-enabled powertools
               fi
               dnf -y install epel-release
-              dnf -y install gcc gcc-gfortran make cmake ninja-build blas-devel lapack-devel binutils findutils tar gzip
+              dnf -y install gcc gcc-gfortran make cmake blas-devel lapack-devel binutils findutils tar gzip curl unzip
+              curl --retry 3 -fsSL -o /tmp/ninja-linux.zip https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip
+              unzip -o /tmp/ninja-linux.zip -d /usr/local/bin
+              chmod +x /usr/local/bin/ninja
               cmake --version
               ninja --version
               cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" 2>&1 | tee configure.log
