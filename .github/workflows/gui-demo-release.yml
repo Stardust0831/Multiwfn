@@ -1,0 +1,83 @@
+name: gui-demo-release
+
+on:
+  push:
+    tags:
+      - 'gui-demo-preview-*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prerelease:
+    name: Publish 3Dmol GUI demo prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package demo
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
+          fi
+          pkg="Multiwfn-3dmol-gui-demo-${tag}"
+          mkdir -p "package/${pkg}/docs"
+          mkdir -p "package/${pkg}/frontend"
+          cp README.md "package/${pkg}/README.md"
+          cp LICENSE.txt "package/${pkg}/LICENSE.txt"
+          cp -R frontend/3dmol-viewer "package/${pkg}/frontend/"
+          cp docs/3dmol_gui_adapter.md "package/${pkg}/docs/"
+          cp docs/visualization.md "package/${pkg}/docs/"
+          cp docs/gui_architecture.md "package/${pkg}/docs/"
+          cd package
+          zip -qr "../${pkg}.zip" "${pkg}"
+          cd ..
+          echo "ZIP_PATH=${pkg}.zip" >> "$GITHUB_ENV"
+
+      - name: Write release notes
+        run: |
+          cat > release_notes.md <<'EOF'
+          This prerelease publishes an early 3Dmol/Plotly GUI demo for the Multiwfn engineering fork.
+
+          Highlights:
+          - Static 3Dmol workbench with structure loading, cube isosurfaces, cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots, PNG export, and manifest export.
+          - Synthetic Periodic ESP example for checking the frontend behavior.
+          - Manifest field `multiwfnGui` starts aligning the frontend with original `GUI.f90` entry points such as `drawmolgui`, `drawisosurgui`, `drawplanegui`, and `setboxGUI`.
+          - This is not a replacement for the official DISLIN GUI yet; it is a frontend demo and adapter design preview.
+
+          The repository also includes CI/CMake engineering work for noGUI builds:
+          - GitHub Actions builds and tests Linux, macOS, and Windows.
+          - Linux packaging targets a conservative runtime baseline and is tested in a clean container.
+          - Windows packaging collects required runtime DLLs and is tested outside the MSYS2 shell.
+
+          Feedback, issues, and pull requests are welcome.
+          Original Multiwfn license terms are included in `LICENSE.txt`.
+          EOF
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
+          fi
+          if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
+            git tag "$tag"
+            git push origin "$tag"
+          fi
+          gh release create "$tag" "$ZIP_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "3Dmol GUI demo preview" \
+            --notes-file release_notes.md \
+            --prerelease

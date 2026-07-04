@@ -47,6 +47,11 @@ cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots,
 PNG export, and manifest export. The `Periodic ESP` sample is synthetic test
 data for checking the UI; it is not a physical Multiwfn calculation.
 
+GUI demo prereleases are published separately from the official-style noGUI
+packages. A tag named `gui-demo-preview-*` triggers the dedicated
+`gui-demo-release` workflow and creates a GitHub prerelease containing the
+static demo, adapter notes, and `LICENSE.txt`.
+
 See:
 
 - `frontend/3dmol-viewer/README.md`
