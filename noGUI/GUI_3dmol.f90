@@ -14,8 +14,11 @@ call get_environment_variable("MULTIWFN_3DMOL_INPUT",envfile,status=istat)
 if (istat==0.and.len_trim(envfile)>0) then
     filename=trim(envfile)
 else
-    write(*,"(/,a)") " 3Dmol GUI backend: GUI file picker is not implemented in this demo."
-    write(*,"(a)") " Set MULTIWFN_3DMOL_INPUT or input the file path in the console."
+    call select_file_with_dialog(filename)
+    if (len_trim(filename)==0) then
+        write(*,"(/,a)") " 3Dmol GUI backend: no file was selected."
+        write(*,"(a)") " Input the file path in the console, or set MULTIWFN_3DMOL_INPUT."
+    end if
 end if
 end subroutine
 
@@ -124,14 +127,9 @@ character(len=*),intent(out) :: cmd
 character(len=512) :: home,python,tool,frontend
 integer :: istat
 
-call get_environment_variable("MULTIWFN_3DMOL_HOME",home,status=istat)
-if (istat==0.and.len_trim(home)>0) then
-    tool=trim(home)//"/tools/multiwfn_3dmol_server.py"
-    frontend=trim(home)//"/frontend/3dmol-viewer"
-else
-    tool="tools/multiwfn_3dmol_server.py"
-    frontend="frontend/3dmol-viewer"
-end if
+call get_3dmol_home(home)
+tool=trim(home)//"/tools/multiwfn_3dmol_server.py"
+frontend=trim(home)//"/frontend/3dmol-viewer"
 
 #ifdef _WIN32
 python="python"
@@ -148,6 +146,98 @@ if (istat/=0.or.len_trim(python)==0) then
 end if
 
 cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
+end subroutine
+
+subroutine select_file_with_dialog(selected)
+character(len=*),intent(out) :: selected
+character(len=512) :: session,home,python,tool,outfile,cmd
+integer :: istat,iu
+
+selected=" "
+call get_session_dir(session)
+call ensure_dir(session)
+call get_3dmol_home(home)
+tool=trim(home)//"/tools/multiwfn_3dmol_file_dialog.py"
+outfile=trim(session)//"/selected_file.txt"
+
+#ifdef _WIN32
+python="python"
+#else
+python="python3"
+#endif
+call get_environment_variable("MULTIWFN_3DMOL_PYTHON",python,status=istat)
+if (istat/=0.or.len_trim(python)==0) then
+#ifdef _WIN32
+    python="python"
+#else
+    python="python3"
+#endif
+end if
+
+cmd=trim(python)//' "'//trim(tool)//'" --output "'//trim(outfile)//'"'
+call execute_command_line(trim(cmd),exitstat=istat)
+if (istat/=0) return
+
+open(newunit=iu,file=trim(outfile),status="old",action="read",iostat=istat)
+if (istat/=0) return
+read(iu,"(a)",iostat=istat) selected
+close(iu)
+if (istat/=0) selected=" "
+end subroutine
+
+subroutine get_3dmol_home(home)
+character(len=*),intent(out) :: home
+character(len=512) :: exe,dir,base
+integer :: istat
+
+home="."
+call get_environment_variable("MULTIWFN_3DMOL_HOME",home,status=istat)
+if (istat==0.and.len_trim(home)>0) return
+
+call get_command_argument(0,exe,status=istat)
+if (istat/=0.or.len_trim(exe)==0) return
+
+call path_dirname(trim(exe),dir)
+if (len_trim(dir)==0) return
+call path_basename(trim(dir),base)
+if (trim(base)=="bin") then
+    call path_dirname(trim(dir),home)
+    if (len_trim(home)==0) home=trim(dir)
+else
+    home=trim(dir)
+end if
+end subroutine
+
+subroutine path_dirname(path,dir)
+character(len=*),intent(in) :: path
+character(len=*),intent(out) :: dir
+integer :: i,last
+
+dir="."
+last=0
+do i=1,len_trim(path)
+    if (path(i:i)=="/".or.path(i:i)=="\") last=i
+end do
+if (last>1) then
+    dir=path(1:last-1)
+else if (last==1) then
+    dir=path(1:1)
+else
+    dir="."
+end if
+end subroutine
+
+subroutine path_basename(path,base)
+character(len=*),intent(in) :: path
+character(len=*),intent(out) :: base
+integer :: i,last
+
+base=trim(path)
+last=0
+do i=1,len_trim(path)
+    if (path(i:i)=="/".or.path(i:i)=="\") last=i
+end do
+if (last>0.and.last<len_trim(path)) base=path(last+1:len_trim(path))
 end subroutine
 
 subroutine write_structure_xyz(path)

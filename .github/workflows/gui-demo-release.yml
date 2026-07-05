@@ -62,10 +62,16 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           set -o pipefail
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            rpath='@loader_path/../lib;@loader_path/lib'
+          else
+            rpath='$ORIGIN/../lib;$ORIGIN/lib'
+          fi
           cmake -S . -B build-3dmol-gui -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DMULTIWFN_GUI_BACKEND=3dmol \
-            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 2>&1 | tee configure.log
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 \
+            -DCMAKE_BUILD_RPATH="$rpath" 2>&1 | tee configure.log
           cmake --build build-3dmol-gui --parallel 2 2>&1 | tee build.log
           test -x build-3dmol-gui/Multiwfn_3DmolGUI
 
@@ -113,6 +119,7 @@ jobs:
           cp LICENSE.txt "package/${pkg}/LICENSE.txt"
           cp settings.ini "package/${pkg}/settings.ini"
           cp tools/multiwfn_3dmol_server.py "package/${pkg}/tools/"
+          cp tools/multiwfn_3dmol_file_dialog.py "package/${pkg}/tools/"
           cp -R frontend/3dmol-viewer "package/${pkg}/frontend/"
           cp docs/3dmol_gui_adapter.md "package/${pkg}/docs/"
           cp docs/visualization.md "package/${pkg}/docs/"
@@ -123,7 +130,8 @@ jobs:
           This prerelease contains a demo executable built with a 3Dmol GUI
           backend compiled in place of the legacy DISLIN `module GUI`.
 
-          Python 3 is required for the local 3Dmol HTTP service.
+          Python 3 is required for the local 3Dmol HTTP service and native file
+          picker helper.
 
           When a Multiwfn workflow calls GUI entry points such as `drawmolgui`,
           `drawisosurgui`, `drawplanegui`, `setboxGUI`, or `miniGUI`, the demo
@@ -145,6 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/bin/Multiwfn_3DmolGUI"
+          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/Multiwfn_3DmolGUI"
           ldd build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${PKG}/ldd.txt"
           awk '/=> \// {print $3}' "package/${PKG}/ldd.txt" | while read -r lib; do
             base="$(basename "$lib")"
@@ -175,6 +184,7 @@ jobs:
         run: |
           set -euo pipefail
           cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/bin/Multiwfn_3DmolGUI"
+          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/Multiwfn_3DmolGUI"
           otool -L build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${PKG}/otool.txt"
           otool -L build-3dmol-gui/Multiwfn_3DmolGUI | awk 'NR>1 {print $1}' | while read -r lib; do
             case "$lib" in
@@ -206,6 +216,7 @@ jobs:
         run: |
           set -euo pipefail
           cp build-3dmol-gui/Multiwfn_3DmolGUI.exe "package/${PKG}/bin/Multiwfn_3DmolGUI.exe"
+          cp build-3dmol-gui/Multiwfn_3DmolGUI.exe "package/${PKG}/Multiwfn_3DmolGUI.exe"
           : > "package/${PKG}/windows-dlls.log"
           processed=""
           while :; do
@@ -240,6 +251,7 @@ jobs:
             done
             [ "$changed" -eq 1 ] || break
           done
+          cp package/"${PKG}"/lib/*.dll package/"${PKG}"/ 2>/dev/null || true
           cat > "package/${PKG}/Multiwfn_3DmolGUI.bat" <<'EOF'
           @echo off
           set "HERE=%~dp0"
