@@ -127,8 +127,8 @@ jobs:
         run: |
           set -euo pipefail
           cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/Multiwfn_3DmolGUI"
-          ldd build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${PKG}/ldd.txt"
-          awk '/=> \// {print $3}' "package/${PKG}/ldd.txt" | while read -r lib; do
+          ldd build-3dmol-gui/Multiwfn_3DmolGUI > linux-runtime-libs.txt
+          awk '/=> \// {print $3}' linux-runtime-libs.txt | while read -r lib; do
             base="$(basename "$lib")"
             case "$base" in
               libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
@@ -147,8 +147,8 @@ jobs:
         run: |
           set -euo pipefail
           cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/Multiwfn_3DmolGUI"
-          otool -L build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${PKG}/otool.txt"
-          otool -L build-3dmol-gui/Multiwfn_3DmolGUI | awk 'NR>1 {print $1}' | while read -r lib; do
+          otool -L build-3dmol-gui/Multiwfn_3DmolGUI > macos-runtime-libs.txt
+          awk 'NR>1 {print $1}' macos-runtime-libs.txt | while read -r lib; do
             case "$lib" in
               /usr/lib/*|/System/*|@*)
                 ;;
@@ -168,7 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           cp build-3dmol-gui/Multiwfn_3DmolGUI.exe "package/${PKG}/Multiwfn_3DmolGUI.exe"
-          : > "package/${PKG}/windows-dlls.log"
+          : > windows-dlls.log
           processed=""
           while :; do
             changed=0
@@ -178,7 +178,7 @@ jobs:
                 *" $binary "*) continue ;;
               esac
               processed="$processed $binary"
-              objdump -p "$binary" | tee -a "package/${PKG}/windows-dlls.log"
+              objdump -p "$binary" | tee -a windows-dlls.log
               for dll in $(objdump -p "$binary" | awk '/DLL Name:/ {print $3}'); do
                 case "$dll" in
                   KERNEL32.dll|msvcrt.dll|USER32.dll|ADVAPI32.dll|SHELL32.dll|WS2_32.dll|bcrypt.dll|api-ms-win-*.dll)
