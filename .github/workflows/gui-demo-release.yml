@@ -10,32 +10,95 @@ permissions:
   contents: write
 
 jobs:
-  prerelease:
-    name: Publish 3Dmol GUI demo prerelease
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  package:
+    name: Package 3Dmol GUI demo (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: Linux
+            asset_ext: tar.gz
+          - os: macos-latest
+            platform: macOS
+            asset_ext: tar.gz
+          - os: windows-latest
+            platform: Windows
+            asset_ext: zip
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev zip
+          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev
 
-      - name: Build 3Dmol GUI demo executable
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
         run: |
           set -euo pipefail
+          brew install gcc cmake ninja
+          echo "FC=$(ls $(brew --prefix)/bin/gfortran-* | sort -V | tail -n 1)" >> "$GITHUB_ENV"
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc-fortran
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-openblas
+
+      - name: Build 3Dmol GUI demo executable
+        if: runner.os != 'Windows'
+        run: |
+          set -o pipefail
           cmake -S . -B build-3dmol-gui -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DMULTIWFN_GUI_BACKEND=3dmol \
-            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
-          cmake --build build-3dmol-gui --parallel 2
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 2>&1 | tee configure.log
+          cmake --build build-3dmol-gui --parallel 2 2>&1 | tee build.log
           test -x build-3dmol-gui/Multiwfn_3DmolGUI
 
-      - name: Package demo
+      - name: Build 3Dmol GUI demo executable on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -o pipefail
+          cmake -S . -B build-3dmol-gui -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMULTIWFN_GUI_BACKEND=3dmol \
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 2>&1 | tee configure.log
+          cmake --build build-3dmol-gui --parallel 2 2>&1 | tee build.log
+          test -x build-3dmol-gui/Multiwfn_3DmolGUI.exe
+
+      - name: Summarize build failure
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## GUI demo build failure tail"
+            echo
+            echo '```text'
+            tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped)' build.log configure.log 2>/dev/null || true)"
+          if [ -n "$first_error" ]; then
+            echo "::error::$first_error"
+          fi
+
+      - name: Prepare common package files
+        shell: bash
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
@@ -43,58 +106,24 @@ jobs:
           else
             tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
           fi
-          pkg="Multiwfn-3dmol-gui-demo-${tag}"
-          mkdir -p "package/${pkg}/docs"
-          mkdir -p "package/${pkg}/frontend"
-          mkdir -p "package/${pkg}/bin"
-          mkdir -p "package/${pkg}/lib"
-          mkdir -p "package/${pkg}/tools"
-          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${pkg}/bin/Multiwfn_3DmolGUI"
-          ldd build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${pkg}/ldd.txt"
-          awk '/=> \// {print $3}' "package/${pkg}/ldd.txt" | while read -r lib; do
-            base="$(basename "$lib")"
-            case "$base" in
-              libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
-                ;;
-              *)
-                cp -L -n "$lib" "package/${pkg}/lib/"
-                ;;
-            esac
-          done
-          cp tools/multiwfn_3dmol_server.py "package/${pkg}/tools/"
+          pkg="Multiwfn-3dmol-gui-demo-${tag}-${{ matrix.platform }}"
+          echo "PKG=$pkg" >> "$GITHUB_ENV"
+          mkdir -p "package/${pkg}/bin" "package/${pkg}/lib" "package/${pkg}/tools" "package/${pkg}/docs" "package/${pkg}/frontend"
           cp README.md "package/${pkg}/README.md"
           cp LICENSE.txt "package/${pkg}/LICENSE.txt"
           cp settings.ini "package/${pkg}/settings.ini"
+          cp tools/multiwfn_3dmol_server.py "package/${pkg}/tools/"
           cp -R frontend/3dmol-viewer "package/${pkg}/frontend/"
           cp docs/3dmol_gui_adapter.md "package/${pkg}/docs/"
           cp docs/visualization.md "package/${pkg}/docs/"
           cp docs/gui_architecture.md "package/${pkg}/docs/"
-          cat > "package/${pkg}/Multiwfn_3DmolGUI.sh" <<'EOF'
-          #!/usr/bin/env sh
-          set -eu
-          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-          export MULTIWFN_3DMOL_HOME="$HERE"
-          export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          cd "$HERE"
-          exec "$HERE/bin/Multiwfn_3DmolGUI" "$@"
-          EOF
-          chmod +x "package/${pkg}/Multiwfn_3DmolGUI.sh"
           cat > "package/${pkg}/README.demo.md" <<'EOF'
           # Multiwfn 3Dmol GUI Demo
 
-          This prerelease contains a Linux demo executable, `Multiwfn_3DmolGUI`,
-          built with a 3Dmol GUI backend compiled in place of the legacy DISLIN
-          `module GUI`.
+          This prerelease contains a demo executable built with a 3Dmol GUI
+          backend compiled in place of the legacy DISLIN `module GUI`.
 
-          Run from this directory:
-
-          ```sh
-          ./Multiwfn_3DmolGUI.sh
-          ```
-
-          Python 3 is required for the local 3Dmol HTTP service. Runtime
-          libraries detected by `ldd` are bundled under `lib/` and loaded by
-          the wrapper script.
+          Python 3 is required for the local 3Dmol HTTP service.
 
           When a Multiwfn workflow calls GUI entry points such as `drawmolgui`,
           `drawisosurgui`, `drawplanegui`, `setboxGUI`, or `miniGUI`, the demo
@@ -109,29 +138,158 @@ jobs:
 
           Original Multiwfn license terms are included in `LICENSE.txt`.
           EOF
-          cd package
-          zip -qr "../${pkg}.zip" "${pkg}"
-          cd ..
-          echo "ZIP_PATH=${pkg}.zip" >> "$GITHUB_ENV"
+
+      - name: Package Linux demo
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/bin/Multiwfn_3DmolGUI"
+          ldd build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${PKG}/ldd.txt"
+          awk '/=> \// {print $3}' "package/${PKG}/ldd.txt" | while read -r lib; do
+            base="$(basename "$lib")"
+            case "$base" in
+              libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
+                ;;
+              *)
+                cp -L -n "$lib" "package/${PKG}/lib/"
+                ;;
+            esac
+          done
+          cat > "package/${PKG}/Multiwfn_3DmolGUI.sh" <<'EOF'
+          #!/usr/bin/env sh
+          set -eu
+          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+          export MULTIWFN_3DMOL_HOME="$HERE"
+          export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          cd "$HERE"
+          exec "$HERE/bin/Multiwfn_3DmolGUI" "$@"
+          EOF
+          chmod +x "package/${PKG}/Multiwfn_3DmolGUI.sh"
+          mkdir -p dist
+          tar -czf "dist/${PKG}.tar.gz" -C package "$PKG"
+
+      - name: Package macOS demo
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/bin/Multiwfn_3DmolGUI"
+          otool -L build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${PKG}/otool.txt"
+          otool -L build-3dmol-gui/Multiwfn_3DmolGUI | awk 'NR>1 {print $1}' | while read -r lib; do
+            case "$lib" in
+              /usr/lib/*|/System/*|@*)
+                ;;
+              *)
+                if [ -f "$lib" ]; then
+                  cp -L -n "$lib" "package/${PKG}/lib/"
+                fi
+                ;;
+            esac
+          done
+          cat > "package/${PKG}/Multiwfn_3DmolGUI.command" <<'EOF'
+          #!/usr/bin/env sh
+          set -eu
+          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+          export MULTIWFN_3DMOL_HOME="$HERE"
+          export DYLD_LIBRARY_PATH="$HERE/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          cd "$HERE"
+          exec "$HERE/bin/Multiwfn_3DmolGUI" "$@"
+          EOF
+          chmod +x "package/${PKG}/Multiwfn_3DmolGUI.command"
+          mkdir -p dist
+          tar -czf "dist/${PKG}.tar.gz" -C package "$PKG"
+
+      - name: Package Windows demo
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cp build-3dmol-gui/Multiwfn_3DmolGUI.exe "package/${PKG}/bin/Multiwfn_3DmolGUI.exe"
+          : > "package/${PKG}/windows-dlls.log"
+          processed=""
+          while :; do
+            changed=0
+            for binary in "package/${PKG}/bin/Multiwfn_3DmolGUI.exe" package/"${PKG}"/lib/*.dll; do
+              [ -e "$binary" ] || continue
+              case " $processed " in
+                *" $binary "*) continue ;;
+              esac
+              processed="$processed $binary"
+              objdump -p "$binary" | tee -a "package/${PKG}/windows-dlls.log"
+              for dll in $(objdump -p "$binary" | awk '/DLL Name:/ {print $3}'); do
+                case "$dll" in
+                  KERNEL32.dll|msvcrt.dll|USER32.dll|ADVAPI32.dll|SHELL32.dll|WS2_32.dll|bcrypt.dll|api-ms-win-*.dll)
+                    ;;
+                  *)
+                    dll_path="$(command -v "$dll" || true)"
+                    if [ -z "$dll_path" ] && [ -f "$MINGW_PREFIX/bin/$dll" ]; then
+                      dll_path="$MINGW_PREFIX/bin/$dll"
+                    fi
+                    if [ -z "$dll_path" ]; then
+                      echo "::error::Could not locate runtime DLL $dll"
+                      exit 1
+                    fi
+                    if [ ! -f "package/${PKG}/lib/$dll" ]; then
+                      cp "$dll_path" "package/${PKG}/lib/"
+                      changed=1
+                    fi
+                    ;;
+                esac
+              done
+            done
+            [ "$changed" -eq 1 ] || break
+          done
+          cat > "package/${PKG}/Multiwfn_3DmolGUI.bat" <<'EOF'
+          @echo off
+          set "HERE=%~dp0"
+          set "MULTIWFN_3DMOL_HOME=%HERE:~0,-1%"
+          set "PATH=%HERE%lib;%PATH%"
+          cd /d "%HERE%"
+          "%HERE%bin\Multiwfn_3DmolGUI.exe" %*
+          EOF
+          find "package/${PKG}" -maxdepth 2 -type f | sort
+
+      - name: Create Windows zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "package/$env:PKG/*" -DestinationPath "dist/$env:PKG.zip" -Force
+
+      - name: Upload GUI demo package
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiwfn-3dmol-gui-demo-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  prerelease:
+    name: Publish 3Dmol GUI demo prerelease
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
 
       - name: Write release notes
         run: |
           cat > release_notes.md <<'EOF'
-          This prerelease publishes an early Multiwfn executable with a 3Dmol/Plotly GUI demo backend.
+          This prerelease publishes early Multiwfn executables with a 3Dmol/Plotly GUI demo backend.
 
           Highlights:
-          - Linux demo executable `Multiwfn_3DmolGUI`, built with a new `module GUI` backend compiled in place of the legacy DISLIN GUI.
-          - The package includes detected Linux runtime libraries under `lib/`; use `./Multiwfn_3DmolGUI.sh` so `LD_LIBRARY_PATH` is set correctly.
+          - Linux, macOS, and Windows demo packages are built by GitHub Actions.
+          - Each executable is built with a new `module GUI` backend compiled in place of the legacy DISLIN GUI.
           - GUI entry points such as `drawmolgui`, `drawisosurgui`, `drawplanegui`, `setboxGUI`, and `miniGUI` now write a 3Dmol session and start a bundled local HTTP service.
           - The session exports the current structure and available `cubmat`/`cubmattmp` grids, then opens the 3Dmol/Plotly frontend through a `multiwfnGui` manifest.
           - The frontend includes structure loading, cube isosurfaces, cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots, PNG export, and manifest export.
           - This is still a demo. Full interactive callbacks that mutate Multiwfn state, including a complete `setboxGUI` round trip, are not finished.
 
-          The repository also includes CI/CMake engineering work for noGUI builds:
-          - GitHub Actions builds and tests Linux, macOS, and Windows.
-          - Linux packaging targets a conservative runtime baseline and is tested in a clean container.
-          - Windows packaging collects required runtime DLLs and is tested outside the MSYS2 shell.
-
+          Python 3 is required for the local 3Dmol HTTP service.
           Feedback, issues, and pull requests are welcome.
           Original Multiwfn license terms are included in `LICENSE.txt`.
           EOF
@@ -145,15 +303,14 @@ jobs:
             tag="$GITHUB_REF_NAME"
           else
             tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
-          fi
-          if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
             git tag "$tag"
             git push origin "$tag"
           fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
           fi
-          gh release create "$tag" "$ZIP_PATH" \
+          find release-assets -maxdepth 3 -type f -print | sort
+          gh release create "$tag" release-assets/*/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "3Dmol GUI demo preview" \

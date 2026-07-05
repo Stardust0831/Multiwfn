@@ -64,9 +64,9 @@ local service, and opens the 3Dmol frontend with the generated manifest.
 
 GUI demo prereleases are published separately from the official-style noGUI
 packages. A tag named `gui-demo-preview-*` triggers the dedicated
-`gui-demo-release` workflow and creates a GitHub prerelease containing the
-Linux `Multiwfn_3DmolGUI` demo executable, frontend, service script, adapter
-notes, `settings.ini`, and `LICENSE.txt`.
+`gui-demo-release` workflow and creates a GitHub prerelease containing Linux,
+macOS, and Windows `Multiwfn_3DmolGUI` demo packages with the frontend, service
+script, adapter notes, `settings.ini`, and `LICENSE.txt`.
 
 See:
 
