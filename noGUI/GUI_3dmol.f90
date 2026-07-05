@@ -128,8 +128,8 @@ character(len=512) :: home,python,tool,frontend
 integer :: istat
 
 call get_3dmol_home(home)
-tool=trim(home)//"/tools/multiwfn_3dmol_server.py"
-frontend=trim(home)//"/frontend/3dmol-viewer"
+call resolve_resource_path(home,"tools/multiwfn_3dmol_server.py",tool)
+call resolve_resource_path(home,"frontend/3dmol-viewer",frontend)
 
 #ifdef _WIN32
 python="python"
@@ -157,7 +157,7 @@ selected=" "
 call get_session_dir(session)
 call ensure_dir(session)
 call get_3dmol_home(home)
-tool=trim(home)//"/tools/multiwfn_3dmol_file_dialog.py"
+call resolve_resource_path(home,"tools/multiwfn_3dmol_file_dialog.py",tool)
 outfile=trim(session)//"/selected_file.txt"
 
 #ifdef _WIN32
@@ -206,6 +206,17 @@ if (trim(base)=="bin") then
 else
     home=trim(dir)
 end if
+end subroutine
+
+subroutine resolve_resource_path(home,relpath,fullpath)
+character(len=*),intent(in) :: home,relpath
+character(len=*),intent(out) :: fullpath
+logical :: alive
+
+fullpath=trim(home)//"/"//trim(relpath)
+inquire(file=trim(fullpath),exist=alive)
+if (alive) return
+fullpath=trim(home)//"/resources/"//trim(relpath)
 end subroutine
 
 subroutine path_dirname(path,dir)

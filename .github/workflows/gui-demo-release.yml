@@ -63,9 +63,9 @@ jobs:
         run: |
           set -o pipefail
           if [ "$RUNNER_OS" = "macOS" ]; then
-            rpath='@loader_path/../lib;@loader_path/lib'
+            rpath='@loader_path/resources/lib'
           else
-            rpath='$ORIGIN/../lib;$ORIGIN/lib'
+            rpath='$ORIGIN/resources/lib'
           fi
           cmake -S . -B build-3dmol-gui -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -114,45 +114,18 @@ jobs:
           fi
           pkg="Multiwfn-3dmol-gui-demo-${tag}-${{ matrix.platform }}"
           echo "PKG=$pkg" >> "$GITHUB_ENV"
-          mkdir -p "package/${pkg}/bin" "package/${pkg}/lib" "package/${pkg}/tools" "package/${pkg}/docs" "package/${pkg}/frontend"
-          cp README.md "package/${pkg}/README.md"
+          mkdir -p "package/${pkg}/resources/lib" "package/${pkg}/resources/tools" "package/${pkg}/resources/frontend"
           cp LICENSE.txt "package/${pkg}/LICENSE.txt"
           cp settings.ini "package/${pkg}/settings.ini"
-          cp tools/multiwfn_3dmol_server.py "package/${pkg}/tools/"
-          cp tools/multiwfn_3dmol_file_dialog.py "package/${pkg}/tools/"
-          cp -R frontend/3dmol-viewer "package/${pkg}/frontend/"
-          cp docs/3dmol_gui_adapter.md "package/${pkg}/docs/"
-          cp docs/visualization.md "package/${pkg}/docs/"
-          cp docs/gui_architecture.md "package/${pkg}/docs/"
-          cat > "package/${pkg}/README.demo.md" <<'EOF'
-          # Multiwfn 3Dmol GUI Demo
-
-          This prerelease contains a demo executable built with a 3Dmol GUI
-          backend compiled in place of the legacy DISLIN `module GUI`.
-
-          Python 3 is required for the local 3Dmol HTTP service and native file
-          picker helper.
-
-          When a Multiwfn workflow calls GUI entry points such as `drawmolgui`,
-          `drawisosurgui`, `drawplanegui`, `setboxGUI`, or `miniGUI`, the demo
-          writes a session under `multiwfn_3dmol_session/`, starts the bundled
-          local HTTP service, and opens the 3Dmol/Plotly frontend with the
-          generated manifest.
-
-          This is still a demo. It proves the replacement-backend shape and
-          currently exports structure plus available `cubmat`/`cubmattmp` grids;
-          interactive callbacks that mutate Multiwfn state, such as a full
-          `setboxGUI` round trip, are not complete yet.
-
-          Original Multiwfn license terms are included in `LICENSE.txt`.
-          EOF
+          cp tools/multiwfn_3dmol_server.py "package/${pkg}/resources/tools/"
+          cp tools/multiwfn_3dmol_file_dialog.py "package/${pkg}/resources/tools/"
+          cp -R frontend/3dmol-viewer "package/${pkg}/resources/frontend/"
 
       - name: Package Linux demo
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/bin/Multiwfn_3DmolGUI"
           cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/Multiwfn_3DmolGUI"
           ldd build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${PKG}/ldd.txt"
           awk '/=> \// {print $3}' "package/${PKG}/ldd.txt" | while read -r lib; do
@@ -161,20 +134,10 @@ jobs:
               libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
                 ;;
               *)
-                cp -L -n "$lib" "package/${PKG}/lib/"
+                cp -L -n "$lib" "package/${PKG}/resources/lib/"
                 ;;
             esac
           done
-          cat > "package/${PKG}/Multiwfn_3DmolGUI.sh" <<'EOF'
-          #!/usr/bin/env sh
-          set -eu
-          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-          export MULTIWFN_3DMOL_HOME="$HERE"
-          export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          cd "$HERE"
-          exec "$HERE/bin/Multiwfn_3DmolGUI" "$@"
-          EOF
-          chmod +x "package/${PKG}/Multiwfn_3DmolGUI.sh"
           mkdir -p dist
           tar -czf "dist/${PKG}.tar.gz" -C package "$PKG"
 
@@ -183,7 +146,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/bin/Multiwfn_3DmolGUI"
           cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/Multiwfn_3DmolGUI"
           otool -L build-3dmol-gui/Multiwfn_3DmolGUI | tee "package/${PKG}/otool.txt"
           otool -L build-3dmol-gui/Multiwfn_3DmolGUI | awk 'NR>1 {print $1}' | while read -r lib; do
@@ -192,21 +154,11 @@ jobs:
                 ;;
               *)
                 if [ -f "$lib" ]; then
-                  cp -L -n "$lib" "package/${PKG}/lib/"
+                  cp -L -n "$lib" "package/${PKG}/resources/lib/"
                 fi
                 ;;
             esac
           done
-          cat > "package/${PKG}/Multiwfn_3DmolGUI.command" <<'EOF'
-          #!/usr/bin/env sh
-          set -eu
-          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-          export MULTIWFN_3DMOL_HOME="$HERE"
-          export DYLD_LIBRARY_PATH="$HERE/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
-          cd "$HERE"
-          exec "$HERE/bin/Multiwfn_3DmolGUI" "$@"
-          EOF
-          chmod +x "package/${PKG}/Multiwfn_3DmolGUI.command"
           mkdir -p dist
           tar -czf "dist/${PKG}.tar.gz" -C package "$PKG"
 
@@ -215,13 +167,12 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          cp build-3dmol-gui/Multiwfn_3DmolGUI.exe "package/${PKG}/bin/Multiwfn_3DmolGUI.exe"
           cp build-3dmol-gui/Multiwfn_3DmolGUI.exe "package/${PKG}/Multiwfn_3DmolGUI.exe"
           : > "package/${PKG}/windows-dlls.log"
           processed=""
           while :; do
             changed=0
-            for binary in "package/${PKG}/bin/Multiwfn_3DmolGUI.exe" package/"${PKG}"/lib/*.dll; do
+            for binary in "package/${PKG}/Multiwfn_3DmolGUI.exe" package/"${PKG}"/*.dll; do
               [ -e "$binary" ] || continue
               case " $processed " in
                 *" $binary "*) continue ;;
@@ -241,8 +192,8 @@ jobs:
                       echo "::error::Could not locate runtime DLL $dll"
                       exit 1
                     fi
-                    if [ ! -f "package/${PKG}/lib/$dll" ]; then
-                      cp "$dll_path" "package/${PKG}/lib/"
+                    if [ ! -f "package/${PKG}/$dll" ]; then
+                      cp "$dll_path" "package/${PKG}/"
                       changed=1
                     fi
                     ;;
@@ -251,15 +202,6 @@ jobs:
             done
             [ "$changed" -eq 1 ] || break
           done
-          cp package/"${PKG}"/lib/*.dll package/"${PKG}"/ 2>/dev/null || true
-          cat > "package/${PKG}/Multiwfn_3DmolGUI.bat" <<'EOF'
-          @echo off
-          set "HERE=%~dp0"
-          set "MULTIWFN_3DMOL_HOME=%HERE:~0,-1%"
-          set "PATH=%HERE%lib;%PATH%"
-          cd /d "%HERE%"
-          "%HERE%bin\Multiwfn_3DmolGUI.exe" %*
-          EOF
           find "package/${PKG}" -maxdepth 2 -type f | sort
 
       - name: Create Windows zip
