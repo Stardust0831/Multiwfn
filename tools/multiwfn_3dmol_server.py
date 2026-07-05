@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import argparse
-import functools
 import http.server
 import mimetypes
-import os
 from pathlib import Path
+import platform
+import shutil
 import socket
 import socketserver
+import subprocess
 import sys
 import threading
 import urllib.parse
@@ -18,12 +19,13 @@ import webbrowser
 
 
 def find_free_port(host: str, preferred: int) -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        try:
-            probe.bind((host, preferred))
-            return preferred
-        except OSError:
-            pass
+    if preferred > 0:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind((host, preferred))
+                return preferred
+            except OSError:
+                pass
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((host, 0))
         return int(probe.getsockname()[1])
@@ -43,6 +45,47 @@ def send_file(handler: http.server.BaseHTTPRequestHandler, path: Path) -> None:
     handler.wfile.write(data)
 
 
+def is_wsl() -> bool:
+    try:
+        release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return "microsoft" in release.lower() or "wsl" in release.lower()
+
+
+def try_open_url(url: str) -> bool:
+    if is_wsl():
+        for opener in ("wslview", "cmd.exe", "powershell.exe"):
+            resolved = shutil.which(opener)
+            if not resolved:
+                continue
+            if opener == "cmd.exe":
+                cmd = [resolved, "/C", "start", "", url]
+            elif opener == "powershell.exe":
+                cmd = [resolved, "-NoProfile", "-Command", f"Start-Process '{url}'"]
+            else:
+                cmd = [resolved, url]
+            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            if result.returncode == 0:
+                return True
+
+    system = platform.system()
+    if system == "Darwin" and shutil.which("open"):
+        return subprocess.run(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0
+    if system == "Windows":
+        return webbrowser.open(url)
+
+    for opener in ("xdg-open", "gio"):
+        resolved = shutil.which(opener)
+        if not resolved:
+            continue
+        cmd = [resolved, "open", url] if opener == "gio" else [resolved, url]
+        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if result.returncode == 0:
+            return True
+    return False
+
+
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
@@ -55,6 +98,15 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
         def log_message(self, fmt: str, *args) -> None:
             sys.stderr.write("[multiwfn-3dmol] " + fmt % args + "\n")
 
+        def do_HEAD(self) -> None:
+            parsed = urllib.parse.urlparse(self.path)
+            request_path = urllib.parse.unquote(parsed.path)
+            if request_path == "/favicon.ico":
+                self.send_response(204)
+                self.end_headers()
+                return
+            super().do_HEAD()
+
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
             request_path = urllib.parse.unquote(parsed.path)
@@ -63,6 +115,11 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
                 target = "/index.html?manifest=/session/manifest.json"
                 self.send_response(302)
                 self.send_header("Location", target)
+                self.end_headers()
+                return
+
+            if request_path == "/favicon.ico":
+                self.send_response(204)
                 self.end_headers()
                 return
 
@@ -94,6 +151,7 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1", help="HTTP bind address")
     parser.add_argument("--port", type=int, default=8765, help="Preferred HTTP port")
     parser.add_argument("--open", action="store_true", help="Open the frontend in the default browser")
+    parser.add_argument("--no-open", action="store_true", help="Do not try to open a browser")
     parser.add_argument("--once", action="store_true", help="Exit after a key press instead of serving forever")
     args = parser.parse_args()
 
@@ -114,8 +172,13 @@ def main() -> int:
     url = f"http://{args.host}:{port}/index.html?manifest=/session/manifest.json"
 
     print(f"Multiwfn 3Dmol GUI service: {url}")
-    if args.open:
-        threading.Timer(0.35, functools.partial(webbrowser.open, url)).start()
+    if args.open and not args.no_open:
+        def open_or_report() -> None:
+            if not try_open_url(url):
+                print("No browser opener was found. Open this URL manually:")
+                print(url)
+
+        threading.Timer(0.35, open_or_report).start()
 
     if args.once:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
