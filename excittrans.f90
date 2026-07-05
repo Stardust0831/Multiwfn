@@ -79,7 +79,7 @@ do while(.true.)
 	write(*,*) "15 Print major MO transitions in all excited states"
 	write(*,*) "16 Charge-transfer spectrum (CTS) analysis (Carbon,187,78)"
     write(*,*) "17 Electron density polarization analysis based on electron excitations"
-    write(*,*) "18 Calculate dissymmetry factor (g) of adsorption/emission for chiral systems"
+    write(*,*) "18 Calculate ECD/CPL dissymmetry factor (g) for chiral systems"
 
 	read(*,*) isel
 	if (isel==-1) then
@@ -6991,7 +6991,7 @@ end subroutine
 
 
 
-!!-------- Calculate dissymmetry factor for either adsorption or emission
+!!-------- Calculate ECD/CPL dissymmetry factor (g) for chiral systems
 subroutine dissym_factor
 use defvar
 use util
@@ -7003,7 +7003,7 @@ open(10,file=filename)
 call outputprog(10,iprog)
 
 !Load transition electric/magnetic moments
-!Note: Only transition electric moment in length form is used! This is in line with numerous papers/reviews about g_lum factor
+!Note: Only transition electric moment in length form is used! This is in line with most papers/reviews about g_lum factor, although R is not as accurate as using that in velocity form
 if (iprog==1) then !Gaussian
     call loclabelfinal(10,"Ground to excited state transition electric dipole moments",nfound)
     if (nfound>0) then
@@ -7044,6 +7044,7 @@ if (iprog==1) then !Gaussian
         end do
         !Note: Standard definition of transition magnetic dipole moment is i(1/2)<0|rxdel|b>, but Gaussian outputs <0|rxdel|b>, so revise it
         magtran=magtran/2
+        write(*,*) "Note: The transition magnetic dipole moments are divided by two to meet standard definition"
         !Load excitation energy (eV). Gaussian output is too flexible to use fixed format to read in
 		do iexc=1,nexc
 			call loclabel(10," Excited State",ifound,0)
@@ -7099,36 +7100,53 @@ end if
 write(*,*) "Loading finished!"
 close(10)
 
+write(*,*)
+write(*,*) "Choose the mode:"
+write(*,*) "1 This study is for ECD"
+write(*,*) "2 This study is for CPL"
+read(*,*) imode
+
+if (imode==2) then
+    magtran=-magtran
+	write(*,"(a)") " Transition magnetic dipole moments are inverted"
+end if
+
 !Output results
-write(*,"(/,' Transition electric dipole moment (a.u.):')")
+write(*,"(/,' Transition electric dipole moments (a.u.):')")
 write(*,"(' State      X          Y          Z         norm')")
 do iexc=1,nexc
     write(*,"(i5,4f11.4)") iexc,eletran(:,iexc),dsqrt(sum(eletran(:,iexc)**2))
 end do
 
-write(*,"(/,' Transition magnetic dipole moment (a.u.):')")
+write(*,"(/,' Transition magnetic dipole moments (a.u.):')")
 write(*,"(' State      X          Y          Z         norm')")
 do iexc=1,nexc
     write(*,"(i5,4f11.4)") iexc,magtran(:,iexc),dsqrt(sum(magtran(:,iexc)**2))
 end do
-
+write(*,*)
+write(*,*) "Note:"
+write(*,*) "Transition electric dipole moment 1 a.u. = 2.541746E-18 esu*cm"
+write(*,*) "Transition magnetic dipole moment 1 a.u. = 1.85480201566E-20 erg/Gauss"
 write(*,*)
 write(*,*) "Wavlen: Wavelength (nm)" 
-write(*,*) "|e_tran|: Norm of transition electric dipole moment (a.u.)" 
-write(*,*) "|m_tran|: Norm of transition magnetic dipole moment (a.u.)"
+write(*,*) "|e_tran|: Magnitude of transition electric dipole moment (in 1E-20 esu*cm)" 
+write(*,*) "|m_tran|: Magnitude of transition magnetic dipole moment (in 1E-20 erg/Gauss)"
 write(*,*) "angle: Angle between transition electric and magnetic moments (degree)"
-write(*,*) "R: Rotatory strength (10^40 cgs. Note: cgs = erg*esu*cm/Gauss)"
-write(*,*) "g: Dissymmetry factor (dimensionless)"
-write(*,"(' State  Wavlen  |e_tran| |m_tran|  angle   cos(angle)     R       g')")
+write(*,*) "R: Rotatory strength (in 1E-40 cgs = erg*esu*cm/Gauss)"
+write(*,*) "D: Dipole strength (in 1E-38 cgs = esu^2*cm^2)"
+if (imode==1) write(*,*) "g: ECD Dissymmetry factor (dimensionless)"
+if (imode==2) write(*,*) "g: CPL Dissymmetry factor (dimensionless)"
+write(*,*)
+write(*,"(' State Wavlen  |e_tran| |m_tran| angle  cos(angle)     R        D        g')")
 do iexc=1,nexc
-    tmp1=dsqrt(sum(eletran(:,iexc)**2))
-    tmp2=dsqrt(sum(magtran(:,iexc)**2))
+    tmp1=dsqrt(sum(eletran(:,iexc)**2))*2.54174619D-18
+    tmp2=dsqrt(sum(magtran(:,iexc)**2))*1.85480184D-20
     angle=vecang_arr(eletran(:,iexc),magtran(:,iexc))
     cosangle=cos(ang2rad(angle))
+    Rfac=-tmp1*tmp2*cosangle
     Dfac=tmp1**2+tmp2**2
-    Rfac=-sum(eletran(:,iexc)*magtran(:,iexc))
     gfac=4*Rfac/Dfac
-    write(*,"(i5,f9.1,2f9.4,f9.2,f10.3,f10.3,f8.3)") iexc,wavlen(iexc),tmp1,tmp2,angle,cosangle,Rfac*2.54174619E-18*1.85480184E-20/1E-40,gfac
+    write(*,"(i5,f8.1,f9.2,f9.3,f8.2,f10.3,2f9.1,f11.6)") iexc,wavlen(iexc),tmp1/1D-20,tmp2/1D-20,angle,cosangle,Rfac/1D-40,Dfac/1D-38,gfac
 end do
 
 do while(.true.)
@@ -7151,21 +7169,25 @@ do while(.true.)
             outname=c200tmp
         end if
         open(10,file=outname,status="replace")
-        write(10,"(a)") "#Plotting transition electric dipole moment (red arrow) and transition magnetic dipole moment (blue arrow)"
+        write(10,"(a)") "#Plotting transition electric dipole moment (red arrow) and transition magnetic dipole moment (cyan arrow)"
         write(10,"(a)") "#Generated by Multiwfn"
         write(10,"(a)") "#Usage examples:"
-        write(10,"(a)") "#emtran 3: Plotting the 3rd excited state, arrows are 10 times of the corresponding transition moments,"
-        write(10,"(a)") "#          and arrow radius is 0.2, which is equivalent to running ""emtran 3 10 0.2"""
-        write(10,"(a)") "#emtran 3 10 0.2  0.12 0.05 0.4  -0.1 0.07 -0.4: The same as above, but shift center of the red arrow by 0.05 0.4 0.1,"
-        write(10,"(a)") "#          and shift center of the blue arrow by -0.1 0.07 -0.4"
-        write(10,"(a)") "proc emtran {iexc {scl 10} {rad 0.2} {sft1x 0} {sft1y 0} {sft1z 0} {sft2x 0} {sft2y 0} {sft2z 0}} {"
+        write(10,"(a)") "#emtran 2: Plotting the 2nd excited state, both two arrows have default length of 5 Angstrom,"
+        write(10,"(a)") "#          with default arrow radius of 0.15 Angstrom, which is equivalent to running ""emtran 2 5 5 0.15"""
+        write(10,"(a)") "#emtran 2 5 5 0.15  0.12 0.05 0.4  -0.1 0.07 -0.4: The same as above, but shift center of the red arrow by (0.05 0.4 0.1),"
+        write(10,"(a)") "#          and shift center of the cyan arrow by (-0.1 0.07 -0.4)"
+        write(10,"(a)") "proc emtran {iexc {scl1 5} {scl2 5} {rad 0.15} {sft1x 0} {sft1y 0} {sft1z 0} {sft2x 0} {sft2y 0} {sft2z 0}} {"
         write(10,"(a)") "draw delete all"
+        write(10,"(a)") "color Name C tan"
+        write(10,"(a)") "color change rgb tan 0.7 0.56 0.36"
+        write(10,"(a)") "light 3 on"
+        write(10,"(a)") "material change specular Opaque 0.3"
         write(10,"(a)") "global etran"
         write(10,"(a)") "global mtran"
         write(10,"(a)") "draw color red"
-        write(10,"(a)") "drawarrow all $etran(1,$iexc) $etran(2,$iexc) $etran(3,$iexc) $scl $rad $sft1x $sft1y $sft1z"
-        write(10,"(a)") "draw color blue"
-        write(10,"(a)") "drawarrow all $mtran(1,$iexc) $mtran(2,$iexc) $mtran(3,$iexc) $scl $rad $sft2x $sft2y $sft2z"
+        write(10,"(a)") "drawarrow all $etran(1,$iexc) $etran(2,$iexc) $etran(3,$iexc) $scl1 $rad $sft1x $sft1y $sft1z"
+        write(10,"(a)") "draw color cyan3"
+        write(10,"(a)") "drawarrow all $mtran(1,$iexc) $mtran(2,$iexc) $mtran(3,$iexc) $scl2 $rad $sft2x $sft2y $sft2z"
         write(10,"(a)") "}"
         write(10,"(a)") " "
         do iexc=1,nexc
@@ -7183,40 +7205,40 @@ do while(.true.)
         write(10,"(a)") " "
         write(10,"(a)") "#atmrange: Selection of atoms, whose geometry center defines arrow center"
         write(10,"(a)") "#vecx/dy/dz: Cartesian component of the vector to be plotted"
-        write(10,"(a)") "#scl: Scale factor of vector length"
+        write(10,"(a)") "#scl: Scale factor of normalized vector"
         write(10,"(a)") "#rad: Radius of arrow"
         write(10,"(a)") "#sftx, sfty, sftz: Shift of center in X,Y,Z"
-        write(10,"(a)") "proc drawarrow {atmrange vecx vecy vecz {scl 1} {rad 0.2} {sftx 0} {sfty 0} {sftz 0}} {"
+        write(10,"(a)") "proc drawarrow {atmrange vecx vecy vecz {scl 5} {rad 0.15} {sftx 0} {sfty 0} {sftz 0}} {"
         write(10,"(a)") "#Determine arrow center"
         write(10,"(a)") "set sel [atomselect top $atmrange]"
         write(10,"(a)") "set cen [measure center $sel]"
         write(10,"(a)") "set cenx [expr [lindex $cen 0]+$sftx]"
         write(10,"(a)") "set ceny [expr [lindex $cen 1]+$sfty]"
         write(10,"(a)") "set cenz [expr [lindex $cen 2]+$sftz]"
-        write(10,"(a)") "#Scale vector"
-        write(10,"(a)") "set vecx [expr $vecx*$scl]"
-        write(10,"(a)") "set vecy [expr $vecy*$scl]"
-        write(10,"(a)") "set vecz [expr $vecz*$scl]"
+        write(10,"(a)") "#Scale the normalized vector to obtain actual length"
+        write(10,"(a)") "set vecnorm [veclength ""$vecx $vecy $vecz""]"
+        write(10,"(a)") "set vecx [expr $vecx/$vecnorm*$scl]"
+        write(10,"(a)") "set vecy [expr $vecy/$vecnorm*$scl]"
+        write(10,"(a)") "set vecz [expr $vecz/$vecnorm*$scl]"
         write(10,"(a)") "#Draw arrow"
         write(10,"(a)") "set body 0.75"
-        write(10,"(a)") "set begx [expr $cenx-$vecx/2]"
-        write(10,"(a)") "set begy [expr $ceny-$vecy/2]"
-        write(10,"(a)") "set begz [expr $cenz-$vecz/2]"
-        write(10,"(a)") "set endx [expr $cenx+$vecx*$body-$vecx/2]"
-        write(10,"(a)") "set endy [expr $ceny+$vecy*$body-$vecy/2]"
-        write(10,"(a)") "set endz [expr $cenz+$vecz*$body-$vecz/2]"
+        write(10,"(a)") "set begx [expr $cenx-$vecx/2.0]"
+        write(10,"(a)") "set begy [expr $ceny-$vecy/2.0]"
+        write(10,"(a)") "set begz [expr $cenz-$vecz/2.0]"
+        write(10,"(a)") "set endx [expr $cenx+$vecx*$body-$vecx/2.0]"
+        write(10,"(a)") "set endy [expr $ceny+$vecy*$body-$vecy/2.0]"
+        write(10,"(a)") "set endz [expr $cenz+$vecz*$body-$vecz/2.0]"
         write(10,"(a)") "draw cylinder ""$begx $begy $begz"" ""$endx $endy $endz"" radius $rad filled yes resolution 20"
-        write(10,"(a)") "set endx2 [expr $cenx+$vecx/2]"
-        write(10,"(a)") "set endy2 [expr $ceny+$vecy/2]"
-        write(10,"(a)") "set endz2 [expr $cenz+$vecz/2]"
+        write(10,"(a)") "set endx2 [expr $cenx+$vecx/2.0]"
+        write(10,"(a)") "set endy2 [expr $ceny+$vecy/2.0]"
+        write(10,"(a)") "set endz2 [expr $cenz+$vecz/2.0]"
         write(10,"(a)") "draw cone ""$endx $endy $endz"" ""$endx2 $endy2 $endz2"" radius [expr $rad*2.5] resolution 20"
         write(10,"(a)") "}"
         close(10)
         write(*,"(1x,a)") trim(outname)//" has been generated!"
         write(*,"(a)") " After executing this script in VMD console window and loading structure file to VMD, &
-        &then you can use e.g. ""emtran 3"" to plot transition electric and magnetic dipole moments of the 3rd excited state &
-        &as red and blue arrows, respectively. By default the arrow lengths are 10 times of the corresponding transition moments. &
-        &See comment lines in this script for more detailed usage description."
+        &then you can use e.g. ""emtran 2"" to plot transition electric and magnetic dipole moments of the 2nd excited state &
+        &as red and cyan arrows, respectively. See comments at the top of this script for arguments of tuning the affect."
     else if (isel==2) then
         call outpdb_wrapper
     end if
