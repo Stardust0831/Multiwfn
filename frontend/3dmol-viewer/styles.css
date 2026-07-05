@@ -60,6 +60,7 @@ input:focus-visible {
   min-width: 0;
   min-height: 0;
   padding: 16px;
+  overflow: auto;
   background: var(--panel);
   border-right: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -107,6 +108,118 @@ h2 {
 
 #status[data-state="error"] {
   color: var(--danger);
+}
+
+.multiwfn-gui {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.gui-modebar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  padding: 5px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.gui-mode {
+  min-width: 0;
+  height: 32px;
+  background: transparent;
+  border-color: transparent;
+}
+
+.gui-mode.is-active {
+  color: var(--accent-strong);
+  background: var(--control);
+  border-color: var(--line);
+  box-shadow: 0 2px 8px rgba(18, 30, 37, 0.08);
+}
+
+.gui-window-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px;
+}
+
+.gui-window-bar button,
+.gui-pad button,
+.gui-menu-strip button {
+  min-width: 0;
+}
+
+.primary-action {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.primary-action:hover {
+  color: #ffffff;
+  background: var(--accent-strong);
+}
+
+.gui-pad {
+  display: grid;
+  grid-template-rows: repeat(3, 32px);
+  gap: 5px;
+  justify-items: center;
+  padding: 8px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.gui-pad > div {
+  display: grid;
+  grid-template-columns: repeat(2, 86px);
+  gap: 32px;
+}
+
+.gui-pad > button {
+  width: 86px;
+}
+
+.gui-section {
+  display: none;
+}
+
+.gui-section.is-active {
+  display: block;
+}
+
+.orbital-panel select[size] {
+  width: 100%;
+  min-height: 168px;
+  padding: 6px;
+}
+
+.gui-menu-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.advanced-panels {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.advanced-panels summary {
+  padding: 12px 2px 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .tabs {
@@ -449,6 +562,22 @@ button:hover {
   .control-grid.triple,
   .layer-fields {
     grid-template-columns: 1fr;
+  }
+
+  .gui-window-bar,
+  .gui-modebar,
+  .gui-menu-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .gui-pad > div {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+
+  .gui-pad > button {
+    width: 100%;
   }
 
   .button-row button {

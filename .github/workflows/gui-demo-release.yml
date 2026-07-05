@@ -240,6 +240,7 @@ jobs:
           - Each executable is built with a new `module GUI` backend compiled in place of the legacy DISLIN GUI.
           - GUI entry points such as `drawmolgui`, `drawisosurgui`, `drawplanegui`, `setboxGUI`, and `miniGUI` now write a 3Dmol session and start a bundled local HTTP service.
           - The session exports the current structure and available `cubmat`/`cubmattmp` grids, then opens the 3Dmol/Plotly frontend through a `multiwfnGui` manifest.
+          - The frontend now starts from a Multiwfn-like control panel with RETURN, view rotation, orbital/layer browsing, isosurface style controls, cube-by-cube coloring, periodic controls, slices, and 2D plots.
           - The frontend includes structure loading, cube isosurfaces, cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots, PNG export, and manifest export.
           - This is still a demo. Full interactive callbacks that mutate Multiwfn state, including a complete `setboxGUI` round trip, are not finished.
 

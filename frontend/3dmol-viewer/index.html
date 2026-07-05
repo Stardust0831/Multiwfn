@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Multiwfn 3Dmol Workbench</title>
+    <title>Multiwfn 3Dmol GUI</title>
     <link rel="stylesheet" href="styles.css">
     <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
     <script src="https://cdn.plot.ly/plotly-3.0.1.min.js"></script>
@@ -14,11 +14,269 @@
         <header class="brand">
           <div>
             <h1>Multiwfn</h1>
-            <p>3Dmol Workbench</p>
+            <p id="gui-entry-label">3Dmol GUI</p>
           </div>
           <span id="status">Ready</span>
         </header>
 
+        <section class="multiwfn-gui" aria-label="Multiwfn GUI controls">
+          <div class="gui-modebar">
+            <button class="gui-mode is-active" data-gui-mode="molecule" type="button">Molecule</button>
+            <button class="gui-mode" data-gui-mode="isosurface" type="button">Isosurface</button>
+            <button class="gui-mode" data-gui-mode="plane" type="button">Plane/2D</button>
+            <button class="gui-mode" data-gui-mode="periodic" type="button">Periodic</button>
+          </div>
+
+          <div class="gui-window-bar">
+            <button id="gui-return" class="primary-action" type="button">RETURN</button>
+            <button id="gui-reset" type="button">Reset view</button>
+            <button id="gui-save-picture" type="button">Save picture</button>
+          </div>
+
+          <div class="gui-pad" aria-label="View rotation">
+            <button id="gui-rot-up" type="button">Up</button>
+            <div>
+              <button id="gui-rot-left" type="button">Left</button>
+              <button id="gui-rot-right" type="button">Right</button>
+            </div>
+            <button id="gui-rot-down" type="button">Down</button>
+          </div>
+
+          <section class="gui-section is-active" data-gui-section="molecule">
+            <div class="group">
+              <h2>Geometry structure / orbital isosurfaces</h2>
+              <div class="checks">
+                <label><input id="gui-show-structure" type="checkbox" checked> Show molecule</label>
+                <label><input id="gui-show-labels" type="checkbox"> Show labels</label>
+                <label><input id="gui-show-axis" type="checkbox" checked> Show axis</label>
+                <label><input id="gui-show-second" type="checkbox"> Show+Sel. isosur#2</label>
+              </div>
+              <div class="control-grid">
+                <label>
+                  <span>Bonding threshold</span>
+                  <input id="gui-bond-threshold" type="range" min="0" max="5" step="0.01" value="1.15">
+                </label>
+                <label>
+                  <span>Ratio of atomic size</span>
+                  <input id="gui-atom-size" type="range" min="0" max="5" step="0.01" value="1">
+                </label>
+                <label>
+                  <span>Radius of bonds</span>
+                  <input id="gui-bond-radius" type="range" min="0" max="1" step="0.01" value="0.2">
+                </label>
+                <label>
+                  <span>Size of atomic labels</span>
+                  <input id="gui-label-size" type="range" min="0" max="100" step="1" value="38">
+                </label>
+              </div>
+            </div>
+
+            <div class="group orbital-panel">
+              <h2>Orbitals</h2>
+              <select id="gui-orbital-select" size="8" aria-label="Orbital or cube layer list"></select>
+              <div class="control-grid">
+                <label>
+                  <span>Orbital index</span>
+                  <input id="gui-orbital-input" type="text" value="0">
+                </label>
+                <label>
+                  <span>Isovalue</span>
+                  <input id="gui-orbital-isovalue" type="range" min="0" max="0.3" step="0.001" value="0.015">
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="gui-orb-prev" type="button">Previous</button>
+                <button id="gui-orb-next" type="button">Next</button>
+                <button id="gui-orb-info" type="button">Orbital info.</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="gui-section" data-gui-section="isosurface">
+            <div class="group">
+              <h2>Isosurface</h2>
+              <div class="control-grid">
+                <label>
+                  <span>Active isosurface</span>
+                  <select id="gui-isosurface-layer"></select>
+                </label>
+                <label>
+                  <span>Draw sign</span>
+                  <select id="gui-isosurface-mode">
+                    <option value="signed">Show both sign</option>
+                    <option value="positive">Positive only</option>
+                    <option value="negative">Negative only</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Isovalue</span>
+                  <input id="gui-isosurface-value" type="number" min="0.000001" step="0.001" value="0.015">
+                </label>
+                <label>
+                  <span>Opacity</span>
+                  <input id="gui-isosurface-opacity" type="range" min="0.05" max="1" step="0.05" value="0.68">
+                </label>
+              </div>
+              <div class="control-grid">
+                <label>
+                  <span>Isosur#1 style</span>
+                  <select id="gui-surface-style">
+                    <option value="solid">Use solid face</option>
+                    <option value="mesh">Use mesh</option>
+                    <option value="points">Use points</option>
+                    <option value="solidmesh">Use solid face+mesh</option>
+                    <option value="transparent" selected>Use transparent face</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Isosur. quality</span>
+                  <select id="gui-surface-quality">
+                    <option value="0">Very poor quality</option>
+                    <option value="1" selected>Default</option>
+                    <option value="2">Good quality</option>
+                    <option value="4">High quality</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="group">
+              <h2>Cube coloring</h2>
+              <div class="control-grid">
+                <label>
+                  <span>Coloring</span>
+                  <select id="gui-coloring-mode">
+                    <option value="solid">Phase colors</option>
+                    <option value="cube">Mapped by another cube</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Color cube</span>
+                  <select id="gui-coloring-layer"></select>
+                </label>
+                <label>
+                  <span>Gradient</span>
+                  <select id="gui-gradient">
+                    <option value="rwb">Red-white-blue</option>
+                    <option value="roygb">Rainbow</option>
+                    <option value="sinebow">Sinebow</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Color min</span>
+                  <input id="gui-color-min" type="number" step="0.001" value="-0.05">
+                </label>
+                <label>
+                  <span>Color max</span>
+                  <input id="gui-color-max" type="number" step="0.001" value="0.05">
+                </label>
+                <label>
+                  <span>Positive color</span>
+                  <input id="gui-positive-color" type="color" value="#2869d8">
+                </label>
+                <label>
+                  <span>Negative color</span>
+                  <input id="gui-negative-color" type="color" value="#d6435f">
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="gui-section" data-gui-section="plane">
+            <div class="group">
+              <h2>Plane map / 2D plot</h2>
+              <div class="control-grid">
+                <label>
+                  <span>Cube</span>
+                  <select id="gui-slice-layer"></select>
+                </label>
+                <label>
+                  <span>Plane</span>
+                  <select id="gui-slice-axis">
+                    <option value="z" selected>XY at Z</option>
+                    <option value="y">XZ at Y</option>
+                    <option value="x">YZ at X</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Position</span>
+                  <input id="gui-slice-position" type="range" min="0" max="1" step="0.01" value="0.5">
+                </label>
+                <label>
+                  <span>Color-filled map</span>
+                  <select id="gui-plot-colormap">
+                    <option value="RdBu">Red-Blue</option>
+                    <option value="Viridis" selected>Viridis</option>
+                    <option value="Jet">Jet</option>
+                  </select>
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="gui-draw-slice" type="button">Draw plane map</button>
+                <button id="gui-sample-curve" type="button">Draw curve</button>
+                <button id="gui-sample-map" type="button">Draw filled map</button>
+                <button id="gui-hide-plot" type="button">Hide 2D plot</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="gui-section" data-gui-section="periodic">
+            <div class="group">
+              <h2>Cell and boundary atoms</h2>
+              <div class="checks">
+                <label><input id="gui-periodic-enabled" type="checkbox"> Periodic</label>
+                <label><input id="gui-show-cell" type="checkbox" checked> Show cell frame</label>
+                <label><input id="gui-tile-cubes" type="checkbox"> Show boundary cube images</label>
+              </div>
+              <div class="control-grid triple">
+                <label>
+                  <span>a vector</span>
+                  <input id="gui-cell-a" type="text" value="6.0, 0.0, 0.0">
+                </label>
+                <label>
+                  <span>b vector</span>
+                  <input id="gui-cell-b" type="text" value="0.0, 6.0, 0.0">
+                </label>
+                <label>
+                  <span>c vector</span>
+                  <input id="gui-cell-c" type="text" value="0.0, 0.0, 6.0">
+                </label>
+              </div>
+              <div class="control-grid triple">
+                <label>
+                  <span>A range</span>
+                  <input id="gui-range-a" type="text" value="0, 1">
+                </label>
+                <label>
+                  <span>B range</span>
+                  <input id="gui-range-b" type="text" value="0, 1">
+                </label>
+                <label>
+                  <span>C range</span>
+                  <input id="gui-range-c" type="text" value="0, 1">
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="gui-cell-from-cube" type="button">Make box size consistent to cell</button>
+                <button id="gui-apply-periodic" type="button">Apply cell</button>
+                <button id="gui-periodic-esp" type="button">Example: surface ESP</button>
+              </div>
+            </div>
+          </section>
+
+          <div class="gui-menu-strip" aria-label="Original GUI menus">
+            <button id="gui-menu-orbital-info" type="button">Orbital info.</button>
+            <button id="gui-menu-isosur1" type="button">Isosur#1 style</button>
+            <button id="gui-menu-isosur2" type="button">Isosur#2 style</button>
+            <button id="gui-menu-quality" type="button">Isosur. quality</button>
+            <button id="gui-menu-view" type="button">Set view</button>
+            <button id="gui-menu-settings" type="button">Other settings</button>
+            <button id="gui-menu-tools" type="button">Tools</button>
+          </div>
+        </section>
+
+        <details class="advanced-panels">
+          <summary>Advanced panels</summary>
         <nav class="tabs" aria-label="Control sections">
           <button class="tab is-active" data-tab="scene" type="button">Scene</button>
           <button class="tab" data-tab="layers" type="button">Cubes</button>
@@ -356,6 +614,7 @@
             </dl>
           </div>
         </section>
+        </details>
       </aside>
 
       <section class="viewport-wrap" aria-label="3D viewer">

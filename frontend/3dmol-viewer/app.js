@@ -205,6 +205,11 @@ const state = {
     guiMode: null,
     state: {}
   },
+  gui: {
+    mode: 'molecule',
+    activeLayerId: '',
+    labelSize: 38
+  },
   activePlot: null,
   selectedCubeFile: null,
   selectedPlotFile: null,
@@ -591,7 +596,7 @@ function addAtomLabels(model) {
       const label = `${atom.elem || atom.atom || 'X'}${index + 1}`;
       state.viewer.addLabel(label, {
         position: { x: atom.x, y: atom.y, z: atom.z },
-        fontSize: 10,
+        fontSize: clamp(Math.round(state.gui.labelSize / 3), 8, 24),
         fontColor: '#111820',
         backgroundColor: 'rgba(255,255,255,0.78)',
         backgroundOpacity: 0.72,
@@ -638,6 +643,7 @@ function addCubeLayer(layer) {
   const colorLayer = layer.colorMode === 'cube' ? layerById(layer.colorLayerId) : null;
   const colorMin = toNumber(layer.colorMin, -0.05);
   const colorMax = toNumber(layer.colorMax, 0.05);
+  const surfaceStyle = layer.surfaceStyle || 'transparent';
 
   cubeOffsets().forEach((offset) => {
     let volume;
@@ -660,19 +666,33 @@ function addCubeLayer(layer) {
       common.volscheme = makeGradient(layer.gradient, colorMin, colorMax);
     }
 
-    if (layer.mode === 'signed' || layer.mode === 'positive') {
-      state.viewer.addIsosurface(volume, {
+    const addSurface = (signedIsovalue, solidColor) => {
+      const baseSpec = {
         ...common,
-        isoval: isovalue,
-        color: colorVolume ? undefined : layer.positiveColor
-      });
+        isoval: signedIsovalue,
+        color: colorVolume ? undefined : solidColor
+      };
+      if (surfaceStyle === 'mesh' || surfaceStyle === 'points') {
+        state.viewer.addIsosurface(volume, { ...baseSpec, opacity: Math.max(opacity, 0.72), wireframe: true });
+        return;
+      }
+      if (surfaceStyle === 'solidmesh') {
+        state.viewer.addIsosurface(volume, { ...baseSpec, opacity: Math.max(opacity, 0.62) });
+        state.viewer.addIsosurface(volume, { ...baseSpec, opacity: 0.92, wireframe: true });
+        return;
+      }
+      if (surfaceStyle === 'solid') {
+        state.viewer.addIsosurface(volume, { ...baseSpec, opacity: 1 });
+        return;
+      }
+      state.viewer.addIsosurface(volume, baseSpec);
+    };
+
+    if (layer.mode === 'signed' || layer.mode === 'positive') {
+      addSurface(isovalue, layer.positiveColor);
     }
     if (layer.mode === 'signed' || layer.mode === 'negative') {
-      state.viewer.addIsosurface(volume, {
-        ...common,
-        isoval: -isovalue,
-        color: colorVolume ? undefined : layer.negativeColor
-      });
+      addSurface(-isovalue, layer.negativeColor);
     }
   });
 }
@@ -694,6 +714,7 @@ function renderScene(zoom = false) {
   state.viewer.render();
   updateLabels();
   updateStats();
+  syncMultiwfnGuiControls();
 }
 
 function updateLabels() {
@@ -833,6 +854,59 @@ function updateLayerSelectors() {
   if ([...els.sliceLayer.options].some((option) => option.value === current)) {
     els.sliceLayer.value = current;
   }
+  updateMultiwfnGuiLayerSelectors();
+}
+
+function appendLayerOption(select, layer, index, selectedId) {
+  const option = document.createElement('option');
+  option.value = String(layer.id);
+  option.textContent = `${String(index + 1).padStart(5, ' ')}  ${layer.name}`;
+  option.selected = String(layer.id) === String(selectedId);
+  select.append(option);
+}
+
+function updateMultiwfnGuiLayerSelectors() {
+  if (!els.guiOrbitalSelect) return;
+  const selectedId = state.layers.some((layer) => String(layer.id) === String(state.gui.activeLayerId))
+    ? String(state.gui.activeLayerId)
+    : (state.layers[0] ? String(state.layers[0].id) : '');
+  state.gui.activeLayerId = selectedId;
+
+  [
+    els.guiOrbitalSelect,
+    els.guiIsosurfaceLayer,
+    els.guiSliceLayer
+  ].forEach((select) => {
+    if (!select) return;
+    select.replaceChildren();
+    if (select === els.guiOrbitalSelect) {
+      const none = document.createElement('option');
+      none.value = '0';
+      none.textContent = '    0  None';
+      select.append(none);
+    }
+    state.layers.forEach((layer, index) => appendLayerOption(select, layer, index, selectedId));
+    select.value = selectedId || (select === els.guiOrbitalSelect ? '0' : '');
+  });
+
+  if (els.guiColoringLayer) {
+    const current = els.guiColoringLayer.value;
+    els.guiColoringLayer.replaceChildren();
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'None';
+    els.guiColoringLayer.append(none);
+    state.layers.forEach((layer, index) => appendLayerOption(els.guiColoringLayer, layer, index, current));
+    els.guiColoringLayer.value = [...els.guiColoringLayer.options].some((option) => option.value === current)
+      ? current
+      : '';
+  }
+
+  syncMultiwfnGuiControls();
+}
+
+function activeGuiLayer() {
+  return layerById(state.gui.activeLayerId) || state.layers[0] || null;
 }
 
 function loadStructure(text, name = 'structure.xyz', format = 'xyz') {
@@ -873,6 +947,7 @@ function layerFromCube(text, options = {}) {
     colorMode: options.colorMode || 'solid',
     colorLayerId: options.colorLayerId || '',
     gradient: options.gradient || 'rwb',
+    surfaceStyle: options.surfaceStyle || 'transparent',
     colorMin: toNumber(options.colorMin, -0.05),
     colorMax: toNumber(options.colorMax, 0.05),
     stats: parseCubeMetadata(text)
@@ -1028,6 +1103,7 @@ function saveManifest() {
       colorMode: layer.colorMode,
       colorLayerId: layer.colorLayerId,
       gradient: layer.gradient,
+      surfaceStyle: layer.surfaceStyle,
       colorMin: layer.colorMin,
       colorMax: layer.colorMax,
       visible: layer.visible,
@@ -1383,13 +1459,168 @@ function activateTab(tabName) {
   });
 }
 
+function activateGuiMode(mode) {
+  state.gui.mode = mode;
+  document.querySelectorAll('.gui-mode').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.guiMode === mode);
+  });
+  document.querySelectorAll('.gui-section').forEach((section) => {
+    section.classList.toggle('is-active', section.dataset.guiSection === mode);
+  });
+
+  if (mode === 'molecule') activateTab('scene');
+  else if (mode === 'isosurface') activateTab('layers');
+  else if (mode === 'plane') activateTab('slices');
+  else if (mode === 'periodic') activateTab('periodic');
+}
+
+function setActiveGuiLayer(layerId, options = {}) {
+  const id = String(layerId || '');
+  if (id === '0') {
+    state.gui.activeLayerId = '';
+    state.layers.forEach((layer) => { layer.visible = false; });
+    renderLayerList();
+    renderScene(false);
+    return;
+  }
+
+  const layer = layerById(id);
+  if (!layer) return;
+  state.gui.activeLayerId = String(layer.id);
+  if (options.orbitalSelection) {
+    const keepSecond = els.guiShowSecond?.checked;
+    state.layers.forEach((item) => {
+      if (String(item.id) === String(layer.id)) item.visible = true;
+      else if (!keepSecond) item.visible = false;
+    });
+  }
+  syncMultiwfnGuiControls();
+  renderLayerList();
+  renderScene(false);
+}
+
+function syncMultiwfnGuiControls() {
+  if (!els.guiShowLabels) return;
+
+  els.guiShowStructure.checked = els.showStructure.checked;
+  els.guiShowLabels.checked = els.showLabels.checked;
+  els.guiShowAxis.checked = els.showAxes.checked;
+  els.guiPeriodicEnabled.checked = els.periodicEnabled.checked;
+  els.guiShowCell.checked = els.showUnitCell.checked;
+  els.guiTileCubes.checked = els.tileCubes.checked;
+  els.guiCellA.value = els.cellA.value;
+  els.guiCellB.value = els.cellB.value;
+  els.guiCellC.value = els.cellC.value;
+  els.guiRangeA.value = els.rangeA.value;
+  els.guiRangeB.value = els.rangeB.value;
+  els.guiRangeC.value = els.rangeC.value;
+
+  const atomRatio = clamp(toNumber(els.atomScale.value, 0.24) / 0.24, 0, 5);
+  els.guiAtomSize.value = atomRatio.toFixed(2);
+  els.guiBondRadius.value = clamp(toNumber(els.bondRadius.value, 0.14) / 0.7, 0, 1).toFixed(2);
+  els.guiLabelSize.value = String(state.gui.labelSize);
+
+  const layer = activeGuiLayer();
+  const selectedId = layer ? String(layer.id) : '';
+  if (selectedId) state.gui.activeLayerId = selectedId;
+  [els.guiOrbitalSelect, els.guiIsosurfaceLayer, els.guiSliceLayer].forEach((select) => {
+    if (select && [...select.options].some((option) => option.value === selectedId)) select.value = selectedId;
+  });
+
+  if (!layer) {
+    els.guiOrbitalInput.value = '0';
+    return;
+  }
+
+  const layerIndex = state.layers.findIndex((item) => item.id === layer.id);
+  els.guiOrbitalInput.value = String(layerIndex + 1);
+  els.guiOrbitalIsovalue.value = String(clamp(toNumber(layer.isovalue, 0.015), 0, 0.3));
+  els.guiIsosurfaceMode.value = layer.mode;
+  els.guiIsosurfaceValue.value = String(layer.isovalue);
+  els.guiIsosurfaceOpacity.value = String(layer.opacity);
+  els.guiSurfaceStyle.value = layer.surfaceStyle || 'transparent';
+  els.guiColoringMode.value = layer.colorMode;
+  els.guiGradient.value = layer.gradient;
+  els.guiColorMin.value = String(layer.colorMin);
+  els.guiColorMax.value = String(layer.colorMax);
+  els.guiPositiveColor.value = layer.positiveColor;
+  els.guiNegativeColor.value = layer.negativeColor;
+  if ([...els.guiColoringLayer.options].some((option) => option.value === String(layer.colorLayerId))) {
+    els.guiColoringLayer.value = String(layer.colorLayerId || '');
+  }
+}
+
+function updateActiveLayerFromGui() {
+  const layer = activeGuiLayer();
+  if (!layer) {
+    setStatus('No cube layer', false);
+    return;
+  }
+  layer.mode = els.guiIsosurfaceMode.value;
+  layer.isovalue = Math.abs(toNumber(els.guiIsosurfaceValue.value, layer.isovalue));
+  layer.opacity = clamp(toNumber(els.guiIsosurfaceOpacity.value, layer.opacity), 0.05, 1);
+  layer.colorMode = els.guiColoringMode.value;
+  layer.colorLayerId = els.guiColoringLayer.value;
+  layer.gradient = els.guiGradient.value;
+  layer.surfaceStyle = els.guiSurfaceStyle.value;
+  layer.colorMin = toNumber(els.guiColorMin.value, layer.colorMin);
+  layer.colorMax = toNumber(els.guiColorMax.value, layer.colorMax);
+  layer.positiveColor = els.guiPositiveColor.value;
+  layer.negativeColor = els.guiNegativeColor.value;
+
+  if (els.guiSurfaceStyle.value === 'solid') layer.opacity = 1;
+  els.guiIsosurfaceOpacity.value = String(layer.opacity);
+  els.surfaceQuality.value = els.guiSurfaceQuality.value;
+  renderLayerList();
+  renderScene(false);
+}
+
+function rotateGuiView(direction) {
+  if (!state.viewer || typeof state.viewer.rotate !== 'function') {
+    setStatus('Rotation unavailable', false);
+    return;
+  }
+  const angle = 10;
+  if (direction === 'up') state.viewer.rotate(angle, 'x');
+  if (direction === 'down') state.viewer.rotate(-angle, 'x');
+  if (direction === 'left') state.viewer.rotate(-angle, 'y');
+  if (direction === 'right') state.viewer.rotate(angle, 'y');
+  state.viewer.render();
+}
+
+function selectGuiOrbitalOffset(offset) {
+  if (!state.layers.length) {
+    setStatus('No cube layer', false);
+    return;
+  }
+  const currentIndex = Math.max(0, state.layers.findIndex((layer) => String(layer.id) === String(state.gui.activeLayerId)));
+  const nextIndex = clamp(currentIndex + offset, 0, state.layers.length - 1);
+  setActiveGuiLayer(state.layers[nextIndex].id, { orbitalSelection: true });
+}
+
+function applyGuiPeriodicControls() {
+  els.periodicEnabled.checked = els.guiPeriodicEnabled.checked;
+  els.showUnitCell.checked = els.guiShowCell.checked;
+  els.tileCubes.checked = els.guiTileCubes.checked;
+  els.cellA.value = els.guiCellA.value;
+  els.cellB.value = els.guiCellB.value;
+  els.cellC.value = els.guiCellC.value;
+  els.rangeA.value = els.guiRangeA.value;
+  els.rangeB.value = els.guiRangeB.value;
+  els.rangeC.value = els.guiRangeC.value;
+  syncPeriodicFromControls();
+  renderScene(true);
+  setStatus('Periodic updated');
+}
+
 function applyMultiwfnGuiMode(gui) {
   const entry = String(gui.entry || '').toLowerCase();
   const guiMode = Number(gui.guiMode);
-  if (entry.includes('drawplane') || guiMode === 2) activateTab('plots');
-  else if (entry.includes('drawisosur') || guiMode === 3) activateTab('layers');
-  else if (entry.includes('setbox') || entry.includes('mini') || guiMode === 7) activateTab('periodic');
-  else if (entry.includes('drawmol') || guiMode === 1) activateTab('scene');
+  els.guiEntryLabel.textContent = gui.entry ? `3Dmol GUI · ${gui.entry}` : '3Dmol GUI';
+  if (entry.includes('drawplane') || guiMode === 2) activateGuiMode('plane');
+  else if (entry.includes('drawisosur') || guiMode === 3) activateGuiMode('isosurface');
+  else if (entry.includes('setbox') || entry.includes('mini') || guiMode === 7) activateGuiMode('periodic');
+  else if (entry.includes('drawmol') || guiMode === 1) activateGuiMode('molecule');
 }
 
 function bindTabs() {
@@ -1402,6 +1633,148 @@ function bindTabs() {
 
 function bindEvents() {
   bindTabs();
+
+  document.querySelectorAll('.gui-mode').forEach((button) => {
+    button.addEventListener('click', () => activateGuiMode(button.dataset.guiMode));
+  });
+
+  els.guiReturn.addEventListener('click', () => {
+    window.close();
+    setStatus('Return requested');
+  });
+  els.guiReset.addEventListener('click', () => renderScene(true));
+  els.guiSavePicture.addEventListener('click', savePng);
+  els.guiRotUp.addEventListener('click', () => rotateGuiView('up'));
+  els.guiRotDown.addEventListener('click', () => rotateGuiView('down'));
+  els.guiRotLeft.addEventListener('click', () => rotateGuiView('left'));
+  els.guiRotRight.addEventListener('click', () => rotateGuiView('right'));
+
+  els.guiShowStructure.addEventListener('input', () => {
+    els.showStructure.checked = els.guiShowStructure.checked;
+    renderScene(false);
+  });
+  els.guiShowLabels.addEventListener('input', () => {
+    els.showLabels.checked = els.guiShowLabels.checked;
+    renderScene(false);
+  });
+  els.guiShowAxis.addEventListener('input', () => {
+    els.showAxes.checked = els.guiShowAxis.checked;
+    renderScene(false);
+  });
+  els.guiShowSecond.addEventListener('input', () => {
+    if (!els.guiShowSecond.checked && state.gui.activeLayerId) {
+      state.layers.forEach((layer) => { layer.visible = String(layer.id) === String(state.gui.activeLayerId); });
+      renderLayerList();
+      renderScene(false);
+    }
+  });
+  els.guiAtomSize.addEventListener('input', () => {
+    els.atomScale.value = String(clamp(toNumber(els.guiAtomSize.value, 1) * 0.24, 0.12, 0.75));
+    renderScene(false);
+  });
+  els.guiBondRadius.addEventListener('input', () => {
+    els.bondRadius.value = String(clamp(toNumber(els.guiBondRadius.value, 0.2) * 0.7, 0.04, 0.32));
+    renderScene(false);
+  });
+  els.guiLabelSize.addEventListener('input', () => {
+    state.gui.labelSize = clamp(parseInt(els.guiLabelSize.value, 10) || 38, 0, 100);
+    renderScene(false);
+  });
+  els.guiBondThreshold.addEventListener('input', () => setStatus('Bonding threshold is stored for Multiwfn GUI parity'));
+
+  els.guiOrbitalSelect.addEventListener('change', () => setActiveGuiLayer(els.guiOrbitalSelect.value, { orbitalSelection: true }));
+  els.guiOrbitalInput.addEventListener('change', () => {
+    const index = parseInt(els.guiOrbitalInput.value, 10);
+    if (!Number.isFinite(index) || index <= 0) {
+      setActiveGuiLayer('0', { orbitalSelection: true });
+      return;
+    }
+    const layer = state.layers[index - 1];
+    if (layer) setActiveGuiLayer(layer.id, { orbitalSelection: true });
+    else setStatus('Orbital layer unavailable', false);
+  });
+  els.guiOrbPrev.addEventListener('click', () => selectGuiOrbitalOffset(-1));
+  els.guiOrbNext.addEventListener('click', () => selectGuiOrbitalOffset(1));
+  els.guiOrbInfo.addEventListener('click', () => activateTab('layers'));
+  els.guiOrbitalIsovalue.addEventListener('input', () => {
+    const layer = activeGuiLayer();
+    if (!layer) return;
+    layer.isovalue = Math.abs(toNumber(els.guiOrbitalIsovalue.value, layer.isovalue));
+    els.guiIsosurfaceValue.value = String(layer.isovalue);
+    renderLayerList();
+    renderScene(false);
+  });
+
+  els.guiIsosurfaceLayer.addEventListener('change', () => setActiveGuiLayer(els.guiIsosurfaceLayer.value));
+  [
+    els.guiIsosurfaceMode,
+    els.guiIsosurfaceValue,
+    els.guiIsosurfaceOpacity,
+    els.guiSurfaceStyle,
+    els.guiSurfaceQuality,
+    els.guiColoringMode,
+    els.guiColoringLayer,
+    els.guiGradient,
+    els.guiColorMin,
+    els.guiColorMax,
+    els.guiPositiveColor,
+    els.guiNegativeColor
+  ].forEach((el) => el.addEventListener('input', updateActiveLayerFromGui));
+
+  els.guiSliceLayer.addEventListener('change', () => {
+    els.sliceLayer.value = els.guiSliceLayer.value;
+    setActiveGuiLayer(els.guiSliceLayer.value);
+  });
+  els.guiSliceAxis.addEventListener('input', () => { els.sliceAxis.value = els.guiSliceAxis.value; });
+  els.guiSlicePosition.addEventListener('input', () => { els.slicePosition.value = els.guiSlicePosition.value; });
+  els.guiPlotColormap.addEventListener('input', () => {
+    els.sliceColormap.value = els.guiPlotColormap.value;
+    els.plotColormap.value = els.guiPlotColormap.value;
+  });
+  els.guiDrawSlice.addEventListener('click', () => {
+    els.sliceLayer.value = els.guiSliceLayer.value;
+    els.sliceAxis.value = els.guiSliceAxis.value;
+    els.slicePosition.value = els.guiSlicePosition.value;
+    els.sliceColormap.value = els.guiPlotColormap.value;
+    drawSelectedSlice();
+  });
+  els.guiSampleCurve.addEventListener('click', sampleCurve);
+  els.guiSampleMap.addEventListener('click', sampleMap);
+  els.guiHidePlot.addEventListener('click', () => showPlotPanel(false));
+
+  [
+    els.guiPeriodicEnabled,
+    els.guiShowCell,
+    els.guiTileCubes,
+    els.guiCellA,
+    els.guiCellB,
+    els.guiCellC,
+    els.guiRangeA,
+    els.guiRangeB,
+    els.guiRangeC
+  ].forEach((el) => el.addEventListener('change', applyGuiPeriodicControls));
+  els.guiApplyPeriodic.addEventListener('click', applyGuiPeriodicControls);
+  els.guiCellFromCube.addEventListener('click', () => {
+    cellFromFirstCube();
+    syncMultiwfnGuiControls();
+  });
+  els.guiPeriodicEsp.addEventListener('click', () => {
+    loadPeriodicEspSample();
+    activateGuiMode('periodic');
+  });
+
+  [
+    els.guiMenuOrbitalInfo,
+    els.guiMenuIsosur1,
+    els.guiMenuIsosur2,
+    els.guiMenuQuality,
+    els.guiMenuView,
+    els.guiMenuSettings,
+    els.guiMenuTools
+  ].forEach((el) => el.addEventListener('click', () => {
+    document.querySelector('.advanced-panels').open = true;
+    activateTab(el === els.guiMenuOrbitalInfo || el === els.guiMenuIsosur1 || el === els.guiMenuIsosur2 || el === els.guiMenuQuality ? 'layers' : 'style');
+  }));
 
   els.structureFile.addEventListener('change', () => {
     const file = els.structureFile.files[0];
@@ -1538,6 +1911,68 @@ function cacheElements() {
     plotPanel: byId('plot-panel'),
     plotView: byId('plot-view'),
     status: byId('status'),
+    guiEntryLabel: byId('gui-entry-label'),
+    guiReturn: byId('gui-return'),
+    guiReset: byId('gui-reset'),
+    guiSavePicture: byId('gui-save-picture'),
+    guiRotUp: byId('gui-rot-up'),
+    guiRotDown: byId('gui-rot-down'),
+    guiRotLeft: byId('gui-rot-left'),
+    guiRotRight: byId('gui-rot-right'),
+    guiShowStructure: byId('gui-show-structure'),
+    guiShowLabels: byId('gui-show-labels'),
+    guiShowAxis: byId('gui-show-axis'),
+    guiShowSecond: byId('gui-show-second'),
+    guiBondThreshold: byId('gui-bond-threshold'),
+    guiAtomSize: byId('gui-atom-size'),
+    guiBondRadius: byId('gui-bond-radius'),
+    guiLabelSize: byId('gui-label-size'),
+    guiOrbitalSelect: byId('gui-orbital-select'),
+    guiOrbitalInput: byId('gui-orbital-input'),
+    guiOrbitalIsovalue: byId('gui-orbital-isovalue'),
+    guiOrbPrev: byId('gui-orb-prev'),
+    guiOrbNext: byId('gui-orb-next'),
+    guiOrbInfo: byId('gui-orb-info'),
+    guiIsosurfaceLayer: byId('gui-isosurface-layer'),
+    guiIsosurfaceMode: byId('gui-isosurface-mode'),
+    guiIsosurfaceValue: byId('gui-isosurface-value'),
+    guiIsosurfaceOpacity: byId('gui-isosurface-opacity'),
+    guiSurfaceStyle: byId('gui-surface-style'),
+    guiSurfaceQuality: byId('gui-surface-quality'),
+    guiColoringMode: byId('gui-coloring-mode'),
+    guiColoringLayer: byId('gui-coloring-layer'),
+    guiGradient: byId('gui-gradient'),
+    guiColorMin: byId('gui-color-min'),
+    guiColorMax: byId('gui-color-max'),
+    guiPositiveColor: byId('gui-positive-color'),
+    guiNegativeColor: byId('gui-negative-color'),
+    guiSliceLayer: byId('gui-slice-layer'),
+    guiSliceAxis: byId('gui-slice-axis'),
+    guiSlicePosition: byId('gui-slice-position'),
+    guiPlotColormap: byId('gui-plot-colormap'),
+    guiDrawSlice: byId('gui-draw-slice'),
+    guiSampleCurve: byId('gui-sample-curve'),
+    guiSampleMap: byId('gui-sample-map'),
+    guiHidePlot: byId('gui-hide-plot'),
+    guiPeriodicEnabled: byId('gui-periodic-enabled'),
+    guiShowCell: byId('gui-show-cell'),
+    guiTileCubes: byId('gui-tile-cubes'),
+    guiCellA: byId('gui-cell-a'),
+    guiCellB: byId('gui-cell-b'),
+    guiCellC: byId('gui-cell-c'),
+    guiRangeA: byId('gui-range-a'),
+    guiRangeB: byId('gui-range-b'),
+    guiRangeC: byId('gui-range-c'),
+    guiCellFromCube: byId('gui-cell-from-cube'),
+    guiApplyPeriodic: byId('gui-apply-periodic'),
+    guiPeriodicEsp: byId('gui-periodic-esp'),
+    guiMenuOrbitalInfo: byId('gui-menu-orbital-info'),
+    guiMenuIsosur1: byId('gui-menu-isosur1'),
+    guiMenuIsosur2: byId('gui-menu-isosur2'),
+    guiMenuQuality: byId('gui-menu-quality'),
+    guiMenuView: byId('gui-menu-view'),
+    guiMenuSettings: byId('gui-menu-settings'),
+    guiMenuTools: byId('gui-menu-tools'),
     modelLabel: byId('model-label'),
     cubeLabel: byId('cube-label'),
     structureFile: byId('structure-file'),
