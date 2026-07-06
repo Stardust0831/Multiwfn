@@ -113,12 +113,13 @@ end subroutine
 subroutine ensure_dir(dirname)
 character(len=*),intent(in) :: dirname
 character(len=1024) :: cmd
-#ifdef _WIN32
-cmd='if not exist "'//trim(dirname)//'" mkdir "'//trim(dirname)//'"'
-#else
-cmd='mkdir -p "'//trim(dirname)//'"'
-#endif
-call execute_command_line(trim(cmd))
+logical :: alive
+integer :: istat
+
+inquire(file=trim(dirname),exist=alive)
+if (alive) return
+cmd='mkdir "'//trim(dirname)//'"'
+call execute_command_line(trim(cmd),exitstat=istat)
 end subroutine
 
 subroutine build_launch_command(manifest,session,cmd)
@@ -310,6 +311,8 @@ write(iu,"(a,i0,a)") '    "allowSetStyle": ',extra,','
 write(iu,"(a)") '    "state": {'
 write(iu,"(a,1pe16.8,a)") '      "sur_value": ',sur_value,','
 write(iu,"(a,1pe16.8,a)") '      "sur_value_orb": ',sur_value_orb,','
+write(iu,"(a,i0,a)") '      "orbitalCount": ',nmo,','
+write(iu,"(a,i0,a)") '      "homoIndex": ',idxHOMO,','
 write(iu,"(a,a,a)") '      "showMolecule": ',trim(json_bool(idrawmol/=0)),','
 write(iu,"(a,a,a)") '      "showBothSign": ',trim(json_bool(isosurshowboth/=0)),','
 write(iu,"(a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a)") &
@@ -332,6 +335,7 @@ if (ifPBC>0) then
     write(iu,"(a)") '    }'
     write(iu,"(a)") '  },'
 end if
+call write_orbital_metadata(iu)
 write(iu,"(a)") '  "cubes": ['
 if (allocated(cubmat)) then
     if (allocated(cubmattmp)) then
@@ -346,6 +350,36 @@ end if
 write(iu,"(a)") '  ]'
 write(iu,"(a)") "}"
 close(iu)
+end subroutine
+
+subroutine write_orbital_metadata(iu)
+integer,intent(in) :: iu
+integer :: i,imax
+
+write(iu,"(a)") '  "orbitals": {'
+write(iu,"(a,i0,a)") '    "count": ',nmo,','
+write(iu,"(a,i0,a)") '    "homoIndex": ',idxHOMO,','
+write(iu,"(a)") '    "items": ['
+if (nmo>0) then
+    imax=min(nmo,2000)
+    do i=1,imax
+        if (allocated(MOene).and.allocated(MOocc)) then
+            if (i<imax) then
+                write(iu,"(a,i0,a,1pe16.8,a,1pe16.8,a)") '      { "index": ',i,', "energy": ',MOene(i),', "occupation": ',MOocc(i),' },'
+            else
+                write(iu,"(a,i0,a,1pe16.8,a,1pe16.8,a)") '      { "index": ',i,', "energy": ',MOene(i),', "occupation": ',MOocc(i),' }'
+            end if
+        else
+            if (i<imax) then
+                write(iu,"(a,i0,a)") '      { "index": ',i,' },'
+            else
+                write(iu,"(a,i0,a)") '      { "index": ',i,' }'
+            end if
+        end if
+    end do
+end if
+write(iu,"(a)") '    ]'
+write(iu,"(a)") '  },'
 end subroutine
 
 function json_bool(value) result(text)
