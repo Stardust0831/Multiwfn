@@ -3,6 +3,8 @@ use defvar
 implicit none
 
 real*8 :: aug3D_main0=6D0
+integer,allocatable :: gui_orbital_indices(:)
+integer :: gui_orbital_count=0
 
 contains
 
@@ -25,6 +27,7 @@ end subroutine
 subroutine drawmolgui
 GUI_mode=1
 idrawmol=1
+if (ifPBC>0) aug3D_main0=-1
 call launch_3dmol_gui("drawmolgui",1,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
@@ -85,12 +88,14 @@ integer,intent(in) :: mode,extra
 real*8,intent(in) :: init1,end1,init2,end2,init3,end3
 character(len=512) :: session,manifest,cmd
 
+call reset_generated_orbitals()
 call get_session_dir(session)
 call ensure_dir(session)
 
 if (allocated(a).and.ncenter>0) call write_structure_xyz(trim(session)//"/structure.xyz")
 if (allocated(cubmat)) call write_cube(trim(session)//"/cubmat.cube",cubmat)
 if (allocated(cubmattmp)) call write_cube(trim(session)//"/cubmattmp.cube",cubmattmp)
+call write_orbital_preview_cubes(entry,trim(session))
 
 manifest=trim(session)//"/manifest.json"
 call write_manifest(manifest,entry,mode,extra,init1,end1,init2,end2,init3,end3)
@@ -100,6 +105,12 @@ write(*,"(/,a)") " 3Dmol GUI backend wrote a visualization session:"
 write(*,"(a,a)") "   ",trim(manifest)
 write(*,"(a)") " Launching local 3Dmol service..."
 call execute_command_line(trim(cmd),wait=.false.)
+end subroutine
+
+subroutine reset_generated_orbitals()
+if (allocated(gui_orbital_indices)) deallocate(gui_orbital_indices)
+allocate(gui_orbital_indices(0))
+gui_orbital_count=0
 end subroutine
 
 subroutine get_session_dir(session)
@@ -120,6 +131,130 @@ inquire(file=trim(dirname),exist=alive)
 if (alive) return
 cmd='mkdir "'//trim(dirname)//'"'
 call execute_command_line(trim(cmd),exitstat=istat)
+end subroutine
+
+subroutine write_orbital_preview_cubes(entry,session)
+character(len=*),intent(in) :: entry,session
+integer :: i,idx,limit,istat
+integer,allocatable :: indices(:)
+character(len=512) :: env
+
+if (trim(entry)/="drawmolgui") return
+if (nmo<=0.or..not.allocated(a).or.ncenter<=0) return
+if (.not.allocated(MOene).or..not.allocated(MOocc)) return
+
+limit=0
+call get_environment_variable("MULTIWFN_3DMOL_ORBITAL_PREVIEW",env,status=istat)
+if (istat==0.and.len_trim(env)>0) read(env,*,iostat=istat) limit
+if (limit<0) return
+if (limit==0) then
+    if (nmo<=24) then
+        limit=nmo
+    else
+        limit=12
+    end if
+end if
+limit=min(limit,nmo)
+if (limit<=0) return
+
+call select_preview_orbitals(limit,indices)
+if (.not.allocated(indices)) return
+call setup_orbital_grid()
+if (allocated(cubmat)) deallocate(cubmat)
+allocate(cubmat(nx,ny,nz))
+
+allocate(gui_orbital_indices(size(indices)))
+gui_orbital_count=size(indices)
+do i=1,gui_orbital_count
+    idx=indices(i)
+    gui_orbital_indices(i)=idx
+    iorbvis=idx
+    call savecubmat(4,1,idx)
+    if (ifixorbsign==1.and.sum(cubmat)<0) cubmat=-cubmat
+    call write_orbital_cube(session,idx,cubmat)
+end do
+deallocate(indices)
+end subroutine
+
+subroutine select_preview_orbitals(limit,indices)
+integer,intent(in) :: limit
+integer,allocatable,intent(out) :: indices(:)
+integer :: startidx,endidx,homo,i,count,iout
+
+if (limit>=nmo) then
+    allocate(indices(nmo))
+    do i=1,nmo
+        indices(i)=i
+    end do
+    return
+end if
+
+homo=idxHOMO
+if (homo<=0.or.homo>nmo) then
+    homo=0
+    if (allocated(MOocc)) then
+        do i=1,nmo
+            if (MOocc(i)>1D-8) homo=i
+        end do
+    end if
+    if (homo<=0) homo=max(1,min(nmo,limit/2))
+end if
+
+startidx=max(1,homo-limit/2+1)
+endidx=min(nmo,startidx+limit-1)
+startidx=max(1,endidx-limit+1)
+count=endidx-startidx+1
+allocate(indices(count))
+iout=0
+do i=startidx,endidx
+    iout=iout+1
+    indices(iout)=i
+end do
+end subroutine
+
+subroutine setup_orbital_grid()
+real*8 :: molxlen,molylen,molzlen
+
+if (aug3D_main0>=0) then
+    molxlen=(maxval(a%x)-minval(a%x))+2*aug3D_main0
+    molylen=(maxval(a%y)-minval(a%y))+2*aug3D_main0
+    molzlen=(maxval(a%z)-minval(a%z))+2*aug3D_main0
+    orgx=minval(a%x)-aug3D_main0
+    orgy=minval(a%y)-aug3D_main0
+    orgz=minval(a%z)-aug3D_main0
+else
+    orgx=0
+    orgy=0
+    orgz=0
+    molxlen=cellv1(1)
+    molylen=cellv2(2)
+    molzlen=cellv3(3)
+end if
+endx=orgx+molxlen
+endy=orgy+molylen
+endz=orgz+molzlen
+dx=(molxlen*molylen*molzlen/dfloat(nprevorbgrid))**(1D0/3D0)
+dy=dx
+dz=dx
+gridv1=0
+gridv2=0
+gridv3=0
+gridv1(1)=dx
+gridv2(2)=dy
+gridv3(3)=dz
+nx=nint(molxlen/dx)+1
+ny=nint(molylen/dy)+1
+nz=nint(molzlen/dz)+1
+end subroutine
+
+subroutine write_orbital_cube(session,idx,data)
+character(len=*),intent(in) :: session
+integer,intent(in) :: idx
+real*8,intent(in) :: data(:,:,:)
+character(len=512) :: path
+
+write(path,"(a,'/orb',i6.6,'.cube')") trim(session),idx
+call write_cube(trim(path),data)
 end subroutine
 
 subroutine build_launch_command(manifest,session,cmd)
@@ -297,7 +432,7 @@ subroutine write_manifest(path,entry,mode,extra,init1,end1,init2,end2,init3,end3
 character(len=*),intent(in) :: path,entry
 integer,intent(in) :: mode,extra
 real*8,intent(in) :: init1,end1,init2,end2,init3,end3
-integer :: iu
+integer :: iu,ncube
 
 open(newunit=iu,file=trim(path),status="replace",action="write")
 write(iu,"(a)") "{"
@@ -337,19 +472,49 @@ if (ifPBC>0) then
 end if
 call write_orbital_metadata(iu)
 write(iu,"(a)") '  "cubes": ['
+ncube=0
 if (allocated(cubmat)) then
-    if (allocated(cubmattmp)) then
-        write(iu,"(a,1pe16.8,a)") '    { "name": "cubmat", "path": "cubmat.cube", "role": "density", "mode": "signed", "isovalue": ',abs(sur_value),' },'
-    else
-        write(iu,"(a,1pe16.8,a)") '    { "name": "cubmat", "path": "cubmat.cube", "role": "density", "mode": "signed", "isovalue": ',abs(sur_value),' }'
-    end if
+    call write_cube_entry(iu,ncube,"cubmat","cubmat.cube","density",0,abs(sur_value))
 end if
 if (allocated(cubmattmp)) then
-    write(iu,"(a,1pe16.8,a)") '    { "name": "cubmattmp", "path": "cubmattmp.cube", "role": "custom", "mode": "signed", "isovalue": ',abs(sur_value),' }'
+    call write_cube_entry(iu,ncube,"cubmattmp","cubmattmp.cube","custom",0,abs(sur_value))
 end if
+call write_orbital_cube_manifest(iu,ncube)
 write(iu,"(a)") '  ]'
 write(iu,"(a)") "}"
 close(iu)
+end subroutine
+
+subroutine write_cube_entry(iu,ncube,name,path,role,orbidx,isoval)
+integer,intent(in) :: iu,orbidx
+integer,intent(inout) :: ncube
+character(len=*),intent(in) :: name,path,role
+real*8,intent(in) :: isoval
+
+if (ncube>0) write(iu,"(a)") ","
+ncube=ncube+1
+if (orbidx>0) then
+    write(iu,"(a,a,a,a,a,a,a,i0,a,1pe16.8,a)") '    { "name": "',trim(name),'", "path": "',trim(path),&
+        '", "role": "',trim(role),'", "orbitalIndex": ',orbidx,', "mode": "signed", "isovalue": ',isoval,' }'
+else
+    write(iu,"(a,a,a,a,a,a,a,1pe16.8,a)") '    { "name": "',trim(name),'", "path": "',trim(path),&
+        '", "role": "',trim(role),'", "mode": "signed", "isovalue": ',isoval,' }'
+end if
+end subroutine
+
+subroutine write_orbital_cube_manifest(iu,ncube)
+integer,intent(in) :: iu
+integer,intent(inout) :: ncube
+integer :: i,idx
+character(len=64) :: name,path
+
+if (gui_orbital_count<=0) return
+do i=1,gui_orbital_count
+    idx=gui_orbital_indices(i)
+    write(name,"('Orbital ',i0)") idx
+    write(path,"('orb',i6.6,'.cube')") idx
+    call write_cube_entry(iu,ncube,trim(name),trim(path),"orbital",idx,abs(sur_value_orb))
+end do
 end subroutine
 
 subroutine write_orbital_metadata(iu)
