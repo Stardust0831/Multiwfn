@@ -103,7 +103,7 @@ call build_launch_command(trim(manifest),trim(session),cmd)
 
 write(*,"(/,a)") " 3Dmol GUI backend wrote a visualization session:"
 write(*,"(a,a)") "   ",trim(manifest)
-write(*,"(a)") " Launching local 3Dmol service..."
+write(*,"(a)") " Launching visualization GUI..."
 call execute_command_line(trim(cmd),wait=.false.)
 end subroutine
 
@@ -261,16 +261,36 @@ end subroutine
 subroutine build_launch_command(manifest,session,cmd)
 character(len=*),intent(in) :: manifest,session
 character(len=*),intent(out) :: cmd
-character(len=512) :: home,python,tool,frontend,shell
+character(len=512) :: home,python,tool,frontend,shell,native
 integer :: istat
 
 call get_3dmol_home(home)
 call resolve_resource_path(home,"frontend/3dmol-viewer",frontend)
+#ifdef MULTIWFN_3DMOL_DEFAULT_SHELL_QT
+shell="qt"
+#else
 shell="browser"
+#endif
 call get_environment_variable("MULTIWFN_3DMOL_SHELL",shell,status=istat)
-if (istat/=0.or.len_trim(shell)==0) shell="browser"
+if (istat/=0.or.len_trim(shell)==0) then
+#ifdef MULTIWFN_3DMOL_DEFAULT_SHELL_QT
+    shell="qt"
+#else
+    shell="browser"
+#endif
+end if
 
 if (trim(shell)=="qt") then
+#ifdef _WIN32
+    call resolve_resource_path(home,"tools/multiwfn_qt_gui.exe",native)
+#else
+    call resolve_resource_path(home,"tools/multiwfn_qt_gui",native)
+#endif
+    if (path_exists(native)) then
+        tool=trim(native)
+        cmd='"'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+        return
+    end if
     call resolve_resource_path(home,"tools/multiwfn_qt_gui.py",tool)
 else
     call resolve_resource_path(home,"tools/multiwfn_3dmol_server.py",tool)
@@ -296,6 +316,11 @@ else
     cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
 end if
 end subroutine
+
+logical function path_exists(path)
+character(len=*),intent(in) :: path
+inquire(file=trim(path),exist=path_exists)
+end function
 
 subroutine select_file_with_dialog(selected)
 character(len=*),intent(out) :: selected

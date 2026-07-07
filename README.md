@@ -65,21 +65,29 @@ Run `Multiwfn_3DmolGUI` from a checkout or release package. When a workflow
 invokes a GUI entry point, Multiwfn writes `multiwfn_3dmol_session/`, launches a
 local service, and opens the 3Dmol frontend with the generated manifest.
 
-To try the native Qt shell instead of opening the browser service, set:
+To build the native Qt shell as the default instead of opening the browser
+service, configure with:
 
 ```sh
-MULTIWFN_3DMOL_SHELL=qt
+cmake -S . -B build-qt-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt
+cmake --build build-qt-gui --parallel
 ```
 
-The Qt shell currently requires Python with PyQt6. Embedding the 3Dmol viewport
-inside the Qt window additionally requires PyQt6-WebEngine; without it, the
-shell still shows the DISLIN-like controls and session summary.
+This produces `Multiwfn_QtGUI`. Qt preview release packages bundle a PyInstaller
+`multiwfn_qt_gui` launcher, so GUI entry points open a Qt window by default. In a
+plain source-tree run without the bundled launcher, the Qt shell still requires
+Python with PyQt6 and PyQt6-WebEngine.
 
 GUI demo prereleases are published separately from the official-style noGUI
 packages. A tag named `gui-demo-preview-*` triggers the dedicated
 `gui-demo-release` workflow and creates a GitHub prerelease containing Linux,
 macOS, and Windows `Multiwfn_3DmolGUI` demo packages with the frontend, service
 script, adapter notes, `settings.ini`, and `LICENSE.txt`.
+
+A separate tag named `gui-qt-preview-*` creates Qt-first prerelease packages.
+Those packages contain `Multiwfn_QtGUI`, the same frontend resources, and a
+bundled native Qt launcher; they do not use the external browser service as the
+default UI path.
 
 See:
 

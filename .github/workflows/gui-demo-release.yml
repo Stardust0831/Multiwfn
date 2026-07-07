@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'gui-demo-preview-*'
+      - 'gui-qt-preview-*'
   workflow_dispatch:
 
 permissions:
@@ -37,7 +38,23 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev
+          sudo apt-get install -y \
+            gfortran \
+            cmake \
+            ninja-build \
+            libblas-dev \
+            liblapack-dev \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-render-util0 \
+            libxcb-util1 \
+            libxcb-xkb1 \
+            libxkbcommon-x11-0 \
+            libpulse0 \
+            libgl1 \
+            libegl1
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -62,6 +79,12 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           set -o pipefail
+          default_shell="browser"
+          exe_name="Multiwfn_3DmolGUI"
+          if [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* ]]; then
+            default_shell="qt"
+            exe_name="Multiwfn_QtGUI"
+          fi
           if [ "$RUNNER_OS" = "macOS" ]; then
             rpath='@loader_path/resources/lib'
           else
@@ -70,22 +93,50 @@ jobs:
           cmake -S . -B build-3dmol-gui -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DMULTIWFN_GUI_BACKEND=3dmol \
+            -DMULTIWFN_3DMOL_DEFAULT_SHELL="$default_shell" \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 \
             -DCMAKE_BUILD_RPATH="$rpath" 2>&1 | tee configure.log
           cmake --build build-3dmol-gui --parallel 2 2>&1 | tee build.log
-          test -x build-3dmol-gui/Multiwfn_3DmolGUI
+          test -x "build-3dmol-gui/${exe_name}"
+          echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
       - name: Build 3Dmol GUI demo executable on Windows
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -o pipefail
+          default_shell="browser"
+          exe_name="Multiwfn_3DmolGUI"
+          if [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* ]]; then
+            default_shell="qt"
+            exe_name="Multiwfn_QtGUI"
+          fi
           cmake -S . -B build-3dmol-gui -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DMULTIWFN_GUI_BACKEND=3dmol \
+            -DMULTIWFN_3DMOL_DEFAULT_SHELL="$default_shell" \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 2>&1 | tee configure.log
           cmake --build build-3dmol-gui --parallel 2 2>&1 | tee build.log
-          test -x build-3dmol-gui/Multiwfn_3DmolGUI.exe
+          test -x "build-3dmol-gui/${exe_name}.exe"
+          echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
+
+      - name: Build Qt native launcher
+        if: startsWith(github.ref_name, 'gui-qt-preview-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller PyQt6 PyQt6-WebEngine
+          python -m PyInstaller \
+            --clean \
+            --noconfirm \
+            --onefile \
+            --name multiwfn_qt_gui \
+            --hidden-import PyQt6.QtWebEngineCore \
+            --hidden-import PyQt6.QtWebEngineWidgets \
+            --distpath qt-launcher-dist \
+            --workpath qt-launcher-build \
+            frontend/qt-multiwfn-gui/qt_multiwfn_gui.py
 
       - name: Summarize build failure
         if: failure()
@@ -112,7 +163,11 @@ jobs:
           else
             tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
           fi
-          pkg="Multiwfn-3dmol-gui-demo-${tag}-${{ matrix.platform }}"
+          if [[ "$tag" == gui-qt-preview-* ]]; then
+            pkg="Multiwfn-qt-gui-preview-${tag}-${{ matrix.platform }}"
+          else
+            pkg="Multiwfn-3dmol-gui-demo-${tag}-${{ matrix.platform }}"
+          fi
           echo "PKG=$pkg" >> "$GITHUB_ENV"
           mkdir -p "package/${pkg}/resources/lib" "package/${pkg}/resources/tools" "package/${pkg}/resources/frontend"
           cp LICENSE.txt "package/${pkg}/LICENSE.txt"
@@ -122,14 +177,21 @@ jobs:
           cp tools/multiwfn_qt_gui.py "package/${pkg}/resources/tools/"
           cp -R frontend/3dmol-viewer "package/${pkg}/resources/frontend/"
           cp -R frontend/qt-multiwfn-gui "package/${pkg}/resources/frontend/"
+          if [[ -f qt-launcher-dist/multiwfn_qt_gui.exe ]]; then
+            cp qt-launcher-dist/multiwfn_qt_gui.exe "package/${pkg}/resources/tools/"
+          elif [[ -f qt-launcher-dist/multiwfn_qt_gui ]]; then
+            cp qt-launcher-dist/multiwfn_qt_gui "package/${pkg}/resources/tools/"
+            chmod +x "package/${pkg}/resources/tools/multiwfn_qt_gui"
+          fi
 
       - name: Package Linux demo
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/Multiwfn_3DmolGUI"
-          ldd build-3dmol-gui/Multiwfn_3DmolGUI > linux-runtime-libs.txt
+          exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
+          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}"
+          ldd "build-3dmol-gui/${exe_name}" > linux-runtime-libs.txt
           awk '/=> \// {print $3}' linux-runtime-libs.txt | while read -r lib; do
             base="$(basename "$lib")"
             case "$base" in
@@ -148,8 +210,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp build-3dmol-gui/Multiwfn_3DmolGUI "package/${PKG}/Multiwfn_3DmolGUI"
-          otool -L build-3dmol-gui/Multiwfn_3DmolGUI > macos-runtime-libs.txt
+          exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
+          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}"
+          otool -L "build-3dmol-gui/${exe_name}" > macos-runtime-libs.txt
           awk 'NR>1 {print $1}' macos-runtime-libs.txt | while read -r lib; do
             case "$lib" in
               /usr/lib/*|/System/*|@*)
@@ -169,12 +232,13 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          cp build-3dmol-gui/Multiwfn_3DmolGUI.exe "package/${PKG}/Multiwfn_3DmolGUI.exe"
+          exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
+          cp "build-3dmol-gui/${exe_name}.exe" "package/${PKG}/${exe_name}.exe"
           : > windows-dlls.log
           processed=""
           while :; do
             changed=0
-            for binary in "package/${PKG}/Multiwfn_3DmolGUI.exe" package/"${PKG}"/*.dll; do
+            for binary in "package/${PKG}/${exe_name}.exe" package/"${PKG}"/*.dll; do
               [ -e "$binary" ] || continue
               case " $processed " in
                 *" $binary "*) continue ;;
@@ -234,6 +298,28 @@ jobs:
 
       - name: Write release notes
         run: |
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
+          fi
+          if [[ "$tag" == gui-qt-preview-* ]]; then
+            cat > release_notes.md <<'EOF'
+          This prerelease publishes early Multiwfn executables with a native Qt GUI shell.
+
+          Highlights:
+          - Linux, macOS, and Windows Qt GUI preview packages are built by GitHub Actions.
+          - The main executable is named `Multiwfn_QtGUI` and is compiled with the new GUI backend defaulting to the Qt shell.
+          - GUI entry points write a Multiwfn visualization session and launch a bundled `multiwfn_qt_gui` native launcher.
+          - The Qt window mirrors the legacy DISLIN control layout and embeds the 3Dmol/Plotly renderer through QtWebEngine when available.
+          - The external browser service is not the default path for this prerelease; the browser service script remains in resources only as a fallback/debug tool.
+          - This is still a preview. Full callback round trips that mutate live Multiwfn state are not complete.
+
+          Original Multiwfn license terms are included in `LICENSE.txt`.
+          EOF
+            echo "RELEASE_TITLE=Qt GUI preview" >> "$GITHUB_ENV"
+            exit 0
+          fi
           cat > release_notes.md <<'EOF'
           This prerelease publishes early Multiwfn executables with a 3Dmol/Plotly GUI demo backend.
 
@@ -250,6 +336,7 @@ jobs:
           Feedback, issues, and pull requests are welcome.
           Original Multiwfn license terms are included in `LICENSE.txt`.
           EOF
+          echo "RELEASE_TITLE=3Dmol GUI demo preview" >> "$GITHUB_ENV"
 
       - name: Publish prerelease
         env:
@@ -270,6 +357,6 @@ jobs:
           gh release create "$tag" release-assets/*/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "3Dmol GUI demo preview" \
+            --title "${RELEASE_TITLE:-3Dmol GUI demo preview}" \
             --notes-file release_notes.md \
             --prerelease
