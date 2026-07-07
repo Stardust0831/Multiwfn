@@ -833,6 +833,25 @@ select {
   display: none;
 }
 
+.orbital-panel .button-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 158px;
+  margin-top: 4px;
+}
+
+.orbital-panel .button-row button {
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  color: #000;
+  background: linear-gradient(#fbfbfb, #dcdcdc);
+  border: 1px solid #8f8f8f;
+  border-radius: 0;
+  font: 700 12px/1 "Times New Roman", Times, serif;
+}
+
 .hud {
   left: 14px;
   right: 14px;

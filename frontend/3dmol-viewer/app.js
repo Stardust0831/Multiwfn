@@ -1029,6 +1029,7 @@ function layerFromCube(text, options = {}) {
     id: state.nextLayerId,
     name: options.name || `${roleLabel(role)}.cube`,
     role,
+    orbitalIndex: Number.isFinite(Number(options.orbitalIndex)) ? Number(options.orbitalIndex) : 0,
     data: text,
     visible: options.visible !== false,
     mode: options.mode || els.surfaceMode.value || 'signed',
