@@ -284,7 +284,11 @@ if (trim(shell)=="qt") then
     call resolve_native_qt_launcher(home,native)
     if (path_exists(native)) then
         tool=trim(native)
+#ifdef MULTIWFN_WINDOWS
+        cmd='cmd /d /c start "" "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+#else
         cmd='"'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+#endif
         return
     end if
     call resolve_resource_path(home,"tools/multiwfn_qt_gui.py",tool)
