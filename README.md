@@ -21,6 +21,9 @@ carry that license.
   Multiwfn source archives and maintain a dedicated tracking branch.
 - A 3Dmol.js/Plotly GUI backend demo under `frontend/3dmol-viewer` and
   `noGUI/GUI_3dmol.f90`.
+- An experimental Qt shell prototype under `frontend/qt-multiwfn-gui` that
+  mirrors the legacy DISLIN control layout and can host the 3Dmol frontend when
+  QtWebEngine is available.
 
 ## 3Dmol GUI Demo
 
@@ -62,6 +65,16 @@ Run `Multiwfn_3DmolGUI` from a checkout or release package. When a workflow
 invokes a GUI entry point, Multiwfn writes `multiwfn_3dmol_session/`, launches a
 local service, and opens the 3Dmol frontend with the generated manifest.
 
+To try the native Qt shell instead of opening the browser service, set:
+
+```sh
+MULTIWFN_3DMOL_SHELL=qt
+```
+
+The Qt shell currently requires Python with PyQt6. Embedding the 3Dmol viewport
+inside the Qt window additionally requires PyQt6-WebEngine; without it, the
+shell still shows the DISLIN-like controls and session summary.
+
 GUI demo prereleases are published separately from the official-style noGUI
 packages. A tag named `gui-demo-preview-*` triggers the dedicated
 `gui-demo-release` workflow and creates a GitHub prerelease containing Linux,
@@ -71,6 +84,7 @@ script, adapter notes, `settings.ini`, and `LICENSE.txt`.
 See:
 
 - `frontend/3dmol-viewer/README.md`
+- `frontend/qt-multiwfn-gui/README.md`
 - `docs/3dmol_gui_adapter.md`
 - `docs/visualization.md`
 

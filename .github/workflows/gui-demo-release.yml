@@ -119,7 +119,9 @@ jobs:
           cp settings.ini "package/${pkg}/settings.ini"
           cp tools/multiwfn_3dmol_server.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_3dmol_file_dialog.py "package/${pkg}/resources/tools/"
+          cp tools/multiwfn_qt_gui.py "package/${pkg}/resources/tools/"
           cp -R frontend/3dmol-viewer "package/${pkg}/resources/frontend/"
+          cp -R frontend/qt-multiwfn-gui "package/${pkg}/resources/frontend/"
 
       - name: Package Linux demo
         if: runner.os == 'Linux'

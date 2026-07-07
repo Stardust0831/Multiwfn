@@ -260,12 +260,20 @@ end subroutine
 subroutine build_launch_command(manifest,session,cmd)
 character(len=*),intent(in) :: manifest,session
 character(len=*),intent(out) :: cmd
-character(len=512) :: home,python,tool,frontend
+character(len=512) :: home,python,tool,frontend,shell
 integer :: istat
 
 call get_3dmol_home(home)
-call resolve_resource_path(home,"tools/multiwfn_3dmol_server.py",tool)
 call resolve_resource_path(home,"frontend/3dmol-viewer",frontend)
+shell="browser"
+call get_environment_variable("MULTIWFN_3DMOL_SHELL",shell,status=istat)
+if (istat/=0.or.len_trim(shell)==0) shell="browser"
+
+if (trim(shell)=="qt") then
+    call resolve_resource_path(home,"tools/multiwfn_qt_gui.py",tool)
+else
+    call resolve_resource_path(home,"tools/multiwfn_3dmol_server.py",tool)
+end if
 
 #ifdef _WIN32
 python="python"
@@ -281,7 +289,11 @@ if (istat/=0.or.len_trim(python)==0) then
 #endif
 end if
 
-cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
+if (trim(shell)=="qt") then
+    cmd=trim(python)//' "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+else
+    cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
+end if
 end subroutine
 
 subroutine select_file_with_dialog(selected)
