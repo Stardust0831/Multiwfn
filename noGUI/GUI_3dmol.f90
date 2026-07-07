@@ -163,6 +163,7 @@ call setup_orbital_grid()
 if (allocated(cubmat)) deallocate(cubmat)
 allocate(cubmat(nx,ny,nz))
 
+if (allocated(gui_orbital_indices)) deallocate(gui_orbital_indices)
 allocate(gui_orbital_indices(size(indices)))
 gui_orbital_count=size(indices)
 do i=1,gui_orbital_count
