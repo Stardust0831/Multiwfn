@@ -195,6 +195,7 @@ class MultiwfnQtGui(QMainWindow):
         self.manifest = load_json(self.manifest_path)
         self.server: LocalFrontendServer | None = None
         self.web_view = None
+        self.web_only = bool(QWebEngine and self.frontend_dir and self.frontend_dir.is_dir())
 
         self.setWindowTitle("Multiwfn Qt GUI")
         self.resize(1280, 820)
@@ -203,6 +204,10 @@ class MultiwfnQtGui(QMainWindow):
         self._load_manifest()
 
     def _build_menu(self) -> None:
+        if self.web_only:
+            self.menuBar().hide()
+            return
+
         menu_bar = self.menuBar()
         for title, entries in (
             ("Orbital info.", ["Show all", "Show up to LUMO+10", "Show occupied orbitals"]),
@@ -286,6 +291,12 @@ class MultiwfnQtGui(QMainWindow):
                 menu.addAction(action)
 
     def _build_ui(self) -> None:
+        if self.web_only:
+            self.setCentralWidget(self._viewer_widget())
+            self.setStatusBar(QStatusBar())
+            self.statusBar().showMessage("Ready")
+            return
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_view_panel())
         splitter.addWidget(self._build_control_panel())
@@ -496,6 +507,9 @@ class MultiwfnQtGui(QMainWindow):
         state = gui.get("state", {})
         self.statusBar().showMessage(f"Loaded {gui.get('entry', 'session')}")
 
+        if self.web_only:
+            return
+
         self.orbital_iso.setValue(float(state.get("sur_value_orb", 0.015) or 0.015))
         self.surface_value.setValue(float(state.get("sur_value", 0.015) or 0.015))
 
@@ -589,6 +603,10 @@ class MultiwfnQtGui(QMainWindow):
         self.statusBar().showMessage(text, 5000)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API name
+        try:
+            (self.session_dir / "gui_stop.flag").write_text("return\n", encoding="utf-8")
+        except OSError:
+            pass
         if self.server:
             self.server.stop()
         super().closeEvent(event)

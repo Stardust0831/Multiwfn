@@ -1794,11 +1794,16 @@ function bindEvents() {
   els.guiReturn.addEventListener('click', async () => {
     try {
       await fetch('/api/return', { cache: 'no-store' });
+      setStatus('Return requested');
+    } catch (error) {
+      console.error(error);
+      setStatus('Return requested; close this window if it remains open', false);
+    }
+    try {
+      window.close();
     } catch (error) {
       console.error(error);
     }
-    window.close();
-    setStatus('Return requested');
   });
   els.guiReset.addEventListener('click', () => renderScene(true));
   els.guiSavePicture.addEventListener('click', savePng);

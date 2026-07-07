@@ -804,7 +804,7 @@ select {
 }
 
 .orbital-panel select[size] {
-  width: 96px;
+  width: 100%;
   min-height: 120px;
   max-height: 156px;
   padding: 1px;
@@ -813,13 +813,13 @@ select {
 
 .orbital-panel .control-grid {
   display: grid;
-  grid-template-columns: 96px 58px;
+  grid-template-columns: minmax(0, 1fr) 58px;
   gap: 4px;
   align-items: end;
 }
 
 #gui-orbital-input {
-  width: 96px;
+  width: 100%;
 }
 
 #gui-orbital-isovalue {
@@ -837,7 +837,7 @@ select {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
-  width: 158px;
+  width: 100%;
   margin-top: 4px;
 }
 
