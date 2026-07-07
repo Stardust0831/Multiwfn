@@ -885,6 +885,11 @@ function orbitalLabel(orbital) {
   return `${String(index).padStart(5, ' ')}${tag}${occ}${ene}`;
 }
 
+function orbitalIndexLabel(orbital) {
+  const index = Number(orbital.index) || 0;
+  return String(index).padStart(5, ' ');
+}
+
 function layerForOrbital(index) {
   return state.layers.find((layer) => Number(layer.orbitalIndex) === Number(index));
 }
@@ -913,7 +918,8 @@ function updateMultiwfnGuiLayerSelectors() {
           const option = document.createElement('option');
           const layer = layerForOrbital(orbital.index);
           option.value = `orbital:${orbital.index}`;
-          option.textContent = `${orbitalLabel(orbital)}${layer ? ' *' : ''}`;
+          option.textContent = `${orbitalIndexLabel(orbital)}${layer ? ' *' : ''}`;
+          option.title = orbitalLabel(orbital);
           select.append(option);
         });
         return;

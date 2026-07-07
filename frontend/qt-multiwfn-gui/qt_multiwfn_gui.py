@@ -21,7 +21,7 @@ import threading
 import time
 import urllib.parse
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QApplication,
@@ -196,12 +196,21 @@ class MultiwfnQtGui(QMainWindow):
         self.server: LocalFrontendServer | None = None
         self.web_view = None
         self.web_only = bool(QWebEngine and self.frontend_dir and self.frontend_dir.is_dir())
+        self.stop_timer: QTimer | None = None
+
+        try:
+            (self.session_dir / "gui_stop.flag").unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
 
         self.setWindowTitle("Multiwfn Qt GUI")
         self.resize(1280, 820)
         self._build_menu()
         self._build_ui()
         self._load_manifest()
+        self._start_stop_watcher()
 
     def _build_menu(self) -> None:
         if self.web_only:
@@ -602,7 +611,21 @@ class MultiwfnQtGui(QMainWindow):
     def _status(self, text: str) -> None:
         self.statusBar().showMessage(text, 5000)
 
+    def _start_stop_watcher(self) -> None:
+        if not self.web_only:
+            return
+        self.stop_timer = QTimer(self)
+        self.stop_timer.setInterval(250)
+        self.stop_timer.timeout.connect(self._check_stop_flag)
+        self.stop_timer.start()
+
+    def _check_stop_flag(self) -> None:
+        if (self.session_dir / "gui_stop.flag").is_file():
+            self.close()
+
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API name
+        if self.stop_timer:
+            self.stop_timer.stop()
         try:
             (self.session_dir / "gui_stop.flag").write_text("return\n", encoding="utf-8")
         except OSError:
