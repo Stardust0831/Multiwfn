@@ -105,6 +105,7 @@ write(*,"(/,a)") " 3Dmol GUI backend wrote a visualization session:"
 write(*,"(a,a)") "   ",trim(manifest)
 write(*,"(a)") " Launching visualization GUI..."
 call execute_command_line(trim(cmd),wait=.false.)
+if (trim(entry)=="drawmolgui") call run_3dmol_gui_loop(trim(session))
 end subroutine
 
 subroutine reset_generated_orbitals()
@@ -143,7 +144,7 @@ if (trim(entry)/="drawmolgui") return
 if (nmo<=0.or..not.allocated(a).or.ncenter<=0) return
 if (.not.allocated(MOene).or..not.allocated(MOocc)) return
 
-limit=0
+limit=-1
 call get_environment_variable("MULTIWFN_3DMOL_ORBITAL_PREVIEW",env,status=istat)
 if (istat==0.and.len_trim(env)>0) read(env,*,iostat=istat) limit
 if (limit<0) return
@@ -246,6 +247,97 @@ gridv3(3)=dz
 nx=nint(molxlen/dx)+1
 ny=nint(molylen/dy)+1
 nz=nint(molzlen/dz)+1
+end subroutine
+
+subroutine run_3dmol_gui_loop(session)
+character(len=*),intent(in) :: session
+character(len=512) :: reqfile,stopfile,respfile
+character(len=32) :: action
+integer :: iu,istat,reqid,iorb,quality,lastid
+real*8 :: isoval
+logical :: alive
+
+reqfile=trim(session)//"/gui_request.txt"
+stopfile=trim(session)//"/gui_stop.flag"
+lastid=-1
+do
+    inquire(file=trim(stopfile),exist=alive)
+    if (alive) exit
+
+    inquire(file=trim(reqfile),exist=alive)
+    if (alive) then
+        open(newunit=iu,file=trim(reqfile),status="old",action="read",iostat=istat)
+        if (istat==0) then
+            read(iu,*,iostat=istat) reqid,action,iorb,quality,isoval
+            close(iu,status="delete")
+            if (istat==0.and.reqid/=lastid) then
+                write(respfile,"(a,'/response_',i0,'.json')") trim(session),reqid
+                if (trim(action)=="orbital") call handle_orbital_request(trim(session),trim(respfile),iorb,quality,isoval)
+                lastid=reqid
+            end if
+        end if
+    end if
+    call sleep(1)
+end do
+end subroutine
+
+subroutine handle_orbital_request(session,respfile,iorb,quality,isoval)
+character(len=*),intent(in) :: session,respfile
+integer,intent(in) :: iorb,quality
+real*8,intent(in) :: isoval
+character(len=512) :: cubefile,cuberel
+integer :: iu,functype
+
+if (iorb<0.or.iorb>nmo) then
+    open(newunit=iu,file=trim(respfile),status="replace",action="write")
+    write(iu,"(a)") '{ "ok": false, "message": "Orbital index out of range" }'
+    close(iu)
+    return
+end if
+
+if (quality>0) nprevorbgrid=quality
+if (isoval>0D0) sur_value_orb=isoval
+iorbvis=iorb
+
+if (iorb==0) then
+    idrawisosur=0
+    if (allocated(cubmat)) deallocate(cubmat)
+    open(newunit=iu,file=trim(respfile),status="replace",action="write")
+    write(iu,"(a)") '{ "ok": true, "clear": true }'
+    close(iu)
+    return
+end if
+
+idrawisosur=1
+call setup_orbital_grid()
+if (allocated(cubmat)) deallocate(cubmat)
+allocate(cubmat(nx,ny,nz))
+functype=4
+if (iplotwfndens==2) functype=44
+call savecubmat(functype,1,iorb)
+if (ifixorbsign==1.and.sum(cubmat)<0) cubmat=-cubmat
+
+write(cuberel,"('orbital_',i0,'_',i0,'.cube')") iorb,nprevorbgrid
+cubefile=trim(session)//"/"//trim(cuberel)
+call write_cube(trim(cubefile),cubmat)
+
+open(newunit=iu,file=trim(respfile),status="replace",action="write")
+write(iu,"(a)") "{"
+write(iu,"(a)") '  "ok": true,'
+write(iu,"(a,i0,a)") '  "orbitalIndex": ',iorb,','
+write(iu,"(a,i0,a)") '  "quality": ',nprevorbgrid,','
+write(iu,"(a,1pe16.8,a)") '  "isovalue": ',sur_value_orb,','
+write(iu,"(a)") '  "layer": {'
+write(iu,"(a,i0,a)") '    "name": "Orbital ',iorb,'",'
+write(iu,"(a,a,a)") '    "path": "',trim(cuberel),'",'
+write(iu,"(a)") '    "role": "orbital",'
+write(iu,"(a,i0,a)") '    "orbitalIndex": ',iorb,','
+write(iu,"(a)") '    "mode": "signed",'
+write(iu,"(a,1pe16.8,a)") '    "isovalue": ',sur_value_orb,','
+write(iu,"(a)") '    "visible": true'
+write(iu,"(a)") '  }'
+write(iu,"(a)") "}"
+close(iu)
 end subroutine
 
 subroutine write_orbital_cube(session,idx,data)

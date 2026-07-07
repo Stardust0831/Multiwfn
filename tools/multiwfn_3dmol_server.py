@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import http.server
+import json
 import mimetypes
 from pathlib import Path
 import platform
@@ -14,6 +15,7 @@ import socketserver
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 import webbrowser
 
@@ -43,6 +45,34 @@ def send_file(handler: http.server.BaseHTTPRequestHandler, path: Path) -> None:
     handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
     handler.wfile.write(data)
+
+
+def send_json(handler: http.server.BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
+    data = json.dumps(payload).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
+    reqid = int(time.time() * 1000)
+    index = int(query.get("index", ["0"])[0] or 0)
+    quality = int(query.get("quality", ["0"])[0] or 0)
+    isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
+    response = session_dir / f"response_{reqid}.json"
+    request = session_dir / "gui_request.txt"
+    if response.exists():
+        response.unlink()
+    request.write_text(f"{reqid} orbital {index} {quality} {isovalue:.10g}\n", encoding="utf-8")
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        if response.is_file():
+            return json.loads(response.read_text(encoding="utf-8"))
+        time.sleep(0.2)
+    return {"ok": False, "message": "Timed out waiting for Multiwfn orbital grid"}
 
 
 def is_wsl() -> bool:
@@ -110,6 +140,7 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
             request_path = urllib.parse.unquote(parsed.path)
+            query = urllib.parse.parse_qs(parsed.query)
 
             if request_path in ("", "/"):
                 target = "/index.html?manifest=/session/manifest.json"
@@ -121,6 +152,18 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
             if request_path == "/favicon.ico":
                 self.send_response(204)
                 self.end_headers()
+                return
+
+            if request_path == "/api/orbital":
+                try:
+                    send_json(self, request_orbital(session_dir, query))
+                except Exception as exc:
+                    send_json(self, {"ok": False, "message": str(exc)}, status=500)
+                return
+
+            if request_path == "/api/return":
+                (session_dir / "gui_stop.flag").write_text("return\n", encoding="utf-8")
+                send_json(self, {"ok": True})
                 return
 
             if request_path == "/session/manifest.json":

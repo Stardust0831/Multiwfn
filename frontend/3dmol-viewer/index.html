@@ -29,17 +29,15 @@
 
           <div class="gui-window-bar">
             <button id="gui-return" class="primary-action" type="button">RETURN</button>
+            <button id="gui-rot-up" type="button">Up</button>
+            <button id="gui-rot-down" type="button">Down</button>
+            <button id="gui-rot-left" type="button">Left</button>
+            <button id="gui-rot-right" type="button">Right</button>
             <button id="gui-reset" type="button">Reset view</button>
             <button id="gui-save-picture" type="button">Save picture</button>
           </div>
 
           <div class="gui-pad" aria-label="View rotation">
-            <button id="gui-rot-up" type="button">Up</button>
-            <div>
-              <button id="gui-rot-left" type="button">Left</button>
-              <button id="gui-rot-right" type="button">Right</button>
-            </div>
-            <button id="gui-rot-down" type="button">Down</button>
           </div>
 
           <section class="gui-section is-active" data-gui-section="molecule">
@@ -268,7 +266,15 @@
             <button id="gui-menu-orbital-info" type="button">Orbital info.</button>
             <button id="gui-menu-isosur1" type="button">Isosur#1 style</button>
             <button id="gui-menu-isosur2" type="button">Isosur#2 style</button>
-            <button id="gui-menu-quality" type="button">Isosur. quality</button>
+            <select id="gui-menu-quality" aria-label="Isosurface quality">
+              <option value="25000">Very poor quality (25k)</option>
+              <option value="50000">Poor quality (50k)</option>
+              <option value="120000" selected>Isosur. quality: Default (120k)</option>
+              <option value="300000">Good quality (300k)</option>
+              <option value="500000">High quality (500k)</option>
+              <option value="1000000">Very high quality (1000k)</option>
+              <option value="1500000">Perfect quality (1500k)</option>
+            </select>
             <button id="gui-menu-view" type="button">Set view</button>
             <button id="gui-menu-settings" type="button">Other settings</button>
             <button id="gui-menu-tools" type="button">Tools</button>

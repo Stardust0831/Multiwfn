@@ -593,3 +593,262 @@ button:hover {
     max-width: 100%;
   }
 }
+
+/* Legacy DISLIN-like shell used by the Qt preview.  The detailed controls
+   remain wired to the same 3Dmol state, but the first view follows the
+   original Multiwfn GUI: a large plot widget and a narrow right command pane. */
+body {
+  background: #eee;
+  color: #111;
+  font: 14px/1.25 "Times New Roman", Times, serif;
+}
+
+.app-shell {
+  position: relative;
+  grid-template-columns: minmax(520px, 1fr) 190px;
+  gap: 0;
+  height: 100vh;
+  min-height: 560px;
+  padding-top: 30px;
+  background: #eee;
+}
+
+.viewport-wrap {
+  order: 1;
+  margin: 8px 10px 12px 12px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #777;
+  box-shadow: none;
+}
+
+#viewer {
+  inset: 0;
+  background: #fff;
+}
+
+.sidebar {
+  order: 2;
+  width: 190px;
+  min-width: 190px;
+  padding: 8px 8px 10px;
+  overflow: hidden;
+  background: #e8e8e8;
+  border-left: 1px solid #aaa;
+  border-right: 0;
+  box-shadow: none;
+}
+
+.brand,
+.gui-modebar,
+.gui-pad,
+.advanced-panels,
+.gui-section:not([data-gui-section="molecule"]) {
+  display: none;
+}
+
+.multiwfn-gui {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 0;
+}
+
+.gui-menu-strip {
+  position: fixed;
+  z-index: 10;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 0;
+  height: 30px;
+  padding: 2px 8px;
+  background: #f5f4e9;
+  border: 0;
+  border-bottom: 1px solid #b8b8b8;
+}
+
+.gui-menu-strip button,
+.gui-menu-strip select {
+  min-width: 0;
+  height: 24px;
+  padding: 0 9px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #000;
+  font: 14px/1.1 "Times New Roman", Times, serif;
+  text-align: left;
+}
+
+.gui-menu-strip select {
+  width: auto;
+  appearance: auto;
+}
+
+.gui-menu-strip button:hover,
+.gui-menu-strip select:hover {
+  color: #000;
+  background: #d8e7ff;
+}
+
+.gui-window-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 2px 6px;
+}
+
+button,
+.gui-window-bar button,
+.gui-pad button,
+.gui-menu-strip button {
+  border-radius: 0;
+}
+
+.gui-window-bar button {
+  width: 100%;
+  height: 25px;
+  min-width: 0;
+  padding: 0 4px;
+  color: #000;
+  background: linear-gradient(#fbfbfb, #dcdcdc);
+  border: 1px solid #9a9a9a;
+  font: 700 15px/1 "Times New Roman", Times, serif;
+  box-shadow: inset 1px 1px 0 #fff, inset -1px -1px 0 #c5c5c5;
+}
+
+.gui-window-bar button:hover {
+  color: #000;
+  border-color: #555;
+}
+
+.primary-action {
+  color: #000;
+  background: linear-gradient(#fff, #ddd);
+  border-color: #888;
+}
+
+.gui-section.is-active {
+  display: block;
+}
+
+.group {
+  display: block;
+  padding: 0;
+  margin: 0 0 7px;
+  border: 0;
+}
+
+h2 {
+  margin: 3px 0 2px;
+  color: #000;
+  font: 700 15px/1.1 "Times New Roman", Times, serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.checks {
+  display: block;
+}
+
+.checks label {
+  display: flex;
+  min-height: 21px;
+  gap: 5px;
+  align-items: center;
+  color: #000;
+  font: 700 14px/1 "Times New Roman", Times, serif;
+}
+
+input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: #1f5db8;
+}
+
+.control-grid,
+.control-grid.triple {
+  display: block;
+}
+
+label {
+  display: block;
+  margin: 4px 0;
+  color: #000;
+  font: 700 14px/1.05 "Times New Roman", Times, serif;
+}
+
+label span {
+  display: block;
+  text-align: left;
+}
+
+input[type="range"] {
+  width: 100%;
+  height: 18px;
+  accent-color: #cfcfcf;
+}
+
+input[type="number"],
+input[type="text"],
+select {
+  min-height: 23px;
+  padding: 0 4px;
+  color: #000;
+  background: #fff;
+  border: 1px solid #888;
+  border-radius: 0;
+  font: 14px/1.1 "Consolas", "Courier New", monospace;
+}
+
+.orbital-panel select[size] {
+  width: 96px;
+  min-height: 120px;
+  max-height: 156px;
+  padding: 1px;
+  font: 700 14px/1.2 "Consolas", "Courier New", monospace;
+}
+
+.orbital-panel .control-grid {
+  display: grid;
+  grid-template-columns: 96px 58px;
+  gap: 4px;
+  align-items: end;
+}
+
+#gui-orbital-input {
+  width: 96px;
+}
+
+#gui-orbital-isovalue {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 34px;
+  height: 92px;
+}
+
+.button-row {
+  display: none;
+}
+
+.hud {
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+}
+
+.hud span {
+  padding: 4px 7px;
+  color: #111;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid #aaa;
+  border-radius: 0;
+  font: 13px/1.1 "Times New Roman", Times, serif;
+  box-shadow: none;
+}
+
+.plot-panel {
+  border-radius: 0;
+}
