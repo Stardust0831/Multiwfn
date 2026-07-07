@@ -183,6 +183,9 @@ jobs:
             cp qt-launcher-dist/multiwfn_qt_gui "package/${pkg}/resources/tools/"
             chmod +x "package/${pkg}/resources/tools/multiwfn_qt_gui"
           fi
+          if [[ "$tag" == gui-qt-preview-* ]]; then
+            test -f "package/${pkg}/resources/tools/multiwfn_qt_gui.exe" || test -x "package/${pkg}/resources/tools/multiwfn_qt_gui"
+          fi
 
       - name: Package Linux demo
         if: runner.os == 'Linux'

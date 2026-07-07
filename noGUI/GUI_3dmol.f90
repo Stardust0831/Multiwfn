@@ -281,11 +281,7 @@ if (istat/=0.or.len_trim(shell)==0) then
 end if
 
 if (trim(shell)=="qt") then
-#ifdef _WIN32
-    call resolve_resource_path(home,"tools/multiwfn_qt_gui.exe",native)
-#else
-    call resolve_resource_path(home,"tools/multiwfn_qt_gui",native)
-#endif
+    call resolve_native_qt_launcher(home,native)
     if (path_exists(native)) then
         tool=trim(native)
         cmd='"'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
@@ -315,6 +311,15 @@ if (trim(shell)=="qt") then
 else
     cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
 end if
+end subroutine
+
+subroutine resolve_native_qt_launcher(home,native)
+character(len=*),intent(in) :: home
+character(len=*),intent(out) :: native
+
+call resolve_resource_path(home,"tools/multiwfn_qt_gui.exe",native)
+if (path_exists(native)) return
+call resolve_resource_path(home,"tools/multiwfn_qt_gui",native)
 end subroutine
 
 logical function path_exists(path)
