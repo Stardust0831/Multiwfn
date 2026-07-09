@@ -693,6 +693,51 @@ body {
   background: #d8e7ff;
 }
 
+.gui-menu-control {
+  position: relative;
+  flex: 0 0 auto;
+  height: 24px;
+}
+
+.gui-opacity-menu {
+  position: absolute;
+  z-index: 12;
+  top: 26px;
+  left: 0;
+  width: 220px;
+  max-width: calc(100vw - 16px);
+  padding: 9px 10px 8px;
+  background: #f5f4e9;
+  border: 1px solid #888;
+  box-shadow: 2px 3px 8px rgba(0, 0, 0, 0.22);
+}
+
+.gui-opacity-menu[hidden] {
+  display: none;
+}
+
+.gui-opacity-menu label {
+  margin: 0;
+  font: 700 14px/1.1 "Times New Roman", Times, serif;
+}
+
+.gui-opacity-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gui-opacity-heading output {
+  font: 14px/1.1 "Consolas", "Courier New", monospace;
+}
+
+.gui-opacity-menu input[type="range"] {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+
 .gui-window-bar {
   display: flex;
   flex-direction: column;

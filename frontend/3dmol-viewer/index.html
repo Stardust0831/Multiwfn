@@ -264,7 +264,38 @@
 
           <div class="gui-menu-strip" aria-label="Original GUI menus">
             <button id="gui-menu-orbital-info" type="button">Orbital info.</button>
-            <button id="gui-menu-isosur1" type="button">Isosur#1 style</button>
+            <div id="gui-isosur1-menu-control" class="gui-menu-control">
+              <button
+                id="gui-menu-isosur1"
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="gui-isosur1-menu"
+              >Isosur#1 style</button>
+              <div
+                id="gui-isosur1-menu"
+                class="gui-opacity-menu"
+                role="dialog"
+                aria-label="Orbital opacity"
+                hidden
+              >
+                <label for="gui-orbital-opacity">
+                  <span class="gui-opacity-heading">
+                    <span>Orbital opacity</span>
+                    <output id="gui-orbital-opacity-value" for="gui-orbital-opacity">68%</output>
+                  </span>
+                  <input
+                    id="gui-orbital-opacity"
+                    type="range"
+                    min="0"
+                    max="20"
+                    step="1"
+                    value="13"
+                    aria-valuetext="68%"
+                  >
+                </label>
+              </div>
+            </div>
             <button id="gui-menu-isosur2" type="button">Isosur#2 style</button>
             <select id="gui-menu-quality" aria-label="Isosurface quality">
               <option value="25000">Very poor quality (25k)</option>

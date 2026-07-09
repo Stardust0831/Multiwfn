@@ -58,6 +58,15 @@ except Exception:  # pragma: no cover - depends on optional runtime package
     QWebEngineView = None
 
 
+ORBITAL_REQUEST_LOCK = threading.Lock()
+ORBITAL_REQUEST_CONSUME_TIMEOUT = 5.0
+ORBITAL_REQUEST_TIMEOUT = 300.0
+ORBITAL_REQUEST_POLL_INTERVAL = 0.2
+BACKEND_UNAVAILABLE_MESSAGE = (
+    "Multiwfn backend unavailable; restart visualization from menu 0 and keep the terminal open"
+)
+
+
 def load_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
@@ -88,21 +97,53 @@ def send_json(handler: http.server.BaseHTTPRequestHandler, payload: dict, status
 
 
 def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
-    reqid = int(time.time() * 1000)
-    index = int(query.get("index", ["0"])[0] or 0)
-    quality = int(query.get("quality", ["0"])[0] or 0)
-    isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
-    response = session_dir / f"response_{reqid}.json"
-    request = session_dir / "gui_request.txt"
-    if response.exists():
-        response.unlink()
-    request.write_text(f"{reqid} orbital {index} {quality} {isovalue:.10g}\n", encoding="utf-8")
-    deadline = time.time() + 300
-    while time.time() < deadline:
-        if response.is_file():
-            return json.loads(response.read_text(encoding="utf-8"))
-        time.sleep(0.2)
-    return {"ok": False, "message": "Timed out waiting for Multiwfn orbital grid"}
+    with ORBITAL_REQUEST_LOCK:
+        stop = session_dir / "gui_stop.flag"
+        if stop.is_file():
+            return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+
+        reqid = int(time.time() * 1000)
+        index = int(query.get("index", ["0"])[0] or 0)
+        quality = int(query.get("quality", ["0"])[0] or 0)
+        isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
+        response = session_dir / f"response_{reqid}.json"
+        request = session_dir / "gui_request.txt"
+        if response.exists():
+            response.unlink()
+        request.write_text(f"{reqid} orbital {index} {quality} {isovalue:.10g}\n", encoding="utf-8")
+
+        consumed = False
+        consume_deadline = time.monotonic() + ORBITAL_REQUEST_CONSUME_TIMEOUT
+        deadline = time.monotonic() + ORBITAL_REQUEST_TIMEOUT
+        while time.monotonic() < deadline:
+            if response.is_file():
+                try:
+                    return json.loads(response.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    pass
+
+            if not consumed:
+                if not request.is_file():
+                    consumed = True
+                elif stop.is_file():
+                    return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+                elif time.monotonic() >= consume_deadline:
+                    try:
+                        pending = request.read_text(encoding="utf-8")
+                    except FileNotFoundError:
+                        consumed = True
+                        continue
+                    if pending.startswith(f"{reqid} "):
+                        try:
+                            request.unlink()
+                        except FileNotFoundError:
+                            pass
+                        return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+                    return {"ok": False, "message": "Orbital request was superseded; try again"}
+
+            time.sleep(ORBITAL_REQUEST_POLL_INTERVAL)
+
+        return {"ok": False, "message": "Timed out waiting for Multiwfn orbital grid"}
 
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -195,7 +236,7 @@ class MultiwfnQtGui(QMainWindow):
         self.manifest = load_json(self.manifest_path)
         self.server: LocalFrontendServer | None = None
         self.web_view = None
-        self.web_only = bool(QWebEngine and self.frontend_dir and self.frontend_dir.is_dir())
+        self.web_only = bool(QWebEngineView and self.frontend_dir and self.frontend_dir.is_dir())
         self.stop_timer: QTimer | None = None
 
         try:

@@ -20,6 +20,15 @@ import urllib.parse
 import webbrowser
 
 
+ORBITAL_REQUEST_LOCK = threading.Lock()
+ORBITAL_REQUEST_CONSUME_TIMEOUT = 5.0
+ORBITAL_REQUEST_TIMEOUT = 300.0
+ORBITAL_REQUEST_POLL_INTERVAL = 0.2
+BACKEND_UNAVAILABLE_MESSAGE = (
+    "Multiwfn backend unavailable; restart visualization from menu 0 and keep the terminal open"
+)
+
+
 def find_free_port(host: str, preferred: int) -> int:
     if preferred > 0:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -58,21 +67,53 @@ def send_json(handler: http.server.BaseHTTPRequestHandler, payload: dict, status
 
 
 def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
-    reqid = int(time.time() * 1000)
-    index = int(query.get("index", ["0"])[0] or 0)
-    quality = int(query.get("quality", ["0"])[0] or 0)
-    isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
-    response = session_dir / f"response_{reqid}.json"
-    request = session_dir / "gui_request.txt"
-    if response.exists():
-        response.unlink()
-    request.write_text(f"{reqid} orbital {index} {quality} {isovalue:.10g}\n", encoding="utf-8")
-    deadline = time.time() + 300
-    while time.time() < deadline:
-        if response.is_file():
-            return json.loads(response.read_text(encoding="utf-8"))
-        time.sleep(0.2)
-    return {"ok": False, "message": "Timed out waiting for Multiwfn orbital grid"}
+    with ORBITAL_REQUEST_LOCK:
+        stop = session_dir / "gui_stop.flag"
+        if stop.is_file():
+            return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+
+        reqid = int(time.time() * 1000)
+        index = int(query.get("index", ["0"])[0] or 0)
+        quality = int(query.get("quality", ["0"])[0] or 0)
+        isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
+        response = session_dir / f"response_{reqid}.json"
+        request = session_dir / "gui_request.txt"
+        if response.exists():
+            response.unlink()
+        request.write_text(f"{reqid} orbital {index} {quality} {isovalue:.10g}\n", encoding="utf-8")
+
+        consumed = False
+        consume_deadline = time.monotonic() + ORBITAL_REQUEST_CONSUME_TIMEOUT
+        deadline = time.monotonic() + ORBITAL_REQUEST_TIMEOUT
+        while time.monotonic() < deadline:
+            if response.is_file():
+                try:
+                    return json.loads(response.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    pass
+
+            if not consumed:
+                if not request.is_file():
+                    consumed = True
+                elif stop.is_file():
+                    return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+                elif time.monotonic() >= consume_deadline:
+                    try:
+                        pending = request.read_text(encoding="utf-8")
+                    except FileNotFoundError:
+                        consumed = True
+                        continue
+                    if pending.startswith(f"{reqid} "):
+                        try:
+                            request.unlink()
+                        except FileNotFoundError:
+                            pass
+                        return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+                    return {"ok": False, "message": "Orbital request was superseded; try again"}
+
+            time.sleep(ORBITAL_REQUEST_POLL_INTERVAL)
+
+        return {"ok": False, "message": "Timed out waiting for Multiwfn orbital grid"}
 
 
 def is_wsl() -> bool:
@@ -164,6 +205,7 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
             if request_path == "/api/return":
                 (session_dir / "gui_stop.flag").write_text("return\n", encoding="utf-8")
                 send_json(self, {"ok": True})
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
 
             if request_path == "/session/manifest.json":

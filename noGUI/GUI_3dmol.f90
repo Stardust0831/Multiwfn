@@ -5,6 +5,7 @@ implicit none
 real*8 :: aug3D_main0=6D0
 integer,allocatable :: gui_orbital_indices(:)
 integer :: gui_orbital_count=0
+logical :: gui_has_cubmat_file=.false.,gui_has_cubmattmp_file=.false.
 
 contains
 
@@ -89,12 +90,22 @@ real*8,intent(in) :: init1,end1,init2,end2,init3,end3
 character(len=512) :: session,manifest,cmd
 
 call reset_generated_orbitals()
+gui_has_cubmat_file=.false.
+gui_has_cubmattmp_file=.false.
 call get_session_dir(session)
 call ensure_dir(session)
+call remove_session_file(trim(session)//"/gui_stop.flag")
+call remove_session_file(trim(session)//"/gui_request.txt")
 
 if (allocated(a).and.ncenter>0) call write_structure_xyz(trim(session)//"/structure.xyz")
-if (allocated(cubmat)) call write_cube(trim(session)//"/cubmat.cube",cubmat)
-if (allocated(cubmattmp)) call write_cube(trim(session)//"/cubmattmp.cube",cubmattmp)
+if (allocated(cubmat)) then
+    call write_cube(trim(session)//"/cubmat.cube",cubmat)
+    gui_has_cubmat_file=.true.
+end if
+if (allocated(cubmattmp)) then
+    call write_cube(trim(session)//"/cubmattmp.cube",cubmattmp)
+    gui_has_cubmattmp_file=.true.
+end if
 call write_orbital_preview_cubes(entry,trim(session))
 
 manifest=trim(session)//"/manifest.json"
@@ -132,6 +143,17 @@ inquire(file=trim(dirname),exist=alive)
 if (alive) return
 cmd='mkdir "'//trim(dirname)//'"'
 call execute_command_line(trim(cmd),exitstat=istat)
+end subroutine
+
+subroutine remove_session_file(path)
+character(len=*),intent(in) :: path
+integer :: iu,istat
+logical :: alive
+
+inquire(file=trim(path),exist=alive)
+if (.not.alive) return
+open(newunit=iu,file=trim(path),status="old",iostat=istat)
+if (istat==0) close(iu,status="delete")
 end subroutine
 
 subroutine write_orbital_preview_cubes(entry,session)
@@ -253,7 +275,8 @@ subroutine run_3dmol_gui_loop(session)
 character(len=*),intent(in) :: session
 character(len=512) :: reqfile,stopfile,respfile
 character(len=32) :: action
-integer :: iu,istat,reqid,iorb,quality,lastid
+integer :: iu,istat,iorb,quality
+integer*8 :: reqid,lastid
 real*8 :: isoval
 logical :: alive
 
@@ -612,10 +635,10 @@ end if
 call write_orbital_metadata(iu)
 write(iu,"(a)") '  "cubes": ['
 ncube=0
-if (allocated(cubmat)) then
+if (gui_has_cubmat_file) then
     call write_cube_entry(iu,ncube,"cubmat","cubmat.cube","density",0,abs(sur_value))
 end if
-if (allocated(cubmattmp)) then
+if (gui_has_cubmattmp_file) then
     call write_cube_entry(iu,ncube,"cubmattmp","cubmattmp.cube","custom",0,abs(sur_value))
 end if
 call write_orbital_cube_manifest(iu,ncube)

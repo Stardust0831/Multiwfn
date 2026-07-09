@@ -166,6 +166,11 @@ const roleDefaults = {
   custom: { label: 'Custom', positive: '#2869d8', negative: '#d6435f', isovalue: 0.015 }
 };
 
+const orbitalOpacityStops = [
+  0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50,
+  0.55, 0.60, 0.65, 0.68, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1
+];
+
 const backgrounds = {
   studio: { css: '#edf2f4', viewer: '#edf2f4' },
   paper: { css: '#f8f6ef', viewer: '#f8f6ef' },
@@ -213,8 +218,11 @@ const state = {
   gui: {
     mode: 'molecule',
     activeLayerId: '',
-    labelSize: 38
+    labelSize: 38,
+    orbitalRequestBusy: false,
+    orbitalOpacity: 0.68
   },
+  orbitalShapes: new Map(),
   activePlot: null,
   selectedCubeFile: null,
   selectedPlotFile: null,
@@ -230,6 +238,7 @@ function byId(id) {
 
 function setStatus(text, ok = true) {
   els.status.textContent = text;
+  els.status.title = text;
   els.status.dataset.state = ok ? 'ok' : 'error';
 }
 
@@ -520,6 +529,20 @@ function layerById(layerId) {
   return state.layers.find((layer) => String(layer.id) === String(layerId));
 }
 
+function isOrbitalLayer(layer) {
+  if (!layer) return false;
+  return ['orbital', 'homo', 'lumo'].includes(layer.role) || Number(layer.orbitalIndex) > 0;
+}
+
+function registerOrbitalShape(layer, shape) {
+  if (!isOrbitalLayer(layer) || !shape) return shape;
+  const layerId = String(layer.id);
+  const shapes = state.orbitalShapes.get(layerId) || [];
+  shapes.push(shape);
+  state.orbitalShapes.set(layerId, shapes);
+  return shape;
+}
+
 function modelStyle() {
   const atomScale = toNumber(els.atomScale.value, 0.24);
   const bondRadius = toNumber(els.bondRadius.value, 0.14);
@@ -643,7 +666,11 @@ function addAxes() {
 
 function addCubeLayer(layer) {
   const isovalue = Math.abs(toNumber(layer.isovalue, roleDefaults.custom.isovalue));
-  const opacity = clamp(toNumber(layer.opacity, 0.68), 0.05, 1);
+  const orbitalLayer = isOrbitalLayer(layer);
+  const opacity = orbitalLayer
+    ? clamp(toNumber(state.gui.orbitalOpacity, 0.68), 0.05, 1)
+    : clamp(toNumber(layer.opacity, 0.68), 0.05, 1);
+  if (orbitalLayer) layer.opacity = opacity;
   const smoothness = parseInt(els.surfaceQuality.value, 10) || 8;
   const colorLayer = layer.colorMode === 'cube' ? layerById(layer.colorLayerId) : null;
   const colorMin = toNumber(layer.colorMin, -0.05);
@@ -677,20 +704,25 @@ function addCubeLayer(layer) {
         isoval: signedIsovalue,
         color: colorVolume ? undefined : solidColor
       };
+      const addIsosurface = (spec) => registerOrbitalShape(layer, state.viewer.addIsosurface(volume, spec));
       if (surfaceStyle === 'mesh' || surfaceStyle === 'points') {
-        state.viewer.addIsosurface(volume, { ...baseSpec, opacity: Math.max(opacity, 0.72), wireframe: true });
+        addIsosurface({
+          ...baseSpec,
+          opacity: orbitalLayer ? opacity : Math.max(opacity, 0.72),
+          wireframe: true
+        });
         return;
       }
       if (surfaceStyle === 'solidmesh') {
-        state.viewer.addIsosurface(volume, { ...baseSpec, opacity: Math.max(opacity, 0.62) });
-        state.viewer.addIsosurface(volume, { ...baseSpec, opacity: 0.92, wireframe: true });
+        addIsosurface({ ...baseSpec, opacity: orbitalLayer ? opacity : Math.max(opacity, 0.62) });
+        addIsosurface({ ...baseSpec, opacity: orbitalLayer ? opacity : 0.92, wireframe: true });
         return;
       }
       if (surfaceStyle === 'solid') {
-        state.viewer.addIsosurface(volume, { ...baseSpec, opacity: 1 });
+        addIsosurface({ ...baseSpec, opacity: orbitalLayer ? opacity : 1 });
         return;
       }
-      state.viewer.addIsosurface(volume, baseSpec);
+      addIsosurface(baseSpec);
     };
 
     if (layer.mode === 'signed' || layer.mode === 'positive') {
@@ -705,6 +737,7 @@ function addCubeLayer(layer) {
 function renderScene(zoom = false) {
   if (!state.viewer) return;
 
+  state.orbitalShapes.clear();
   state.viewer.clear();
   applySceneStyle();
   addStructureToViewer();
@@ -953,7 +986,103 @@ function currentGuiQuality() {
   return Math.max(1, parseInt(els.guiMenuQuality?.value || '120000', 10) || 120000);
 }
 
+function formatGridQuality(quality) {
+  return `${Math.round(Math.max(1, Number(quality) || 1) / 1000)}k`;
+}
+
+function orbitalOpacityPercent(opacity = state.gui.orbitalOpacity) {
+  return Math.round(clamp(toNumber(opacity, 0.68), 0.05, 1) * 100);
+}
+
+function orbitalOpacityStopIndex(opacity = state.gui.orbitalOpacity) {
+  const target = clamp(toNumber(opacity, 0.68), 0.05, 1);
+  return orbitalOpacityStops.reduce((bestIndex, stop, index) => (
+    Math.abs(stop - target) < Math.abs(orbitalOpacityStops[bestIndex] - target) ? index : bestIndex
+  ), 0);
+}
+
+function syncOrbitalOpacityControls() {
+  const opacity = clamp(toNumber(state.gui.orbitalOpacity, 0.68), 0.05, 1);
+  const percent = orbitalOpacityPercent(opacity);
+  if (els.guiOrbitalOpacity) {
+    els.guiOrbitalOpacity.value = String(orbitalOpacityStopIndex(opacity));
+    els.guiOrbitalOpacity.setAttribute('aria-valuetext', `${percent}%`);
+  }
+  if (els.guiOrbitalOpacityValue) els.guiOrbitalOpacityValue.textContent = `${percent}%`;
+
+  const activeLayer = activeGuiLayer();
+  if (isOrbitalLayer(activeLayer) && els.guiIsosurfaceOpacity) {
+    els.guiIsosurfaceOpacity.step = '0.01';
+    els.guiIsosurfaceOpacity.value = String(opacity);
+  } else if (els.guiIsosurfaceOpacity) {
+    els.guiIsosurfaceOpacity.step = '0.05';
+  }
+  document.querySelectorAll('.layer-row').forEach((row) => {
+    const layer = layerById(row.dataset.layerId);
+    if (!isOrbitalLayer(layer)) return;
+    const control = row.querySelector('[data-action="opacity"]');
+    if (control) {
+      control.step = '0.01';
+      control.value = String(opacity);
+    }
+  });
+}
+
+function updateOrbitalShapeOpacity(opacity) {
+  if (!state.viewer) return;
+  const shapes = [...state.orbitalShapes.values()].flat();
+  let needsRebuild = false;
+  shapes.forEach((shape) => {
+    if (needsRebuild) return;
+    if (!shape || typeof shape.updateStyle !== 'function') {
+      needsRebuild = true;
+      return;
+    }
+    try {
+      shape.updateStyle({ opacity });
+    } catch (error) {
+      console.error(error);
+      needsRebuild = true;
+    }
+  });
+  if (needsRebuild) renderScene(false);
+  else state.viewer.render();
+}
+
+function setGlobalOrbitalOpacity(value, options = {}) {
+  const opacity = clamp(toNumber(value, state.gui.orbitalOpacity), 0.05, 1);
+  state.gui.orbitalOpacity = opacity;
+  state.layers.filter(isOrbitalLayer).forEach((layer) => { layer.opacity = opacity; });
+  syncOrbitalOpacityControls();
+  if (options.updateShapes !== false) updateOrbitalShapeOpacity(opacity);
+  if (options.announce) setStatus(`Orbital opacity: ${orbitalOpacityPercent(opacity)}%`);
+}
+
+function setOrbitalOpacityMenuOpen(open, options = {}) {
+  const isOpen = Boolean(open);
+  els.guiIsosur1Menu.hidden = !isOpen;
+  els.guiMenuIsosur1.setAttribute('aria-expanded', String(isOpen));
+  if (isOpen && options.focus) {
+    requestAnimationFrame(() => els.guiOrbitalOpacity.focus());
+  }
+}
+
+function setGuiOrbitalRequestBusy(busy) {
+  state.gui.orbitalRequestBusy = Boolean(busy);
+  [
+    els.guiOrbitalSelect,
+    els.guiOrbitalInput,
+    els.guiOrbitalIsovalue,
+    els.guiOrbPrev,
+    els.guiOrbNext,
+    els.guiMenuQuality
+  ].forEach((control) => {
+    if (control) control.disabled = state.gui.orbitalRequestBusy;
+  });
+}
+
 async function requestGuiOrbital(index) {
+  if (state.gui.orbitalRequestBusy) return;
   const orbitalIndex = Number(index) || 0;
   els.guiOrbitalInput.value = String(orbitalIndex);
   if (orbitalIndex <= 0) {
@@ -962,12 +1091,14 @@ async function requestGuiOrbital(index) {
   }
 
   const isovalue = Math.abs(toNumber(els.guiOrbitalIsovalue?.value, 0.05));
+  const quality = currentGuiQuality();
   const params = new URLSearchParams({
     index: String(orbitalIndex),
-    quality: String(currentGuiQuality()),
+    quality: String(quality),
     isovalue: String(isovalue)
   });
-  setStatus(`Calculating orbital ${orbitalIndex}...`);
+  setGuiOrbitalRequestBusy(true);
+  setStatus(`Calculating orbital ${orbitalIndex} at ${formatGridQuality(quality)}...`);
   try {
     const response = await fetch(`/api/orbital?${params.toString()}`, { cache: 'no-store' });
     const payload = await response.json();
@@ -987,10 +1118,12 @@ async function requestGuiOrbital(index) {
       orbitalIndex,
       isovalue: payload.isovalue || isovalue
     });
-    setStatus(`Orbital ${orbitalIndex} loaded`);
+    setStatus(`Orbital ${orbitalIndex} loaded at ${formatGridQuality(payload.quality || quality)}`);
   } catch (error) {
     console.error(error);
     setStatus('Orbital API unavailable', false);
+  } finally {
+    setGuiOrbitalRequestBusy(false);
   }
 }
 
@@ -1031,16 +1164,20 @@ function clearStructure() {
 function layerFromCube(text, options = {}) {
   const role = options.role || els.cubeRole.value || 'custom';
   const defaults = roleDefaults[role] || roleDefaults.custom;
+  const orbitalIndex = Number.isFinite(Number(options.orbitalIndex)) ? Number(options.orbitalIndex) : 0;
+  const opacity = isOrbitalLayer({ role, orbitalIndex })
+    ? state.gui.orbitalOpacity
+    : toNumber(options.opacity, toNumber(els.surfaceOpacity.value, 0.68));
   return {
     id: state.nextLayerId,
     name: options.name || `${roleLabel(role)}.cube`,
     role,
-    orbitalIndex: Number.isFinite(Number(options.orbitalIndex)) ? Number(options.orbitalIndex) : 0,
+    orbitalIndex,
     data: text,
     visible: options.visible !== false,
     mode: options.mode || els.surfaceMode.value || 'signed',
     isovalue: toNumber(options.isovalue, toNumber(els.isoValue.value, defaults.isovalue)),
-    opacity: clamp(toNumber(options.opacity, toNumber(els.surfaceOpacity.value, 0.68)), 0.05, 1),
+    opacity: clamp(toNumber(opacity, 0.68), 0.05, 1),
     positiveColor: options.positiveColor || options.color || els.positiveColor.value || defaults.positive,
     negativeColor: options.negativeColor || els.negativeColor.value || defaults.negative,
     colorMode: options.colorMode || 'solid',
@@ -1573,9 +1710,16 @@ function updateLayerFromControl(control) {
   }
 
   if (action === 'visible') layer.visible = control.checked;
-  if (action === 'role') layer.role = control.value;
+  if (action === 'role') {
+    layer.role = control.value;
+    if (isOrbitalLayer(layer)) layer.opacity = state.gui.orbitalOpacity;
+  }
   if (action === 'mode') layer.mode = control.value;
   if (action === 'isovalue') layer.isovalue = Math.abs(toNumber(control.value, layer.isovalue));
+  if (action === 'opacity' && isOrbitalLayer(layer)) {
+    setGlobalOrbitalOpacity(control.value, { announce: true });
+    return;
+  }
   if (action === 'opacity') layer.opacity = clamp(toNumber(control.value, layer.opacity), 0.05, 1);
   if (action === 'colorMode') layer.colorMode = control.value;
   if (action === 'colorLayerId') layer.colorLayerId = control.value;
@@ -1647,6 +1791,8 @@ function setActiveGuiLayer(layerId, options = {}) {
 function syncMultiwfnGuiControls() {
   if (!els.guiShowLabels) return;
 
+  syncOrbitalOpacityControls();
+
   els.guiShowStructure.checked = els.showStructure.checked;
   els.guiShowLabels.checked = els.showLabels.checked;
   els.guiShowAxis.checked = els.showAxes.checked;
@@ -1701,10 +1847,14 @@ function syncMultiwfnGuiControls() {
   }
 }
 
-function updateActiveLayerFromGui() {
+function updateActiveLayerFromGui(event) {
   const layer = activeGuiLayer();
   if (!layer) {
     setStatus('No cube layer', false);
+    return;
+  }
+  if (event?.target === els.guiIsosurfaceOpacity && isOrbitalLayer(layer)) {
+    setGlobalOrbitalOpacity(els.guiIsosurfaceOpacity.value, { announce: true });
     return;
   }
   layer.mode = els.guiIsosurfaceMode.value;
@@ -1719,7 +1869,8 @@ function updateActiveLayerFromGui() {
   layer.positiveColor = els.guiPositiveColor.value;
   layer.negativeColor = els.guiNegativeColor.value;
 
-  if (els.guiSurfaceStyle.value === 'solid') layer.opacity = 1;
+  if (isOrbitalLayer(layer)) layer.opacity = state.gui.orbitalOpacity;
+  else if (els.guiSurfaceStyle.value === 'solid') layer.opacity = 1;
   els.guiIsosurfaceOpacity.value = String(layer.opacity);
   els.surfaceQuality.value = els.guiSurfaceQuality.value;
   renderLayerList();
@@ -1737,6 +1888,37 @@ function rotateGuiView(direction) {
   if (direction === 'left') state.viewer.rotate(-angle, 'y');
   if (direction === 'right') state.viewer.rotate(angle, 'y');
   state.viewer.render();
+}
+
+function resetGuiView() {
+  if (
+    !state.viewer ||
+    typeof state.viewer.zoomTo !== 'function' ||
+    typeof state.viewer.getView !== 'function' ||
+    typeof state.viewer.setView !== 'function'
+  ) {
+    setStatus('View reset unavailable', false);
+    return;
+  }
+
+  els.spin.checked = false;
+  if (typeof state.viewer.spin === 'function') state.viewer.spin(false);
+  state.viewer.zoomTo();
+
+  const view = state.viewer.getView();
+  if (!Array.isArray(view) || view.length < 8) {
+    setStatus('View reset unavailable', false);
+    return;
+  }
+  const resetView = [...view];
+  resetView[4] = 0;
+  resetView[5] = 0;
+  resetView[6] = 0;
+  resetView[7] = 1;
+  state.viewer.setView(resetView);
+  state.dirtyZoom = false;
+  state.viewer.render();
+  setStatus('View reset');
 }
 
 function selectGuiOrbitalOffset(offset) {
@@ -1811,12 +1993,29 @@ function bindEvents() {
       console.error(error);
     }
   });
-  els.guiReset.addEventListener('click', () => renderScene(true));
+  els.guiReset.addEventListener('click', resetGuiView);
   els.guiSavePicture.addEventListener('click', savePng);
   els.guiRotUp.addEventListener('click', () => rotateGuiView('up'));
   els.guiRotDown.addEventListener('click', () => rotateGuiView('down'));
   els.guiRotLeft.addEventListener('click', () => rotateGuiView('left'));
   els.guiRotRight.addEventListener('click', () => rotateGuiView('right'));
+  els.guiMenuIsosur1.addEventListener('click', () => {
+    setOrbitalOpacityMenuOpen(els.guiIsosur1Menu.hidden, { focus: true });
+  });
+  els.guiOrbitalOpacity.addEventListener('input', () => {
+    const opacity = orbitalOpacityStops[parseInt(els.guiOrbitalOpacity.value, 10)] ?? 0.68;
+    setGlobalOrbitalOpacity(opacity, { announce: true });
+  });
+  document.addEventListener('click', (event) => {
+    if (!els.guiIsosur1Menu.hidden && !els.guiIsosur1MenuControl.contains(event.target)) {
+      setOrbitalOpacityMenuOpen(false);
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || els.guiIsosur1Menu.hidden) return;
+    setOrbitalOpacityMenuOpen(false);
+    els.guiMenuIsosur1.focus();
+  });
 
   els.guiShowStructure.addEventListener('input', () => {
     els.showStructure.checked = els.guiShowStructure.checked;
@@ -1936,7 +2135,6 @@ function bindEvents() {
 
   [
     els.guiMenuOrbitalInfo,
-    els.guiMenuIsosur1,
     els.guiMenuIsosur2,
     els.guiMenuView,
     els.guiMenuSettings,
@@ -1948,6 +2146,7 @@ function bindEvents() {
   els.guiMenuQuality.addEventListener('change', () => {
     const index = Number(activeGuiLayer()?.orbitalIndex || els.guiOrbitalInput.value || 0);
     if (index > 0) requestGuiOrbital(index);
+    else setStatus('Select an orbital before changing grid quality', false);
   });
 
   els.structureFile.addEventListener('change', () => {
@@ -2142,6 +2341,10 @@ function cacheElements() {
     guiPeriodicEsp: byId('gui-periodic-esp'),
     guiMenuOrbitalInfo: byId('gui-menu-orbital-info'),
     guiMenuIsosur1: byId('gui-menu-isosur1'),
+    guiIsosur1MenuControl: byId('gui-isosur1-menu-control'),
+    guiIsosur1Menu: byId('gui-isosur1-menu'),
+    guiOrbitalOpacity: byId('gui-orbital-opacity'),
+    guiOrbitalOpacityValue: byId('gui-orbital-opacity-value'),
     guiMenuIsosur2: byId('gui-menu-isosur2'),
     guiMenuQuality: byId('gui-menu-quality'),
     guiMenuView: byId('gui-menu-view'),
