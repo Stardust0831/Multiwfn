@@ -24,6 +24,7 @@ ORBITAL_REQUEST_LOCK = threading.Lock()
 ORBITAL_REQUEST_CONSUME_TIMEOUT = 5.0
 ORBITAL_REQUEST_TIMEOUT = 300.0
 ORBITAL_REQUEST_POLL_INTERVAL = 0.2
+MAX_DYNAMIC_ORBITAL_CUBES = 12
 BACKEND_UNAVAILABLE_MESSAGE = (
     "Multiwfn backend unavailable; restart visualization from menu 0 and keep the terminal open"
 )
@@ -66,6 +67,31 @@ def send_json(handler: http.server.BaseHTTPRequestHandler, payload: dict, status
     handler.wfile.write(data)
 
 
+def cleanup_session_files(session_dir: Path, *, startup: bool = False) -> None:
+    patterns = ["response_*.json"]
+    if startup:
+        patterns.append("orbital_*.cube")
+    for pattern in patterns:
+        for path in session_dir.glob(pattern):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def prune_dynamic_orbital_cubes(session_dir: Path, keep: int = MAX_DYNAMIC_ORBITAL_CUBES) -> None:
+    cubes = sorted(
+        session_dir.glob("orbital_*.cube"),
+        key=lambda path: path.stat().st_mtime if path.exists() else 0,
+        reverse=True,
+    )
+    for path in cubes[max(0, keep):]:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
 def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
     with ORBITAL_REQUEST_LOCK:
         stop = session_dir / "gui_stop.flag"
@@ -88,7 +114,9 @@ def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
         while time.monotonic() < deadline:
             if response.is_file():
                 try:
-                    return json.loads(response.read_text(encoding="utf-8"))
+                    payload = json.loads(response.read_text(encoding="utf-8"))
+                    prune_dynamic_orbital_cubes(session_dir)
+                    return payload
                 except (OSError, json.JSONDecodeError):
                     pass
 
@@ -243,6 +271,7 @@ def main() -> int:
     frontend_dir = Path(args.frontend).expanduser().resolve()
     session_dir = Path(args.session).expanduser().resolve()
     manifest = Path(args.manifest).expanduser().resolve() if args.manifest else session_dir / "manifest.json"
+    cleanup_session_files(session_dir, startup=True)
 
     if not frontend_dir.is_dir():
         print(f"Frontend directory not found: {frontend_dir}", file=sys.stderr)

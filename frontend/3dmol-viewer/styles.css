@@ -608,7 +608,7 @@ body {
   grid-template-columns: minmax(520px, 1fr) 190px;
   gap: 0;
   height: 100vh;
-  min-height: 560px;
+  min-height: 360px;
   padding-top: 30px;
   background: #eee;
 }
@@ -632,11 +632,13 @@ body {
   width: 190px;
   min-width: 190px;
   padding: 8px 8px 10px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: #e8e8e8;
   border-left: 1px solid #aaa;
   border-right: 0;
   box-shadow: none;
+  scrollbar-width: thin;
 }
 
 .brand,
@@ -754,7 +756,7 @@ button,
 
 .gui-window-bar button {
   width: 100%;
-  height: 25px;
+  height: 24px;
   min-width: 0;
   padding: 0 4px;
   color: #000;
@@ -800,7 +802,7 @@ h2 {
 
 .checks label {
   display: flex;
-  min-height: 21px;
+  min-height: 19px;
   gap: 5px;
   align-items: center;
   color: #000;
@@ -820,7 +822,7 @@ input[type="checkbox"] {
 
 label {
   display: block;
-  margin: 4px 0;
+  margin: 3px 0;
   color: #000;
   font: 700 14px/1.05 "Times New Roman", Times, serif;
 }
@@ -832,7 +834,7 @@ label span {
 
 input[type="range"] {
   width: 100%;
-  height: 18px;
+  height: 15px;
   accent-color: #cfcfcf;
 }
 
@@ -850,8 +852,9 @@ select {
 
 .orbital-panel select[size] {
   width: 100%;
-  min-height: 120px;
-  max-height: 156px;
+  height: clamp(76px, 18vh, 142px);
+  min-height: 76px;
+  max-height: 142px;
   padding: 1px;
   font: 700 14px/1.2 "Consolas", "Courier New", monospace;
 }
@@ -871,7 +874,7 @@ select {
   writing-mode: vertical-lr;
   direction: rtl;
   width: 34px;
-  height: 92px;
+  height: clamp(64px, 12vh, 92px);
 }
 
 .button-row {
