@@ -228,7 +228,9 @@ const state = {
     activeLayerId: '',
     labelSize: 38,
     orbitalRequestBusy: false,
-    orbitalOpacity: 0.68
+    orbitalOpacity: 0.68,
+    orbitalIsovalue: 0.015,
+    pendingOrbitalIndex: 0
   },
   orbitalShapes: new Map(),
   activePlot: null,
@@ -848,6 +850,7 @@ function renderLayerList() {
     empty.className = 'empty';
     empty.textContent = 'No cube layers loaded.';
     els.layerList.append(empty);
+    updateLayerSelectors();
     return;
   }
 
@@ -990,12 +993,95 @@ function layerForOrbital(index) {
   return state.layers.find((layer) => Number(layer.orbitalIndex) === Number(index));
 }
 
+function ensureOrbitalItemsFromCount() {
+  if (state.orbitals.items.length || !state.orbitals.count) return;
+  state.orbitals.items = Array.from({ length: state.orbitals.count }, (_, index) => ({
+    index: index + 1
+  }));
+}
+
+function currentOrbitalIsovalue() {
+  const value = Math.abs(toNumber(
+    els.guiOrbitalIsovalueNumber?.value || els.guiOrbitalIsovalue?.value,
+    state.gui.orbitalIsovalue
+  ));
+  return clamp(value, 0, 0.3);
+}
+
+function syncOrbitalIsovalueControls(value, options = {}) {
+  const next = clamp(Math.abs(toNumber(value, state.gui.orbitalIsovalue)), 0, 0.3);
+  state.gui.orbitalIsovalue = next;
+  const text = next.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') || '0';
+  if (els.guiOrbitalIsovalue && els.guiOrbitalIsovalue.value !== text) {
+    els.guiOrbitalIsovalue.value = text;
+  }
+  if (els.guiOrbitalIsovalueNumber && els.guiOrbitalIsovalueNumber.value !== text) {
+    els.guiOrbitalIsovalueNumber.value = text;
+  }
+  if (options.layer) {
+    options.layer.isovalue = next;
+    if (els.guiIsosurfaceValue) els.guiIsosurfaceValue.value = text;
+  }
+}
+
+function clearGuiOrbitalSelection() {
+  state.gui.activeLayerId = '';
+  state.gui.pendingOrbitalIndex = 0;
+  state.layers.forEach((layer) => { layer.visible = false; });
+  if (els.guiOrbitalSelect) els.guiOrbitalSelect.value = '0';
+  if (els.guiOrbitalInput) els.guiOrbitalInput.value = '0';
+  if (els.guiOrbitalStatus) els.guiOrbitalStatus.textContent = 'No orbital selected';
+  syncOrbitalIsovalueControls(state.gui.orbitalIsovalue);
+  renderLayerList();
+  renderScene(false);
+}
+
+function setOrbitalStatus(text, ok = true) {
+  if (!els.guiOrbitalStatus) return;
+  els.guiOrbitalStatus.textContent = text;
+  els.guiOrbitalStatus.dataset.state = ok ? 'ok' : 'error';
+}
+
+function renderGuiOrbitalList() {
+  if (!els.guiOrbitalList) return;
+  ensureOrbitalItemsFromCount();
+  els.guiOrbitalList.replaceChildren();
+
+  const activeLayer = activeGuiLayer();
+  const activeOrbital = Number(activeLayer?.orbitalIndex || state.gui.pendingOrbitalIndex || 0);
+  const makeRow = (label, value, selected, title = label) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'orbital-row';
+    button.dataset.value = value;
+    button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', String(Boolean(selected)));
+    button.textContent = label;
+    button.title = title;
+    button.addEventListener('click', () => setActiveGuiLayer(value, { orbitalSelection: true }));
+    els.guiOrbitalList.append(button);
+  };
+
+  makeRow('    0  None', '0', !activeOrbital);
+  state.orbitals.items.forEach((orbital) => {
+    const layer = layerForOrbital(orbital.index);
+    const index = Number(orbital.index) || 0;
+    makeRow(
+      `${orbitalIndexLabel(orbital)}${layer ? ' *' : ''}`,
+      `orbital:${index}`,
+      activeOrbital === index,
+      orbitalLabel(orbital)
+    );
+  });
+}
+
 function updateMultiwfnGuiLayerSelectors() {
   if (!els.guiOrbitalSelect) return;
+  ensureOrbitalItemsFromCount();
   const selectedId = state.layers.some((layer) => String(layer.id) === String(state.gui.activeLayerId))
     ? String(state.gui.activeLayerId)
-    : (state.layers[0] ? String(state.layers[0].id) : '');
-  state.gui.activeLayerId = selectedId;
+    : '';
+  if (selectedId) state.gui.activeLayerId = selectedId;
 
   [
     els.guiOrbitalSelect,
@@ -1018,6 +1104,8 @@ function updateMultiwfnGuiLayerSelectors() {
           option.title = orbitalLabel(orbital);
           select.append(option);
         });
+        const activeLayer = activeGuiLayer();
+        select.value = activeLayer?.orbitalIndex ? `orbital:${activeLayer.orbitalIndex}` : '0';
         return;
       }
     }
@@ -1038,11 +1126,12 @@ function updateMultiwfnGuiLayerSelectors() {
       : '';
   }
 
+  renderGuiOrbitalList();
   syncMultiwfnGuiControls();
 }
 
 function activeGuiLayer() {
-  return layerById(state.gui.activeLayerId) || state.layers[0] || null;
+  return state.gui.activeLayerId ? layerById(state.gui.activeLayerId) || null : null;
 }
 
 function currentGuiQuality() {
@@ -1214,6 +1303,7 @@ function setGuiOrbitalRequestBusy(busy) {
     els.guiOrbitalSelect,
     els.guiOrbitalInput,
     els.guiOrbitalIsovalue,
+    els.guiOrbitalIsovalueNumber,
     els.guiOrbPrev,
     els.guiOrbNext,
     els.guiMenuQuality
@@ -1227,11 +1317,16 @@ async function requestGuiOrbital(index) {
   const orbitalIndex = Number(index) || 0;
   els.guiOrbitalInput.value = String(orbitalIndex);
   if (orbitalIndex <= 0) {
-    setActiveGuiLayer('0', { orbitalSelection: true });
+    clearGuiOrbitalSelection();
     return;
   }
 
-  const isovalue = Math.abs(toNumber(els.guiOrbitalIsovalue?.value, 0.05));
+  state.gui.pendingOrbitalIndex = orbitalIndex;
+  setOrbitalStatus(`Calculating orbital ${orbitalIndex}...`);
+  renderGuiOrbitalList();
+
+  const isovalue = currentOrbitalIsovalue();
+  syncOrbitalIsovalueControls(isovalue);
   const quality = currentGuiQuality();
   const params = new URLSearchParams({
     index: String(orbitalIndex),
@@ -1245,6 +1340,7 @@ async function requestGuiOrbital(index) {
     const payload = await response.json();
     if (!payload.ok) {
       setStatus(payload.message || 'Orbital calculation failed', false);
+      setOrbitalStatus(payload.message || 'Orbital calculation failed', false);
       return;
     }
     if (payload.clear) {
@@ -1259,17 +1355,22 @@ async function requestGuiOrbital(index) {
       orbitalIndex,
       isovalue: payload.isovalue || isovalue
     });
+    state.gui.pendingOrbitalIndex = 0;
+    setOrbitalStatus(`Orbital ${orbitalIndex} loaded`);
     setStatus(`Orbital ${orbitalIndex} loaded at ${formatGridQuality(payload.quality || quality)}`);
   } catch (error) {
     console.error(error);
     setStatus('Orbital API unavailable', false);
+    setOrbitalStatus('Orbital API unavailable', false);
   } finally {
     setGuiOrbitalRequestBusy(false);
+    renderGuiOrbitalList();
   }
 }
 
 function initializeMultiwfnOrbitalSelection() {
   const isDrawMolGui = String(state.multiwfnGui?.entry || '').toLowerCase().includes('drawmol');
+  ensureOrbitalItemsFromCount();
   if (!isDrawMolGui || !state.layers.length) return;
 
   const homoLayer = state.orbitals.homoIndex ? layerForOrbital(state.orbitals.homoIndex) : null;
@@ -1902,10 +2003,7 @@ function activateGuiMode(mode) {
 function setActiveGuiLayer(layerId, options = {}) {
   const id = String(layerId || '');
   if (id === '0') {
-    state.gui.activeLayerId = '';
-    state.layers.forEach((layer) => { layer.visible = false; });
-    renderLayerList();
-    renderScene(false);
+    clearGuiOrbitalSelection();
     return;
   }
 
@@ -1968,12 +2066,13 @@ function syncMultiwfnGuiControls() {
 
   if (!layer) {
     els.guiOrbitalInput.value = '0';
+    syncOrbitalIsovalueControls(state.gui.orbitalIsovalue);
     return;
   }
 
   const layerIndex = state.layers.findIndex((item) => item.id === layer.id);
   els.guiOrbitalInput.value = String(layer.orbitalIndex || layerIndex + 1);
-  els.guiOrbitalIsovalue.value = String(clamp(toNumber(layer.isovalue, 0.015), 0, 0.3));
+  syncOrbitalIsovalueControls(layer.isovalue, { layer });
   els.guiIsosurfaceMode.value = layer.mode;
   els.guiIsosurfaceValue.value = String(layer.isovalue);
   els.guiIsosurfaceOpacity.value = String(layer.opacity);
@@ -2224,7 +2323,7 @@ function bindEvents() {
   els.guiOrbitalInput.addEventListener('change', () => {
     const index = parseInt(els.guiOrbitalInput.value, 10);
     if (!Number.isFinite(index) || index <= 0) {
-      setActiveGuiLayer('0', { orbitalSelection: true });
+      clearGuiOrbitalSelection();
       return;
     }
     requestGuiOrbital(index);
@@ -2232,18 +2331,25 @@ function bindEvents() {
   els.guiOrbPrev.addEventListener('click', () => selectGuiOrbitalOffset(-1));
   els.guiOrbNext.addEventListener('click', () => selectGuiOrbitalOffset(1));
   els.guiOrbInfo.addEventListener('click', () => activateTab('layers'));
-  els.guiOrbitalIsovalue.addEventListener('input', () => {
+  const updateOrbitalIsovalue = (event) => {
     const layer = activeGuiLayer();
-    if (!layer) return;
-    layer.isovalue = Math.abs(toNumber(els.guiOrbitalIsovalue.value, layer.isovalue));
-    els.guiIsosurfaceValue.value = String(layer.isovalue);
-    renderLayerList();
-    renderScene(false);
-  });
-  els.guiOrbitalIsovalue.addEventListener('change', () => {
+    const value = event?.target === els.guiOrbitalIsovalueNumber
+      ? els.guiOrbitalIsovalueNumber.value
+      : els.guiOrbitalIsovalue.value;
+    syncOrbitalIsovalueControls(value, layer ? { layer } : {});
+    if (layer) {
+      renderLayerList();
+      renderScene(false);
+    }
+  };
+  const reloadOrbitalAtIsovalue = () => {
     const index = Number(activeGuiLayer()?.orbitalIndex || els.guiOrbitalInput.value || 0);
     if (index > 0) requestGuiOrbital(index);
-  });
+  };
+  els.guiOrbitalIsovalue.addEventListener('input', updateOrbitalIsovalue);
+  els.guiOrbitalIsovalueNumber.addEventListener('input', updateOrbitalIsovalue);
+  els.guiOrbitalIsovalue.addEventListener('change', reloadOrbitalAtIsovalue);
+  els.guiOrbitalIsovalueNumber.addEventListener('change', reloadOrbitalAtIsovalue);
 
   els.guiIsosurfaceLayer.addEventListener('change', () => setActiveGuiLayer(els.guiIsosurfaceLayer.value));
   [
@@ -2476,8 +2582,11 @@ function cacheElements() {
     guiBondRadius: byId('gui-bond-radius'),
     guiLabelSize: byId('gui-label-size'),
     guiOrbitalSelect: byId('gui-orbital-select'),
+    guiOrbitalList: byId('gui-orbital-list'),
+    guiOrbitalStatus: byId('gui-orbital-status'),
     guiOrbitalInput: byId('gui-orbital-input'),
     guiOrbitalIsovalue: byId('gui-orbital-isovalue'),
+    guiOrbitalIsovalueNumber: byId('gui-orbital-isovalue-number'),
     guiOrbPrev: byId('gui-orb-prev'),
     guiOrbNext: byId('gui-orb-next'),
     guiOrbInfo: byId('gui-orb-info'),

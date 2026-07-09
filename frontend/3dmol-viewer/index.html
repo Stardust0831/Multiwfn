@@ -72,6 +72,8 @@
             <div class="group orbital-panel">
               <h2>Orbitals</h2>
               <select id="gui-orbital-select" size="8" aria-label="Orbital or cube layer list"></select>
+              <div id="gui-orbital-list" class="orbital-list" role="listbox" aria-label="Orbital list"></div>
+              <div id="gui-orbital-status" class="orbital-status">Ready</div>
               <div class="control-grid">
                 <label>
                   <span>Orbital index</span>
@@ -79,7 +81,10 @@
                 </label>
                 <label>
                   <span>Isovalue</span>
-                  <input id="gui-orbital-isovalue" type="range" min="0" max="0.3" step="0.001" value="0.015">
+                  <span class="inline-number-control">
+                    <input id="gui-orbital-isovalue" type="range" min="0" max="0.3" step="0.001" value="0.015">
+                    <input id="gui-orbital-isovalue-number" type="number" min="0" max="0.3" step="0.001" value="0.015">
+                  </span>
                 </label>
               </div>
               <div class="button-row">
