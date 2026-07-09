@@ -61,8 +61,8 @@ Example manifest:
       "mode": "signed",
       "isovalue": 0.03,
       "opacity": 0.65,
-      "positiveColor": "#2869d8",
-      "negativeColor": "#d6435f"
+      "positiveColor": "#f5a9b8",
+      "negativeColor": "#5bcefa"
     },
     {
       "path": "lumo.cube",

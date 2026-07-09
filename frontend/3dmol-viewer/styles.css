@@ -508,6 +508,27 @@ button:hover {
   inset: 0;
 }
 
+.orientation-widget {
+  position: absolute;
+  z-index: 2;
+  right: 14px;
+  bottom: 46px;
+  width: 96px;
+  height: 96px;
+  overflow: hidden;
+  pointer-events: none;
+  background: #fff;
+}
+
+.orientation-widget[hidden] {
+  display: none;
+}
+
+.orientation-widget canvas {
+  position: absolute;
+  inset: 0;
+}
+
 .hud {
   position: absolute;
   left: 18px;
@@ -591,6 +612,13 @@ button:hover {
 
   .hud span {
     max-width: 100%;
+  }
+
+  .orientation-widget {
+    right: 10px;
+    bottom: 42px;
+    width: 82px;
+    height: 82px;
   }
 }
 
@@ -701,24 +729,71 @@ body {
   height: 24px;
 }
 
-.gui-opacity-menu {
-  position: absolute;
+.gui-style-menu,
+.gui-style-submenu {
   z-index: 12;
-  top: 26px;
-  left: 0;
-  width: 220px;
+  box-sizing: border-box;
   max-width: calc(100vw - 16px);
-  padding: 9px 10px 8px;
   background: #f5f4e9;
   border: 1px solid #888;
   box-shadow: 2px 3px 8px rgba(0, 0, 0, 0.22);
 }
 
-.gui-opacity-menu[hidden] {
+.gui-style-menu {
+  position: absolute;
+  top: 26px;
+  left: 0;
+  width: 160px;
+  padding: 2px;
+}
+
+.gui-style-submenu {
+  position: fixed;
+  z-index: 13;
+  width: 220px;
+  padding: 9px 10px 8px;
+}
+
+.gui-style-menu[hidden],
+.gui-style-submenu[hidden] {
   display: none;
 }
 
-.gui-opacity-menu label {
+.gui-style-menu .gui-style-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 28px;
+  padding: 0 7px;
+}
+
+.gui-style-menu .gui-style-menu-item[aria-expanded="true"] {
+  background: #d8e7ff;
+}
+
+.gui-menu-check {
+  position: relative;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  border: 1px solid #777;
+  background: #fff;
+}
+
+.gui-style-menu-item[aria-checked="true"] .gui-menu-check::after {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  width: 4px;
+  height: 7px;
+  content: "";
+  border-right: 2px solid #1f5db8;
+  border-bottom: 2px solid #1f5db8;
+  transform: rotate(45deg);
+}
+
+.gui-transparency-menu label {
   margin: 0;
   font: 700 14px/1.1 "Times New Roman", Times, serif;
 }
@@ -734,10 +809,43 @@ body {
   font: 14px/1.1 "Consolas", "Courier New", monospace;
 }
 
-.gui-opacity-menu input[type="range"] {
+.gui-transparency-menu input[type="range"] {
   display: block;
   width: 100%;
   margin-top: 6px;
+}
+
+.gui-background-menu {
+  width: 150px;
+  padding: 2px;
+}
+
+.gui-background-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 28px;
+  padding: 0 7px;
+}
+
+.gui-background-menu button[aria-checked="true"] {
+  background: #d8e7ff;
+}
+
+.gui-color-swatch {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 1px solid #666;
+}
+
+.gui-color-swatch.is-white {
+  background: #fff;
+}
+
+.gui-color-swatch.is-black {
+  background: #000;
 }
 
 .gui-window-bar {
@@ -918,4 +1026,62 @@ select {
 
 .plot-panel {
   border-radius: 0;
+}
+
+@media (max-width: 720px) {
+  .gui-menu-strip {
+    height: 54px;
+    flex-wrap: wrap;
+    align-content: flex-start;
+  }
+
+  .gui-menu-strip > button,
+  .gui-menu-strip > select,
+  .gui-menu-strip > .gui-menu-control {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(360px, 58vh) auto;
+    width: 100%;
+    height: auto;
+    min-height: 100vh;
+    padding-top: 54px;
+  }
+
+  .viewport-wrap {
+    width: auto;
+    min-height: 360px;
+    margin: 8px 8px 0;
+  }
+
+  .sidebar {
+    width: auto;
+    min-width: 0;
+    max-height: none;
+    overflow: visible;
+    border-top: 1px solid #aaa;
+    border-left: 0;
+  }
+
+  .hud {
+    flex-direction: row;
+    align-items: flex-end;
+  }
+
+  .hud span {
+    max-width: calc(50% - 6px);
+  }
+}
+
+@media (max-width: 360px) {
+  .gui-menu-strip {
+    height: 78px;
+  }
+
+  .app-shell {
+    padding-top: 78px;
+  }
 }

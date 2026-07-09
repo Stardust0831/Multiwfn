@@ -170,11 +170,11 @@
                 </label>
                 <label>
                   <span>Positive color</span>
-                  <input id="gui-positive-color" type="color" value="#2869d8">
+                  <input id="gui-positive-color" type="color" value="#f5a9b8">
                 </label>
                 <label>
                   <span>Negative color</span>
-                  <input id="gui-negative-color" type="color" value="#d6435f">
+                  <input id="gui-negative-color" type="color" value="#5bcefa">
                 </label>
               </div>
             </div>
@@ -268,15 +268,48 @@
               <button
                 id="gui-menu-isosur1"
                 type="button"
-                aria-haspopup="dialog"
+                aria-haspopup="menu"
                 aria-expanded="false"
                 aria-controls="gui-isosur1-menu"
               >Isosur#1 style</button>
               <div
                 id="gui-isosur1-menu"
-                class="gui-opacity-menu"
+                class="gui-style-menu"
+                role="menu"
+                aria-label="Isosurface style"
+                hidden
+              >
+                <button
+                  id="gui-style-transparency"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitem"
+                  aria-haspopup="dialog"
+                  aria-expanded="false"
+                  aria-controls="gui-transparency-menu"
+                ><span>Transparency</span><span aria-hidden="true">&gt;</span></button>
+                <button
+                  id="gui-style-background"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  aria-controls="gui-background-menu"
+                ><span>Background</span><span aria-hidden="true">&gt;</span></button>
+                <button
+                  id="gui-style-axes"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked="true"
+                ><span>Axes</span><span class="gui-menu-check" aria-hidden="true"></span></button>
+              </div>
+              <div
+                id="gui-transparency-menu"
+                class="gui-style-submenu gui-transparency-menu"
                 role="dialog"
-                aria-label="Orbital opacity"
+                aria-label="Orbital transparency"
                 hidden
               >
                 <label for="gui-orbital-opacity">
@@ -294,6 +327,22 @@
                     aria-valuetext="68%"
                   >
                 </label>
+              </div>
+              <div
+                id="gui-background-menu"
+                class="gui-style-submenu gui-background-menu"
+                role="menu"
+                aria-label="Viewer background"
+                hidden
+              >
+                <button id="gui-background-white" type="button" role="menuitemradio" aria-checked="true">
+                  <span class="gui-color-swatch is-white" aria-hidden="true"></span>
+                  <span>White</span>
+                </button>
+                <button id="gui-background-black" type="button" role="menuitemradio" aria-checked="false">
+                  <span class="gui-color-swatch is-black" aria-hidden="true"></span>
+                  <span>Black</span>
+                </button>
               </div>
             </div>
             <button id="gui-menu-isosur2" type="button">Isosur#2 style</button>
@@ -427,11 +476,11 @@
             <div class="control-grid">
               <label>
                 <span>Positive color</span>
-                <input id="positive-color" type="color" value="#2869d8">
+                <input id="positive-color" type="color" value="#f5a9b8">
               </label>
               <label>
                 <span>Negative color</span>
-                <input id="negative-color" type="color" value="#d6435f">
+                <input id="negative-color" type="color" value="#5bcefa">
               </label>
             </div>
             <div class="button-row">
@@ -603,7 +652,8 @@
               <label>
                 <span>Background</span>
                 <select id="background">
-                  <option value="studio" selected>Studio</option>
+                  <option value="white" selected>White</option>
+                  <option value="studio">Studio</option>
                   <option value="paper">Paper</option>
                   <option value="graphite">Graphite</option>
                   <option value="black">Black</option>
@@ -656,6 +706,7 @@
 
       <section class="viewport-wrap" aria-label="3D viewer">
         <div id="viewer"></div>
+        <div id="orientation-widget" class="orientation-widget" aria-label="Orientation axes"></div>
         <div id="plot-panel" class="plot-panel is-hidden" aria-label="2D plot">
           <div id="plot-view"></div>
         </div>

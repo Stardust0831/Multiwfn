@@ -157,13 +157,18 @@ const atomicSymbols = {
   30: 'Zn', 35: 'Br', 53: 'I'
 };
 
+const orbitalPhaseColors = {
+  positive: '#f5a9b8',
+  negative: '#5bcefa'
+};
+
 const roleDefaults = {
-  homo: { label: 'HOMO', positive: '#2869d8', negative: '#d6435f', isovalue: 0.015 },
-  lumo: { label: 'LUMO', positive: '#0b8b6f', negative: '#d0822f', isovalue: 0.015 },
+  homo: { label: 'HOMO', ...orbitalPhaseColors, isovalue: 0.015 },
+  lumo: { label: 'LUMO', ...orbitalPhaseColors, isovalue: 0.015 },
   density: { label: 'Density', positive: '#7c5ac9', negative: '#7c5ac9', isovalue: 0.02 },
   elf: { label: 'ELF', positive: '#d4a21b', negative: '#d4a21b', isovalue: 0.65 },
   esp: { label: 'ESP', positive: '#2b73c8', negative: '#cf3f55', isovalue: 0.02 },
-  custom: { label: 'Custom', positive: '#2869d8', negative: '#d6435f', isovalue: 0.015 }
+  custom: { label: 'Custom', ...orbitalPhaseColors, isovalue: 0.015 }
 };
 
 const orbitalOpacityStops = [
@@ -172,10 +177,11 @@ const orbitalOpacityStops = [
 ];
 
 const backgrounds = {
+  white: { css: '#ffffff', viewer: '#ffffff' },
   studio: { css: '#edf2f4', viewer: '#edf2f4' },
   paper: { css: '#f8f6ef', viewer: '#f8f6ef' },
   graphite: { css: '#20252b', viewer: '#20252b' },
-  black: { css: '#050608', viewer: '#050608' }
+  black: { css: '#000000', viewer: '#000000' }
 };
 
 const gradients = {
@@ -186,6 +192,8 @@ const gradients = {
 
 const state = {
   viewer: null,
+  orientationViewer: null,
+  orientationBaseView: null,
   structure: { data: '', name: '', format: 'xyz', atoms: 0, baseData: '' },
   layers: [],
   periodic: {
@@ -570,16 +578,18 @@ function modelStyle() {
 }
 
 function applySceneStyle() {
-  const bg = backgrounds[els.background.value] || backgrounds.studio;
+  const bg = backgrounds[els.background.value] || backgrounds.white;
   els.viewerWrap.style.backgroundColor = bg.css;
   state.viewer.setBackgroundColor(bg.viewer);
+  if (els.orientationWidget) els.orientationWidget.style.backgroundColor = bg.css;
+  if (state.orientationViewer) state.orientationViewer.setBackgroundColor(bg.viewer);
 
   if (typeof state.viewer.setViewStyle === 'function') {
     const outline = els.outline.checked
       ? {
           style: 'outline',
           width: toNumber(els.outlineWidth.value, 0.035),
-          color: els.background.value === 'black' || els.background.value === 'graphite' ? '#0b0d10' : '#111820'
+          color: els.background.value === 'black' ? '#f4f6f8' : '#111820'
         }
       : {};
     state.viewer.setViewStyle(outline);
@@ -637,31 +647,84 @@ function addAtomLabels(model) {
   }
 }
 
-function addAxes() {
-  if (!els.showAxes.checked || typeof state.viewer.addArrow !== 'function') return;
-
+function initializeOrientationViewer() {
+  if (state.orientationViewer || !els.orientationWidget) return;
+  const background = backgrounds[els.background.value] || backgrounds.white;
+  state.orientationViewer = $3Dmol.createViewer(els.orientationWidget, {
+    backgroundColor: background.viewer,
+    antialias: true,
+    orthographic: true
+  });
+  if (!state.orientationViewer || typeof state.orientationViewer.addArrow !== 'function') return;
   const axes = [
-    ['X', '#d33f49', { x: 1.65, y: 0, z: 0 }],
-    ['Y', '#237a57', { x: 0, y: 1.65, z: 0 }],
-    ['Z', '#2b62c4', { x: 0, y: 0, z: 1.65 }]
+    ['X', '#e23d4f', { x: 1.35, y: 0, z: 0 }],
+    ['Y', '#2b9a66', { x: 0, y: 1.35, z: 0 }],
+    ['Z', '#3a72dc', { x: 0, y: 0, z: 1.35 }]
   ];
 
   axes.forEach(([label, color, end]) => {
-    state.viewer.addArrow({
+    state.orientationViewer.addArrow({
       start: { x: 0, y: 0, z: 0 },
       end,
-      radius: 0.025,
+      radius: 0.045,
       radiusRadio: 1.8,
-      mid: 0.82,
+      mid: 0.78,
       color
     });
-    state.viewer.addLabel(label, {
+    state.orientationViewer.addLabel(label, {
       position: end,
       fontColor: color,
       backgroundOpacity: 0,
-      fontSize: 13
+      fontSize: 14,
+      inFront: true
     });
   });
+  if (typeof state.orientationViewer.setProjection === 'function') {
+    state.orientationViewer.setProjection('orthographic');
+  }
+  state.orientationViewer.zoomTo();
+  const view = state.orientationViewer.getView();
+  state.orientationBaseView = [...view.slice(0, 3), 144];
+  state.orientationViewer.setView([...state.orientationBaseView, 0, 0, 0, 1]);
+  state.orientationViewer.render();
+}
+
+function syncOrientationView() {
+  if (
+    !state.viewer ||
+    !state.orientationViewer ||
+    els.orientationWidget.hidden ||
+    typeof state.viewer.getView !== 'function' ||
+    typeof state.orientationViewer.setView !== 'function'
+  ) return;
+  const mainView = state.viewer.getView();
+  if (!Array.isArray(mainView) || mainView.length < 8) return;
+  const baseView = state.orientationBaseView || state.orientationViewer.getView().slice(0, 4);
+  state.orientationViewer.setView([...baseView, ...mainView.slice(4, 8)]);
+  state.orientationViewer.render();
+}
+
+function syncAxesControls() {
+  const visible = Boolean(els.showAxes?.checked);
+  if (els.guiShowAxis) els.guiShowAxis.checked = visible;
+  if (els.guiStyleAxes) els.guiStyleAxes.setAttribute('aria-checked', String(visible));
+}
+
+function updateOrientationVisibility() {
+  if (!els.orientationWidget) return;
+  const plotVisible = els.plotPanel && !els.plotPanel.classList.contains('is-hidden');
+  els.orientationWidget.hidden = !els.showAxes.checked || plotVisible;
+  syncAxesControls();
+  if (!els.orientationWidget.hidden && state.orientationViewer) {
+    state.orientationViewer.resize();
+    syncOrientationView();
+  }
+}
+
+function setAxesVisible(visible, options = {}) {
+  els.showAxes.checked = Boolean(visible);
+  updateOrientationVisibility();
+  if (options.announce) setStatus(els.showAxes.checked ? 'Axes shown' : 'Axes hidden');
 }
 
 function addCubeLayer(layer) {
@@ -743,13 +806,13 @@ function renderScene(zoom = false) {
   addStructureToViewer();
   state.layers.filter((layer) => layer.visible).forEach(addCubeLayer);
   drawCellBox();
-  addAxes();
 
   if (zoom || state.dirtyZoom) {
     state.viewer.zoomTo();
     state.dirtyZoom = false;
   }
   state.viewer.render();
+  syncOrientationView();
   updateLabels();
   updateStats();
   syncMultiwfnGuiControls();
@@ -1058,12 +1121,90 @@ function setGlobalOrbitalOpacity(value, options = {}) {
   if (options.announce) setStatus(`Orbital opacity: ${orbitalOpacityPercent(opacity)}%`);
 }
 
-function setOrbitalOpacityMenuOpen(open, options = {}) {
+function syncBackgroundStyleControls() {
+  const background = els.background?.value || 'white';
+  if (els.guiBackgroundWhite) els.guiBackgroundWhite.setAttribute('aria-checked', String(background === 'white'));
+  if (els.guiBackgroundBlack) els.guiBackgroundBlack.setAttribute('aria-checked', String(background === 'black'));
+}
+
+function setViewerBackground(value, options = {}) {
+  const background = backgrounds[value] ? value : 'white';
+  els.background.value = background;
+  syncBackgroundStyleControls();
+  if (state.viewer) {
+    applySceneStyle();
+    state.viewer.render();
+    if (state.orientationViewer) state.orientationViewer.render();
+  }
+  if (options.announce) setStatus(`Background: ${background[0].toUpperCase()}${background.slice(1)}`);
+}
+
+function styleSubmenuEntries() {
+  return [
+    {
+      name: 'transparency',
+      trigger: els.guiStyleTransparency,
+      menu: els.guiTransparencyMenu,
+      focusTarget: els.guiOrbitalOpacity
+    },
+    {
+      name: 'background',
+      trigger: els.guiStyleBackground,
+      menu: els.guiBackgroundMenu,
+      focusTarget: els.background.value === 'black' ? els.guiBackgroundBlack : els.guiBackgroundWhite
+    }
+  ];
+}
+
+function positionStyleSubmenu(trigger, menu) {
+  if (!trigger || !menu || menu.hidden) return;
+  const margin = 8;
+  const gap = 2;
+  const triggerRect = trigger.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const maxLeft = Math.max(margin, window.innerWidth - menuRect.width - margin);
+  const maxTop = Math.max(margin, window.innerHeight - menuRect.height - margin);
+  const right = triggerRect.right + gap;
+  const left = triggerRect.left - menuRect.width - gap;
+  const menuLeft = right + menuRect.width <= window.innerWidth - margin
+    ? right
+    : left >= margin ? left : clamp(right, margin, maxLeft);
+  menu.style.left = `${Math.round(menuLeft)}px`;
+  menu.style.top = `${Math.round(clamp(triggerRect.top, margin, maxTop))}px`;
+}
+
+function closeStyleSubmenus(options = {}) {
+  const active = styleSubmenuEntries().find((entry) => entry.menu && !entry.menu.hidden);
+  styleSubmenuEntries().forEach((entry) => {
+    if (entry.menu) entry.menu.hidden = true;
+    if (entry.trigger) entry.trigger.setAttribute('aria-expanded', 'false');
+  });
+  if (options.focus && active?.trigger) active.trigger.focus();
+}
+
+function setStyleSubmenuOpen(name, open, options = {}) {
+  const entry = styleSubmenuEntries().find((item) => item.name === name);
+  if (!entry) return;
+  closeStyleSubmenus();
+  if (!open) return;
+  entry.menu.hidden = false;
+  entry.trigger.setAttribute('aria-expanded', 'true');
+  positionStyleSubmenu(entry.trigger, entry.menu);
+  if (options.focus && entry.focusTarget) requestAnimationFrame(() => entry.focusTarget.focus());
+}
+
+function repositionOpenStyleSubmenu() {
+  const active = styleSubmenuEntries().find((entry) => entry.menu && !entry.menu.hidden);
+  if (active) positionStyleSubmenu(active.trigger, active.menu);
+}
+
+function setStyleMenuOpen(open, options = {}) {
   const isOpen = Boolean(open);
+  closeStyleSubmenus();
   els.guiIsosur1Menu.hidden = !isOpen;
   els.guiMenuIsosur1.setAttribute('aria-expanded', String(isOpen));
   if (isOpen && options.focus) {
-    requestAnimationFrame(() => els.guiOrbitalOpacity.focus());
+    requestAnimationFrame(() => els.guiStyleTransparency.focus());
   }
 }
 
@@ -1419,6 +1560,7 @@ function savePng() {
 
 function showPlotPanel(show = true) {
   els.plotPanel.classList.toggle('is-hidden', !show);
+  updateOrientationVisibility();
 }
 
 function plotLayout(title) {
@@ -1792,10 +1934,10 @@ function syncMultiwfnGuiControls() {
   if (!els.guiShowLabels) return;
 
   syncOrbitalOpacityControls();
+  syncAxesControls();
 
   els.guiShowStructure.checked = els.showStructure.checked;
   els.guiShowLabels.checked = els.showLabels.checked;
-  els.guiShowAxis.checked = els.showAxes.checked;
   els.guiPeriodicEnabled.checked = els.periodicEnabled.checked;
   els.guiShowCell.checked = els.showUnitCell.checked;
   els.guiTileCubes.checked = els.tileCubes.checked;
@@ -1888,6 +2030,7 @@ function rotateGuiView(direction) {
   if (direction === 'left') state.viewer.rotate(-angle, 'y');
   if (direction === 'right') state.viewer.rotate(angle, 'y');
   state.viewer.render();
+  syncOrientationView();
 }
 
 function resetGuiView() {
@@ -1918,6 +2061,7 @@ function resetGuiView() {
   state.viewer.setView(resetView);
   state.dirtyZoom = false;
   state.viewer.render();
+  syncOrientationView();
   setStatus('View reset');
 }
 
@@ -2000,21 +2144,48 @@ function bindEvents() {
   els.guiRotLeft.addEventListener('click', () => rotateGuiView('left'));
   els.guiRotRight.addEventListener('click', () => rotateGuiView('right'));
   els.guiMenuIsosur1.addEventListener('click', () => {
-    setOrbitalOpacityMenuOpen(els.guiIsosur1Menu.hidden, { focus: true });
+    setStyleMenuOpen(els.guiIsosur1Menu.hidden, { focus: true });
+  });
+  els.guiStyleTransparency.addEventListener('click', () => {
+    setStyleSubmenuOpen('transparency', els.guiTransparencyMenu.hidden, { focus: true });
+  });
+  els.guiStyleBackground.addEventListener('click', () => {
+    syncBackgroundStyleControls();
+    setStyleSubmenuOpen('background', els.guiBackgroundMenu.hidden, { focus: true });
+  });
+  els.guiStyleAxes.addEventListener('click', () => {
+    closeStyleSubmenus();
+    setAxesVisible(!els.showAxes.checked, { announce: true });
   });
   els.guiOrbitalOpacity.addEventListener('input', () => {
     const opacity = orbitalOpacityStops[parseInt(els.guiOrbitalOpacity.value, 10)] ?? 0.68;
     setGlobalOrbitalOpacity(opacity, { announce: true });
   });
+  [
+    [els.guiBackgroundWhite, 'white'],
+    [els.guiBackgroundBlack, 'black']
+  ].forEach(([button, background]) => button.addEventListener('click', () => {
+    setViewerBackground(background, { announce: true });
+    setStyleMenuOpen(false);
+    els.guiMenuIsosur1.focus();
+  }));
   document.addEventListener('click', (event) => {
-    if (!els.guiIsosur1Menu.hidden && !els.guiIsosur1MenuControl.contains(event.target)) {
-      setOrbitalOpacityMenuOpen(false);
+    const styleMenuOpen = !els.guiIsosur1Menu.hidden || styleSubmenuEntries().some((entry) => !entry.menu.hidden);
+    if (styleMenuOpen && !els.guiIsosur1MenuControl.contains(event.target)) {
+      setStyleMenuOpen(false);
     }
   });
   document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || els.guiIsosur1Menu.hidden) return;
-    setOrbitalOpacityMenuOpen(false);
+    if (event.key !== 'Escape') return;
+    if (styleSubmenuEntries().some((entry) => !entry.menu.hidden)) {
+      closeStyleSubmenus({ focus: true });
+      event.preventDefault();
+      return;
+    }
+    if (els.guiIsosur1Menu.hidden) return;
+    setStyleMenuOpen(false);
     els.guiMenuIsosur1.focus();
+    event.preventDefault();
   });
 
   els.guiShowStructure.addEventListener('input', () => {
@@ -2026,8 +2197,7 @@ function bindEvents() {
     renderScene(false);
   });
   els.guiShowAxis.addEventListener('input', () => {
-    els.showAxes.checked = els.guiShowAxis.checked;
-    renderScene(false);
+    setAxesVisible(els.guiShowAxis.checked, { announce: true });
   });
   els.guiShowSecond.addEventListener('input', () => {
     if (!els.guiShowSecond.checked && state.gui.activeLayerId) {
@@ -2243,15 +2413,19 @@ function bindEvents() {
     els.bondRadius,
     els.showStructure,
     els.showLabels,
-    els.showAxes,
     els.ambientOcclusion,
     els.outline,
     els.spin,
-    els.background,
     els.surfaceQuality,
     els.aoStrength,
     els.outlineWidth
   ].forEach((el) => el.addEventListener('input', () => renderScene(false)));
+  els.showAxes.addEventListener('input', () => {
+    setAxesVisible(els.showAxes.checked, { announce: true });
+  });
+  els.background.addEventListener('input', () => {
+    setViewerBackground(els.background.value, { announce: true });
+  });
 
   [
     els.periodicEnabled,
@@ -2281,6 +2455,7 @@ function cacheElements() {
   Object.assign(els, {
     viewer: byId('viewer'),
     viewerWrap: document.querySelector('.viewport-wrap'),
+    orientationWidget: byId('orientation-widget'),
     plotPanel: byId('plot-panel'),
     plotView: byId('plot-view'),
     status: byId('status'),
@@ -2343,6 +2518,13 @@ function cacheElements() {
     guiMenuIsosur1: byId('gui-menu-isosur1'),
     guiIsosur1MenuControl: byId('gui-isosur1-menu-control'),
     guiIsosur1Menu: byId('gui-isosur1-menu'),
+    guiStyleTransparency: byId('gui-style-transparency'),
+    guiStyleBackground: byId('gui-style-background'),
+    guiStyleAxes: byId('gui-style-axes'),
+    guiTransparencyMenu: byId('gui-transparency-menu'),
+    guiBackgroundMenu: byId('gui-background-menu'),
+    guiBackgroundWhite: byId('gui-background-white'),
+    guiBackgroundBlack: byId('gui-background-black'),
     guiOrbitalOpacity: byId('gui-orbital-opacity'),
     guiOrbitalOpacityValue: byId('gui-orbital-opacity-value'),
     guiMenuIsosur2: byId('gui-menu-isosur2'),
@@ -2430,12 +2612,24 @@ async function init() {
     return;
   }
 
+  els.background.value = 'white';
+  els.showAxes.checked = true;
+  els.positiveColor.value = orbitalPhaseColors.positive;
+  els.negativeColor.value = orbitalPhaseColors.negative;
+  els.guiPositiveColor.value = orbitalPhaseColors.positive;
+  els.guiNegativeColor.value = orbitalPhaseColors.negative;
   state.viewer = $3Dmol.createViewer(els.viewer, {
-    backgroundColor: backgrounds.studio.viewer,
+    backgroundColor: backgrounds.white.viewer,
     antialias: true
   });
+  initializeOrientationViewer();
+  if (typeof state.viewer.setViewChangeCallback === 'function') {
+    state.viewer.setViewChangeCallback(syncOrientationView);
+  }
 
   bindEvents();
+  syncBackgroundStyleControls();
+  updateOrientationVisibility();
   renderLayerList();
   const loadedFromQuery = await loadManifestFromQuery();
   if (!loadedFromQuery) loadSampleScene();
@@ -2446,4 +2640,6 @@ window.addEventListener('resize', () => {
   if (!state.viewer) return;
   state.viewer.resize();
   state.viewer.render();
+  updateOrientationVisibility();
+  repositionOpenStyleSubmenu();
 });
