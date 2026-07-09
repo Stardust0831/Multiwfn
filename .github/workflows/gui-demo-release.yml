@@ -5,6 +5,7 @@ on:
     tags:
       - 'gui-demo-preview-*'
       - 'gui-qt-preview-*'
+      - 'v*-gui.*'
   workflow_dispatch:
 
 permissions:
@@ -81,7 +82,7 @@ jobs:
           set -o pipefail
           default_shell="browser"
           exe_name="Multiwfn_3DmolGUI"
-          if [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* ]]; then
+          if [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* || "${GITHUB_REF_NAME:-}" == v*-gui.* ]]; then
             default_shell="qt"
             exe_name="Multiwfn_QtGUI"
           fi
@@ -107,7 +108,7 @@ jobs:
           set -o pipefail
           default_shell="browser"
           exe_name="Multiwfn_3DmolGUI"
-          if [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* ]]; then
+          if [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* || "${GITHUB_REF_NAME:-}" == v*-gui.* ]]; then
             default_shell="qt"
             exe_name="Multiwfn_QtGUI"
           fi
@@ -121,7 +122,7 @@ jobs:
           echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
       - name: Build Qt native launcher
-        if: startsWith(github.ref_name, 'gui-qt-preview-')
+        if: startsWith(github.ref_name, 'gui-qt-preview-') || contains(github.ref_name, '-gui.')
         shell: bash
         run: |
           set -euo pipefail
@@ -163,7 +164,9 @@ jobs:
           else
             tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
           fi
-          if [[ "$tag" == gui-qt-preview-* ]]; then
+          if [[ "$tag" == v*-gui.* ]]; then
+            pkg="Multiwfn-gui-${tag}-${{ matrix.platform }}"
+          elif [[ "$tag" == gui-qt-preview-* ]]; then
             pkg="Multiwfn-qt-gui-preview-${tag}-${{ matrix.platform }}"
           else
             pkg="Multiwfn-3dmol-gui-demo-${tag}-${{ matrix.platform }}"
@@ -183,7 +186,7 @@ jobs:
             cp qt-launcher-dist/multiwfn_qt_gui "package/${pkg}/resources/tools/"
             chmod +x "package/${pkg}/resources/tools/multiwfn_qt_gui"
           fi
-          if [[ "$tag" == gui-qt-preview-* ]]; then
+          if [[ "$tag" == gui-qt-preview-* || "$tag" == v*-gui.* ]]; then
             test -f "package/${pkg}/resources/tools/multiwfn_qt_gui.exe" || test -x "package/${pkg}/resources/tools/multiwfn_qt_gui"
           fi
 
@@ -287,8 +290,8 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  prerelease:
-    name: Publish 3Dmol GUI demo prerelease
+  release:
+    name: Publish 3Dmol GUI release
     needs: package
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -306,6 +309,23 @@ jobs:
           else
             tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
           fi
+          if [[ "$tag" == v*-gui.* ]]; then
+            cat > release_notes.md <<'EOF'
+          This release publishes Multiwfn executables with the Qt/3Dmol GUI backend.
+
+          Highlights:
+          - Linux, macOS, and Windows GUI packages are built by GitHub Actions.
+          - The main executable is named `Multiwfn_QtGUI`.
+          - GUI entry points write a Multiwfn visualization session and launch a bundled native Qt window.
+          - The Qt window mirrors the legacy DISLIN control layout and embeds the 3Dmol/Plotly renderer through QtWebEngine.
+          - Runtime settings and original Multiwfn license terms are included in the package.
+
+          Note: the Qt/3Dmol GUI is still under active development. Please report GUI workflow regressions through issues.
+          EOF
+            echo "RELEASE_TITLE=Multiwfn 2026.6.2 GUI build" >> "$GITHUB_ENV"
+            echo "RELEASE_PRERELEASE=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
           if [[ "$tag" == gui-qt-preview-* ]]; then
             cat > release_notes.md <<'EOF'
           This prerelease publishes early Multiwfn executables with a native Qt GUI shell.
@@ -321,6 +341,7 @@ jobs:
           Original Multiwfn license terms are included in `LICENSE.txt`.
           EOF
             echo "RELEASE_TITLE=Qt GUI preview" >> "$GITHUB_ENV"
+            echo "RELEASE_PRERELEASE=true" >> "$GITHUB_ENV"
             exit 0
           fi
           cat > release_notes.md <<'EOF'
@@ -340,8 +361,9 @@ jobs:
           Original Multiwfn license terms are included in `LICENSE.txt`.
           EOF
           echo "RELEASE_TITLE=3Dmol GUI demo preview" >> "$GITHUB_ENV"
+          echo "RELEASE_PRERELEASE=true" >> "$GITHUB_ENV"
 
-      - name: Publish prerelease
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -357,9 +379,13 @@ jobs:
             gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
           fi
           find release-assets -maxdepth 3 -type f -print | sort
+          release_flags=()
+          if [[ "${RELEASE_PRERELEASE:-true}" == "true" ]]; then
+            release_flags+=(--prerelease)
+          fi
           gh release create "$tag" release-assets/*/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "${RELEASE_TITLE:-3Dmol GUI demo preview}" \
             --notes-file release_notes.md \
-            --prerelease
+            "${release_flags[@]}"
