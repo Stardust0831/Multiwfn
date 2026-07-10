@@ -48,8 +48,8 @@ jobs:
                 gzip \
                 curl \
                 unzip \
-                python39 \
-                python39-pip \
+                python3.11 \
+                python3.11-pip \
                 mesa-libGL \
                 mesa-libEGL \
                 libxcb \
@@ -61,10 +61,10 @@ jobs:
               chmod +x /usr/local/bin/ninja
               cmake --version
               ninja --version
-              python3.9 --version
+              python3.11 --version
 
-              python3.9 -m pip install --upgrade pip
-              python3.9 -m pip install pyinstaller PyQt6 PyQt6-WebEngine
+              python3.11 -m pip install --upgrade pip
+              python3.11 -m pip install --only-binary=:all: pyinstaller PyQt6 PyQt6-WebEngine
 
               cmake -S . -B build-gui-linux-compat -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
@@ -75,7 +75,7 @@ jobs:
               cmake --build build-gui-linux-compat --parallel 2 2>&1 | tee build.log
               test -x build-gui-linux-compat/Multiwfn_QtGUI
 
-              python3.9 -m PyInstaller \
+              python3.11 -m PyInstaller \
                 --clean \
                 --noconfirm \
                 --onefile \
