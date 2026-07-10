@@ -127,7 +127,7 @@ jobs:
               cp -R frontend/3dmol-viewer "package/$pkg/resources/frontend/"
               cp -R frontend/qt-multiwfn-gui "package/$pkg/resources/frontend/"
 
-              pyqt_root="$(python3.11 -c 'import pathlib, PyQt6; print(pathlib.Path(PyQt6.__file__).resolve().parent)')"
+              pyqt_root="$(python3.11 -c "import pathlib, PyQt6; print(pathlib.Path(PyQt6.__file__).resolve().parent)")"
 
               shopt -s nullglob
               scan_targets=("package/$pkg/Multiwfn_QtGUI" "package/$pkg/resources/tools/multiwfn_qt_gui.bin")
