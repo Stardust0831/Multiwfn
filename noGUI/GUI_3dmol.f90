@@ -463,7 +463,11 @@ call remove_session_file(trim(outfile))
 
 call resolve_native_qt_launcher(home,native)
 if (path_exists(native)) then
+#ifdef MULTIWFN_WINDOWS
+    cmd='cmd /d /c start /wait "" "'//trim(native)//'" --select-file --output "'//trim(outfile)//'"'
+#else
     cmd='"'//trim(native)//'" --select-file --output "'//trim(outfile)//'"'
+#endif
     call execute_command_line(trim(cmd),exitstat=istat)
     if (istat==0) then
         open(newunit=iu,file=trim(outfile),status="old",action="read",iostat=istat)

@@ -13,18 +13,94 @@ import argparse
 import http.server
 import json
 import mimetypes
+import os
 from pathlib import Path
 import socket
 import socketserver
+import subprocess
 import sys
 import threading
 import time
+import tempfile
 import urllib.parse
 
 PROCESS_STARTED_AT = time.perf_counter()
 
+
+def _arg_value(argv: list[str], option: str) -> str | None:
+    for index, value in enumerate(argv):
+        if value == option and index + 1 < len(argv):
+            return argv[index + 1]
+        prefix = option + "="
+        if value.startswith(prefix):
+            return value[len(prefix) :]
+    return None
+
+
+def _default_cache_root(argv: list[str]) -> Path:
+    configured = os.environ.get("MULTIWFN_QT_CACHE_DIR")
+    if configured:
+        return Path(configured).expanduser()
+
+    manifest = _arg_value(argv, "--manifest")
+    if manifest:
+        return Path(manifest).expanduser().parent / "qt-cache"
+
+    output = _arg_value(argv, "--output")
+    if output:
+        return Path(output).expanduser().parent / "qt-cache"
+
+    return Path(tempfile.gettempdir()) / f"multiwfn-qt-cache-{os.getuid() if hasattr(os, 'getuid') else 'user'}"
+
+
+def configure_writable_qt_cache(argv: list[str] | None = None) -> Path:
+    """Keep QtWebEngine, Mesa and fontconfig caches away from read-only HOME."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    root = _default_cache_root(args).resolve()
+    xdg_cache = root / "xdg-cache"
+    mesa_cache = root / "mesa-shader-cache"
+    runtime_dir = root / "xdg-runtime"
+    for directory in (xdg_cache, mesa_cache, runtime_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+    try:
+        runtime_dir.chmod(0o700)
+    except OSError:
+        pass
+    os.environ.setdefault("XDG_CACHE_HOME", str(xdg_cache))
+    os.environ.setdefault("MESA_SHADER_CACHE_DIR", str(mesa_cache))
+    os.environ.setdefault("XDG_RUNTIME_DIR", str(runtime_dir))
+    return root
+
+
+QT_CACHE_ROOT = configure_writable_qt_cache()
+
+
+def is_wsl() -> bool:
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+
+
+def open_system_browser(url: str) -> bool:
+    if is_wsl():
+        cmd_exe = Path("/mnt/c/Windows/System32/cmd.exe")
+        if cmd_exe.is_file():
+            try:
+                subprocess.Popen(
+                    [str(cmd_exe), "/c", "start", "", url],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return True
+            except OSError:
+                pass
+    return QDesktopServices.openUrl(QUrl(url))
+
 from PyQt6.QtCore import Qt, QTimer, QUrl
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -55,8 +131,10 @@ from PyQt6.QtWidgets import (
 )
 
 try:
+    from PyQt6.QtWebEngineCore import QWebEngineProfile
     from PyQt6.QtWebEngineWidgets import QWebEngineView
 except Exception:  # pragma: no cover - depends on optional runtime package
+    QWebEngineProfile = None
     QWebEngineView = None
 
 QT_IMPORTED_AT = time.perf_counter()
@@ -205,6 +283,10 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
         def log_message(self, fmt: str, *args) -> None:
             sys.stderr.write("[multiwfn-qt] " + fmt % args + "\n")
 
+        def end_headers(self) -> None:
+            self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
             request_path = urllib.parse.unquote(parsed.path)
@@ -271,6 +353,7 @@ class MultiwfnQtGui(QMainWindow):
         *,
         profile_startup: bool = False,
         application_created_at_ms: float | None = None,
+        open_browser: bool = False,
     ):
         window_init_started = time.perf_counter()
         super().__init__()
@@ -291,6 +374,7 @@ class MultiwfnQtGui(QMainWindow):
         self.frontend_dir = frontend_dir.resolve() if frontend_dir else None
         self.manifest = load_json(self.manifest_path)
         self.server: LocalFrontendServer | None = None
+        self.viewer_url: str | None = None
         self.web_view = None
         self.web_only = bool(QWebEngineView and self.frontend_dir and self.frontend_dir.is_dir())
         self.stop_timer: QTimer | None = None
@@ -310,6 +394,8 @@ class MultiwfnQtGui(QMainWindow):
         self._start_stop_watcher()
         self._mark_startup("windowConstructedAt")
         self._start_startup_profiler()
+        if open_browser:
+            QTimer.singleShot(0, self._open_in_browser)
 
     def _mark_startup(self, name: str) -> None:
         if self.profile_startup:
@@ -319,11 +405,18 @@ class MultiwfnQtGui(QMainWindow):
         self._mark_startup("windowShownAt")
 
     def _build_menu(self) -> None:
+        menu_bar = self.menuBar()
+        view_menu = menu_bar.addMenu("View")
+        open_action = QAction("Open 3D viewer in browser", self)
+        open_action.triggered.connect(self._open_in_browser)
+        view_menu.addAction(open_action)
+        copy_action = QAction("Copy 3D viewer URL", self)
+        copy_action.triggered.connect(self._copy_viewer_url)
+        view_menu.addAction(copy_action)
+
         if self.web_only:
-            self.menuBar().hide()
             return
 
-        menu_bar = self.menuBar()
         for title, entries in (
             ("Orbital info.", ["Show all", "Show up to LUMO+10", "Show occupied orbitals"]),
             (" Isosur#1 style", [
@@ -444,11 +537,13 @@ class MultiwfnQtGui(QMainWindow):
         outer.addLayout(mode_row)
 
         actions = QGridLayout()
-        for row, text in enumerate(("RETURN", "Up", "Down", "Left", "Right", "Reset view", "Save picture")):
+        for row, text in enumerate(("RETURN", "Open in browser", "Up", "Down", "Left", "Right", "Reset view", "Save picture")):
             button = QPushButton(text)
             if text == "RETURN":
                 button.setObjectName("returnButton")
                 button.clicked.connect(self.close)
+            elif text == "Open in browser":
+                button.clicked.connect(self._open_in_browser)
             elif text == "Save picture":
                 button.clicked.connect(lambda: self._not_implemented("Save picture"))
             elif text == "Reset view":
@@ -595,12 +690,19 @@ class MultiwfnQtGui(QMainWindow):
 
     def _viewer_widget(self) -> QWidget:
         if QWebEngineView and self.frontend_dir and self.frontend_dir.is_dir():
+            if QWebEngineProfile:
+                profile = QWebEngineProfile.defaultProfile()
+                web_cache = QT_CACHE_ROOT / "webengine-cache"
+                web_storage = QT_CACHE_ROOT / "webengine-storage"
+                web_cache.mkdir(parents=True, exist_ok=True)
+                web_storage.mkdir(parents=True, exist_ok=True)
+                profile.setCachePath(str(web_cache))
+                profile.setPersistentStoragePath(str(web_storage))
             self.web_view = QWebEngineView()
             if self.profile_startup:
                 self.web_view.loadStarted.connect(lambda: self._mark_startup("webLoadStartedAt"))
                 self.web_view.loadFinished.connect(self._web_load_finished)
-            self.server = LocalFrontendServer(self.frontend_dir, self.session_dir, self.manifest_path)
-            url = self.server.start()
+            url = self._ensure_viewer_url()
             self._mark_startup("serverStartedAt")
             self.web_view.setUrl(QUrl(url))
             self._mark_startup("urlSetAt")
@@ -617,6 +719,34 @@ class MultiwfnQtGui(QMainWindow):
             "with WebEngine to embed the 3Dmol renderer.</p>"
         )
         return widget
+
+    def _ensure_viewer_url(self) -> str | None:
+        if self.viewer_url:
+            return self.viewer_url
+        if not self.frontend_dir or not self.frontend_dir.is_dir():
+            return None
+        self.server = LocalFrontendServer(self.frontend_dir, self.session_dir, self.manifest_path)
+        self.viewer_url = self.server.start()
+        return self.viewer_url
+
+    def _open_in_browser(self) -> None:
+        url = self._ensure_viewer_url()
+        if not url:
+            self._status("3D viewer frontend is unavailable")
+            return
+        QApplication.clipboard().setText(url)
+        if open_system_browser(url):
+            self._status(f"Opened browser: {url}")
+        else:
+            self._status(f"Could not open browser; URL copied: {url}")
+
+    def _copy_viewer_url(self) -> None:
+        url = self._ensure_viewer_url()
+        if not url:
+            self._status("3D viewer frontend is unavailable")
+            return
+        QApplication.clipboard().setText(url)
+        self._status(f"Copied browser URL: {url}")
 
     def _session_widget(self) -> QWidget:
         self.session_browser = QTextBrowser()
@@ -819,6 +949,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--select-file", action="store_true", help="Open a native file dialog and exit")
     parser.add_argument("--output", default=None, help="Output path for --select-file")
     parser.add_argument("--title", default="Choose a Multiwfn input file", help="Dialog title for --select-file")
+    parser.add_argument("--open-browser", action="store_true", help="Open the 3Dmol viewer in the system browser after startup")
     args = parser.parse_args(argv)
 
     if args.select_file:
@@ -858,6 +989,7 @@ def main(argv: list[str] | None = None) -> int:
         frontend,
         profile_startup=args.profile_startup,
         application_created_at_ms=application_created_at_ms,
+        open_browser=args.open_browser or os.environ.get("MULTIWFN_QT_OPEN_BROWSER") == "1",
     )
     window.show()
     window.mark_window_shown()

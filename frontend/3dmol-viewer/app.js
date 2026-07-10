@@ -1024,6 +1024,22 @@ function orbitalIndexLabel(orbital) {
   return String(index).padStart(5, ' ');
 }
 
+function orbitalShortTag(orbital) {
+  const index = Number(orbital.index) || 0;
+  const rel = state.orbitals.homoIndex ? index - state.orbitals.homoIndex : 0;
+  if (!state.orbitals.homoIndex) return '';
+  if (rel === 0) return 'HOMO';
+  if (rel === 1) return 'LUMO';
+  if (rel < 0 && rel >= -10) return `H${rel}`;
+  if (rel > 1 && rel <= 11) return `L+${rel - 1}`;
+  return '';
+}
+
+function orbitalButtonLabel(orbital, layer = null) {
+  const tag = orbitalShortTag(orbital);
+  return `${orbitalIndexLabel(orbital)}${tag ? `  ${tag}` : ''}${layer ? ' *' : ''}`;
+}
+
 function layerForOrbital(index) {
   return state.layers.find((layer) => Number(layer.orbitalIndex) === Number(index));
 }
@@ -1033,6 +1049,12 @@ function ensureOrbitalItemsFromCount() {
   state.orbitals.items = Array.from({ length: state.orbitals.count }, (_, index) => ({
     index: index + 1
   }));
+}
+
+function refreshOrbitalControls() {
+  ensureOrbitalItemsFromCount();
+  updateMultiwfnGuiLayerSelectors();
+  renderGuiOrbitalList();
 }
 
 function currentOrbitalIsovalue() {
@@ -1102,7 +1124,7 @@ function renderGuiOrbitalList() {
     const layer = layerForOrbital(orbital.index);
     const index = Number(orbital.index) || 0;
     makeRow(
-      `${orbitalIndexLabel(orbital)}${layer ? ' *' : ''}`,
+      orbitalButtonLabel(orbital, layer),
       `orbital:${index}`,
       activeOrbital === index,
       orbitalLabel(orbital)
@@ -1135,7 +1157,7 @@ function updateMultiwfnGuiLayerSelectors() {
           const option = document.createElement('option');
           const layer = layerForOrbital(orbital.index);
           option.value = `orbital:${orbital.index}`;
-          option.textContent = `${orbitalIndexLabel(orbital)}${layer ? ' *' : ''}`;
+          option.textContent = orbitalButtonLabel(orbital, layer);
           option.title = orbitalLabel(orbital);
           select.append(option);
         });
@@ -1404,11 +1426,20 @@ async function requestGuiOrbital(index, options = {}) {
     quality: String(quality),
     isovalue: String(isovalue)
   });
+  const apiUrl = new URL(`/api/orbital?${params.toString()}`, window.location.href).toString();
   setGuiOrbitalRequestBusy(true);
   setStatus(`Calculating orbital ${orbitalIndex} at ${formatGridQuality(quality)}...`);
   try {
-    const response = await fetch(`/api/orbital?${params.toString()}`, { cache: 'no-store' });
-    const payload = await response.json();
+    const response = await fetch(apiUrl, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Orbital API returned HTTP ${response.status}`);
+    }
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error('Orbital API returned invalid JSON');
+    }
     if (!payload.ok) {
       setStatus(payload.message || 'Orbital calculation failed', false);
       setOrbitalStatus(payload.message || 'Orbital calculation failed', false);
@@ -1419,7 +1450,10 @@ async function requestGuiOrbital(index, options = {}) {
       return;
     }
     const layerSpec = payload.layer;
-    const cubeText = await loadTextFromManifestEntry(layerSpec, new URL('/session/manifest.json', window.location.href).toString());
+    if (!layerSpec || (!layerSpec.path && !layerSpec.url && !layerSpec.data)) {
+      throw new Error('Orbital API response did not include a cube layer');
+    }
+    const cubeText = await loadTextFromManifestEntry(layerSpec, new URL('/session/', window.location.href).toString());
     upsertOrbitalLayer(cubeText, {
       ...layerSpec,
       name: layerSpec.name || `Orbital ${orbitalIndex}`,
@@ -1431,8 +1465,9 @@ async function requestGuiOrbital(index, options = {}) {
     setStatus(`Orbital ${orbitalIndex} loaded at ${formatGridQuality(payload.quality || quality)}`);
   } catch (error) {
     console.error(error);
-    setStatus('Orbital API unavailable', false);
-    setOrbitalStatus('Orbital API unavailable', false);
+    const message = error?.message || 'Orbital API unavailable';
+    setStatus(message, false);
+    setOrbitalStatus(message, false);
   } finally {
     setGuiOrbitalRequestBusy(false);
     renderGuiOrbitalList();
@@ -1706,6 +1741,7 @@ async function loadDrawMolManifest(structureEntry, specs, baseUrl) {
 
   setStatus('Loading structure...');
   if (await setManifestStructure(structureEntry, baseUrl)) {
+    refreshOrbitalControls();
     renderScene(true);
     markStartup('structureRenderedAt');
     await nextPaint();
@@ -1771,6 +1807,7 @@ async function loadManifestObject(manifest, baseUrl = '') {
       items: []
     };
   }
+  refreshOrbitalControls();
 
   if (manifest.periodic) {
     state.periodic = {
