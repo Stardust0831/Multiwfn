@@ -342,6 +342,176 @@ end if
 end subroutine
 
 
+!!------ Return Mayer bond-order data for one atom pair without interactive output
+subroutine calc_bond_pair_mayer(iatm,jatm,bndord,bndorda,bndordb,gwbo,ierror)
+use defvar
+use util
+implicit none
+integer,intent(in) :: iatm,jatm
+integer,intent(out) :: ierror
+integer :: ibas,jbas
+real*8,intent(out) :: bndord,bndorda,bndordb,gwbo
+real*8,allocatable :: PSmat(:,:),PSmata(:,:),PSmatb(:,:)
+
+bndord=0D0
+bndorda=0D0
+bndordb=0D0
+gwbo=0D0
+ierror=0
+if (iatm<1.or.iatm>ncenter.or.jatm<1.or.jatm>ncenter.or.iatm==jatm) then
+    ierror=1
+    return
+end if
+if (.not.allocated(Ptot).or..not.allocated(Sbas).or..not.allocated(basstart).or..not.allocated(basend)) then
+    ierror=2
+    return
+end if
+if (basstart(iatm)==0.or.basstart(jatm)==0) then
+    ierror=3
+    return
+end if
+
+allocate(PSmat(nbasis,nbasis))
+PSmat=matmul_blas(Ptot,Sbas,nbasis,nbasis)
+do ibas=basstart(iatm),basend(iatm)
+    do jbas=basstart(jatm),basend(jatm)
+        gwbo=gwbo+PSmat(ibas,jbas)*PSmat(jbas,ibas)
+    end do
+end do
+
+if (wfntype==1.or.wfntype==2.or.wfntype==4) then
+    if (.not.allocated(Palpha).or..not.allocated(Pbeta)) then
+        ierror=2
+        deallocate(PSmat)
+        return
+    end if
+    allocate(PSmata(nbasis,nbasis),PSmatb(nbasis,nbasis))
+    PSmata=matmul_blas(Palpha,Sbas,nbasis,nbasis)
+    PSmatb=matmul_blas(Pbeta,Sbas,nbasis,nbasis)
+    do ibas=basstart(iatm),basend(iatm)
+        do jbas=basstart(jatm),basend(jatm)
+            bndorda=bndorda+PSmata(ibas,jbas)*PSmata(jbas,ibas)
+            bndordb=bndordb+PSmatb(ibas,jbas)*PSmatb(jbas,ibas)
+        end do
+    end do
+    bndorda=2D0*bndorda
+    bndordb=2D0*bndordb
+    bndord=bndorda+bndordb
+    deallocate(PSmata,PSmatb)
+else
+    bndord=gwbo
+end if
+deallocate(PSmat)
+end subroutine
+
+
+!!------ Return Mulliken bond-order data for one atom pair without interactive output
+subroutine calc_bond_pair_mulliken(iatm,jatm,bndord,bndorda,bndordb,ierror)
+use defvar
+implicit none
+integer,intent(in) :: iatm,jatm
+integer,intent(out) :: ierror
+real*8,intent(out) :: bndord,bndorda,bndordb
+
+bndord=0D0
+bndorda=0D0
+bndordb=0D0
+ierror=0
+if (iatm<1.or.iatm>ncenter.or.jatm<1.or.jatm>ncenter.or.iatm==jatm) then
+    ierror=1
+    return
+end if
+if (.not.allocated(Ptot).or..not.allocated(Sbas).or..not.allocated(basstart).or..not.allocated(basend)) then
+    ierror=2
+    return
+end if
+if (basstart(iatm)==0.or.basstart(jatm)==0) then
+    ierror=3
+    return
+end if
+
+if (wfntype==1.or.wfntype==2.or.wfntype==4) then
+    if (.not.allocated(Palpha).or..not.allocated(Pbeta)) then
+        ierror=2
+        return
+    end if
+    bndorda=2D0*sum(Palpha(basstart(iatm):basend(iatm),basstart(jatm):basend(jatm))* &
+        Sbas(basstart(iatm):basend(iatm),basstart(jatm):basend(jatm)))
+    bndordb=2D0*sum(Pbeta(basstart(iatm):basend(iatm),basstart(jatm):basend(jatm))* &
+        Sbas(basstart(iatm):basend(iatm),basstart(jatm):basend(jatm)))
+    bndord=bndorda+bndordb
+else
+    bndord=2D0*sum(Ptot(basstart(iatm):basend(iatm),basstart(jatm):basend(jatm))* &
+        Sbas(basstart(iatm):basend(iatm),basstart(jatm):basend(jatm)))
+end if
+end subroutine
+
+
+!!------ Return Lowdin-orthogonalized Wiberg data for one atom pair without changing global matrices
+subroutine calc_bond_pair_lowdin(iatm,jatm,bndord,bndorda,bndordb,mixedord,ierror)
+use defvar
+use util
+implicit none
+integer,intent(in) :: iatm,jatm
+integer,intent(out) :: ierror
+integer :: ibas,jbas
+real*8,intent(out) :: bndord,bndorda,bndordb,mixedord
+real*8,allocatable :: Xmat(:,:),Xmatinv(:,:),tmpmat(:,:),Porth(:,:),Portha(:,:),Porthb(:,:)
+
+bndord=0D0
+bndorda=0D0
+bndordb=0D0
+mixedord=0D0
+ierror=0
+if (iatm<1.or.iatm>ncenter.or.jatm<1.or.jatm>ncenter.or.iatm==jatm) then
+    ierror=1
+    return
+end if
+if (.not.allocated(Ptot).or..not.allocated(Sbas).or..not.allocated(basstart).or..not.allocated(basend)) then
+    ierror=2
+    return
+end if
+if (basstart(iatm)==0.or.basstart(jatm)==0) then
+    ierror=3
+    return
+end if
+
+allocate(Xmat(nbasis,nbasis),Xmatinv(nbasis,nbasis),tmpmat(nbasis,nbasis),Porth(nbasis,nbasis))
+call symmorthomat(Sbas,Xmat,Xmatinv)
+tmpmat=matmul_blas(Xmat,Ptot,nbasis,nbasis)
+Porth=matmul_blas(tmpmat,Xmat,nbasis,nbasis)
+do ibas=basstart(iatm),basend(iatm)
+    do jbas=basstart(jatm),basend(jatm)
+        mixedord=mixedord+Porth(ibas,jbas)*Porth(jbas,ibas)
+    end do
+end do
+
+if (wfntype==1.or.wfntype==2.or.wfntype==4) then
+    if (.not.allocated(Palpha).or..not.allocated(Pbeta)) then
+        ierror=2
+        deallocate(Xmat,Xmatinv,tmpmat,Porth)
+        return
+    end if
+    allocate(Portha(nbasis,nbasis),Porthb(nbasis,nbasis))
+    tmpmat=matmul_blas(Xmat,Palpha,nbasis,nbasis)
+    Portha=matmul_blas(tmpmat,Xmat,nbasis,nbasis)
+    tmpmat=matmul_blas(Xmat,Pbeta,nbasis,nbasis)
+    Porthb=matmul_blas(tmpmat,Xmat,nbasis,nbasis)
+    do ibas=basstart(iatm),basend(iatm)
+        do jbas=basstart(jatm),basend(jatm)
+            bndorda=bndorda+Portha(ibas,jbas)*Portha(jbas,ibas)
+            bndordb=bndordb+Porthb(ibas,jbas)*Porthb(jbas,ibas)
+        end do
+    end do
+    bndorda=2D0*bndorda
+    bndordb=2D0*bndordb
+    bndord=bndorda+bndordb
+    deallocate(Portha,Porthb)
+else
+    bndord=mixedord
+end if
+deallocate(Xmat,Xmatinv,tmpmat,Porth)
+end subroutine
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

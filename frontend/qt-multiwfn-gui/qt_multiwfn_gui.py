@@ -140,11 +140,15 @@ except Exception:  # pragma: no cover - depends on optional runtime package
 QT_IMPORTED_AT = time.perf_counter()
 
 
-ORBITAL_REQUEST_LOCK = threading.Lock()
-ORBITAL_REQUEST_CONSUME_TIMEOUT = 5.0
+BACKEND_REQUEST_LOCK = threading.Lock()
+BACKEND_REQUEST_CONSUME_TIMEOUT = 5.0
 ORBITAL_REQUEST_TIMEOUT = 300.0
-ORBITAL_REQUEST_POLL_INTERVAL = 0.2
+BOND_REQUEST_TIMEOUT = 300.0
+FBO_REQUEST_TIMEOUT = 900.0
+BACKEND_REQUEST_POLL_INTERVAL = 0.2
 MAX_DYNAMIC_ORBITAL_CUBES = 12
+BOND_METHODS = frozenset(("mayer", "gwbo", "wiberg_lowdin", "mulliken", "fbo"))
+LAST_REQUEST_ID = 0
 BACKEND_UNAVAILABLE_MESSAGE = (
     "Multiwfn backend unavailable; restart visualization from menu 0 and keep the terminal open"
 )
@@ -208,31 +212,38 @@ def prune_dynamic_orbital_cubes(session_dir: Path, keep: int = MAX_DYNAMIC_ORBIT
             pass
 
 
-def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
-    with ORBITAL_REQUEST_LOCK:
+def next_request_id() -> int:
+    global LAST_REQUEST_ID
+    LAST_REQUEST_ID = max(int(time.time() * 1000), LAST_REQUEST_ID + 1)
+    return LAST_REQUEST_ID
+
+
+def request_backend(
+    session_dir: Path,
+    request_payload: str,
+    *,
+    timeout: float,
+    timeout_message: str,
+) -> dict:
+    with BACKEND_REQUEST_LOCK:
         stop = session_dir / "gui_stop.flag"
         if stop.is_file():
             return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
 
-        reqid = int(time.time() * 1000)
-        index = int(query.get("index", ["0"])[0] or 0)
-        quality = int(query.get("quality", ["0"])[0] or 0)
-        isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
+        reqid = next_request_id()
         response = session_dir / f"response_{reqid}.json"
         request = session_dir / "gui_request.txt"
         if response.exists():
             response.unlink()
-        request.write_text(f"{reqid} orbital {index} {quality} {isovalue:.10g}\n", encoding="utf-8")
+        request.write_text(f"{reqid} {request_payload}\n", encoding="utf-8")
 
         consumed = False
-        consume_deadline = time.monotonic() + ORBITAL_REQUEST_CONSUME_TIMEOUT
-        deadline = time.monotonic() + ORBITAL_REQUEST_TIMEOUT
+        consume_deadline = time.monotonic() + BACKEND_REQUEST_CONSUME_TIMEOUT
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if response.is_file():
                 try:
-                    payload = json.loads(response.read_text(encoding="utf-8"))
-                    prune_dynamic_orbital_cubes(session_dir)
-                    return payload
+                    return json.loads(response.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
                     pass
 
@@ -253,11 +264,46 @@ def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
                         except FileNotFoundError:
                             pass
                         return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
-                    return {"ok": False, "message": "Orbital request was superseded; try again"}
+                    return {"ok": False, "message": "Backend request was superseded; try again"}
 
-            time.sleep(ORBITAL_REQUEST_POLL_INTERVAL)
+            time.sleep(BACKEND_REQUEST_POLL_INTERVAL)
 
-        return {"ok": False, "message": "Timed out waiting for Multiwfn orbital grid"}
+        return {"ok": False, "message": timeout_message}
+
+
+def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
+    index = int(query.get("index", ["0"])[0] or 0)
+    quality = int(query.get("quality", ["0"])[0] or 0)
+    isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
+    payload = request_backend(
+        session_dir,
+        f"orbital {index} {quality} {isovalue:.10g}",
+        timeout=ORBITAL_REQUEST_TIMEOUT,
+        timeout_message="Timed out waiting for Multiwfn orbital grid",
+    )
+    if payload.get("ok"):
+        prune_dynamic_orbital_cubes(session_dir)
+    return payload
+
+
+def request_bond(session_dir: Path, query: dict[str, list[str]]) -> dict:
+    try:
+        atom1 = int(query.get("atom1", ["0"])[0] or 0)
+        atom2 = int(query.get("atom2", ["0"])[0] or 0)
+    except ValueError:
+        return {"ok": False, "message": "Atom indices must be integers"}
+    method = str(query.get("method", [""])[0] or "").strip().lower()
+    if atom1 <= 0 or atom2 <= 0 or atom1 == atom2:
+        return {"ok": False, "message": "Two distinct positive atom indices are required"}
+    if method not in BOND_METHODS:
+        return {"ok": False, "message": "Unsupported bond-order method"}
+    timeout = FBO_REQUEST_TIMEOUT if method == "fbo" else BOND_REQUEST_TIMEOUT
+    return request_backend(
+        session_dir,
+        f"bond {atom1} {atom2} {method}",
+        timeout=timeout,
+        timeout_message=f"Timed out waiting for Multiwfn {method} calculation",
+    )
 
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -303,6 +349,12 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
             if request_path == "/api/orbital":
                 try:
                     send_json(self, request_orbital(session_dir, query))
+                except Exception as exc:
+                    send_json(self, {"ok": False, "message": str(exc)}, status=500)
+                return
+            if request_path == "/api/bond":
+                try:
+                    send_json(self, request_bond(session_dir, query))
                 except Exception as exc:
                     send_json(self, {"ok": False, "message": str(exc)}, status=500)
                 return
