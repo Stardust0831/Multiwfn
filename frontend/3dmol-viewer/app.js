@@ -343,6 +343,72 @@ function optionalNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseEditableNumber(value) {
+  const text = String(value ?? '').trim().replace(',', '.');
+  if (!text || /^[+-]$/.test(text) || text.endsWith('.') || /[eE][+-]?$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function bindRangeNumberControl(range, field, options = {}) {
+  if (!range || !field) return;
+  const min = toNumber(range.min, Number.NEGATIVE_INFINITY);
+  const max = toNumber(range.max, Number.POSITIVE_INFINITY);
+  const decimals = Math.max(0, Number(options.decimals) || 0);
+  const format = (value) => Number(value).toFixed(decimals);
+  const normalize = (value) => clamp(value, min, max);
+  const notifyInput = (value, source) => {
+    options.onInput?.(value, { source });
+    return normalize(toNumber(range.value, value));
+  };
+
+  const commitField = () => {
+    const parsed = parseEditableNumber(field.value);
+    const next = normalize(parsed === null ? toNumber(range.value, min) : parsed);
+    range.value = String(next);
+    const applied = notifyInput(next, 'commit');
+    field.value = format(applied);
+    field.setAttribute('aria-invalid', 'false');
+    options.onCommit?.(applied);
+    return applied;
+  };
+
+  range.addEventListener('input', () => {
+    const next = normalize(toNumber(range.value, min));
+    const applied = notifyInput(next, 'range');
+    field.value = format(applied);
+    field.setAttribute('aria-invalid', 'false');
+  });
+  range.addEventListener('change', () => {
+    options.onCommit?.(normalize(toNumber(range.value, min)));
+  });
+
+  field.addEventListener('input', () => {
+    const parsed = parseEditableNumber(field.value);
+    if (parsed === null) {
+      field.removeAttribute('aria-invalid');
+      return;
+    }
+    const next = normalize(parsed);
+    range.value = String(next);
+    field.setAttribute('aria-invalid', String(next !== parsed));
+    notifyInput(next, 'field');
+  });
+
+  field.addEventListener('change', commitField);
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commitField();
+      field.select();
+    } else if (event.key === 'Escape') {
+      field.value = format(normalize(toNumber(range.value, min)));
+      field.setAttribute('aria-invalid', 'false');
+      field.select();
+    }
+  });
+}
+
 function detectFormat(fileName, fallback = 'xyz') {
   const ext = String(fileName || '').split('.').pop().toLowerCase();
   if (ext === 'mol') return 'sdf';
@@ -2155,8 +2221,9 @@ function refreshOrbitalControls() {
 }
 
 function currentOrbitalIsovalue() {
-  const value = Math.abs(toNumber(
-    els.guiOrbitalIsovalueNumber?.value || els.guiOrbitalIsovalue?.value,
+  const edited = parseEditableNumber(els.guiOrbitalIsovalueNumber?.value);
+  const value = Math.abs(edited ?? toNumber(
+    els.guiOrbitalIsovalue?.value,
     state.gui.orbitalIsovalue
   ));
   return clamp(value, 0, 0.3);
@@ -2165,16 +2232,19 @@ function currentOrbitalIsovalue() {
 function syncOrbitalIsovalueControls(value, options = {}) {
   const next = clamp(Math.abs(toNumber(value, state.gui.orbitalIsovalue)), 0, 0.3);
   state.gui.orbitalIsovalue = next;
-  const text = next.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') || '0';
-  if (els.guiOrbitalIsovalue && els.guiOrbitalIsovalue.value !== text) {
-    els.guiOrbitalIsovalue.value = text;
+  const rangeText = String(next);
+  const numberText = next.toFixed(4);
+  if (els.guiOrbitalIsovalue && els.guiOrbitalIsovalue.value !== rangeText) {
+    els.guiOrbitalIsovalue.value = rangeText;
   }
-  if (els.guiOrbitalIsovalueNumber && els.guiOrbitalIsovalueNumber.value !== text) {
-    els.guiOrbitalIsovalueNumber.value = text;
+  const preserveNumberInput = options.preserveNumberInput
+    || document.activeElement === els.guiOrbitalIsovalueNumber;
+  if (!preserveNumberInput && els.guiOrbitalIsovalueNumber?.value !== numberText) {
+    els.guiOrbitalIsovalueNumber.value = numberText;
   }
   if (options.layer) {
     options.layer.isovalue = next;
-    if (els.guiIsosurfaceValue) els.guiIsosurfaceValue.value = text;
+    if (els.guiIsosurfaceValue) els.guiIsosurfaceValue.value = rangeText;
   }
 }
 
@@ -3482,6 +3552,18 @@ function syncMultiwfnGuiControls() {
   els.guiAtomSize.value = atomRatio.toFixed(2);
   els.guiBondRadius.value = clamp(toNumber(els.bondRadius.value, 0.14) / 0.7, 0, 1).toFixed(2);
   els.guiLabelSize.value = String(state.gui.labelSize);
+  if (document.activeElement !== els.guiBondThresholdNumber) {
+    els.guiBondThresholdNumber.value = toNumber(els.guiBondThreshold.value, 1.15).toFixed(2);
+  }
+  if (document.activeElement !== els.guiAtomSizeNumber) {
+    els.guiAtomSizeNumber.value = atomRatio.toFixed(2);
+  }
+  if (document.activeElement !== els.guiBondRadiusNumber) {
+    els.guiBondRadiusNumber.value = toNumber(els.guiBondRadius.value, 0.2).toFixed(2);
+  }
+  if (document.activeElement !== els.guiLabelSizeNumber) {
+    els.guiLabelSizeNumber.value = String(state.gui.labelSize);
+  }
 
   const layer = activeGuiLayer();
   const selectedId = layer ? String(layer.id) : '';
@@ -3771,19 +3853,31 @@ function bindEvents() {
       renderScene(false);
     }
   });
-  els.guiAtomSize.addEventListener('input', () => {
-    els.atomScale.value = String(clamp(toNumber(els.guiAtomSize.value, 1) * 0.24, 0.12, 0.75));
-    updateStructureAppearance();
+  bindRangeNumberControl(els.guiBondThreshold, els.guiBondThresholdNumber, {
+    decimals: 2,
+    onInput: () => setStatus('Bonding threshold is stored for Multiwfn GUI parity')
   });
-  els.guiBondRadius.addEventListener('input', () => {
-    els.bondRadius.value = String(clamp(toNumber(els.guiBondRadius.value, 0.2) * 0.7, 0.04, 0.32));
-    updateStructureAppearance();
+  bindRangeNumberControl(els.guiAtomSize, els.guiAtomSizeNumber, {
+    decimals: 2,
+    onInput: (value) => {
+      els.atomScale.value = String(clamp(value * 0.24, 0.12, 0.75));
+      updateStructureAppearance();
+    }
   });
-  els.guiLabelSize.addEventListener('input', () => {
-    state.gui.labelSize = clamp(parseInt(els.guiLabelSize.value, 10) || 38, 0, 100);
-    scheduleAtomLabelStyleUpdate();
+  bindRangeNumberControl(els.guiBondRadius, els.guiBondRadiusNumber, {
+    decimals: 2,
+    onInput: (value) => {
+      els.bondRadius.value = String(clamp(value * 0.7, 0.04, 0.32));
+      updateStructureAppearance();
+    }
   });
-  els.guiBondThreshold.addEventListener('input', () => setStatus('Bonding threshold is stored for Multiwfn GUI parity'));
+  bindRangeNumberControl(els.guiLabelSize, els.guiLabelSizeNumber, {
+    decimals: 0,
+    onInput: (value) => {
+      state.gui.labelSize = clamp(Math.round(value), 0, 100);
+      scheduleAtomLabelStyleUpdate();
+    }
+  });
 
   els.guiOrbitalSelect.addEventListener('change', () => setActiveGuiLayer(els.guiOrbitalSelect.value, { orbitalSelection: true }));
   els.guiOrbitalInput.addEventListener('change', () => {
@@ -3797,12 +3891,12 @@ function bindEvents() {
   els.guiOrbPrev.addEventListener('click', () => selectGuiOrbitalOffset(-1));
   els.guiOrbNext.addEventListener('click', () => selectGuiOrbitalOffset(1));
   els.guiOrbInfo.addEventListener('click', () => activateTab('layers'));
-  const updateOrbitalIsovalue = (event) => {
+  const updateOrbitalIsovalue = (value, event = {}) => {
     const layer = activeGuiLayer();
-    const value = event?.target === els.guiOrbitalIsovalueNumber
-      ? els.guiOrbitalIsovalueNumber.value
-      : els.guiOrbitalIsovalue.value;
-    syncOrbitalIsovalueControls(value, layer ? { layer } : {});
+    syncOrbitalIsovalueControls(value, {
+      ...(layer ? { layer } : {}),
+      preserveNumberInput: event.source === 'field'
+    });
     if (layer) {
       renderLayerList();
       renderScene(false);
@@ -3812,10 +3906,11 @@ function bindEvents() {
     const index = Number(activeGuiLayer()?.orbitalIndex || els.guiOrbitalInput.value || 0);
     if (index > 0) requestGuiOrbital(index, { forceRecompute: true });
   };
-  els.guiOrbitalIsovalue.addEventListener('input', updateOrbitalIsovalue);
-  els.guiOrbitalIsovalueNumber.addEventListener('input', updateOrbitalIsovalue);
-  els.guiOrbitalIsovalue.addEventListener('change', reloadOrbitalAtIsovalue);
-  els.guiOrbitalIsovalueNumber.addEventListener('change', reloadOrbitalAtIsovalue);
+  bindRangeNumberControl(els.guiOrbitalIsovalue, els.guiOrbitalIsovalueNumber, {
+    decimals: 4,
+    onInput: updateOrbitalIsovalue,
+    onCommit: reloadOrbitalAtIsovalue
+  });
 
   els.guiIsosurfaceLayer.addEventListener('change', () => setActiveGuiLayer(els.guiIsosurfaceLayer.value));
   [
@@ -4043,9 +4138,13 @@ function cacheElements() {
     guiShowAxis: byId('gui-show-axis'),
     guiShowSecond: byId('gui-show-second'),
     guiBondThreshold: byId('gui-bond-threshold'),
+    guiBondThresholdNumber: byId('gui-bond-threshold-number'),
     guiAtomSize: byId('gui-atom-size'),
+    guiAtomSizeNumber: byId('gui-atom-size-number'),
     guiBondRadius: byId('gui-bond-radius'),
+    guiBondRadiusNumber: byId('gui-bond-radius-number'),
     guiLabelSize: byId('gui-label-size'),
+    guiLabelSizeNumber: byId('gui-label-size-number'),
     guiOrbitalSelect: byId('gui-orbital-select'),
     guiOrbitalList: byId('gui-orbital-list'),
     guiOrbitalStatus: byId('gui-orbital-status'),
