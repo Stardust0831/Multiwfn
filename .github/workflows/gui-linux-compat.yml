@@ -216,10 +216,11 @@ jobs:
           rm -rf clean-gui-test
           mkdir clean-gui-test
           tar -xzf dist/Multiwfn-gui-linux-glibc228.tar.gz -C clean-gui-test
-          xvfb-run -a --server-args="-screen 0 1280x800x24 -ac" \
+          xvfb-run -a --server-args="-screen 0 1280x800x24 -ac +extension GLX +render -noreset" \
             docker run --rm \
               -e DISPLAY \
               -e LIBGL_ALWAYS_SOFTWARE=1 \
+              -e LIBGL_DEBUG=verbose \
               -e QTWEBENGINE_DISABLE_SANDBOX=1 \
               -e QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox \
               -e QT_X11_NO_MITSHM=1 \
@@ -229,6 +230,11 @@ jobs:
               rockylinux:8 \
               bash -lc '
               set -euo pipefail
+              # GPU drivers are host-level dependencies and should not be bundled
+              # into the application archive. Mesa supplies a deterministic
+              # software GLX implementation for this headless startup check.
+              dnf -y install mesa-dri-drivers
+
               pkg=/work/clean-gui-test/Multiwfn-gui-linux-glibc228
               test -x "$pkg/Multiwfn_QtGUI"
               test -x "$pkg/resources/tools/multiwfn_qt_gui"
