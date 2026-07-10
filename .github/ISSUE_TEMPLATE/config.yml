@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Official Multiwfn forum
+    url: http://sobereva.com/wfnbbs/
+    about: For usage questions about Multiwfn wavefunction analysis workflows, please use the official forum.
+  - name: Upstream Multiwfn homepage
+    url: http://sobereva.com/multiwfn/
+    about: Official Multiwfn documentation and downloads maintained by the original author.

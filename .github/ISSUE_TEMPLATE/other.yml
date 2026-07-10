@@ -1,0 +1,24 @@
+name: Other
+description: General discussion or questions that don't fit the other templates
+title: "[Other]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for general discussions, questions, or topics that don't fit the bug report or feature request templates.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe your topic or question.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked that this doesn't fit the bug report or feature request template.
+          required: true
