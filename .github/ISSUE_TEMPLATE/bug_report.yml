@@ -1,12 +1,12 @@
-name: Report an issue or propose a GUI change
-description: Report a build, packaging, runtime, reproducibility, or GUI issue
-title: "[Issue]: "
+name: Bug report
+description: Report a build, packaging, runtime, numerical, or GUI bug
+title: "[Bug]: "
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for helping improve the cross-platform Multiwfn build and GUI experiments.
-        Please provide enough detail to reproduce the issue or discuss the proposed change.
+        Please provide enough detail to reproduce the bug.
 
   - type: dropdown
     id: category
@@ -43,9 +43,9 @@ body:
       required: true
 
   - type: textarea
-    id: workflow
+    id: steps
     attributes:
-      label: Command or menu workflow
+      label: Steps to reproduce
       description: List the exact commands or Multiwfn menu path.
       placeholder: |
         1. Run ...
@@ -57,7 +57,7 @@ body:
   - type: textarea
     id: current-behavior
     attributes:
-      label: Current behavior or limitation
+      label: Current behavior
       description: Describe what currently happens and why it is a problem.
     validations:
       required: true
@@ -65,15 +65,15 @@ body:
   - type: textarea
     id: expected-behavior
     attributes:
-      label: Expected behavior or proposed change
-      description: Describe the expected result or the change you would like to discuss.
+      label: Expected behavior
+      description: Describe what should have happened instead.
     validations:
       required: true
 
   - type: textarea
     id: reproducer
     attributes:
-      label: Input type and reproducer
+      label: Input file and reproducer
       description: Provide the input file type and a small public reproducer when possible.
 
   - type: textarea
@@ -84,16 +84,10 @@ body:
       render: shell
 
   - type: textarea
-    id: evidence
+    id: screenshots
     attributes:
       label: Screenshots or comparisons
       description: Include screenshots, timings, numerical comparisons, or other supporting evidence.
-
-  - type: textarea
-    id: gui-scope
-    attributes:
-      label: GUI design scope
-      description: For GUI design changes or large refactors, describe the scope and the affected original Multiwfn workflow.
 
   - type: checkboxes
     id: checks
@@ -102,5 +96,5 @@ body:
       options:
         - label: I searched for an existing issue describing the same problem.
           required: true
-        - label: I have included enough information to reproduce or discuss the issue.
+        - label: I have included enough information to reproduce the issue.
           required: true

@@ -1,0 +1,66 @@
+name: Feature request
+description: Propose a new feature, GUI enhancement, or documentation improvement
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement to the cross-platform Multiwfn build and GUI project.
+        Please check that your idea is within scope of this fork (build infrastructure, GUI modernization, CI/CD)
+        and not a request to modify the upstream computational core.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - 3Dmol/Qt GUI
+        - Build or CI improvement
+        - Packaging or distribution
+        - Documentation
+        - Testing or benchmarking
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Describe the problem or use case that this feature would address.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Describe how you think this should work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any alternative solutions or workarounds you have considered.
+
+  - type: textarea
+    id: gui-scope
+    attributes:
+      label: GUI design scope
+      description: For GUI changes, describe the scope and the affected original Multiwfn workflow.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any other context, references, or screenshots about the request.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched for an existing issue describing the same feature.
+          required: true
