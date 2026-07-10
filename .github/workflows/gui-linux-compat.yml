@@ -219,13 +219,18 @@ jobs:
               # GPU drivers are host-level dependencies and should not be bundled
               # into the application archive. Mesa supplies a deterministic
               # software GLX implementation for this headless startup check.
-              dnf -y install mesa-dri-drivers xorg-x11-server-Xvfb
+              dnf -y install \
+                dejavu-sans-fonts \
+                fontconfig \
+                glx-utils \
+                mesa-dri-drivers \
+                xorg-x11-server-Xvfb
 
               export DISPLAY=:99
               export LIBGL_ALWAYS_SOFTWARE=1
               export LIBGL_DEBUG=verbose
               export QTWEBENGINE_DISABLE_SANDBOX=1
-              export QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox
+              export QTWEBENGINE_CHROMIUM_FLAGS="--no-sandbox --use-gl=desktop --enable-webgl"
               export QT_X11_NO_MITSHM=1
               Xvfb "$DISPLAY" -screen 0 1280x800x24 -ac +extension GLX +render +iglx -noreset \
                 >/tmp/xvfb.log 2>&1 &
@@ -244,6 +249,8 @@ jobs:
                 sleep 0.25
               done
               test -S /tmp/.X11-unix/X99
+              fc-cache -f
+              glxinfo -B
 
               pkg=/work/clean-gui-test/Multiwfn-gui-linux-glibc228
               test -x "$pkg/Multiwfn_QtGUI"
