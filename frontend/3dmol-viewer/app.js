@@ -289,7 +289,12 @@ const state = {
   atomSelection: {
     indices: new Set(),
     model: null,
-    labels: []
+    labels: new Map(),
+    atoms: [],
+    atomMap: new Map(),
+    ordinaryLabelIndices: new Set(),
+    boundsCorners: [],
+    labelFrame: 0
   },
   bondAnalysis: {
     capabilities: defaultBondAnalysisCapabilities(),
@@ -697,22 +702,45 @@ function applySceneStyle() {
 }
 
 function clearAtomSelectionState() {
+  removeTrackedAtomLabels();
   state.atomSelection.indices.clear();
-  state.atomSelection.model = null;
-  state.atomSelection.labels = [];
+  resetAtomDecorationReferences();
 }
 
 function resetAtomDecorationReferences() {
+  if (state.atomSelection.labelFrame) {
+    cancelAnimationFrame(state.atomSelection.labelFrame);
+    state.atomSelection.labelFrame = 0;
+  }
   state.atomSelection.model = null;
-  state.atomSelection.labels = [];
+  state.atomSelection.labels = new Map();
+  state.atomSelection.atoms = [];
+  state.atomSelection.atomMap = new Map();
+  state.atomSelection.ordinaryLabelIndices = new Set();
+  state.atomSelection.boundsCorners = [];
+}
+
+function withSuppressedViewerShow(callback) {
+  if (!state.viewer || typeof state.viewer.show !== 'function') return callback();
+  const originalShow = state.viewer.show;
+  state.viewer.show = () => state.viewer;
+  try {
+    return callback();
+  } finally {
+    state.viewer.show = originalShow;
+  }
 }
 
 function removeTrackedAtomLabels() {
-  if (!state.viewer) return;
-  state.atomSelection.labels.forEach((label) => {
-    if (label && typeof state.viewer.removeLabel === 'function') state.viewer.removeLabel(label);
+  if (!state.viewer || !state.atomSelection.labels.size) return;
+  withSuppressedViewerShow(() => {
+    state.atomSelection.labels.forEach((entry) => {
+      if (entry.label && typeof state.viewer.removeLabel === 'function') {
+        state.viewer.removeLabel(entry.label);
+      }
+    });
   });
-  state.atomSelection.labels = [];
+  state.atomSelection.labels.clear();
 }
 
 function atomDisplayIndex(atom, fallback = 0) {
@@ -727,6 +755,9 @@ function atomDisplayName(atom, fallback = 0) {
 
 function atomMapForModel(model = state.atomSelection.model) {
   if (!model || typeof model.selectedAtoms !== 'function') return new Map();
+  if (model === state.atomSelection.model && state.atomSelection.atomMap.size) {
+    return state.atomSelection.atomMap;
+  }
   return new Map(model.selectedAtoms({}).map((atom, fallback) => [atomDisplayIndex(atom, fallback), atom]));
 }
 
@@ -805,8 +836,8 @@ function selectedAtomModelStyle() {
   return style;
 }
 
-function addTrackedAtomLabel(text, atom, selected = false) {
-  const label = state.viewer.addLabel(text, {
+function atomLabelStyle(atom, selected) {
+  return {
     position: { x: atom.x, y: atom.y, z: atom.z },
     fontSize: clamp(Math.round(state.gui.labelSize / 3), selected ? 10 : 8, 24),
     fontColor: '#111820',
@@ -814,9 +845,154 @@ function addTrackedAtomLabel(text, atom, selected = false) {
     backgroundOpacity: selected ? 0.92 : 0.72,
     borderThickness: selected ? 1 : 0.4,
     borderColor: selected ? '#8a6500' : '#d8e0e6',
-    inFront: selected
-  }, undefined, true);
-  state.atomSelection.labels.push(label);
+    inFront: true
+  };
+}
+
+function atomLabelStyleKey(selected) {
+  return `${selected ? 'selected' : 'ordinary'}:${clamp(Math.round(state.gui.labelSize / 3), selected ? 10 : 8, 24)}`;
+}
+
+function configureAtomLabelLayer(entry) {
+  const sprite = entry.label?.sprite;
+  if (!sprite) return;
+  sprite.renderOrder = entry.selected ? 200 : 100;
+  if (sprite.material) {
+    sprite.material.depthTest = false;
+    sprite.material.depthWrite = false;
+    sprite.material.needsUpdate = true;
+  }
+}
+
+function prioritizeAtomLabelLayers() {
+  const modelGroup = state.viewer?.modelGroup;
+  if (!modelGroup || typeof modelGroup.remove !== 'function' || typeof modelGroup.add !== 'function') return;
+  const ordered = [...state.atomSelection.labels.values()].sort((left, right) => (
+    Number(left.selected) - Number(right.selected) || left.atomIndex - right.atomIndex
+  ));
+  ordered.forEach((entry) => {
+    if (!entry.label?.sprite) return;
+    modelGroup.remove(entry.label.sprite);
+    modelGroup.add(entry.label.sprite);
+  });
+}
+
+function cacheAtomModel(model) {
+  state.atomSelection.model = model || null;
+  state.atomSelection.atoms = model && typeof model.selectedAtoms === 'function'
+    ? model.selectedAtoms({})
+    : [];
+  state.atomSelection.atomMap = new Map(state.atomSelection.atoms.map((atom, fallback) => (
+    [atomDisplayIndex(atom, fallback), atom]
+  )));
+  state.atomSelection.ordinaryLabelIndices = new Set(
+    state.atomSelection.atoms.slice(0, 500).map((atom, fallback) => atomDisplayIndex(atom, fallback))
+  );
+
+  const coordinates = state.atomSelection.atoms
+    .map((atom) => ({ x: Number(atom.x), y: Number(atom.y), z: Number(atom.z) }))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z));
+  if (!coordinates.length) {
+    state.atomSelection.boundsCorners = [];
+    return;
+  }
+  const min = coordinates.reduce((value, point) => ({
+    x: Math.min(value.x, point.x),
+    y: Math.min(value.y, point.y),
+    z: Math.min(value.z, point.z)
+  }), { ...coordinates[0] });
+  const max = coordinates.reduce((value, point) => ({
+    x: Math.max(value.x, point.x),
+    y: Math.max(value.y, point.y),
+    z: Math.max(value.z, point.z)
+  }), { ...coordinates[0] });
+  state.atomSelection.boundsCorners = [
+    { x: min.x, y: min.y, z: min.z },
+    { x: min.x, y: min.y, z: max.z },
+    { x: min.x, y: max.y, z: min.z },
+    { x: min.x, y: max.y, z: max.z },
+    { x: max.x, y: min.y, z: min.z },
+    { x: max.x, y: min.y, z: max.z },
+    { x: max.x, y: max.y, z: min.z },
+    { x: max.x, y: max.y, z: max.z }
+  ];
+}
+
+function syncAtomLabels(options = {}) {
+  const model = state.atomSelection.model;
+  if (!state.viewer || !model || !state.atomSelection.atoms.length) return false;
+
+  const requested = options.indices === undefined
+    ? new Set([
+        ...state.atomSelection.ordinaryLabelIndices,
+        ...state.atomSelection.indices,
+        ...state.atomSelection.labels.keys()
+      ])
+    : new Set((Array.isArray(options.indices) ? options.indices : [options.indices]).map(Number));
+  const entries = [...requested]
+    .map((atomIndex) => ({ atomIndex, atom: state.atomSelection.atomMap.get(atomIndex) }))
+    .filter((entry) => entry.atom)
+    .sort((left, right) => (
+      Number(state.atomSelection.indices.has(left.atomIndex)) - Number(state.atomSelection.indices.has(right.atomIndex)) ||
+      left.atomIndex - right.atomIndex
+    ));
+  let changed = false;
+
+  withSuppressedViewerShow(() => {
+    entries.forEach(({ atomIndex, atom }) => {
+      const selected = state.atomSelection.indices.has(atomIndex);
+      const ordinary = state.atomSelection.ordinaryLabelIndices.has(atomIndex);
+      const visible = Boolean(
+        els.showStructure.checked && (selected || (els.showLabels.checked && ordinary))
+      );
+      let entry = state.atomSelection.labels.get(atomIndex);
+      if (!entry && !visible) return;
+
+      const styleKey = atomLabelStyleKey(selected);
+      if (!entry) {
+        const label = state.viewer.addLabel(
+          atomDisplayName(atom, atomIndex),
+          atomLabelStyle(atom, selected),
+          undefined,
+          true
+        );
+        entry = { atomIndex, atom, label, selected, styleKey, visible: true };
+        state.atomSelection.labels.set(atomIndex, entry);
+        changed = true;
+      } else {
+        entry.atom = atom;
+        entry.selected = selected;
+        if ((options.forceStyles || entry.styleKey !== styleKey) && typeof state.viewer.setLabelStyle === 'function') {
+          state.viewer.setLabelStyle(entry.label, atomLabelStyle(atom, selected));
+          entry.styleKey = styleKey;
+          changed = true;
+        }
+      }
+
+      entry.selected = selected;
+      entry.styleKey = styleKey;
+      configureAtomLabelLayer(entry);
+      if (entry.visible !== visible) changed = true;
+      entry.visible = visible;
+      if (visible) entry.label.show();
+      else entry.label.hide();
+    });
+  });
+
+  if (changed) prioritizeAtomLabelLayers();
+  if (changed && options.render !== false) {
+    state.viewer.render();
+    syncSceneOverlays();
+  }
+  return changed;
+}
+
+function scheduleAtomLabelStyleUpdate() {
+  if (state.atomSelection.labelFrame) return;
+  state.atomSelection.labelFrame = requestAnimationFrame(() => {
+    state.atomSelection.labelFrame = 0;
+    syncAtomLabels({ forceStyles: true });
+  });
 }
 
 function atomSelectionSpec(indices) {
@@ -844,12 +1020,11 @@ function applyAtomSelectionStyle(model, indices, selected) {
 }
 
 function renderAtomSelectionDecorations(model = state.atomSelection.model, options = {}) {
-  removeTrackedAtomLabels();
-  state.atomSelection.model = model || null;
+  if (model !== state.atomSelection.model || !state.atomSelection.atoms.length) cacheAtomModel(model);
   if (!model || typeof model.selectedAtoms !== 'function') return [];
 
-  const atoms = model.selectedAtoms({});
-  const validIndices = new Set(atoms.map((atom, index) => atomDisplayIndex(atom, index)));
+  const atoms = state.atomSelection.atoms;
+  const validIndices = new Set(state.atomSelection.atomMap.keys());
   [...state.atomSelection.indices].forEach((index) => {
     if (!validIndices.has(index)) state.atomSelection.indices.delete(index);
   });
@@ -857,21 +1032,54 @@ function renderAtomSelectionDecorations(model = state.atomSelection.model, optio
   if (options.applyStyles !== false && selectedIndices.length) {
     applyAtomSelectionStyle(model, selectedIndices, true);
   }
-
-  if (els.showLabels.checked) {
-    atoms.slice(0, 500).forEach((atom, index) => {
-      if (state.atomSelection.indices.has(atomDisplayIndex(atom, index))) return;
-      addTrackedAtomLabel(atomDisplayName(atom, index), atom);
-    });
-  }
-
-  atoms.forEach((atom, index) => {
-    const atomIndex = atomDisplayIndex(atom, index);
-    if (state.atomSelection.indices.has(atomIndex)) {
-      addTrackedAtomLabel(atomDisplayName(atom, index), atom, true);
-    }
-  });
+  syncAtomLabels({ forceStyles: true, render: false });
   return atoms;
+}
+
+function updateStructureAppearance() {
+  const model = state.atomSelection.model;
+  if (!state.viewer || !model || typeof model.setStyle !== 'function') return;
+  model.setStyle({}, modelStyle());
+  enableAtomContextSelection(model);
+  const selectedIndices = [...state.atomSelection.indices];
+  if (selectedIndices.length) applyAtomSelectionStyle(model, selectedIndices, true);
+  if (els.showStructure.checked) model.show();
+  else model.hide();
+  syncAtomLabels({ render: false });
+  state.viewer.render();
+  syncSceneOverlays();
+  if (els.guiAtomSize) {
+    els.guiAtomSize.value = clamp(toNumber(els.atomScale.value, 0.24) / 0.24, 0, 5).toFixed(2);
+  }
+  if (els.guiBondRadius) {
+    els.guiBondRadius.value = clamp(toNumber(els.bondRadius.value, 0.14) / 0.7, 0, 1).toFixed(2);
+  }
+}
+
+function setStructureVisible(visible) {
+  els.showStructure.checked = Boolean(visible);
+  if (els.guiShowStructure) els.guiShowStructure.checked = els.showStructure.checked;
+  const model = state.atomSelection.model;
+  if (model) {
+    if (els.showStructure.checked) model.show();
+    else model.hide();
+  }
+  syncAtomLabels({ render: false });
+  if (state.viewer) state.viewer.render();
+  syncSceneOverlays();
+}
+
+function setAtomLabelsVisible(visible) {
+  els.showLabels.checked = Boolean(visible);
+  if (els.guiShowLabels) els.guiShowLabels.checked = els.showLabels.checked;
+  syncAtomLabels();
+}
+
+function updateLocalSceneStyle() {
+  if (!state.viewer) return;
+  applySceneStyle();
+  state.viewer.render();
+  syncSceneOverlays();
 }
 
 function bondResultCacheKey(bond, method) {
@@ -925,7 +1133,15 @@ function ensureBondAnnotation(bond, options = {}) {
       pending: new Set(),
       visible: true,
       closeVersion: 0,
-      element: null
+      element: null,
+      titleElement: null,
+      valuesElement: null,
+      contentKey: '',
+      layoutDirty: true,
+      layoutWidth: 0,
+      layoutHeight: 0,
+      lastX: null,
+      lastY: null
     };
     state.bondAnalysis.annotations.set(bond.key, annotation);
   } else {
@@ -942,7 +1158,10 @@ function hideBondAnnotation(bondKey) {
   annotation.closeVersion += 1;
   annotation.element?.remove();
   annotation.element = null;
-  updateBondAnnotationPositions();
+  annotation.titleElement = null;
+  annotation.valuesElement = null;
+  annotation.contentKey = '';
+  syncSceneOverlays();
 }
 
 function bondPropertyDetail(payload) {
@@ -960,6 +1179,9 @@ function renderBondAnnotation(annotation) {
   if (!annotation.visible || (!annotation.results.size && !annotation.pending.size)) {
     annotation.element?.remove();
     annotation.element = null;
+    annotation.titleElement = null;
+    annotation.valuesElement = null;
+    annotation.contentKey = '';
     return;
   }
   if (!annotation.element) {
@@ -988,11 +1210,30 @@ function renderBondAnnotation(annotation) {
     element.append(closeButton);
     els.bondAnnotationLayer.append(element);
     annotation.element = element;
+    annotation.titleElement = title;
+    annotation.valuesElement = values;
+    annotation.contentKey = '';
+    annotation.layoutDirty = true;
+    annotation.lastX = null;
+    annotation.lastY = null;
   }
 
-  annotation.element.querySelector('.bond-annotation-title').textContent = annotation.bond.label;
-  const values = annotation.element.querySelector('.bond-annotation-values');
-  values.replaceChildren();
+  const contentKey = JSON.stringify({
+    label: annotation.bond.label,
+    values: bondPropertyDefinitions.map((property) => {
+      const payload = annotation.results.get(property.id);
+      return {
+        id: property.id,
+        pending: annotation.pending.has(property.id),
+        value: payload?.value,
+        detail: payload ? bondPropertyDetail(payload) : ''
+      };
+    })
+  });
+  if (annotation.contentKey === contentKey) return;
+
+  annotation.titleElement.textContent = annotation.bond.label;
+  const fragment = document.createDocumentFragment();
   bondPropertyDefinitions.forEach((property) => {
     const payload = annotation.results.get(property.id);
     if (!payload && !annotation.pending.has(property.id)) return;
@@ -1006,8 +1247,11 @@ function renderBondAnnotation(annotation) {
       const detail = bondPropertyDetail(payload);
       if (detail) row.title = detail;
     }
-    values.append(row);
+    fragment.append(row);
   });
+  annotation.valuesElement.replaceChildren(fragment);
+  annotation.contentKey = contentKey;
+  annotation.layoutDirty = true;
 }
 
 function rectangleOverlapArea(left, top, width, height, rect) {
@@ -1018,14 +1262,27 @@ function rectangleOverlapArea(left, top, width, height, rect) {
 
 function updateBondAnnotationPositions() {
   if (!els.bondAnnotationLayer || !state.viewer) return;
+  const visibleAnnotations = [...state.bondAnalysis.annotations.values()].filter((annotation) => (
+    annotation.visible && annotation.element && (annotation.results.size || annotation.pending.size)
+  ));
   const plotVisible = els.plotPanel && !els.plotPanel.classList.contains('is-hidden');
-  const hideLayer = plotVisible || !els.showStructure?.checked || !state.structure.data;
+  const hideLayer = plotVisible || !els.showStructure?.checked || !state.structure.data || !visibleAnnotations.length;
   els.bondAnnotationLayer.hidden = Boolean(hideLayer);
   if (hideLayer || typeof state.viewer.modelToScreen !== 'function') return;
 
   const wrapRect = els.viewerWrap.getBoundingClientRect();
   const margin = 8;
   const reserved = [];
+  visibleAnnotations.forEach((annotation) => {
+    annotation.element.hidden = false;
+  });
+  visibleAnnotations.forEach((annotation) => {
+    if (!annotation.layoutDirty && annotation.layoutWidth && annotation.layoutHeight) return;
+    const rect = annotation.element.getBoundingClientRect();
+    annotation.layoutWidth = rect.width;
+    annotation.layoutHeight = rect.height;
+    annotation.layoutDirty = false;
+  });
   [els.orientationWidget, ...els.viewerWrap.querySelectorAll('.hud span')].forEach((element) => {
     if (!element || element.hidden) return;
     const rect = element.getBoundingClientRect();
@@ -1036,42 +1293,44 @@ function updateBondAnnotationPositions() {
       bottom: rect.bottom - wrapRect.top
     });
   });
-  const atoms = atomMapForModel();
-  const atomScreens = [];
-  atoms.forEach((atom) => {
-    const projected = state.viewer.modelToScreen({ x: atom.x, y: atom.y, z: atom.z });
+
+  const projectPoint = (point) => {
+    const projected = state.viewer.modelToScreen(point);
     if (!projected || !Number.isFinite(projected.x) || !Number.isFinite(projected.y)) return;
-    const x = projected.x - wrapRect.left;
-    const y = projected.y - wrapRect.top;
-    atomScreens.push({ x, y });
-    reserved.push({ left: x - 30, top: y - 30, right: x + 30, bottom: y + 30 });
-  });
-  const atomCenter = atomScreens.length
-    ? atomScreens.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 })
-    : { x: wrapRect.width / 2, y: wrapRect.height / 2 };
-  if (atomScreens.length) {
-    atomCenter.x /= atomScreens.length;
-    atomCenter.y /= atomScreens.length;
+    return { x: projected.x - wrapRect.left, y: projected.y - wrapRect.top };
+  };
+  const boundsScreens = state.atomSelection.boundsCorners.map(projectPoint).filter(Boolean);
+  let atomCenter = { x: wrapRect.width / 2, y: wrapRect.height / 2 };
+  if (boundsScreens.length) {
+    const moleculeRect = {
+      left: Math.min(...boundsScreens.map((point) => point.x)) - 24,
+      top: Math.min(...boundsScreens.map((point) => point.y)) - 24,
+      right: Math.max(...boundsScreens.map((point) => point.x)) + 24,
+      bottom: Math.max(...boundsScreens.map((point) => point.y)) + 24
+    };
+    atomCenter = {
+      x: (moleculeRect.left + moleculeRect.right) / 2,
+      y: (moleculeRect.top + moleculeRect.bottom) / 2
+    };
+    reserved.push(moleculeRect);
   }
 
-  state.bondAnalysis.annotations.forEach((annotation) => renderBondAnnotation(annotation));
-  state.bondAnalysis.annotations.forEach((annotation) => {
+  const placements = [];
+  visibleAnnotations.forEach((annotation) => {
     const element = annotation.element;
-    if (!element || !annotation.visible) return;
-    const projected = state.viewer.modelToScreen(annotation.bond.midpoint);
-    if (!projected || !Number.isFinite(projected.x) || !Number.isFinite(projected.y)) {
-      element.hidden = true;
+    const anchor = projectPoint(annotation.bond.midpoint);
+    const atom1Screen = projectPoint(annotation.bond.atom1Position);
+    const atom2Screen = projectPoint(annotation.bond.atom2Position);
+    if (!anchor || !atom1Screen || !atom2Screen) {
+      placements.push({ annotation, hidden: true });
       return;
     }
-    element.hidden = false;
-    const anchorX = projected.x - wrapRect.left;
-    const anchorY = projected.y - wrapRect.top;
-    const width = element.offsetWidth;
-    const height = element.offsetHeight;
-    const atom1Screen = state.viewer.modelToScreen(annotation.bond.atom1Position);
-    const atom2Screen = state.viewer.modelToScreen(annotation.bond.atom2Position);
-    const bondDx = Number(atom2Screen?.x) - Number(atom1Screen?.x);
-    const bondDy = Number(atom2Screen?.y) - Number(atom1Screen?.y);
+    const anchorX = anchor.x;
+    const anchorY = anchor.y;
+    const width = annotation.layoutWidth;
+    const height = annotation.layoutHeight;
+    const bondDx = atom2Screen.x - atom1Screen.x;
+    const bondDy = atom2Screen.y - atom1Screen.y;
     const bondScreenLength = Math.hypot(bondDx, bondDy) || 1;
     const normalX = -bondDy / bondScreenLength;
     const normalY = bondDx / bondScreenLength;
@@ -1114,14 +1373,27 @@ function updateBondAnnotationPositions() {
       score: reserved.reduce((sum, rect) => sum + rectangleOverlapArea(left, top, width, height, rect), 0)
     })).sort((left, right) => left.score - right.score || left.index - right.index);
     const position = scored[0];
-    element.style.left = `${Math.round(position.left)}px`;
-    element.style.top = `${Math.round(position.top)}px`;
+    placements.push({
+      annotation,
+      hidden: false,
+      x: Math.round(position.left),
+      y: Math.round(position.top)
+    });
     reserved.push({
       left: position.left,
       top: position.top,
       right: position.left + width,
       bottom: position.top + height
     });
+  });
+
+  placements.forEach(({ annotation, hidden, x, y }) => {
+    const element = annotation.element;
+    element.hidden = hidden;
+    if (hidden || (annotation.lastX === x && annotation.lastY === y)) return;
+    annotation.lastX = x;
+    annotation.lastY = y;
+    element.style.transform = `translate3d(${x}px, ${y}px, 0)`;
   });
 }
 
@@ -1278,9 +1550,9 @@ function deselectAtomIndex(atomIndex) {
   const atomName = atomDisplayName(atomMapForModel().get(atomIndex), atomIndex);
   state.atomSelection.indices.delete(atomIndex);
   applyAtomSelectionStyle(state.atomSelection.model, atomIndex, false);
-  renderAtomSelectionDecorations(state.atomSelection.model, { applyStyles: false });
+  syncAtomLabels({ indices: atomIndex, forceStyles: true, render: false });
   state.viewer.render();
-  updateBondAnnotationPositions();
+  syncSceneOverlays();
   setStatus(`Deselected atom ${atomName} (${state.atomSelection.indices.size} selected)`);
 }
 
@@ -1289,9 +1561,9 @@ function clearSelectedAtoms() {
   if (!selectedIndices.length) return;
   applyAtomSelectionStyle(state.atomSelection.model, selectedIndices, false);
   state.atomSelection.indices.clear();
-  renderAtomSelectionDecorations(state.atomSelection.model, { applyStyles: false });
+  syncAtomLabels({ indices: selectedIndices, forceStyles: true, render: false });
   state.viewer.render();
-  updateBondAnnotationPositions();
+  syncSceneOverlays();
   setStatus('Atom selection cleared');
 }
 
@@ -1381,14 +1653,14 @@ async function selectBondProperty(bond, method) {
     state.bondAnalysis.resultCache.set(bondResultCacheKey(bond, method), payload);
     annotation.results.set(method, payload);
     renderBondAnnotation(annotation);
-    updateBondAnnotationPositions();
+    syncSceneOverlays();
     setStatus(`${bond.label} length: ${formatBondValue(method, bond.length)}`);
     return;
   }
   if (cached) {
     annotation.results.set(method, cached);
     renderBondAnnotation(annotation);
-    updateBondAnnotationPositions();
+    syncSceneOverlays();
     setStatus(`${bondPropertyDefinition(method).label} loaded from cache`);
     return;
   }
@@ -1401,7 +1673,7 @@ async function selectBondProperty(bond, method) {
   const closeVersion = annotation.closeVersion;
   annotation.pending.add(method);
   renderBondAnnotation(annotation);
-  updateBondAnnotationPositions();
+  syncSceneOverlays();
   setBondRequestBusy(true);
   const property = bondPropertyDefinition(method);
   setStatus(`Calculating ${property.label} for ${bond.label}...`);
@@ -1423,14 +1695,14 @@ async function selectBondProperty(bond, method) {
     annotation.results.set(method, payload);
     if (annotation.closeVersion === closeVersion) annotation.visible = true;
     renderBondAnnotation(annotation);
-    updateBondAnnotationPositions();
+    syncSceneOverlays();
     setStatus(`${property.label} for ${bond.label}: ${formatBondValue(method, payload.value)}`);
   } catch (error) {
     console.error(error);
     if (generation === state.bondAnalysis.generation) {
       annotation.pending.delete(method);
       renderBondAnnotation(annotation);
-      updateBondAnnotationPositions();
+      syncSceneOverlays();
     }
     setStatus(error.message || `${property.label} calculation failed`, false);
   } finally {
@@ -1459,9 +1731,9 @@ function handleAtomContextMenu(selected, x = 0, y = 0) {
     state.atomSelection.indices.add(atomIndex);
   }
   applyAtomSelectionStyle(state.atomSelection.model, atomIndex, !wasSelected);
-  renderAtomSelectionDecorations(state.atomSelection.model, { applyStyles: false });
+  syncAtomLabels({ indices: atomIndex, forceStyles: true, render: false });
   state.viewer.render();
-  updateBondAnnotationPositions();
+  syncSceneOverlays();
   const action = wasSelected ? 'Deselected' : 'Selected';
   setStatus(`${action} atom ${atomDisplayName(selected, atomIndex)} (${state.atomSelection.indices.size} selected)`);
 }
@@ -1473,14 +1745,14 @@ function addStructureToViewer() {
     data = xyzFromCube(state.layers[0].data);
     format = 'xyz';
   }
-  if (!data || !els.showStructure.checked) return null;
+  if (!data) return null;
 
   try {
     const display = getDisplayStructureData(data, format);
     const model = state.viewer.addModel(display.data, display.format);
     model.setStyle({}, modelStyle());
     enableAtomContextSelection(model);
-    state.atomSelection.model = model;
+    if (!els.showStructure.checked) model.hide();
     return model;
   } catch (error) {
     setStatus('Structure error', false);
@@ -1545,9 +1817,15 @@ function syncOrientationView() {
   state.orientationViewer.render();
 }
 
+let sceneOverlayFrame = 0;
+
 function syncSceneOverlays() {
-  syncOrientationView();
-  updateBondAnnotationPositions();
+  if (sceneOverlayFrame) return;
+  sceneOverlayFrame = requestAnimationFrame(() => {
+    sceneOverlayFrame = 0;
+    syncOrientationView();
+    updateBondAnnotationPositions();
+  });
 }
 
 function syncAxesControls() {
@@ -1563,8 +1841,8 @@ function updateOrientationVisibility() {
   syncAxesControls();
   if (!els.orientationWidget.hidden && state.orientationViewer) {
     state.orientationViewer.resize();
-    syncOrientationView();
   }
+  syncSceneOverlays();
 }
 
 function setAxesVisible(visible, options = {}) {
@@ -2776,7 +3054,7 @@ function savePng() {
 function showPlotPanel(show = true) {
   els.plotPanel.classList.toggle('is-hidden', !show);
   updateOrientationVisibility();
-  updateBondAnnotationPositions();
+  syncSceneOverlays();
 }
 
 function plotLayout(title) {
@@ -3318,6 +3596,18 @@ function resetGuiView() {
   setStatus('View reset');
 }
 
+function fitGuiView() {
+  if (!state.viewer || typeof state.viewer.zoomTo !== 'function') {
+    setStatus('Fit unavailable', false);
+    return;
+  }
+  state.viewer.zoomTo();
+  state.dirtyZoom = false;
+  state.viewer.render();
+  syncSceneOverlays();
+  setStatus('View fitted');
+}
+
 function selectGuiOrbitalOffset(offset) {
   const current = Number(activeGuiLayer()?.orbitalIndex || els.guiOrbitalInput.value || 0);
   if (state.orbitals.items.length) {
@@ -3466,12 +3756,10 @@ function bindEvents() {
   });
 
   els.guiShowStructure.addEventListener('input', () => {
-    els.showStructure.checked = els.guiShowStructure.checked;
-    renderScene(false);
+    setStructureVisible(els.guiShowStructure.checked);
   });
   els.guiShowLabels.addEventListener('input', () => {
-    els.showLabels.checked = els.guiShowLabels.checked;
-    renderScene(false);
+    setAtomLabelsVisible(els.guiShowLabels.checked);
   });
   els.guiShowAxis.addEventListener('input', () => {
     setAxesVisible(els.guiShowAxis.checked, { announce: true });
@@ -3485,15 +3773,15 @@ function bindEvents() {
   });
   els.guiAtomSize.addEventListener('input', () => {
     els.atomScale.value = String(clamp(toNumber(els.guiAtomSize.value, 1) * 0.24, 0.12, 0.75));
-    renderScene(false);
+    updateStructureAppearance();
   });
   els.guiBondRadius.addEventListener('input', () => {
     els.bondRadius.value = String(clamp(toNumber(els.guiBondRadius.value, 0.2) * 0.7, 0.04, 0.32));
-    renderScene(false);
+    updateStructureAppearance();
   });
   els.guiLabelSize.addEventListener('input', () => {
     state.gui.labelSize = clamp(parseInt(els.guiLabelSize.value, 10) || 38, 0, 100);
-    renderScene(false);
+    scheduleAtomLabelStyleUpdate();
   });
   els.guiBondThreshold.addEventListener('input', () => setStatus('Bonding threshold is stored for Multiwfn GUI parity'));
 
@@ -3659,8 +3947,8 @@ function bindEvents() {
   byId('sample-periodic-esp').addEventListener('click', loadPeriodicEspSample);
   byId('clear-structure').addEventListener('click', clearStructure);
   byId('clear-cubes').addEventListener('click', clearCubes);
-  byId('reset-view').addEventListener('click', () => renderScene(true));
-  byId('fit-scene').addEventListener('click', () => renderScene(true));
+  byId('reset-view').addEventListener('click', resetGuiView);
+  byId('fit-scene').addEventListener('click', fitGuiView);
   byId('save-state').addEventListener('click', saveManifest);
   byId('save-png').addEventListener('click', savePng);
   byId('cell-from-cube').addEventListener('click', cellFromFirstCube);
@@ -3691,19 +3979,15 @@ function bindEvents() {
     if (event.target.matches('button[data-action="remove"]')) updateLayerFromControl(event.target);
   });
 
-  [
-    els.modelStyle,
-    els.atomScale,
-    els.bondRadius,
-    els.showStructure,
-    els.showLabels,
-    els.ambientOcclusion,
-    els.outline,
-    els.spin,
-    els.surfaceQuality,
-    els.aoStrength,
-    els.outlineWidth
-  ].forEach((el) => el.addEventListener('input', () => renderScene(false)));
+  [els.modelStyle, els.atomScale, els.bondRadius].forEach((el) => {
+    el.addEventListener('input', updateStructureAppearance);
+  });
+  els.showStructure.addEventListener('input', () => setStructureVisible(els.showStructure.checked));
+  els.showLabels.addEventListener('input', () => setAtomLabelsVisible(els.showLabels.checked));
+  [els.ambientOcclusion, els.outline, els.spin, els.aoStrength, els.outlineWidth].forEach((el) => {
+    el.addEventListener('input', updateLocalSceneStyle);
+  });
+  els.surfaceQuality.addEventListener('input', () => renderScene(false));
   els.showAxes.addEventListener('input', () => {
     setAxesVisible(els.showAxes.checked, { announce: true });
   });
@@ -3954,7 +4238,7 @@ window.addEventListener('resize', () => {
   state.viewer.resize();
   state.viewer.render();
   updateOrientationVisibility();
-  updateBondAnnotationPositions();
+  syncSceneOverlays();
   closeBondContextMenu();
   repositionOpenStyleSubmenu();
 });

@@ -450,7 +450,7 @@ button:hover {
   border-radius: 8px;
   box-shadow: 0 12px 34px rgba(18, 30, 37, 0.18);
   backdrop-filter: blur(10px);
-  z-index: 3;
+  z-index: 8;
 }
 
 .plot-panel.is-hidden {
@@ -507,12 +507,13 @@ button:hover {
 
 #viewer {
   position: absolute;
+  z-index: 1;
   inset: 0;
 }
 
 .bond-annotation-layer {
   position: absolute;
-  z-index: 4;
+  z-index: 6;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
@@ -520,6 +521,8 @@ button:hover {
 
 .bond-annotation {
   position: absolute;
+  top: 0;
+  left: 0;
   width: max-content;
   min-width: 132px;
   max-width: min(250px, calc(100% - 16px));
@@ -531,6 +534,8 @@ button:hover {
   box-shadow: 1px 2px 6px rgba(0, 0, 0, 0.20);
   font: 12px/1.25 var(--mono-font);
   pointer-events: auto;
+  contain: layout paint;
+  will-change: transform;
 }
 
 .bond-annotation[hidden],
@@ -580,7 +585,7 @@ button:hover {
 
 .bond-context-menu {
   position: absolute;
-  z-index: 20;
+  z-index: 30;
   width: max-content;
   min-width: 196px;
   max-width: min(280px, calc(100% - 16px));
@@ -660,7 +665,7 @@ button:hover {
 
 .orientation-widget {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   right: 14px;
   bottom: 46px;
   width: 96px;
@@ -681,6 +686,7 @@ button:hover {
 
 .hud {
   position: absolute;
+  z-index: 4;
   left: 18px;
   right: 18px;
   bottom: 16px;
