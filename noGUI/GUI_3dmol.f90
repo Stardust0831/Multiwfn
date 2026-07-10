@@ -6,6 +6,8 @@ real*8 :: aug3D_main0=6D0
 integer,allocatable :: gui_orbital_indices(:)
 integer :: gui_orbital_count=0
 logical :: gui_has_cubmat_file=.false.,gui_has_cubmattmp_file=.false.
+real*8,allocatable :: gui_fbo_cache(:,:)
+logical :: gui_fbo_ready=.false.
 
 contains
 
@@ -90,6 +92,7 @@ real*8,intent(in) :: init1,end1,init2,end2,init3,end3
 character(len=512) :: session,manifest,cmd
 
 call reset_generated_orbitals()
+call reset_bond_analysis_cache()
 gui_has_cubmat_file=.false.
 gui_has_cubmattmp_file=.false.
 call get_session_dir(session)
@@ -123,6 +126,11 @@ subroutine reset_generated_orbitals()
 if (allocated(gui_orbital_indices)) deallocate(gui_orbital_indices)
 allocate(gui_orbital_indices(0))
 gui_orbital_count=0
+end subroutine
+
+subroutine reset_bond_analysis_cache()
+if (allocated(gui_fbo_cache)) deallocate(gui_fbo_cache)
+gui_fbo_ready=.false.
 end subroutine
 
 subroutine get_session_dir(session)
@@ -275,9 +283,9 @@ end subroutine
 
 subroutine run_3dmol_gui_loop(session)
 character(len=*),intent(in) :: session
-character(len=512) :: reqfile,stopfile,respfile
-character(len=32) :: action
-integer :: iu,istat,iorb,quality
+character(len=1024) :: reqfile,stopfile,respfile,line
+character(len=32) :: action,method
+integer :: iu,istat,iorb,quality,iatm1,iatm2
 integer*8 :: reqid,lastid
 real*8 :: isoval
 logical :: alive
@@ -293,11 +301,28 @@ do
     if (alive) then
         open(newunit=iu,file=trim(reqfile),status="old",action="read",iostat=istat)
         if (istat==0) then
-            read(iu,*,iostat=istat) reqid,action,iorb,quality,isoval
+            read(iu,"(a)",iostat=istat) line
             close(iu,status="delete")
+            if (istat==0) read(line,*,iostat=istat) reqid,action
             if (istat==0.and.reqid/=lastid) then
                 write(respfile,"(a,'/response_',i0,'.json')") trim(session),reqid
-                if (trim(action)=="orbital") call handle_orbital_request(trim(session),trim(respfile),iorb,quality,isoval)
+                if (trim(action)=="orbital") then
+                    read(line,*,iostat=istat) reqid,action,iorb,quality,isoval
+                    if (istat==0) then
+                        call handle_orbital_request(trim(session),trim(respfile),iorb,quality,isoval)
+                    else
+                        call write_gui_json_error(trim(respfile),"Malformed orbital request")
+                    end if
+                else if (trim(action)=="bond") then
+                    read(line,*,iostat=istat) reqid,action,iatm1,iatm2,method
+                    if (istat==0) then
+                        call handle_bond_request(trim(respfile),iatm1,iatm2,trim(method))
+                    else
+                        call write_gui_json_error(trim(respfile),"Malformed bond request")
+                    end if
+                else
+                    call write_gui_json_error(trim(respfile),"Unknown GUI request")
+                end if
                 lastid=reqid
             end if
         end if
@@ -363,6 +388,113 @@ write(iu,"(a,1pe16.8,a)") '    "isovalue": ',sur_value_orb,','
 write(iu,"(a)") '    "visible": true'
 write(iu,"(a)") '  }'
 write(iu,"(a)") "}"
+close(iu)
+end subroutine
+
+subroutine handle_bond_request(respfile,iatm1,iatm2,method)
+character(len=*),intent(in) :: respfile,method
+integer,intent(in) :: iatm1,iatm2
+integer :: iu,ierror,radpot_org,sphpot_org
+real*8 :: value,total,alpha,beta,mixed
+logical :: openshell
+
+if (iatm1<1.or.iatm1>ncenter.or.iatm2<1.or.iatm2>ncenter.or.iatm1==iatm2) then
+    call write_gui_json_error(respfile,"Invalid atom indices")
+    return
+end if
+if (ifPBC>0) then
+    call write_gui_json_error(respfile,"Periodic bond-order calculations are not supported")
+    return
+end if
+
+openshell=wfntype==1.or.wfntype==2.or.wfntype==4
+total=0D0
+alpha=0D0
+beta=0D0
+mixed=0D0
+ierror=0
+
+if (method=="mayer".or.method=="gwbo") then
+    call calc_bond_pair_mayer(iatm1,iatm2,total,alpha,beta,mixed,ierror)
+    if (method=="gwbo".and..not.openshell) then
+        call write_gui_json_error(respfile,"GWBO is only distinct for open-shell wavefunctions")
+        return
+    end if
+    if (method=="gwbo") then
+        value=mixed
+    else
+        value=total
+    end if
+else if (method=="wiberg_lowdin") then
+    call calc_bond_pair_lowdin(iatm1,iatm2,total,alpha,beta,mixed,ierror)
+    value=total
+else if (method=="mulliken") then
+    call calc_bond_pair_mulliken(iatm1,iatm2,total,alpha,beta,ierror)
+    mixed=total
+    value=total
+else if (method=="fbo") then
+    if (.not.allocated(b).or..not.allocated(CObasa)) then
+        call write_gui_json_error(respfile,"GTF wavefunction information is unavailable")
+        return
+    end if
+    if (.not.gui_fbo_ready) then
+        radpot_org=radpot
+        sphpot_org=sphpot
+        call fuzzyana(11)
+        radpot=radpot_org
+        sphpot=sphpot_org
+        if (.not.allocated(bndordmat)) then
+            call write_gui_json_error(respfile,"FBO calculation did not return a result")
+            return
+        end if
+        if (allocated(gui_fbo_cache)) deallocate(gui_fbo_cache)
+        allocate(gui_fbo_cache(ncenter,ncenter))
+        gui_fbo_cache=bndordmat
+        gui_fbo_ready=.true.
+    end if
+    value=gui_fbo_cache(iatm1,iatm2)
+    total=value
+else
+    call write_gui_json_error(respfile,"Unsupported bond-order method")
+    return
+end if
+
+if (ierror/=0) then
+    if (ierror==3) then
+        call write_gui_json_error(respfile,"Selected atom has no basis functions")
+    else
+        call write_gui_json_error(respfile,"Basis-function and density information is unavailable")
+    end if
+    return
+end if
+
+open(newunit=iu,file=trim(respfile),status="replace",action="write")
+write(iu,"(a)") "{"
+write(iu,"(a)") '  "ok": true,'
+write(iu,"(a,i0,a,i0,a)") '  "bond": { "atom1": ',iatm1,', "atom2": ',iatm2,' },'
+write(iu,"(a,a,a)") '  "method": "',trim(method),'",'
+write(iu,"(a,es24.16,a)") '  "value": ',value,','
+if (openshell.and.(method=="mayer".or.method=="gwbo")) then
+    write(iu,"(a,es24.16,a,es24.16,a,es24.16,a,es24.16,a)") &
+        '  "components": { "alpha": ',alpha,', "beta": ',beta,', "total": ',total,', "gwbo": ',mixed,' }'
+else if (openshell.and.method=="wiberg_lowdin") then
+    write(iu,"(a,es24.16,a,es24.16,a,es24.16,a,es24.16,a)") &
+        '  "components": { "alpha": ',alpha,', "beta": ',beta,', "total": ',total,', "mixed": ',mixed,' }'
+else if (openshell.and.method=="mulliken") then
+    write(iu,"(a,es24.16,a,es24.16,a,es24.16,a)") &
+        '  "components": { "alpha": ',alpha,', "beta": ',beta,', "total": ',total,' }'
+else
+    write(iu,"(a,es24.16,a)") '  "components": { "total": ',total,' }'
+end if
+write(iu,"(a)") "}"
+close(iu)
+end subroutine
+
+subroutine write_gui_json_error(respfile,message)
+character(len=*),intent(in) :: respfile,message
+integer :: iu
+open(newunit=iu,file=trim(respfile),status="replace",action="write")
+write(iu,"(a,a,a)") '{ "ok": false, "message": "',trim(message),'" }'
 close(iu)
 end subroutine
 
@@ -642,6 +774,7 @@ if (allocated(a).and.ncenter>0) then
 else
     write(iu,"(a)") '  "structure": null,'
 end if
+call write_bond_analysis_manifest(iu)
 if (ifPBC>0) then
     write(iu,"(a)") '  "periodic": {'
     write(iu,"(a)") '    "enabled": true,'
@@ -666,6 +799,56 @@ call write_orbital_cube_manifest(iu,ncube)
 write(iu,"(a)") '  ]'
 write(iu,"(a)") "}"
 close(iu)
+end subroutine
+
+subroutine write_bond_analysis_manifest(iu)
+integer,intent(in) :: iu
+logical :: basisok,fbook,openshell
+character(len=96) :: basisreason,fboreason,gwreason
+
+openshell=wfntype==1.or.wfntype==2.or.wfntype==4
+basisok=ifPBC==0.and.allocated(CObasa).and.allocated(Ptot).and.allocated(Sbas).and. &
+    allocated(basstart).and.allocated(basend)
+fbook=ifPBC==0.and.allocated(b).and.allocated(CObasa).and.allocated(Ptot)
+if (ifPBC>0) then
+    basisreason="Periodic bond-order calculations are not supported in this GUI"
+    fboreason=basisreason
+else
+    basisreason="Basis-function and density information is unavailable"
+    fboreason="GTF wavefunction information is unavailable"
+end if
+if (openshell) then
+    gwreason=basisreason
+else
+    gwreason="GWBO is only distinct for open-shell wavefunctions"
+end if
+
+write(iu,"(a)") '  "bondAnalysis": {'
+write(iu,"(a)") '    "periodicSupported": false,'
+write(iu,"(a,a,a)") '    "openShell": ',trim(json_bool(openshell)),','
+write(iu,"(a)") '    "methods": {'
+call write_bond_method_capability(iu,"mayer",basisok,basisreason,.true.)
+call write_bond_method_capability(iu,"gwbo",basisok.and.openshell,gwreason,.true.)
+call write_bond_method_capability(iu,"wiberg_lowdin",basisok,basisreason,.true.)
+call write_bond_method_capability(iu,"mulliken",basisok,basisreason,.true.)
+call write_bond_method_capability(iu,"fbo",fbook,fboreason,.false.)
+write(iu,"(a)") '    }'
+write(iu,"(a)") '  },'
+end subroutine
+
+subroutine write_bond_method_capability(iu,method,available,reason,appendcomma)
+integer,intent(in) :: iu
+character(len=*),intent(in) :: method,reason
+logical,intent(in) :: available,appendcomma
+character(len=1) :: comma
+
+comma=" "
+if (appendcomma) comma=","
+if (available) then
+    write(iu,"(a,a,a,a)") '      "',trim(method),'": { "available": true }',comma
+else
+    write(iu,"(a,a,a,a,a,a)") '      "',trim(method),'": { "available": false, "reason": "',trim(reason),'" }',comma
+end if
 end subroutine
 
 subroutine write_cube_entry(iu,ncube,name,path,role,orbidx,isoval)

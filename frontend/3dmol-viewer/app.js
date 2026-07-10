@@ -190,6 +190,30 @@ const orbitalPhaseColors = {
   negative: '#5bcefa'
 };
 
+const atomSelectionColor = '#ffd400';
+const atomClickSphereRadius = 0.45;
+const bondPropertyDefinitions = [
+  { id: 'length', label: 'Bond length', backend: false },
+  { id: 'mayer', label: 'Mayer', backend: true },
+  { id: 'gwbo', label: 'GWBO', backend: true, openShellOnly: true },
+  { id: 'wiberg_lowdin', label: 'Wiberg (Lowdin)', backend: true },
+  { id: 'mulliken', label: 'Mulliken', backend: true },
+  { id: 'fbo', label: 'FBO', backend: true }
+];
+
+function defaultBondAnalysisCapabilities() {
+  const reason = 'Multiwfn bond-order backend is unavailable for this session';
+  return {
+    periodicSupported: false,
+    openShell: false,
+    methods: Object.fromEntries(
+      bondPropertyDefinitions
+        .filter((property) => property.backend)
+        .map((property) => [property.id, { available: false, reason }])
+    )
+  };
+}
+
 const roleDefaults = {
   homo: { label: 'HOMO', ...orbitalPhaseColors, isovalue: 0.015 },
   lumo: { label: 'LUMO', ...orbitalPhaseColors, isovalue: 0.015 },
@@ -262,6 +286,24 @@ const state = {
     manifestOrbitalLoads: new Map()
   },
   orbitalShapes: new Map(),
+  atomSelection: {
+    indices: new Set(),
+    model: null,
+    labels: []
+  },
+  bondAnalysis: {
+    capabilities: defaultBondAnalysisCapabilities(),
+    baseCapabilities: defaultBondAnalysisCapabilities(),
+    resultCache: new Map(),
+    annotations: new Map(),
+    requestBusy: false,
+    generation: 0,
+    context: {
+      clickedAtomIndex: null,
+      bonds: [],
+      activeBondKey: ''
+    }
+  },
   activePlot: null,
   selectedCubeFile: null,
   selectedPlotFile: null,
@@ -380,6 +422,12 @@ function getCellVectors() {
 }
 
 function syncPeriodicFromControls() {
+  const previousStructureKey = JSON.stringify({
+    enabled: state.periodic.enabled,
+    cell: state.periodic.cell,
+    ranges: state.periodic.ranges,
+    repeatMode: state.periodic.repeatMode
+  });
   state.periodic.enabled = els.periodicEnabled.checked;
   state.periodic.showUnitCell = els.showUnitCell.checked;
   state.periodic.tileCubes = els.tileCubes.checked;
@@ -395,6 +443,17 @@ function syncPeriodicFromControls() {
   };
   state.periodic.repeatMode = els.structureRepeatMode.value;
   state.periodic.cubeRepeatCap = clamp(parseInt(els.cubeRepeatCap.value, 10) || 8, 1, 27);
+  const nextStructureKey = JSON.stringify({
+    enabled: state.periodic.enabled,
+    cell: state.periodic.cell,
+    ranges: state.periodic.ranges,
+    repeatMode: state.periodic.repeatMode
+  });
+  if (previousStructureKey !== nextStructureKey) {
+    clearAtomSelectionState();
+    clearBondAnalysisState();
+    refreshBondAnalysisCapabilities();
+  }
 }
 
 function parseStructureAtomCount(data, format) {
@@ -637,6 +696,776 @@ function applySceneStyle() {
   state.viewer.spin(els.spin.checked);
 }
 
+function clearAtomSelectionState() {
+  state.atomSelection.indices.clear();
+  state.atomSelection.model = null;
+  state.atomSelection.labels = [];
+}
+
+function resetAtomDecorationReferences() {
+  state.atomSelection.model = null;
+  state.atomSelection.labels = [];
+}
+
+function removeTrackedAtomLabels() {
+  if (!state.viewer) return;
+  state.atomSelection.labels.forEach((label) => {
+    if (label && typeof state.viewer.removeLabel === 'function') state.viewer.removeLabel(label);
+  });
+  state.atomSelection.labels = [];
+}
+
+function atomDisplayIndex(atom, fallback = 0) {
+  const index = Number(atom?.index);
+  return Number.isFinite(index) && index >= 0 ? index : fallback;
+}
+
+function atomDisplayName(atom, fallback = 0) {
+  const element = String(atom?.elem || atom?.atom || 'X');
+  return `${element}${atomDisplayIndex(atom, fallback) + 1}`;
+}
+
+function atomMapForModel(model = state.atomSelection.model) {
+  if (!model || typeof model.selectedAtoms !== 'function') return new Map();
+  return new Map(model.selectedAtoms({}).map((atom, fallback) => [atomDisplayIndex(atom, fallback), atom]));
+}
+
+function bondPairKey(atom1Index, atom2Index) {
+  const low = Math.min(Number(atom1Index), Number(atom2Index));
+  const high = Math.max(Number(atom1Index), Number(atom2Index));
+  return `${low}:${high}`;
+}
+
+function makeSelectedBond(atom1, atom2) {
+  const atom1Index = atomDisplayIndex(atom1);
+  const atom2Index = atomDisplayIndex(atom2);
+  const first = atom1Index <= atom2Index ? atom1 : atom2;
+  const second = atom1Index <= atom2Index ? atom2 : atom1;
+  const firstIndex = atomDisplayIndex(first);
+  const secondIndex = atomDisplayIndex(second);
+  const dx = Number(second.x) - Number(first.x);
+  const dy = Number(second.y) - Number(first.y);
+  const dz = Number(second.z) - Number(first.z);
+  return {
+    key: bondPairKey(firstIndex, secondIndex),
+    atom1Index: firstIndex,
+    atom2Index: secondIndex,
+    atom1Name: atomDisplayName(first, firstIndex),
+    atom2Name: atomDisplayName(second, secondIndex),
+    label: `${atomDisplayName(first, firstIndex)}-${atomDisplayName(second, secondIndex)}`,
+    length: Math.sqrt(dx * dx + dy * dy + dz * dz),
+    atom1Position: { x: Number(first.x), y: Number(first.y), z: Number(first.z) },
+    atom2Position: { x: Number(second.x), y: Number(second.y), z: Number(second.z) },
+    midpoint: {
+      x: (Number(first.x) + Number(second.x)) / 2,
+      y: (Number(first.y) + Number(second.y)) / 2,
+      z: (Number(first.z) + Number(second.z)) / 2
+    }
+  };
+}
+
+function selectedAdjacentBonds(model = state.atomSelection.model) {
+  const atoms = atomMapForModel(model);
+  const selected = state.atomSelection.indices;
+  const bonds = new Map();
+  selected.forEach((atomIndex) => {
+    const atom = atoms.get(atomIndex);
+    if (!atom || !Array.isArray(atom.bonds)) return;
+    atom.bonds.forEach((neighborValue) => {
+      const neighborIndex = Number(neighborValue);
+      if (!selected.has(neighborIndex) || neighborIndex === atomIndex) return;
+      const neighbor = atoms.get(neighborIndex);
+      if (!neighbor) return;
+      const bond = makeSelectedBond(atom, neighbor);
+      bonds.set(bond.key, bond);
+    });
+  });
+  return [...bonds.values()].sort((left, right) => (
+    left.atom1Index - right.atom1Index || left.atom2Index - right.atom2Index
+  ));
+}
+
+function bondPropertyDefinition(method) {
+  return bondPropertyDefinitions.find((property) => property.id === method);
+}
+
+function formatBondValue(method, value) {
+  if (!Number.isFinite(Number(value))) return '';
+  if (method === 'length') return `${Number(value).toFixed(4)} \u00c5`;
+  return Number(value).toFixed(6).replace(/\.?0+$/, '');
+}
+
+function selectedAtomModelStyle() {
+  const style = modelStyle();
+  ['line', 'stick', 'sphere'].forEach((key) => {
+    if (!style[key]) return;
+    delete style[key].colorscheme;
+    style[key].color = atomSelectionColor;
+  });
+  return style;
+}
+
+function addTrackedAtomLabel(text, atom, selected = false) {
+  const label = state.viewer.addLabel(text, {
+    position: { x: atom.x, y: atom.y, z: atom.z },
+    fontSize: clamp(Math.round(state.gui.labelSize / 3), selected ? 10 : 8, 24),
+    fontColor: '#111820',
+    backgroundColor: selected ? '#fff3a3' : 'rgba(255,255,255,0.78)',
+    backgroundOpacity: selected ? 0.92 : 0.72,
+    borderThickness: selected ? 1 : 0.4,
+    borderColor: selected ? '#8a6500' : '#d8e0e6',
+    inFront: selected
+  }, undefined, true);
+  state.atomSelection.labels.push(label);
+}
+
+function atomSelectionSpec(indices) {
+  const values = Array.isArray(indices) ? indices : [indices];
+  return { index: values.length === 1 ? values[0] : values };
+}
+
+function enableAtomContextSelection(model, selection = {}) {
+  if (!model) return;
+  if (typeof model.setStyle === 'function') {
+    model.setStyle(selection, { clicksphere: { radius: atomClickSphereRadius } }, true);
+  }
+  if (typeof model.setClickable === 'function') model.setClickable(selection, true, () => {});
+  if (typeof model.enableContextMenu === 'function') model.enableContextMenu(selection, true);
+}
+
+function applyAtomSelectionStyle(model, indices, selected) {
+  const values = (Array.isArray(indices) ? indices : [indices])
+    .map(Number)
+    .filter((index) => Number.isFinite(index) && index >= 0);
+  if (!model || !values.length || typeof model.setStyle !== 'function') return;
+  const selection = atomSelectionSpec(values);
+  model.setStyle(selection, selected ? selectedAtomModelStyle() : modelStyle());
+  enableAtomContextSelection(model, selection);
+}
+
+function renderAtomSelectionDecorations(model = state.atomSelection.model, options = {}) {
+  removeTrackedAtomLabels();
+  state.atomSelection.model = model || null;
+  if (!model || typeof model.selectedAtoms !== 'function') return [];
+
+  const atoms = model.selectedAtoms({});
+  const validIndices = new Set(atoms.map((atom, index) => atomDisplayIndex(atom, index)));
+  [...state.atomSelection.indices].forEach((index) => {
+    if (!validIndices.has(index)) state.atomSelection.indices.delete(index);
+  });
+  const selectedIndices = [...state.atomSelection.indices];
+  if (options.applyStyles !== false && selectedIndices.length) {
+    applyAtomSelectionStyle(model, selectedIndices, true);
+  }
+
+  if (els.showLabels.checked) {
+    atoms.slice(0, 500).forEach((atom, index) => {
+      if (state.atomSelection.indices.has(atomDisplayIndex(atom, index))) return;
+      addTrackedAtomLabel(atomDisplayName(atom, index), atom);
+    });
+  }
+
+  atoms.forEach((atom, index) => {
+    const atomIndex = atomDisplayIndex(atom, index);
+    if (state.atomSelection.indices.has(atomIndex)) {
+      addTrackedAtomLabel(atomDisplayName(atom, index), atom, true);
+    }
+  });
+  return atoms;
+}
+
+function bondResultCacheKey(bond, method) {
+  return `${state.bondAnalysis.generation}:${bond.key}:${method}`;
+}
+
+function closeBondSubmenu(options = {}) {
+  const focusTarget = els.bondContextMenu?.querySelector('button[aria-expanded="true"]');
+  if (els.bondContextSubmenu) {
+    els.bondContextSubmenu.hidden = true;
+    els.bondContextSubmenu.replaceChildren();
+  }
+  els.bondContextMenu?.querySelectorAll('[aria-expanded="true"]').forEach((button) => {
+    button.setAttribute('aria-expanded', 'false');
+  });
+  state.bondAnalysis.context.activeBondKey = '';
+  if (options.focus && focusTarget) focusTarget.focus();
+}
+
+function closeBondContextMenu() {
+  closeBondSubmenu();
+  if (els.bondContextMenu) {
+    els.bondContextMenu.hidden = true;
+    els.bondContextMenu.replaceChildren();
+  }
+  state.bondAnalysis.context.clickedAtomIndex = null;
+  state.bondAnalysis.context.bonds = [];
+}
+
+function clearBondAnalysisState(options = {}) {
+  closeBondContextMenu();
+  state.bondAnalysis.annotations.forEach((annotation) => annotation.element?.remove());
+  state.bondAnalysis.annotations.clear();
+  state.bondAnalysis.resultCache.clear();
+  state.bondAnalysis.requestBusy = false;
+  state.bondAnalysis.generation += 1;
+  syncBackendRequestControls();
+  if (options.resetCapabilities) {
+    state.bondAnalysis.capabilities = defaultBondAnalysisCapabilities();
+    state.bondAnalysis.baseCapabilities = defaultBondAnalysisCapabilities();
+  }
+  if (els.bondAnnotationLayer) els.bondAnnotationLayer.replaceChildren();
+}
+
+function ensureBondAnnotation(bond, options = {}) {
+  let annotation = state.bondAnalysis.annotations.get(bond.key);
+  if (!annotation) {
+    annotation = {
+      bond: { ...bond, midpoint: { ...bond.midpoint } },
+      results: new Map(),
+      pending: new Set(),
+      visible: true,
+      closeVersion: 0,
+      element: null
+    };
+    state.bondAnalysis.annotations.set(bond.key, annotation);
+  } else {
+    annotation.bond = { ...bond, midpoint: { ...bond.midpoint } };
+  }
+  if (options.show !== false) annotation.visible = true;
+  return annotation;
+}
+
+function hideBondAnnotation(bondKey) {
+  const annotation = state.bondAnalysis.annotations.get(bondKey);
+  if (!annotation) return;
+  annotation.visible = false;
+  annotation.closeVersion += 1;
+  annotation.element?.remove();
+  annotation.element = null;
+  updateBondAnnotationPositions();
+}
+
+function bondPropertyDetail(payload) {
+  const components = payload?.components || {};
+  const parts = [];
+  if (Number.isFinite(Number(components.alpha))) parts.push(`alpha ${formatBondValue(payload.method, components.alpha)}`);
+  if (Number.isFinite(Number(components.beta))) parts.push(`beta ${formatBondValue(payload.method, components.beta)}`);
+  if (Number.isFinite(Number(components.gwbo))) parts.push(`GWBO ${formatBondValue('gwbo', components.gwbo)}`);
+  if (Number.isFinite(Number(components.mixed))) parts.push(`mixed ${formatBondValue(payload.method, components.mixed)}`);
+  return parts.join(', ');
+}
+
+function renderBondAnnotation(annotation) {
+  if (!els.bondAnnotationLayer) return;
+  if (!annotation.visible || (!annotation.results.size && !annotation.pending.size)) {
+    annotation.element?.remove();
+    annotation.element = null;
+    return;
+  }
+  if (!annotation.element) {
+    const element = document.createElement('div');
+    element.className = 'bond-annotation';
+    element.dataset.bondKey = annotation.bond.key;
+
+    const title = document.createElement('div');
+    title.className = 'bond-annotation-title';
+    element.append(title);
+
+    const values = document.createElement('div');
+    values.className = 'bond-annotation-values';
+    element.append(values);
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'bond-annotation-close';
+    closeButton.textContent = 'x';
+    closeButton.title = 'Close bond annotation';
+    closeButton.setAttribute('aria-label', `Close ${annotation.bond.label} annotation`);
+    closeButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      hideBondAnnotation(annotation.bond.key);
+    });
+    element.append(closeButton);
+    els.bondAnnotationLayer.append(element);
+    annotation.element = element;
+  }
+
+  annotation.element.querySelector('.bond-annotation-title').textContent = annotation.bond.label;
+  const values = annotation.element.querySelector('.bond-annotation-values');
+  values.replaceChildren();
+  bondPropertyDefinitions.forEach((property) => {
+    const payload = annotation.results.get(property.id);
+    if (!payload && !annotation.pending.has(property.id)) return;
+    const row = document.createElement('div');
+    row.className = 'bond-annotation-row';
+    if (annotation.pending.has(property.id) && !payload) {
+      row.classList.add('is-pending');
+      row.textContent = `${property.label}: Calculating...`;
+    } else {
+      row.textContent = `${property.label}: ${formatBondValue(property.id, payload.value)}`;
+      const detail = bondPropertyDetail(payload);
+      if (detail) row.title = detail;
+    }
+    values.append(row);
+  });
+}
+
+function rectangleOverlapArea(left, top, width, height, rect) {
+  const overlapWidth = Math.max(0, Math.min(left + width, rect.right) - Math.max(left, rect.left));
+  const overlapHeight = Math.max(0, Math.min(top + height, rect.bottom) - Math.max(top, rect.top));
+  return overlapWidth * overlapHeight;
+}
+
+function updateBondAnnotationPositions() {
+  if (!els.bondAnnotationLayer || !state.viewer) return;
+  const plotVisible = els.plotPanel && !els.plotPanel.classList.contains('is-hidden');
+  const hideLayer = plotVisible || !els.showStructure?.checked || !state.structure.data;
+  els.bondAnnotationLayer.hidden = Boolean(hideLayer);
+  if (hideLayer || typeof state.viewer.modelToScreen !== 'function') return;
+
+  const wrapRect = els.viewerWrap.getBoundingClientRect();
+  const margin = 8;
+  const reserved = [];
+  [els.orientationWidget, ...els.viewerWrap.querySelectorAll('.hud span')].forEach((element) => {
+    if (!element || element.hidden) return;
+    const rect = element.getBoundingClientRect();
+    reserved.push({
+      left: rect.left - wrapRect.left,
+      top: rect.top - wrapRect.top,
+      right: rect.right - wrapRect.left,
+      bottom: rect.bottom - wrapRect.top
+    });
+  });
+  const atoms = atomMapForModel();
+  const atomScreens = [];
+  atoms.forEach((atom) => {
+    const projected = state.viewer.modelToScreen({ x: atom.x, y: atom.y, z: atom.z });
+    if (!projected || !Number.isFinite(projected.x) || !Number.isFinite(projected.y)) return;
+    const x = projected.x - wrapRect.left;
+    const y = projected.y - wrapRect.top;
+    atomScreens.push({ x, y });
+    reserved.push({ left: x - 30, top: y - 30, right: x + 30, bottom: y + 30 });
+  });
+  const atomCenter = atomScreens.length
+    ? atomScreens.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 })
+    : { x: wrapRect.width / 2, y: wrapRect.height / 2 };
+  if (atomScreens.length) {
+    atomCenter.x /= atomScreens.length;
+    atomCenter.y /= atomScreens.length;
+  }
+
+  state.bondAnalysis.annotations.forEach((annotation) => renderBondAnnotation(annotation));
+  state.bondAnalysis.annotations.forEach((annotation) => {
+    const element = annotation.element;
+    if (!element || !annotation.visible) return;
+    const projected = state.viewer.modelToScreen(annotation.bond.midpoint);
+    if (!projected || !Number.isFinite(projected.x) || !Number.isFinite(projected.y)) {
+      element.hidden = true;
+      return;
+    }
+    element.hidden = false;
+    const anchorX = projected.x - wrapRect.left;
+    const anchorY = projected.y - wrapRect.top;
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    const atom1Screen = state.viewer.modelToScreen(annotation.bond.atom1Position);
+    const atom2Screen = state.viewer.modelToScreen(annotation.bond.atom2Position);
+    const bondDx = Number(atom2Screen?.x) - Number(atom1Screen?.x);
+    const bondDy = Number(atom2Screen?.y) - Number(atom1Screen?.y);
+    const bondScreenLength = Math.hypot(bondDx, bondDy) || 1;
+    const normalX = -bondDy / bondScreenLength;
+    const normalY = bondDx / bondScreenLength;
+    const outwardDx = anchorX - atomCenter.x;
+    const outwardDy = anchorY - atomCenter.y;
+    const outwardLength = Math.hypot(outwardDx, outwardDy) || 1;
+    const outwardX = outwardDx / outwardLength;
+    const outwardY = outwardDy / outwardLength;
+    const candidates = [];
+    [100, 140, 180].forEach((offset) => {
+      candidates.push([
+        anchorX + outwardX * offset - width / 2,
+        anchorY + outwardY * offset - height / 2
+      ]);
+    });
+    [88, 120, 152, 184].forEach((offset) => {
+      candidates.push([
+        anchorX + normalX * offset - width / 2,
+        anchorY + normalY * offset - height / 2
+      ]);
+      candidates.push([
+        anchorX - normalX * offset - width / 2,
+        anchorY - normalY * offset - height / 2
+      ]);
+    });
+    candidates.push(
+      [anchorX + 14, anchorY - height / 2],
+      [anchorX - width - 14, anchorY - height / 2],
+      [anchorX - width / 2, anchorY - height - 14],
+      [anchorX - width / 2, anchorY + 14]
+    );
+    const constrainedCandidates = candidates.map(([left, top]) => [
+      clamp(left, margin, Math.max(margin, wrapRect.width - width - margin)),
+      clamp(top, margin, Math.max(margin, wrapRect.height - height - margin))
+    ]);
+    const scored = constrainedCandidates.map(([left, top], index) => ({
+      left,
+      top,
+      index,
+      score: reserved.reduce((sum, rect) => sum + rectangleOverlapArea(left, top, width, height, rect), 0)
+    })).sort((left, right) => left.score - right.score || left.index - right.index);
+    const position = scored[0];
+    element.style.left = `${Math.round(position.left)}px`;
+    element.style.top = `${Math.round(position.top)}px`;
+    reserved.push({
+      left: position.left,
+      top: position.top,
+      right: position.left + width,
+      bottom: position.top + height
+    });
+  });
+}
+
+function bondMenuButtons(menu) {
+  return [...menu.querySelectorAll('button:not(:disabled)')];
+}
+
+function focusBondMenuButton(menu, direction) {
+  const buttons = bondMenuButtons(menu);
+  if (!buttons.length) return;
+  const current = buttons.indexOf(document.activeElement);
+  const next = current < 0 ? 0 : (current + direction + buttons.length) % buttons.length;
+  buttons[next].focus();
+}
+
+function handleBondMenuKeydown(event) {
+  const menu = event.currentTarget;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    focusBondMenuButton(menu, event.key === 'ArrowDown' ? 1 : -1);
+    event.preventDefault();
+    return;
+  }
+  if (event.key === 'ArrowRight' && menu === els.bondContextMenu) {
+    const trigger = document.activeElement?.matches?.('button[data-bond-key]') ? document.activeElement : null;
+    if (trigger) {
+      trigger.click();
+      event.preventDefault();
+    }
+    return;
+  }
+  if ((event.key === 'ArrowLeft' || event.key === 'Escape') && menu === els.bondContextSubmenu) {
+    closeBondSubmenu({ focus: true });
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  if (event.key === 'Escape' && menu === els.bondContextMenu) {
+    closeBondContextMenu();
+    state.viewer?.getCanvas?.().focus?.();
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+
+function appendBondMenuHeading(menu, text) {
+  const heading = document.createElement('div');
+  heading.className = 'bond-context-heading';
+  heading.textContent = text;
+  menu.append(heading);
+}
+
+function appendBondMenuSeparator(menu) {
+  const separator = document.createElement('div');
+  separator.className = 'bond-context-separator';
+  separator.setAttribute('role', 'separator');
+  menu.append(separator);
+}
+
+function createBondMenuButton(label, options = {}) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.setAttribute('role', options.role || 'menuitem');
+  button.disabled = Boolean(options.disabled);
+  if (options.title) button.title = options.title;
+  const text = document.createElement('span');
+  text.className = 'bond-context-label';
+  text.textContent = label;
+  if (options.reason) {
+    const reason = document.createElement('span');
+    reason.className = 'bond-context-reason';
+    reason.textContent = options.reason;
+    text.append(reason);
+  }
+  button.append(text);
+  if (options.value) {
+    const value = document.createElement('span');
+    value.className = 'bond-context-value';
+    value.textContent = options.value;
+    button.append(value);
+  }
+  if (options.onClick) button.addEventListener('click', options.onClick);
+  return button;
+}
+
+function positionBondMenu(menu, left, top) {
+  if (!menu || menu.hidden) return;
+  const margin = 8;
+  const maxLeft = Math.max(margin, els.viewerWrap.clientWidth - menu.offsetWidth - margin);
+  const maxTop = Math.max(margin, els.viewerWrap.clientHeight - menu.offsetHeight - margin);
+  menu.style.left = `${Math.round(clamp(left, margin, maxLeft))}px`;
+  menu.style.top = `${Math.round(clamp(top, margin, maxTop))}px`;
+}
+
+function positionBondSubmenu(trigger, menu) {
+  const wrapRect = els.viewerWrap.getBoundingClientRect();
+  const triggerRect = trigger.getBoundingClientRect();
+  const margin = 8;
+  const gap = 2;
+  const right = triggerRect.right - wrapRect.left + gap;
+  const left = triggerRect.left - wrapRect.left - menu.offsetWidth - gap;
+  const desiredLeft = right + menu.offsetWidth <= els.viewerWrap.clientWidth - margin ? right : left;
+  positionBondMenu(menu, desiredLeft, triggerRect.top - wrapRect.top);
+}
+
+function bondMethodCapability(method) {
+  return state.bondAnalysis.capabilities?.methods?.[method] || {
+    available: false,
+    reason: 'Multiwfn bond-order backend is unavailable for this session'
+  };
+}
+
+function renderBondPropertyMenu(menu, bond) {
+  menu.replaceChildren();
+  appendBondMenuHeading(menu, bond.label);
+  bondPropertyDefinitions.forEach((property) => {
+    if (property.openShellOnly && !state.bondAnalysis.capabilities.openShell) return;
+    const cached = state.bondAnalysis.resultCache.get(bondResultCacheKey(bond, property.id));
+    const capability = property.backend ? bondMethodCapability(property.id) : { available: true };
+    const value = property.id === 'length'
+      ? formatBondValue('length', bond.length)
+      : cached ? formatBondValue(property.id, cached.value) : '';
+    const detail = cached ? bondPropertyDetail(cached) : '';
+    const button = createBondMenuButton(property.label, {
+      value,
+      disabled: property.backend && (
+        !capability.available || state.bondAnalysis.requestBusy || state.gui.orbitalRequestBusy
+      ),
+      reason: property.backend && !capability.available ? capability.reason : '',
+      title: detail || capability.reason || '',
+      onClick: () => {
+        closeBondContextMenu();
+        selectBondProperty(bond, property.id);
+      }
+    });
+    button.dataset.bondMethod = property.id;
+    menu.append(button);
+  });
+}
+
+function openBondPropertySubmenu(trigger, bond) {
+  els.bondContextMenu.querySelectorAll('[aria-expanded="true"]').forEach((button) => {
+    button.setAttribute('aria-expanded', 'false');
+  });
+  trigger.setAttribute('aria-expanded', 'true');
+  state.bondAnalysis.context.activeBondKey = bond.key;
+  renderBondPropertyMenu(els.bondContextSubmenu, bond);
+  els.bondContextSubmenu.hidden = false;
+  positionBondSubmenu(trigger, els.bondContextSubmenu);
+  requestAnimationFrame(() => bondMenuButtons(els.bondContextSubmenu)[0]?.focus());
+}
+
+function deselectAtomIndex(atomIndex) {
+  if (!state.atomSelection.indices.has(atomIndex)) return;
+  const atomName = atomDisplayName(atomMapForModel().get(atomIndex), atomIndex);
+  state.atomSelection.indices.delete(atomIndex);
+  applyAtomSelectionStyle(state.atomSelection.model, atomIndex, false);
+  renderAtomSelectionDecorations(state.atomSelection.model, { applyStyles: false });
+  state.viewer.render();
+  updateBondAnnotationPositions();
+  setStatus(`Deselected atom ${atomName} (${state.atomSelection.indices.size} selected)`);
+}
+
+function clearSelectedAtoms() {
+  const selectedIndices = [...state.atomSelection.indices];
+  if (!selectedIndices.length) return;
+  applyAtomSelectionStyle(state.atomSelection.model, selectedIndices, false);
+  state.atomSelection.indices.clear();
+  renderAtomSelectionDecorations(state.atomSelection.model, { applyStyles: false });
+  state.viewer.render();
+  updateBondAnnotationPositions();
+  setStatus('Atom selection cleared');
+}
+
+function openBondContextMenu(selected, x, y, bonds) {
+  closeBondContextMenu();
+  state.bondAnalysis.context.clickedAtomIndex = Number(selected.index);
+  state.bondAnalysis.context.bonds = bonds;
+  els.bondContextMenu.hidden = false;
+
+  if (bonds.length === 1) {
+    renderBondPropertyMenu(els.bondContextMenu, bonds[0]);
+  } else {
+    appendBondMenuHeading(els.bondContextMenu, 'Selected bonds');
+    bonds.forEach((bond) => {
+      const trigger = createBondMenuButton(bond.label, {
+        value: '>',
+        onClick: () => openBondPropertySubmenu(trigger, bond)
+      });
+      trigger.setAttribute('aria-haspopup', 'menu');
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.dataset.bondKey = bond.key;
+      els.bondContextMenu.append(trigger);
+    });
+  }
+
+  appendBondMenuSeparator(els.bondContextMenu);
+  const clickedName = atomDisplayName(selected, Number(selected.index));
+  els.bondContextMenu.append(createBondMenuButton(`Deselect ${clickedName}`, {
+    onClick: () => {
+      closeBondContextMenu();
+      deselectAtomIndex(Number(selected.index));
+    }
+  }));
+  els.bondContextMenu.append(createBondMenuButton('Clear atom selection', {
+    onClick: () => {
+      closeBondContextMenu();
+      clearSelectedAtoms();
+    }
+  }));
+  positionBondMenu(els.bondContextMenu, x, y);
+  requestAnimationFrame(() => bondMenuButtons(els.bondContextMenu)[0]?.focus());
+}
+
+function cacheRelatedOpenShellResults(bond, payload) {
+  if (!payload?.components) return;
+  if (payload.method === 'mayer' && Number.isFinite(Number(payload.components.gwbo))) {
+    state.bondAnalysis.resultCache.set(bondResultCacheKey(bond, 'gwbo'), {
+      ...payload,
+      method: 'gwbo',
+      value: Number(payload.components.gwbo)
+    });
+  }
+  if (payload.method === 'gwbo' && Number.isFinite(Number(payload.components.total))) {
+    state.bondAnalysis.resultCache.set(bondResultCacheKey(bond, 'mayer'), {
+      ...payload,
+      method: 'mayer',
+      value: Number(payload.components.total)
+    });
+  }
+}
+
+function syncBackendRequestControls() {
+  const busy = Boolean(state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy);
+  [
+    els.guiOrbitalSelect,
+    els.guiOrbitalInput,
+    els.guiOrbitalIsovalue,
+    els.guiOrbitalIsovalueNumber,
+    els.guiOrbPrev,
+    els.guiOrbNext,
+    els.guiMenuQuality
+  ].forEach((control) => {
+    if (control) control.disabled = busy;
+  });
+}
+
+function setBondRequestBusy(busy) {
+  state.bondAnalysis.requestBusy = Boolean(busy);
+  syncBackendRequestControls();
+}
+
+async function selectBondProperty(bond, method) {
+  const annotation = ensureBondAnnotation(bond);
+  const cached = state.bondAnalysis.resultCache.get(bondResultCacheKey(bond, method));
+  if (method === 'length') {
+    const payload = { ok: true, method, value: bond.length, components: { total: bond.length } };
+    state.bondAnalysis.resultCache.set(bondResultCacheKey(bond, method), payload);
+    annotation.results.set(method, payload);
+    renderBondAnnotation(annotation);
+    updateBondAnnotationPositions();
+    setStatus(`${bond.label} length: ${formatBondValue(method, bond.length)}`);
+    return;
+  }
+  if (cached) {
+    annotation.results.set(method, cached);
+    renderBondAnnotation(annotation);
+    updateBondAnnotationPositions();
+    setStatus(`${bondPropertyDefinition(method).label} loaded from cache`);
+    return;
+  }
+  if (state.bondAnalysis.requestBusy || state.gui.orbitalRequestBusy) {
+    setStatus('Multiwfn backend is busy', false);
+    return;
+  }
+
+  const generation = state.bondAnalysis.generation;
+  const closeVersion = annotation.closeVersion;
+  annotation.pending.add(method);
+  renderBondAnnotation(annotation);
+  updateBondAnnotationPositions();
+  setBondRequestBusy(true);
+  const property = bondPropertyDefinition(method);
+  setStatus(`Calculating ${property.label} for ${bond.label}...`);
+  const params = new URLSearchParams({
+    atom1: String(bond.atom1Index + 1),
+    atom2: String(bond.atom2Index + 1),
+    method
+  });
+  try {
+    const response = await fetch(`/api/bond?${params.toString()}`, { cache: 'no-store' });
+    const payload = await response.json();
+    if (!payload.ok) throw new Error(payload.message || `${property.label} calculation failed`);
+    if (!Number.isFinite(Number(payload.value))) throw new Error(`${property.label} returned an invalid value`);
+    payload.value = Number(payload.value);
+    if (generation !== state.bondAnalysis.generation) return;
+    state.bondAnalysis.resultCache.set(bondResultCacheKey(bond, method), payload);
+    cacheRelatedOpenShellResults(bond, payload);
+    annotation.pending.delete(method);
+    annotation.results.set(method, payload);
+    if (annotation.closeVersion === closeVersion) annotation.visible = true;
+    renderBondAnnotation(annotation);
+    updateBondAnnotationPositions();
+    setStatus(`${property.label} for ${bond.label}: ${formatBondValue(method, payload.value)}`);
+  } catch (error) {
+    console.error(error);
+    if (generation === state.bondAnalysis.generation) {
+      annotation.pending.delete(method);
+      renderBondAnnotation(annotation);
+      updateBondAnnotationPositions();
+    }
+    setStatus(error.message || `${property.label} calculation failed`, false);
+  } finally {
+    if (generation === state.bondAnalysis.generation) setBondRequestBusy(false);
+  }
+}
+
+function handleAtomContextMenu(selected, x = 0, y = 0) {
+  if (!selected || !Number.isFinite(Number(selected.index))) {
+    closeBondContextMenu();
+    clearSelectedAtoms();
+    return;
+  }
+
+  const atomIndex = Number(selected.index);
+  const wasSelected = state.atomSelection.indices.has(atomIndex);
+  if (wasSelected) {
+    const bonds = selectedAdjacentBonds();
+    if (bonds.length) {
+      openBondContextMenu(selected, x, y, bonds);
+      return;
+    }
+    state.atomSelection.indices.delete(atomIndex);
+  } else {
+    closeBondContextMenu();
+    state.atomSelection.indices.add(atomIndex);
+  }
+  applyAtomSelectionStyle(state.atomSelection.model, atomIndex, !wasSelected);
+  renderAtomSelectionDecorations(state.atomSelection.model, { applyStyles: false });
+  state.viewer.render();
+  updateBondAnnotationPositions();
+  const action = wasSelected ? 'Deselected' : 'Selected';
+  setStatus(`${action} atom ${atomDisplayName(selected, atomIndex)} (${state.atomSelection.indices.size} selected)`);
+}
+
 function addStructureToViewer() {
   let data = state.structure.data;
   let format = state.structure.format;
@@ -649,32 +1478,13 @@ function addStructureToViewer() {
   try {
     const display = getDisplayStructureData(data, format);
     const model = state.viewer.addModel(display.data, display.format);
-    state.viewer.setStyle({}, modelStyle());
-    if (els.showLabels.checked) addAtomLabels(model);
+    model.setStyle({}, modelStyle());
+    enableAtomContextSelection(model);
+    state.atomSelection.model = model;
     return model;
   } catch (error) {
     setStatus('Structure error', false);
     return null;
-  }
-}
-
-function addAtomLabels(model) {
-  if (!model || typeof model.selectedAtoms !== 'function') return;
-  try {
-    model.selectedAtoms({}).slice(0, 500).forEach((atom, index) => {
-      const label = `${atom.elem || atom.atom || 'X'}${index + 1}`;
-      state.viewer.addLabel(label, {
-        position: { x: atom.x, y: atom.y, z: atom.z },
-        fontSize: clamp(Math.round(state.gui.labelSize / 3), 8, 24),
-        fontColor: '#111820',
-        backgroundColor: 'rgba(255,255,255,0.78)',
-        backgroundOpacity: 0.72,
-        borderThickness: 0.4,
-        borderColor: '#d8e0e6'
-      });
-    });
-  } catch (error) {
-    setStatus('Label skipped', false);
   }
 }
 
@@ -733,6 +1543,11 @@ function syncOrientationView() {
   const baseView = state.orientationBaseView || state.orientationViewer.getView().slice(0, 4);
   state.orientationViewer.setView([...baseView, ...mainView.slice(4, 8)]);
   state.orientationViewer.render();
+}
+
+function syncSceneOverlays() {
+  syncOrientationView();
+  updateBondAnnotationPositions();
 }
 
 function syncAxesControls() {
@@ -799,6 +1614,8 @@ function addCubeLayer(layer) {
         color: colorVolume ? undefined : solidColor
       };
       const addIsosurface = (spec) => {
+        startupMetrics.totalIsosurfaceCalls = (startupMetrics.totalIsosurfaceCalls || 0) + 1;
+        if (els.viewer) els.viewer.dataset.isosurfaceCalls = String(startupMetrics.totalIsosurfaceCalls);
         if (!startupMetrics.ready) {
           startupMetrics.initialIsosurfaceCalls = (startupMetrics.initialIsosurfaceCalls || 0) + 1;
         }
@@ -838,18 +1655,20 @@ function renderScene(zoom = false) {
   if (!startupMetrics.ready) startupMetrics.initialSceneRenders = (startupMetrics.initialSceneRenders || 0) + 1;
 
   state.orbitalShapes.clear();
+  resetAtomDecorationReferences();
   state.viewer.clear();
   applySceneStyle();
-  addStructureToViewer();
+  const structureModel = addStructureToViewer();
   state.layers.filter((layer) => layer.visible).forEach(addCubeLayer);
   drawCellBox();
+  renderAtomSelectionDecorations(structureModel);
 
   if (zoom || state.dirtyZoom) {
     state.viewer.zoomTo();
     state.dirtyZoom = false;
   }
   state.viewer.render();
-  syncOrientationView();
+  syncSceneOverlays();
   updateLabels();
   updateStats();
   syncMultiwfnGuiControls();
@@ -1334,21 +2153,11 @@ function setStyleMenuOpen(open, options = {}) {
 
 function setGuiOrbitalRequestBusy(busy) {
   state.gui.orbitalRequestBusy = Boolean(busy);
-  [
-    els.guiOrbitalSelect,
-    els.guiOrbitalInput,
-    els.guiOrbitalIsovalue,
-    els.guiOrbitalIsovalueNumber,
-    els.guiOrbPrev,
-    els.guiOrbNext,
-    els.guiMenuQuality
-  ].forEach((control) => {
-    if (control) control.disabled = state.gui.orbitalRequestBusy;
-  });
+  syncBackendRequestControls();
 }
 
 async function requestGuiOrbital(index, options = {}) {
-  if (state.gui.orbitalRequestBusy) return;
+  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy) return;
   const orbitalIndex = Number(index) || 0;
   els.guiOrbitalInput.value = String(orbitalIndex);
   if (orbitalIndex <= 0) {
@@ -1465,7 +2274,9 @@ function initializeMultiwfnOrbitalSelection() {
   });
 }
 
-function setStructureData(text, name = 'structure.xyz', format = 'xyz') {
+function setStructureData(text, name = 'structure.xyz', format = 'xyz', options = {}) {
+  clearAtomSelectionState();
+  clearBondAnalysisState({ resetCapabilities: !options.preserveBondCapabilities });
   const normalizedFormat = format === 'auto' ? detectFormat(name) : format;
   state.structure = {
     data: text,
@@ -1484,6 +2295,8 @@ function loadStructure(text, name = 'structure.xyz', format = 'xyz') {
 }
 
 function clearStructure() {
+  clearAtomSelectionState();
+  clearBondAnalysisState({ resetCapabilities: true });
   state.structure = { data: '', name: '', format: 'xyz', atoms: 0, baseData: '' };
   state.dirtyZoom = true;
   setStatus('Structure cleared');
@@ -1670,7 +2483,9 @@ async function setManifestStructure(structureEntry, baseUrl) {
   if (!structureEntry) return false;
   const structureData = await loadTextFromManifestEntry(structureEntry, baseUrl);
   const name = structureEntry.name || structureEntry.path || structureEntry.url || 'structure';
-  setStructureData(structureData, name, structureEntry.format || detectFormat(name));
+  setStructureData(structureData, name, structureEntry.format || detectFormat(name), {
+    preserveBondCapabilities: true
+  });
   return true;
 }
 
@@ -1747,7 +2562,45 @@ async function loadBatchManifest(structureEntry, specs, baseUrl) {
   finishStartup();
 }
 
+function normalizeBondAnalysisCapabilities(source) {
+  const normalized = defaultBondAnalysisCapabilities();
+  if (!source || typeof source !== 'object') return normalized;
+  normalized.periodicSupported = Boolean(source.periodicSupported);
+  normalized.openShell = Boolean(source.openShell);
+  bondPropertyDefinitions.filter((property) => property.backend).forEach((property) => {
+    const incoming = source.methods?.[property.id];
+    if (typeof incoming === 'boolean') {
+      normalized.methods[property.id] = {
+        available: incoming,
+        reason: incoming ? '' : 'This bond-order method is unavailable for the current wavefunction'
+      };
+    } else if (incoming && typeof incoming === 'object') {
+      normalized.methods[property.id] = {
+        available: Boolean(incoming.available),
+        reason: String(incoming.reason || 'This bond-order method is unavailable for the current wavefunction')
+      };
+    }
+  });
+  return normalized;
+}
+
+function refreshBondAnalysisCapabilities() {
+  const base = state.bondAnalysis.baseCapabilities || defaultBondAnalysisCapabilities();
+  const periodicBlocked = Boolean(state.periodic.enabled && !base.periodicSupported);
+  state.bondAnalysis.capabilities = {
+    periodicSupported: Boolean(base.periodicSupported),
+    openShell: Boolean(base.openShell),
+    methods: Object.fromEntries(Object.entries(base.methods || {}).map(([method, capability]) => [
+      method,
+      periodicBlocked
+        ? { available: false, reason: 'Periodic bond-order calculations are not supported in this GUI' }
+        : { available: Boolean(capability.available), reason: String(capability.reason || '') }
+    ]))
+  };
+}
+
 async function loadManifestObject(manifest, baseUrl = '') {
+  state.bondAnalysis.baseCapabilities = normalizeBondAnalysisCapabilities(manifest.bondAnalysis);
   if (manifest.multiwfnGui) {
     state.multiwfnGui = {
       entry: manifest.multiwfnGui.entry || 'standalone',
@@ -1797,6 +2650,7 @@ async function loadManifestObject(manifest, baseUrl = '') {
     els.structureRepeatMode.value = state.periodic.repeatMode || 'range';
     els.cubeRepeatCap.value = state.periodic.cubeRepeatCap || 8;
   }
+  refreshBondAnalysisCapabilities();
 
   const structureEntry = manifest.structure;
   const layerEntries = manifest.cubes || manifest.layers || [];
@@ -1825,6 +2679,7 @@ function saveManifest() {
     format: 'multiwfn-3dmol-workbench',
     version: 1,
     multiwfnGui: state.multiwfnGui,
+    bondAnalysis: state.bondAnalysis.capabilities,
     structure: state.structure.name
       ? {
           name: state.structure.name,
@@ -1884,6 +2739,7 @@ function savePng() {
 function showPlotPanel(show = true) {
   els.plotPanel.classList.toggle('is-hidden', !show);
   updateOrientationVisibility();
+  updateBondAnnotationPositions();
 }
 
 function plotLayout(title) {
@@ -2390,7 +3246,7 @@ function rotateGuiView(direction) {
   if (direction === 'left') state.viewer.rotate(-angle, 'y');
   if (direction === 'right') state.viewer.rotate(angle, 'y');
   state.viewer.render();
-  syncOrientationView();
+  syncSceneOverlays();
 }
 
 function resetGuiView() {
@@ -2421,7 +3277,7 @@ function resetGuiView() {
   state.viewer.setView(resetView);
   state.dirtyZoom = false;
   state.viewer.render();
-  syncOrientationView();
+  syncSceneOverlays();
   setStatus('View reset');
 }
 
@@ -2478,6 +3334,30 @@ function bindTabs() {
 
 function bindEvents() {
   bindTabs();
+
+  [els.bondContextMenu, els.bondContextSubmenu].forEach((menu) => {
+    menu.addEventListener('keydown', handleBondMenuKeydown);
+  });
+  document.addEventListener('click', (event) => {
+    const menuOpen = !els.bondContextMenu.hidden || !els.bondContextSubmenu.hidden;
+    if (menuOpen && !els.bondContextMenu.contains(event.target) && !els.bondContextSubmenu.contains(event.target)) {
+      closeBondContextMenu();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (!els.bondContextSubmenu.hidden) {
+      closeBondSubmenu({ focus: true });
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (!els.bondContextMenu.hidden) {
+      closeBondContextMenu();
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  });
 
   document.querySelectorAll('.gui-mode').forEach((button) => {
     button.addEventListener('click', () => activateGuiMode(button.dataset.guiMode));
@@ -2822,6 +3702,9 @@ function cacheElements() {
   Object.assign(els, {
     viewer: byId('viewer'),
     viewerWrap: document.querySelector('.viewport-wrap'),
+    bondAnnotationLayer: byId('bond-annotation-layer'),
+    bondContextMenu: byId('bond-context-menu'),
+    bondContextSubmenu: byId('bond-context-submenu'),
     orientationWidget: byId('orientation-widget'),
     plotPanel: byId('plot-panel'),
     plotView: byId('plot-view'),
@@ -2997,10 +3880,11 @@ async function init() {
     backgroundColor: backgrounds.white.viewer,
     antialias: true
   });
+  state.viewer.userContextMenuHandler = handleAtomContextMenu;
   initializeOrientationViewer();
   markStartup('viewerCreatedAt');
   if (typeof state.viewer.setViewChangeCallback === 'function') {
-    state.viewer.setViewChangeCallback(syncOrientationView);
+    state.viewer.setViewChangeCallback(syncSceneOverlays);
   }
 
   bindEvents();
@@ -3033,5 +3917,7 @@ window.addEventListener('resize', () => {
   state.viewer.resize();
   state.viewer.render();
   updateOrientationVisibility();
+  updateBondAnnotationPositions();
+  closeBondContextMenu();
   repositionOpenStyleSubmenu();
 });
