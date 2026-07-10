@@ -23,6 +23,11 @@ python3 frontend/qt-multiwfn-gui/qt_multiwfn_gui.py \
   --frontend frontend/3dmol-viewer
 ```
 
+Add `--profile-startup` to print one JSON timing record after the active
+orbital and all background preview layers are ready. The record includes Qt
+import and `QApplication` creation, window construction, WebEngine loading,
+the structure and active-orbital frames, and background-layer completion.
+
 This prototype is intentionally separate from the computational core.  The
 next step is to make the Fortran `module GUI` backend launch this shell and then
 add a process-local callback bridge for commands such as selecting an arbitrary
