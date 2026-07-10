@@ -115,21 +115,53 @@ jobs:
               cp tools/multiwfn_3dmol_server.py "package/$pkg/resources/tools/"
               cp tools/multiwfn_3dmol_file_dialog.py "package/$pkg/resources/tools/"
               cp tools/multiwfn_qt_gui.py "package/$pkg/resources/tools/"
-              cp qt-launcher-dist/multiwfn_qt_gui "package/$pkg/resources/tools/"
-              chmod +x "package/$pkg/resources/tools/multiwfn_qt_gui"
+              cp qt-launcher-dist/multiwfn_qt_gui "package/$pkg/resources/tools/multiwfn_qt_gui.bin"
+              printf '%s\n' \
+                '#!/usr/bin/env bash' \
+                'set -euo pipefail' \
+                'here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"' \
+                'export LD_LIBRARY_PATH="$here/../lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' \
+                'exec "$here/multiwfn_qt_gui.bin" "$@"' \
+                > "package/$pkg/resources/tools/multiwfn_qt_gui"
+              chmod +x "package/$pkg/resources/tools/multiwfn_qt_gui" "package/$pkg/resources/tools/multiwfn_qt_gui.bin"
               cp -R frontend/3dmol-viewer "package/$pkg/resources/frontend/"
               cp -R frontend/qt-multiwfn-gui "package/$pkg/resources/frontend/"
 
-              ldd "package/$pkg/Multiwfn_QtGUI" | tee "package/$pkg/linux-runtime-libs.txt"
-              awk '\''/=> \// {print $3}'\'' "package/$pkg/linux-runtime-libs.txt" | while read -r lib; do
-                base="$(basename "$lib")"
-                case "$base" in
-                  libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
-                    ;;
-                  *)
-                    cp -L -n "$lib" "package/$pkg/resources/lib/"
-                    ;;
-                esac
+              pyqt_root="$(python3.11 -c 'import pathlib, PyQt6; print(pathlib.Path(PyQt6.__file__).resolve().parent)')"
+
+              shopt -s nullglob
+              scan_targets=("package/$pkg/Multiwfn_QtGUI" "package/$pkg/resources/tools/multiwfn_qt_gui.bin")
+              while IFS= read -r elf; do
+                scan_targets+=("$elf")
+              done < <(find "$pyqt_root/Qt6" -type f \( -name "*.so" -o -name "*.so.*" \) -print)
+
+              : > "package/$pkg/linux-runtime-libs.txt"
+              processed=""
+              while :; do
+                changed=0
+                for binary in "${scan_targets[@]}" package/"$pkg"/resources/lib/*.so*; do
+                  [ -e "$binary" ] || continue
+                  case " $processed " in
+                    *" $binary "*) continue ;;
+                  esac
+                  processed="$processed $binary"
+                  ldd "$binary" 2>/dev/null | tee -a "package/$pkg/linux-runtime-libs.txt" || true
+                  while read -r lib; do
+                    [ -n "$lib" ] || continue
+                    base="$(basename "$lib")"
+                    case "$base" in
+                      libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
+                        ;;
+                      *)
+                        if [ ! -f "package/$pkg/resources/lib/$base" ]; then
+                          cp -L "$lib" "package/$pkg/resources/lib/$base"
+                          changed=1
+                        fi
+                        ;;
+                    esac
+                  done < <(ldd "$binary" 2>/dev/null | awk '\''/=> \// {print $3}'\'')
+                done
+                [ "$changed" -eq 1 ] || break
               done
 
               find "package/$pkg" -type f -print0 |
