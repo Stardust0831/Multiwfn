@@ -1,104 +1,178 @@
 # Multiwfn Cross-Platform Build and GUI Experiments
 
-This repository tracks the official Multiwfn source and adds engineering work
-around reproducible builds, CI testing, release packaging, and a new
-visualization frontend experiment.
+## 中文说明
 
-Multiwfn itself is developed by Tian Lu. This repository preserves the upstream
-source license in `LICENSE.txt`; redistributed source and release artifacts must
-carry that license.
+本项目跟进官方 Multiwfn 源码，并围绕它补充标准化的跨平台构建、
+GitHub Actions 自动编译测试、发布包打包、性能/结果一致性检查，以及
+新的可视化 GUI 实验。
 
-## What Is Here
+Multiwfn 本体由 Tian Lu 开发。本仓库保留官方源码许可证
+`LICENSE.txt`；源码分发和 release 包都必须包含这份许可证。
 
-- A CMake-based `Multiwfn_noGUI` build path for Linux, macOS, and Windows.
-- GitHub Actions builds and functional tests for all three platforms.
-- Release packaging that includes `LICENSE.txt` and `settings.ini`.
-- Linux packaging built against a conservative glibc 2.28 baseline and tested
-  in a clean container.
-- Windows packaging that collects required MSYS2/UCRT runtime DLLs and tests
-  the zip outside the MSYS2 development shell.
-- A scheduled upstream-source tracking workflow that can check official
-  Multiwfn source archives and maintain a dedicated tracking branch.
-- A 3Dmol.js/Plotly GUI backend demo under `frontend/3dmol-viewer` and
-  `noGUI/GUI_3dmol.f90`.
-- An experimental Qt shell prototype under `frontend/qt-multiwfn-gui` that
-  mirrors the legacy DISLIN control layout and can host the 3Dmol frontend when
-  QtWebEngine is available.
+### 项目目标
 
-## 3Dmol GUI Demo
+- 为 Linux、macOS、Windows 提供可复现的 CMake/Ninja 构建流程。
+- 每次提交或 PR 都通过 GitHub Actions 自动编译并运行必要检查。
+- 发布包携带运行所需的设置文件、许可证和平台运行库依赖。
+- Linux 包使用较保守的 glibc 2.28 基线，并在干净容器中测试运行。
+- Windows 包收集 MSYS2/UCRT 运行时 DLL，并在非开发 shell 环境中测试。
+- 保留官方 Multiwfn 计算行为，并用功能测试/性能测试检查结果一致性。
+- 在现有基准测试中，当前构建产物相对官方发布包观察到一定计算效率提升。
+- 维护一个可选的官方源码跟踪流程，用于检查上游源码压缩包更新。
+- 探索用 3Dmol.js/Plotly/Qt 替代旧 DISLIN GUI 的跨平台可视化方案。
 
-The GUI work is currently a demo and design prototype. It can be compiled as a
-replacement `module GUI` backend, but it is not a complete replacement for all
-legacy DISLIN callbacks yet.
+### 开发原则
 
-The intended direction is compatibility with Multiwfn's original `GUI.f90`
-interaction model. The web frontend should become a 3Dmol/Plotly backend for
-the existing GUI workflows, not merely a generic cube viewer. The planned
-adapter keeps original entry points such as `drawmolgui`,
-`drawisosurgui(iallowsetstyle)`, `drawplanegui(...)`, and `setboxGUI`, while
-exporting structure, cube, plot, and overlay artifacts for the frontend. The
-current `3dmol` backend writes a session manifest and starts a local HTTP
-service through `tools/multiwfn_3dmol_server.py`.
+本项目原则上前后端分离：Multiwfn 的计算核心应尽量保持官方源码状态，
+GUI、构建系统、CI、打包、测试和文档作为独立工程层维护。
 
-Run the current demo locally:
+通常可以改动：
 
-```sh
-cd frontend/3dmol-viewer
-python3 -m http.server 8080
-```
+- `CMakeLists.txt`、CMake 模块和平台构建脚本。
+- `.github/workflows/` 下的 CI、测试和发布流程。
+- `frontend/`、`tools/`、`docs/`、`tests/` 中的工程化代码。
+- GUI adapter 相关文件，例如 `noGUI/GUI_3dmol.f90`。
 
-Then open `http://127.0.0.1:8080/`.
+通常不应改动计算核心源码。确实需要修改时，应说明原因、影响范围、测试方法，
+并尽量提供和官方版本的数值输出对比。
 
-Current demo features include structure loading, multiple cube layers,
-cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots,
-PNG export, and manifest export. The `Periodic ESP` sample is synthetic test
-data for checking the UI; it is not a physical Multiwfn calculation.
+### GUI 实验
 
-Build the current GUI backend demo:
+当前 GUI 工作仍是实验性原型，目标不是做一个普通 cube 查看器，而是尽量兼容
+Multiwfn 原有 `GUI.f90` 的交互模型。新的前端应接手显示层和交互控件，
+计算仍由 Multiwfn 后端完成。
+
+当前方向包括：
+
+- `frontend/3dmol-viewer`：基于 3Dmol.js/Plotly 的可视化前端。
+- `frontend/qt-multiwfn-gui`：Qt shell 原型，用于替代外部浏览器窗口。
+- `noGUI/GUI_3dmol.f90`：实验性 GUI backend adapter。
+- `tools/multiwfn_3dmol_server.py`：本地 session 服务。
+
+当前 demo 支持结构显示、多 cube 层、cube 染色、周期性显示控制、cube 切片、
+简单二维图、PNG 导出和 manifest 导出。`Periodic ESP` 例子只是 UI 测试数据，
+不是物理 Multiwfn 计算结果。
+
+构建 3Dmol GUI backend：
 
 ```sh
 cmake -S . -B build-3dmol-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol
 cmake --build build-3dmol-gui --parallel
 ```
 
-Run `Multiwfn_3DmolGUI` from a checkout or release package. When a workflow
-invokes a GUI entry point, Multiwfn writes `multiwfn_3dmol_session/`, launches a
-local service, and opens the 3Dmol frontend with the generated manifest.
-
-To build the native Qt shell as the default instead of opening the browser
-service, configure with:
+构建默认打开 Qt shell 的版本：
 
 ```sh
 cmake -S . -B build-qt-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt
 cmake --build build-qt-gui --parallel
 ```
 
-This produces `Multiwfn_QtGUI`. Qt preview release packages bundle a PyInstaller
-`multiwfn_qt_gui` launcher, so GUI entry points open a Qt window by default. In a
-plain source-tree run without the bundled launcher, the Qt shell still requires
-Python with PyQt6 and PyQt6-WebEngine.
+### 普通构建
 
-GUI demo prereleases are published separately from the official-style noGUI
-packages. A tag named `gui-demo-preview-*` triggers the dedicated
-`gui-demo-release` workflow and creates a GitHub prerelease containing Linux,
-macOS, and Windows `Multiwfn_3DmolGUI` demo packages with the frontend, service
-script, adapter notes, `settings.ini`, and `LICENSE.txt`.
+当前 CMake 默认构建 `Multiwfn_noGUI`：
 
-A separate tag named `gui-qt-preview-*` creates Qt-first prerelease packages.
-Those packages contain `Multiwfn_QtGUI`, the same frontend resources, and a
-bundled native Qt launcher; they do not use the external browser service as the
-default UI path.
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
 
-See:
+官方原始 `Makefile` 保留用于传统构建路径。CMake 路径主要服务于 CI、
+跨平台打包和可复现构建。
 
-- `frontend/3dmol-viewer/README.md`
-- `frontend/qt-multiwfn-gui/README.md`
-- `docs/3dmol_gui_adapter.md`
-- `docs/visualization.md`
+### 参与贡献
 
-## Builds
+欢迎外部测试、issue 和 pull request。尤其欢迎：
 
-The CMake build currently targets `Multiwfn_noGUI`:
+- 在干净系统中测试 release 包。
+- 报告跨平台构建、运行、打包、性能和结果一致性问题。
+- 提供小型公开测试体系和复现实例。
+- 改进 CMake、CI、release packaging、文档和 GUI adapter。
+- 帮助新 GUI 更接近原版 DISLIN GUI 的按钮和交互逻辑。
+
+请阅读 `CONTRIBUTING.md` 了解 issue、PR、许可证和贡献者记录方式。
+
+## English
+
+This repository tracks the official Multiwfn source code and adds standardized
+cross-platform builds, GitHub Actions CI, release packaging, performance and
+result-consistency checks, and experimental visualization GUI work.
+
+Multiwfn itself is developed by Tian Lu. This repository preserves the upstream
+source license in `LICENSE.txt`; redistributed source and release artifacts must
+carry that license.
+
+### Goals
+
+- Provide reproducible CMake/Ninja builds for Linux, macOS, and Windows.
+- Run GitHub Actions builds and required checks for commits and pull requests.
+- Package releases with required settings, license files, and runtime
+  dependencies.
+- Build Linux packages against a conservative glibc 2.28 baseline and test them
+  in clean containers.
+- Collect MSYS2/UCRT runtime DLLs for Windows packages and test them outside the
+  development shell.
+- Preserve official Multiwfn computational behavior and check output
+  consistency through functional and performance tests.
+- In current benchmark cases, the packaged builds show some performance
+  improvement over the official release packages.
+- Maintain optional upstream-source tracking for official Multiwfn source
+  archive updates.
+- Explore a cross-platform 3Dmol.js/Plotly/Qt visualization frontend that can
+  replace the legacy DISLIN GUI.
+
+### Development Principles
+
+The project follows a frontend/backend separation model. The Multiwfn
+computational core should stay as close as possible to the official source. GUI,
+build, CI, packaging, tests, and documentation are maintained as independent
+engineering layers around it.
+
+Changes are normally expected in:
+
+- `CMakeLists.txt`, CMake modules, and platform build scripts.
+- CI, test, and release workflows under `.github/workflows/`.
+- Engineering code under `frontend/`, `tools/`, `docs/`, and `tests/`.
+- GUI adapter files such as `noGUI/GUI_3dmol.f90`.
+
+Computational core changes should be avoided unless necessary. When they are
+needed, please describe the reason, scope, test method, and numerical comparison
+against an official Multiwfn build.
+
+### GUI Experiments
+
+The GUI work is still experimental. The goal is not a generic cube viewer; the
+new frontend should mirror the original `GUI.f90` interaction model as much as
+possible while leaving calculations in the Multiwfn backend.
+
+Current pieces:
+
+- `frontend/3dmol-viewer`: 3Dmol.js/Plotly visualization frontend.
+- `frontend/qt-multiwfn-gui`: Qt shell prototype for an application window.
+- `noGUI/GUI_3dmol.f90`: experimental GUI backend adapter.
+- `tools/multiwfn_3dmol_server.py`: local session service.
+
+Current demo features include structure display, multiple cube layers,
+cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots,
+PNG export, and manifest export. The `Periodic ESP` sample is synthetic UI test
+data, not a physical Multiwfn calculation.
+
+Build the 3Dmol GUI backend:
+
+```sh
+cmake -S . -B build-3dmol-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol
+cmake --build build-3dmol-gui --parallel
+```
+
+Build the Qt-shell variant:
+
+```sh
+cmake -S . -B build-qt-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt
+cmake --build build-qt-gui --parallel
+```
+
+### Build
+
+The default CMake build currently targets `Multiwfn_noGUI`:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -106,30 +180,21 @@ cmake --build build --parallel
 ```
 
 The original upstream `Makefile` is kept for the traditional upstream build
-path. The CMake path is intentionally narrow and CI-oriented.
-
-Passing `-DMULTIWFN_GUI_BACKEND=3dmol` switches the CMake build from the legacy
-DISLIN GUI module to the demo 3Dmol backend and produces `Multiwfn_3DmolGUI`.
+path. The CMake path is focused on CI, cross-platform packaging, and
+reproducible builds.
 
 See `docs/build.md` and `docs/release.md` for platform details.
 
-## Contributing
+### Contributing
 
-Pull requests and issues are welcome.
+External testing, issues, and pull requests are welcome. Useful areas include:
 
-Useful areas for contribution:
+- Testing release packages on clean systems.
+- Reporting cross-platform build, runtime, packaging, performance, or output
+  consistency issues.
+- Adding compact public fixtures and reproducible examples.
+- Improving CMake, CI, release packaging, documentation, and GUI adapters.
+- Making the new GUI closer to the original DISLIN GUI buttons and workflows.
 
-- Cross-platform build reliability and packaging.
-- Functional tests with compact public fixtures.
-- Performance benchmarks and reproducibility checks.
-- 3Dmol/Plotly GUI work that mirrors the original Multiwfn GUI modes.
-- Artifact/manifest design for connecting `GUI.f90` workflows to the new
-  frontend.
-- Documentation of platform-specific build and runtime behavior.
-
-For GUI work, please keep the original Multiwfn interaction model in mind. New
-controls should map back to existing GUI concepts where possible, so the future
-adapter can replace the DISLIN GUI backend without rewriting computational
-modules.
-
-Please open an issue for design discussion before large refactors.
+Please read `CONTRIBUTING.md` for issue, PR, license, and contributor
+recognition guidelines.
