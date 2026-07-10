@@ -77,11 +77,17 @@ body:
       description: Provide the input file type and a small public reproducer when possible.
 
   - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Include relevant error output or terminal logs.
+      render: shell
+
+  - type: textarea
     id: evidence
     attributes:
-      label: Logs, screenshots, or comparisons
-      description: Include relevant error output, screenshots, timings, or numerical comparisons.
-      render: shell
+      label: Screenshots or comparisons
+      description: Include screenshots, timings, numerical comparisons, or other supporting evidence.
 
   - type: textarea
     id: gui-scope
