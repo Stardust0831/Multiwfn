@@ -21,6 +21,8 @@ import threading
 import time
 import urllib.parse
 
+PROCESS_STARTED_AT = time.perf_counter()
+
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
@@ -56,6 +58,8 @@ try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
 except Exception:  # pragma: no cover - depends on optional runtime package
     QWebEngineView = None
+
+QT_IMPORTED_AT = time.perf_counter()
 
 
 ORBITAL_REQUEST_LOCK = threading.Lock()
@@ -256,8 +260,27 @@ class LocalFrontendServer:
 
 
 class MultiwfnQtGui(QMainWindow):
-    def __init__(self, manifest_path: Path, frontend_dir: Path | None = None):
+    def __init__(
+        self,
+        manifest_path: Path,
+        frontend_dir: Path | None = None,
+        *,
+        profile_startup: bool = False,
+        application_created_at_ms: float | None = None,
+    ):
+        window_init_started = time.perf_counter()
         super().__init__()
+        self.profile_startup = profile_startup
+        self.startup_marks = {
+            "processStartedAt": 0.0,
+            "qtImportedAt": (QT_IMPORTED_AT - PROCESS_STARTED_AT) * 1000.0,
+            "windowInitStartedAt": (window_init_started - PROCESS_STARTED_AT) * 1000.0,
+        }
+        if application_created_at_ms is not None:
+            self.startup_marks["applicationCreatedAt"] = application_created_at_ms
+        self.profile_timer: QTimer | None = None
+        self.profile_poll_pending = False
+        self.profile_reported = False
         self.manifest_path = manifest_path.resolve()
         self.session_dir = self.manifest_path.parent
         cleanup_session_files(self.session_dir, startup=True)
@@ -281,6 +304,15 @@ class MultiwfnQtGui(QMainWindow):
         self._build_ui()
         self._load_manifest()
         self._start_stop_watcher()
+        self._mark_startup("windowConstructedAt")
+        self._start_startup_profiler()
+
+    def _mark_startup(self, name: str) -> None:
+        if self.profile_startup:
+            self.startup_marks[name] = (time.perf_counter() - PROCESS_STARTED_AT) * 1000.0
+
+    def mark_window_shown(self) -> None:
+        self._mark_startup("windowShownAt")
 
     def _build_menu(self) -> None:
         if self.web_only:
@@ -373,7 +405,7 @@ class MultiwfnQtGui(QMainWindow):
         if self.web_only:
             self.setCentralWidget(self._viewer_widget())
             self.setStatusBar(QStatusBar())
-            self.statusBar().showMessage("Ready")
+            self.statusBar().showMessage("Starting 3D viewer...")
             return
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -560,9 +592,14 @@ class MultiwfnQtGui(QMainWindow):
     def _viewer_widget(self) -> QWidget:
         if QWebEngineView and self.frontend_dir and self.frontend_dir.is_dir():
             self.web_view = QWebEngineView()
+            if self.profile_startup:
+                self.web_view.loadStarted.connect(lambda: self._mark_startup("webLoadStartedAt"))
+                self.web_view.loadFinished.connect(self._web_load_finished)
             self.server = LocalFrontendServer(self.frontend_dir, self.session_dir, self.manifest_path)
             url = self.server.start()
+            self._mark_startup("serverStartedAt")
             self.web_view.setUrl(QUrl(url))
+            self._mark_startup("urlSetAt")
             return self.web_view
 
         widget = QTextBrowser()
@@ -689,6 +726,42 @@ class MultiwfnQtGui(QMainWindow):
         self.stop_timer.timeout.connect(self._check_stop_flag)
         self.stop_timer.start()
 
+    def _web_load_finished(self, ok: bool) -> None:
+        self._mark_startup("webLoadFinishedAt" if ok else "webLoadFailedAt")
+
+    def _start_startup_profiler(self) -> None:
+        if not self.profile_startup or not self.web_view:
+            return
+        self.profile_timer = QTimer(self)
+        self.profile_timer.setInterval(50)
+        self.profile_timer.timeout.connect(self._poll_startup_profile)
+        self.profile_timer.start()
+
+    def _poll_startup_profile(self) -> None:
+        if self.profile_poll_pending or self.profile_reported or not self.web_view:
+            return
+        self.profile_poll_pending = True
+        self.web_view.page().runJavaScript(
+            "(() => { const value = window.__multiwfnStartup; "
+            "return value?.ready && Number.isFinite(value.backgroundLayersReadyAt) ? value : null; })()",
+            self._handle_startup_profile,
+        )
+
+    def _handle_startup_profile(self, frontend_metrics) -> None:
+        self.profile_poll_pending = False
+        if not frontend_metrics or self.profile_reported:
+            return
+        self.profile_reported = True
+        self._mark_startup("frontendReadyAt")
+        if self.profile_timer:
+            self.profile_timer.stop()
+        payload = {
+            "python": self.startup_marks,
+            "frontend": frontend_metrics,
+            "totalMs": (time.perf_counter() - PROCESS_STARTED_AT) * 1000.0,
+        }
+        print("[multiwfn-qt-startup] " + json.dumps(payload, separators=(",", ":")), file=sys.stderr, flush=True)
+
     def _check_stop_flag(self) -> None:
         if (self.session_dir / "gui_stop.flag").is_file():
             self.close()
@@ -696,6 +769,8 @@ class MultiwfnQtGui(QMainWindow):
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API name
         if self.stop_timer:
             self.stop_timer.stop()
+        if self.profile_timer:
+            self.profile_timer.stop()
         try:
             (self.session_dir / "gui_stop.flag").write_text("return\n", encoding="utf-8")
         except OSError:
@@ -709,6 +784,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Qt prototype shell for Multiwfn GUI sessions")
     parser.add_argument("--manifest", default="multiwfn_3dmol_session/manifest.json")
     parser.add_argument("--frontend", default=None, help="Path to frontend/3dmol-viewer")
+    parser.add_argument("--profile-startup", action="store_true", help="Print Qt and frontend startup timings")
     args = parser.parse_args(argv)
 
     manifest = Path(args.manifest)
@@ -718,6 +794,7 @@ def main(argv: list[str] | None = None) -> int:
     frontend = Path(args.frontend) if args.frontend else None
 
     app = QApplication(sys.argv)
+    application_created_at_ms = (time.perf_counter() - PROCESS_STARTED_AT) * 1000.0
     app.setStyleSheet(
         """
         #controlPanel { background: #f3f5f6; border-left: 1px solid #c9d0d3; }
@@ -730,8 +807,14 @@ def main(argv: list[str] | None = None) -> int:
         QListWidget { font-family: Consolas, Menlo, monospace; }
         """
     )
-    window = MultiwfnQtGui(manifest, frontend)
+    window = MultiwfnQtGui(
+        manifest,
+        frontend,
+        profile_startup=args.profile_startup,
+        application_created_at_ms=application_created_at_ms,
+    )
     window.show()
+    window.mark_window_shown()
     return app.exec()
 
 

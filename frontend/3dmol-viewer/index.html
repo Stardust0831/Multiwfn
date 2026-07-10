@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Multiwfn 3Dmol GUI</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
-    <script src="https://cdn.plot.ly/plotly-3.0.1.min.js"></script>
+    <script defer src="vendor/3Dmol-min.js"></script>
+    <script defer src="app.js"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -16,7 +16,7 @@
             <h1>Multiwfn</h1>
             <p id="gui-entry-label">3Dmol GUI</p>
           </div>
-          <span id="status">Ready</span>
+          <span id="status">Starting renderer...</span>
         </header>
 
         <section class="multiwfn-gui" aria-label="Multiwfn GUI controls">
@@ -721,6 +721,5 @@
         </div>
       </section>
     </main>
-    <script src="app.js"></script>
   </body>
 </html>

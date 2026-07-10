@@ -7,6 +7,10 @@ The frontend should mirror Multiwfn's original `GUI.f90` modes where possible.
 It is a 3Dmol/Plotly backend for Multiwfn GUI workflows, not merely a generic
 cube-file viewer.
 
+3Dmol.js is loaded from `vendor/` during startup, so the molecular viewer works
+without network access. Plotly is also vendored but is loaded only when the
+first 2D curve or heatmap is requested.
+
 Implemented:
 
 - Load molecular structures from XYZ/PDB/SDF/MOL2/PQR text files.
@@ -100,6 +104,13 @@ so use a static server for manifest-based workflows.
 - `GLViewer.addModel(data, format, options)` for molecular structures.
 - `VolumeData(data, "cube")` and `GLViewer.addIsosurface(...)` for cube
   isosurfaces.
+
+Vendored third-party assets:
+
+| Asset | Upstream source | SHA-256 | License |
+| --- | --- | --- | --- |
+| 3Dmol.js 2.5.5 | `https://3Dmol.org/build/3Dmol-min.js` | `e5b7daf4264660c6514ce0474e2d7b8dc582fb7186fa5def60b6be553b87ea4a` | `vendor/3Dmol-min.js.LICENSE.txt` |
+| Plotly.js 3.0.1 | `https://cdn.plot.ly/plotly-3.0.1.min.js` | `a32e817bb121e9e89016ce4cee85ee3f1c66f6a6c95c4b53a5f488f77756d7a4` | `vendor/plotly-LICENSE.txt` |
 
 Run locally from this directory with any static server, for example:
 

@@ -1,3 +1,31 @@
+const startupMetrics = {
+  scriptStartedAt: performance.now(),
+  ready: false
+};
+
+function startupSnapshot() {
+  const snapshot = { ...startupMetrics };
+  if (Array.isArray(startupMetrics.resources)) {
+    snapshot.resources = startupMetrics.resources.map((resource) => Object.freeze({ ...resource }));
+    Object.freeze(snapshot.resources);
+  }
+  return Object.freeze(snapshot);
+}
+
+Object.defineProperty(window, '__multiwfnStartup', {
+  configurable: false,
+  get: startupSnapshot
+});
+
+function markStartup(name, details = {}) {
+  startupMetrics[name] = performance.now();
+  Object.assign(startupMetrics, details);
+}
+
+function nextPaint() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
 const sampleXYZ = `3
 water
 O 0.000000 0.000000 0.000000
@@ -230,7 +258,8 @@ const state = {
     orbitalRequestBusy: false,
     orbitalOpacity: 0.68,
     orbitalIsovalue: 0.015,
-    pendingOrbitalIndex: 0
+    pendingOrbitalIndex: 0,
+    manifestOrbitalLoads: new Map()
   },
   orbitalShapes: new Map(),
   activePlot: null,
@@ -769,7 +798,12 @@ function addCubeLayer(layer) {
         isoval: signedIsovalue,
         color: colorVolume ? undefined : solidColor
       };
-      const addIsosurface = (spec) => registerOrbitalShape(layer, state.viewer.addIsosurface(volume, spec));
+      const addIsosurface = (spec) => {
+        if (!startupMetrics.ready) {
+          startupMetrics.initialIsosurfaceCalls = (startupMetrics.initialIsosurfaceCalls || 0) + 1;
+        }
+        return registerOrbitalShape(layer, state.viewer.addIsosurface(volume, spec));
+      };
       if (surfaceStyle === 'mesh' || surfaceStyle === 'points') {
         addIsosurface({
           ...baseSpec,
@@ -801,6 +835,7 @@ function addCubeLayer(layer) {
 
 function renderScene(zoom = false) {
   if (!state.viewer) return;
+  if (!startupMetrics.ready) startupMetrics.initialSceneRenders = (startupMetrics.initialSceneRenders || 0) + 1;
 
   state.orbitalShapes.clear();
   state.viewer.clear();
@@ -1312,13 +1347,49 @@ function setGuiOrbitalRequestBusy(busy) {
   });
 }
 
-async function requestGuiOrbital(index) {
+async function requestGuiOrbital(index, options = {}) {
   if (state.gui.orbitalRequestBusy) return;
   const orbitalIndex = Number(index) || 0;
   els.guiOrbitalInput.value = String(orbitalIndex);
   if (orbitalIndex <= 0) {
     clearGuiOrbitalSelection();
     return;
+  }
+
+  if (!options.forceRecompute) {
+    const existing = layerForOrbital(orbitalIndex);
+    if (existing) {
+      state.gui.pendingOrbitalIndex = 0;
+      setActiveGuiLayer(String(existing.id), { orbitalSelection: true });
+      setOrbitalStatus(`Orbital ${orbitalIndex} loaded`);
+      setStatus(`Orbital ${orbitalIndex} loaded`);
+      renderGuiOrbitalList();
+      return;
+    }
+
+    const manifestSpec = state.gui.manifestOrbitalLoads.get(orbitalIndex);
+    if (manifestSpec) {
+      state.gui.pendingOrbitalIndex = orbitalIndex;
+      setGuiOrbitalRequestBusy(true);
+      setOrbitalStatus(`Loading pre-generated orbital ${orbitalIndex}...`);
+      setStatus(`Loading pre-generated orbital ${orbitalIndex}...`);
+      renderGuiOrbitalList();
+      try {
+        const layer = await ensureManifestLayerLoaded(manifestSpec);
+        state.gui.pendingOrbitalIndex = 0;
+        setActiveGuiLayer(String(layer.id), { orbitalSelection: true });
+        setOrbitalStatus(`Orbital ${orbitalIndex} loaded`);
+        setStatus(`Orbital ${orbitalIndex} loaded`);
+      } catch (error) {
+        console.error(error);
+        setOrbitalStatus(`Orbital ${orbitalIndex} could not be loaded`, false);
+        setStatus(`Orbital ${orbitalIndex} could not be loaded`, false);
+      } finally {
+        setGuiOrbitalRequestBusy(false);
+        renderGuiOrbitalList();
+      }
+      return;
+    }
   }
 
   state.gui.pendingOrbitalIndex = orbitalIndex;
@@ -1382,7 +1453,7 @@ function initializeMultiwfnOrbitalSelection() {
   });
 }
 
-function loadStructure(text, name = 'structure.xyz', format = 'xyz') {
+function setStructureData(text, name = 'structure.xyz', format = 'xyz') {
   const normalizedFormat = format === 'auto' ? detectFormat(name) : format;
   state.structure = {
     data: text,
@@ -1392,6 +1463,10 @@ function loadStructure(text, name = 'structure.xyz', format = 'xyz') {
     baseData: text
   };
   state.dirtyZoom = true;
+}
+
+function loadStructure(text, name = 'structure.xyz', format = 'xyz') {
+  setStructureData(text, name, format);
   setStatus('Structure loaded');
   renderScene(true);
 }
@@ -1432,11 +1507,18 @@ function layerFromCube(text, options = {}) {
   };
 }
 
-function addLayer(text, options = {}) {
+function appendLayer(text, options = {}, assignedId = null) {
   const layer = layerFromCube(text, options);
-  state.nextLayerId += 1;
+  if (assignedId !== null) layer.id = assignedId;
+  state.nextLayerId = Math.max(state.nextLayerId, Number(layer.id) + 1);
   state.layers.push(layer);
+  state.layers.sort((left, right) => Number(left.id) - Number(right.id));
   state.dirtyZoom = true;
+  return layer;
+}
+
+function addLayer(text, options = {}) {
+  const layer = appendLayer(text, options);
   renderLayerList();
   updateLayerSelectors();
   setStatus('Cube loaded');
@@ -1506,6 +1588,153 @@ async function loadTextFromManifestEntry(entry, baseUrl) {
   return response.text();
 }
 
+function manifestLayerOptions(entry, visible = entry.visible !== false) {
+  const role = entry.role || entry.kind || 'custom';
+  return {
+    ...entry,
+    role,
+    visible,
+    name: entry.name || entry.path || entry.url || `${roleLabel(role)}.cube`
+  };
+}
+
+function registerManifestLayerSpecs(entries, baseUrl) {
+  const firstId = state.nextLayerId;
+  const specs = entries.map((entry, index) => ({
+    entry,
+    baseUrl,
+    id: firstId + index,
+    index,
+    visible: entry.visible !== false,
+    dataPromise: null,
+    promise: null,
+    layer: null
+  }));
+  state.nextLayerId += specs.length;
+  state.gui.manifestOrbitalLoads.clear();
+  specs.forEach((spec) => {
+    const orbitalIndex = Number(spec.entry.orbitalIndex || 0);
+    if (orbitalIndex > 0 && !state.gui.manifestOrbitalLoads.has(orbitalIndex)) {
+      state.gui.manifestOrbitalLoads.set(orbitalIndex, spec);
+    }
+  });
+  return specs;
+}
+
+function startManifestLayerFetch(spec) {
+  if (!spec.dataPromise) spec.dataPromise = loadTextFromManifestEntry(spec.entry, spec.baseUrl);
+  return spec.dataPromise;
+}
+
+async function ensureManifestLayerLoaded(spec, visible = undefined) {
+  if (visible !== undefined) spec.visible = Boolean(visible);
+  if (spec.layer) {
+    if (visible !== undefined) spec.layer.visible = spec.visible;
+    return spec.layer;
+  }
+  if (!spec.promise) {
+    spec.promise = startManifestLayerFetch(spec)
+      .then((cubeData) => {
+        spec.layer = appendLayer(cubeData, manifestLayerOptions(spec.entry, spec.visible), spec.id);
+        return spec.layer;
+      })
+      .catch((error) => {
+        spec.promise = null;
+        throw error;
+      });
+  }
+  return spec.promise;
+}
+
+function initialManifestLayerSpec(specs) {
+  const homoIndex = Number(state.orbitals.homoIndex || 0);
+  return specs.find((spec) => Number(spec.entry.orbitalIndex || 0) === homoIndex)
+    || specs.find((spec) => (spec.entry.role || spec.entry.kind) === 'orbital')
+    || specs[0]
+    || null;
+}
+
+async function setManifestStructure(structureEntry, baseUrl) {
+  if (!structureEntry) return false;
+  const structureData = await loadTextFromManifestEntry(structureEntry, baseUrl);
+  const name = structureEntry.name || structureEntry.path || structureEntry.url || 'structure';
+  setStructureData(structureData, name, structureEntry.format || detectFormat(name));
+  return true;
+}
+
+function finishStartup() {
+  const resources = performance.getEntriesByType('resource')
+    .filter((entry) => /3Dmol|plotly|app\.js|manifest|\.cube/.test(entry.name))
+    .map((entry) => ({
+      name: entry.name,
+      duration: entry.duration,
+      transferSize: entry.transferSize,
+      encodedBodySize: entry.encodedBodySize
+    }));
+  markStartup('readyAt', { ready: true, resources });
+}
+
+async function preloadManifestLayers(specs) {
+  const results = await Promise.allSettled(specs.map((spec) => ensureManifestLayerLoaded(spec, false)));
+  results.forEach((result) => {
+    if (result.status === 'rejected') console.error(result.reason);
+  });
+  renderLayerList();
+  updateLayerSelectors();
+  updateLabels();
+  updateStats();
+  markStartup('backgroundLayersReadyAt', {
+    backgroundLayerCount: results.filter((result) => result.status === 'fulfilled').length
+  });
+}
+
+async function loadDrawMolManifest(structureEntry, specs, baseUrl) {
+  const activeSpec = initialManifestLayerSpec(specs);
+  const activeDataPromise = activeSpec ? startManifestLayerFetch(activeSpec) : null;
+
+  setStatus('Loading structure...');
+  if (await setManifestStructure(structureEntry, baseUrl)) {
+    renderScene(true);
+    markStartup('structureRenderedAt');
+    await nextPaint();
+  }
+
+  if (activeSpec) {
+    setStatus(`Loading orbital ${activeSpec.entry.orbitalIndex || activeSpec.index + 1}...`);
+    await activeDataPromise;
+    const activeLayer = await ensureManifestLayerLoaded(activeSpec, true);
+    state.gui.activeLayerId = String(activeLayer.id);
+    state.layers.forEach((layer) => { layer.visible = layer.id === activeLayer.id; });
+    renderLayerList();
+    updateLayerSelectors();
+    renderScene(true);
+    markStartup('activeOrbitalRenderedAt', { activeOrbitalIndex: Number(activeLayer.orbitalIndex || 0) });
+  } else if (!structureEntry) {
+    renderScene(true);
+    markStartup('structureRenderedAt');
+  }
+
+  setStatus('Manifest loaded');
+  finishStartup();
+  const backgroundSpecs = specs.filter((spec) => spec !== activeSpec);
+  if (backgroundSpecs.length) void preloadManifestLayers(backgroundSpecs);
+  else markStartup('backgroundLayersReadyAt', { backgroundLayerCount: 0 });
+}
+
+async function loadBatchManifest(structureEntry, specs, baseUrl) {
+  await setManifestStructure(structureEntry, baseUrl);
+  for (const spec of specs) await ensureManifestLayerLoaded(spec);
+  initializeMultiwfnOrbitalSelection();
+  renderLayerList();
+  updateLayerSelectors();
+  renderScene(true);
+  markStartup('structureRenderedAt');
+  if (state.layers.some(isOrbitalLayer)) markStartup('activeOrbitalRenderedAt');
+  markStartup('backgroundLayersReadyAt', { backgroundLayerCount: specs.length });
+  setStatus('Manifest loaded');
+  finishStartup();
+}
+
 async function loadManifestObject(manifest, baseUrl = '') {
   if (manifest.multiwfnGui) {
     state.multiwfnGui = {
@@ -1558,35 +1787,16 @@ async function loadManifestObject(manifest, baseUrl = '') {
   }
 
   const structureEntry = manifest.structure;
-  if (structureEntry) {
-    const structureData = await loadTextFromManifestEntry(structureEntry, baseUrl);
-    loadStructure(
-      structureData,
-      structureEntry.name || structureEntry.path || structureEntry.url || 'structure',
-      structureEntry.format || detectFormat(structureEntry.name || structureEntry.path || structureEntry.url)
-    );
-  }
-
   const layerEntries = manifest.cubes || manifest.layers || [];
   if (manifest.replaceLayers !== false) {
     state.layers = [];
     state.nextLayerId = 1;
   }
-
-  for (const entry of layerEntries) {
-    const cubeData = await loadTextFromManifestEntry(entry, baseUrl);
-    const role = entry.role || entry.kind || 'custom';
-    addLayer(cubeData, {
-      ...entry,
-      role,
-      name: entry.name || entry.path || entry.url || `${roleLabel(role)}.cube`
-    });
-  }
-
-  initializeMultiwfnOrbitalSelection();
-  renderLayerList();
-  renderScene(true);
-  setStatus('Manifest loaded');
+  const specs = registerManifestLayerSpecs(layerEntries, baseUrl);
+  const drawMolGui = String(state.multiwfnGui.entry || '').toLowerCase().includes('drawmol')
+    && manifest.replaceLayers !== false;
+  if (drawMolGui) await loadDrawMolManifest(structureEntry, specs, baseUrl);
+  else await loadBatchManifest(structureEntry, specs, baseUrl);
 }
 
 async function loadManifestText(text, baseUrl = '') {
@@ -1674,36 +1884,75 @@ function plotLayout(title) {
   };
 }
 
-function drawHeatmap(title, matrix, colorscale, zmin = null, zmax = null) {
-  if (!window.Plotly) {
-    setStatus('Plotly missing', false);
-    return;
-  }
-  showPlotPanel(true);
-  const trace = {
-    type: 'heatmap',
-    z: matrix,
-    colorscale,
-    colorbar: { thickness: 14 }
-  };
-  if (Number.isFinite(zmin)) trace.zmin = zmin;
-  if (Number.isFinite(zmax)) trace.zmax = zmax;
-  Plotly.react(els.plotView, [trace], plotLayout(title), { responsive: true, displaylogo: false });
+let plotlyLoadPromise = null;
+
+function ensurePlotly() {
+  if (window.Plotly) return Promise.resolve(window.Plotly);
+  if (plotlyLoadPromise) return plotlyLoadPromise;
+  setStatus('Loading 2D renderer...');
+  markStartup('plotlyLoadStartedAt');
+  plotlyLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'vendor/plotly-3.0.1.min.js';
+    script.async = true;
+    script.addEventListener('load', () => {
+      if (!window.Plotly) {
+        script.remove();
+        plotlyLoadPromise = null;
+        reject(new Error('Plotly loaded without exposing its API'));
+        return;
+      }
+      markStartup('plotlyLoadedAt');
+      resolve(window.Plotly);
+    }, { once: true });
+    script.addEventListener('error', () => {
+      script.remove();
+      plotlyLoadPromise = null;
+      reject(new Error('Plotly could not be loaded'));
+    }, { once: true });
+    document.head.append(script);
+  });
+  return plotlyLoadPromise;
 }
 
-function drawCurve(title, x, y) {
-  if (!window.Plotly) {
-    setStatus('Plotly missing', false);
-    return;
+async function drawHeatmap(title, matrix, colorscale, zmin = null, zmax = null) {
+  try {
+    const plotly = await ensurePlotly();
+    showPlotPanel(true);
+    const trace = {
+      type: 'heatmap',
+      z: matrix,
+      colorscale,
+      colorbar: { thickness: 14 }
+    };
+    if (Number.isFinite(zmin)) trace.zmin = zmin;
+    if (Number.isFinite(zmax)) trace.zmax = zmax;
+    await plotly.react(els.plotView, [trace], plotLayout(title), { responsive: true, displaylogo: false });
+    return true;
+  } catch (error) {
+    console.error(error);
+    setStatus('2D renderer failed; try again', false);
+    return false;
   }
-  showPlotPanel(true);
-  Plotly.react(els.plotView, [{
-    type: 'scatter',
-    mode: 'lines',
-    x,
-    y,
-    line: { color: '#14796f', width: 2.5 }
-  }], plotLayout(title), { responsive: true, displaylogo: false });
+}
+
+async function drawCurve(title, x, y) {
+  try {
+    const plotly = await ensurePlotly();
+    showPlotPanel(true);
+    await plotly.react(els.plotView, [{
+      type: 'scatter',
+      mode: 'lines',
+      x,
+      y,
+      line: { color: '#14796f', width: 2.5 }
+    }], plotLayout(title), { responsive: true, displaylogo: false });
+    return true;
+  } catch (error) {
+    console.error(error);
+    setStatus('2D renderer failed; try again', false);
+    return false;
+  }
 }
 
 function cubeSliceMatrix(grid, axis, fraction) {
@@ -1740,7 +1989,7 @@ function cubeSliceMatrix(grid, axis, fraction) {
   return { matrix, label: `YZ slice x=${ix}/${nx - 1}` };
 }
 
-function drawSelectedSlice() {
+async function drawSelectedSlice() {
   const layer = layerById(els.sliceLayer.value) || state.layers[0];
   if (!layer) {
     setStatus('No cube layer', false);
@@ -1752,47 +2001,49 @@ function drawSelectedSlice() {
     return;
   }
   const { matrix, label } = cubeSliceMatrix(grid, els.sliceAxis.value, toNumber(els.slicePosition.value, 0.5));
-  drawHeatmap(
+  const drawn = await drawHeatmap(
     `${layer.name} · ${label}`,
     matrix,
     els.sliceColormap.value,
     optionalNumber(els.sliceMin.value),
     optionalNumber(els.sliceMax.value)
   );
-  setStatus('Slice drawn');
+  if (drawn) setStatus('Slice drawn');
 }
 
 function parseCsv(text) {
   return text.trim().split(/\r?\n/).map((line) => line.split(/,|\s+/).filter(Boolean).map(Number));
 }
 
-function drawPlotText(text, name) {
+async function drawPlotText(text, name) {
   try {
     if (/\.json$/i.test(name)) {
       const data = JSON.parse(text);
-      if (data.z) drawHeatmap(data.title || name, data.z, data.colorscale || els.plotColormap.value);
-      else drawCurve(data.title || name, data.x || data.y.map((_, index) => index), data.y);
-      setStatus('Plot loaded');
+      const drawn = data.z
+        ? await drawHeatmap(data.title || name, data.z, data.colorscale || els.plotColormap.value)
+        : await drawCurve(data.title || name, data.x || data.y.map((_, index) => index), data.y);
+      if (drawn) setStatus('Plot loaded');
       return;
     }
 
     const rows = parseCsv(text).filter((row) => row.every(Number.isFinite));
     if (!rows.length) throw new Error('empty plot data');
+    let drawn;
     if (els.plotType.value === 'heatmap') {
-      drawHeatmap(name, rows, els.plotColormap.value);
+      drawn = await drawHeatmap(name, rows, els.plotColormap.value);
     } else {
       const x = rows.map((row, index) => row.length > 1 ? row[0] : index);
       const y = rows.map((row) => row.length > 1 ? row[1] : row[0]);
-      drawCurve(name, x, y);
+      drawn = await drawCurve(name, x, y);
     }
-    setStatus('Plot loaded');
+    if (drawn) setStatus('Plot loaded');
   } catch (error) {
     console.error(error);
     setStatus('Plot error', false);
   }
 }
 
-function sampleCurve() {
+async function sampleCurve() {
   const x = [];
   const y = [];
   for (let i = 0; i <= 240; i += 1) {
@@ -1800,11 +2051,10 @@ function sampleCurve() {
     x.push(value);
     y.push(Math.sin(value) * Math.exp(-Math.abs(value) / 4) + 0.15 * Math.cos(3 * value));
   }
-  drawCurve('Sample line profile', x, y);
-  setStatus('Curve drawn');
+  if (await drawCurve('Sample line profile', x, y)) setStatus('Curve drawn');
 }
 
-function sampleMap() {
+async function sampleMap() {
   const matrix = [];
   for (let iy = 0; iy < 80; iy += 1) {
     const y = -2.8 + iy * 5.6 / 79;
@@ -1815,8 +2065,7 @@ function sampleMap() {
     }
     matrix.push(row);
   }
-  drawHeatmap('Sample filled map', matrix, els.plotColormap.value);
-  setStatus('Map drawn');
+  if (await drawHeatmap('Sample filled map', matrix, els.plotColormap.value)) setStatus('Map drawn');
 }
 
 function cellFromFirstCube() {
@@ -2344,7 +2593,7 @@ function bindEvents() {
   };
   const reloadOrbitalAtIsovalue = () => {
     const index = Number(activeGuiLayer()?.orbitalIndex || els.guiOrbitalInput.value || 0);
-    if (index > 0) requestGuiOrbital(index);
+    if (index > 0) requestGuiOrbital(index, { forceRecompute: true });
   };
   els.guiOrbitalIsovalue.addEventListener('input', updateOrbitalIsovalue);
   els.guiOrbitalIsovalueNumber.addEventListener('input', updateOrbitalIsovalue);
@@ -2421,7 +2670,7 @@ function bindEvents() {
   }));
   els.guiMenuQuality.addEventListener('change', () => {
     const index = Number(activeGuiLayer()?.orbitalIndex || els.guiOrbitalInput.value || 0);
-    if (index > 0) requestGuiOrbital(index);
+    if (index > 0) requestGuiOrbital(index, { forceRecompute: true });
     else setStatus('Select an orbital before changing grid quality', false);
   });
 
@@ -2705,7 +2954,9 @@ async function loadManifestFromQuery() {
     const resolved = new URL(manifestUrl, window.location.href);
     const response = await fetch(resolved);
     if (!response.ok) throw new Error(`${response.status}`);
-    await loadManifestText(await response.text(), resolved);
+    const manifestText = await response.text();
+    markStartup('manifestFetchedAt');
+    await loadManifestText(manifestText, resolved);
     return true;
   } catch (error) {
     console.error(error);
@@ -2715,12 +2966,15 @@ async function loadManifestFromQuery() {
 }
 
 async function init() {
+  markStartup('initStartedAt');
   cacheElements();
   if (!window.$3Dmol) {
     setStatus('3Dmol missing', false);
+    markStartup('failedAt', { error: '3Dmol missing' });
     return;
   }
 
+  setStatus('Starting 3D renderer...');
   els.background.value = 'white';
   els.showAxes.checked = true;
   els.positiveColor.value = orbitalPhaseColors.positive;
@@ -2732,6 +2986,7 @@ async function init() {
     antialias: true
   });
   initializeOrientationViewer();
+  markStartup('viewerCreatedAt');
   if (typeof state.viewer.setViewChangeCallback === 'function') {
     state.viewer.setViewChangeCallback(syncOrientationView);
   }
@@ -2741,10 +2996,26 @@ async function init() {
   updateOrientationVisibility();
   renderLayerList();
   const loadedFromQuery = await loadManifestFromQuery();
-  if (!loadedFromQuery) loadSampleScene();
+  if (!loadedFromQuery) {
+    loadSampleScene();
+    markStartup('structureRenderedAt');
+    markStartup('activeOrbitalRenderedAt');
+    markStartup('backgroundLayersReadyAt', { backgroundLayerCount: Math.max(0, state.layers.length - 1) });
+    finishStartup();
+  }
 }
 
-window.addEventListener('DOMContentLoaded', init);
+window.addEventListener('DOMContentLoaded', () => {
+  markStartup('domContentLoadedAt');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    markStartup('shellPaintedAt');
+    init().catch((error) => {
+      console.error(error);
+      setStatus('Viewer startup error', false);
+      markStartup('failedAt', { error: String(error) });
+    });
+  }));
+});
 window.addEventListener('resize', () => {
   if (!state.viewer) return;
   state.viewer.resize();
