@@ -1,0 +1,100 @@
+name: Report an issue or propose a GUI change
+description: Report a build, packaging, runtime, reproducibility, or GUI issue
+title: "[Issue]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the cross-platform Multiwfn build and GUI experiments.
+        Please provide enough detail to reproduce the issue or discuss the proposed change.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Build
+        - Packaging or dependencies
+        - Runtime
+        - Numerical reproducibility
+        - Tests, CI, or performance
+        - 3Dmol/Qt GUI
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      description: Include the OS name, version, and architecture.
+      placeholder: macOS 15.5, arm64
+    validations:
+      required: true
+
+  - type: input
+    id: tested-version
+    attributes:
+      label: Package or commit tested
+      description: Provide the release tag, package name, or commit SHA.
+      placeholder: v2026.6.2-nogui.4 or commit abc1234
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Command or menu workflow
+      description: List the exact commands or Multiwfn menu path.
+      placeholder: |
+        1. Run ...
+        2. Select menu ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current behavior or limitation
+      description: Describe what currently happens and why it is a problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior or proposed change
+      description: Describe the expected result or the change you would like to discuss.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Input type and reproducer
+      description: Provide the input file type and a small public reproducer when possible.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, screenshots, or comparisons
+      description: Include relevant error output, screenshots, timings, or numerical comparisons.
+      render: shell
+
+  - type: textarea
+    id: gui-scope
+    attributes:
+      label: GUI design scope
+      description: For GUI design changes or large refactors, describe the scope and the affected original Multiwfn workflow.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched for an existing issue describing the same problem.
+          required: true
+        - label: I have included enough information to reproduce or discuss the issue.
+          required: true
