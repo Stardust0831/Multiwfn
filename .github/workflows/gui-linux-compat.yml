@@ -1,9 +1,6 @@
 name: gui-linux-compat
 
 on:
-  push:
-    branches:
-      - codex/gui-linux-compat
   pull_request:
     branches:
       - main
@@ -11,6 +8,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: gui-linux-compat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   linux-gui-glibc-228:
@@ -76,7 +77,8 @@ jobs:
                 xcb-util-image \
                 xcb-util-keysyms \
                 xcb-util-renderutil \
-                xcb-util-wm
+                xcb-util-wm \
+                xcb-util-cursor
 
               curl --retry 3 -fsSL -o /tmp/ninja-linux.zip https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip
               unzip -o /tmp/ninja-linux.zip -d /usr/local/bin
@@ -85,8 +87,15 @@ jobs:
               ninja --version
               python3.11 --version
 
-              python3.11 -m pip install --upgrade pip
-              python3.11 -m pip install --only-binary=:all: pyinstaller PyQt6 PyQt6-WebEngine
+              python3.11 -m pip install "pip==26.1.2"
+              python3.11 -m pip install --only-binary=:all: \
+                "pyinstaller==6.21.0" \
+                "pyinstaller-hooks-contrib==2026.6" \
+                "PyQt6==6.9.1" \
+                "PyQt6-Qt6==6.9.2" \
+                "PyQt6-WebEngine==6.9.0" \
+                "PyQt6-WebEngine-Qt6==6.9.2" \
+                "PyQt6-sip==13.11.1"
 
               cmake -S . -B build-gui-linux-compat -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
@@ -195,37 +204,110 @@ jobs:
           fi
           exit "$status"
 
+      - name: Install virtual display
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
       - name: Test GUI package in clean Rocky Linux 8
         run: |
           set -euo pipefail
           rm -rf clean-gui-test
           mkdir clean-gui-test
           tar -xzf dist/Multiwfn-gui-linux-glibc228.tar.gz -C clean-gui-test
-          docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            rockylinux:8 \
-            bash -lc '
+          xvfb-run -a --server-args="-screen 0 1280x800x24 -ac" \
+            docker run --rm \
+              -e DISPLAY \
+              -e LIBGL_ALWAYS_SOFTWARE=1 \
+              -e QTWEBENGINE_DISABLE_SANDBOX=1 \
+              -e QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox \
+              -e QT_X11_NO_MITSHM=1 \
+              -v "$PWD:/work" \
+              -v /tmp/.X11-unix:/tmp/.X11-unix \
+              -w /work \
+              rockylinux:8 \
+              bash -lc '
               set -euo pipefail
               pkg=/work/clean-gui-test/Multiwfn-gui-linux-glibc228
               test -x "$pkg/Multiwfn_QtGUI"
               test -x "$pkg/resources/tools/multiwfn_qt_gui"
-              "$pkg/resources/tools/multiwfn_qt_gui" --manifest /tmp/does-not-exist.json >/tmp/qt-launcher.out 2>/tmp/qt-launcher.err && status=0 || status=$?
+
+              session=/tmp/multiwfn-gui-session
+              mkdir -p "$session"
+              printf "3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n" > "$session/structure.xyz"
+              printf "%s\n" \
+                "{" \
+                "  \"format\": \"multiwfn-3dmol-workbench\"," \
+                "  \"version\": 2," \
+                "  \"multiwfnGui\": {\"entry\": \"drawmolgui\", \"guiMode\": 1, \"state\": {\"orbitalCount\": 0, \"homoIndex\": 0}}," \
+                "  \"structure\": {\"path\": \"structure.xyz\", \"format\": \"xyz\"}," \
+                "  \"orbitals\": {\"count\": 0, \"homoIndex\": 0, \"items\": []}," \
+                "  \"cubes\": []" \
+                "}" \
+                > "$session/manifest.json"
+
+              "$pkg/resources/tools/multiwfn_qt_gui" \
+                --manifest "$session/manifest.json" \
+                --frontend "$pkg/resources/frontend/3dmol-viewer" \
+                --profile-startup \
+                >/tmp/qt-launcher.out 2>/tmp/qt-launcher.err &
+              gui_pid=$!
+              ready=0
+              for attempt in $(seq 1 180); do
+                if grep -Fq "[multiwfn-qt-startup]" /tmp/qt-launcher.err; then
+                  ready=1
+                  break
+                fi
+                if ! kill -0 "$gui_pid" 2>/dev/null; then
+                  cat /tmp/qt-launcher.out
+                  cat /tmp/qt-launcher.err >&2
+                  wait "$gui_pid"
+                  exit 1
+                fi
+                sleep 0.5
+              done
               cat /tmp/qt-launcher.out
               cat /tmp/qt-launcher.err >&2
-              test "$status" -eq 2
+              test "$ready" -eq 1
+              grep -Fq "\"webLoadFinishedAt\"" /tmp/qt-launcher.err
+              grep -Fq "\"ready\":true" /tmp/qt-launcher.err
+              printf "return\n" > "$session/gui_stop.flag"
+              for attempt in $(seq 1 40); do
+                if ! kill -0 "$gui_pid" 2>/dev/null; then break; fi
+                sleep 0.25
+              done
+              if kill -0 "$gui_pid" 2>/dev/null; then
+                kill "$gui_pid"
+                wait "$gui_pid" || true
+                echo "Qt GUI did not close after gui_stop.flag" >&2
+                exit 1
+              fi
+              wait "$gui_pid"
+
               mkdir -p /tmp/multiwfn-gui-smoke
               printf "3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n" > /tmp/multiwfn-gui-smoke/water.xyz
               printf "26\n1\n\nq\n0\nq\n" | "$pkg/Multiwfn_QtGUI" /tmp/multiwfn-gui-smoke/water.xyz > /tmp/multiwfn-gui-smoke/geometry.out
               grep -F "Formula: H2 O1" /tmp/multiwfn-gui-smoke/geometry.out
             '
 
-      - name: Upload compatibility package and logs
+      - name: Upload compatibility logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiwfn-gui-linux-glibc228-logs
+          path: |
+            gui-linux-compat-build.log
+            glibc-symbols.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload compatibility package
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: multiwfn-gui-linux-glibc228
           path: |
             dist/Multiwfn-gui-linux-glibc228.tar.gz
-            gui-linux-compat-build.log
-            glibc-symbols.log
           if-no-files-found: error
+          retention-days: 3
