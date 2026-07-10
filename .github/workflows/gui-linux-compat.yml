@@ -1,0 +1,177 @@
+name: gui-linux-compat
+
+on:
+  push:
+    branches:
+      - codex/gui-linux-compat
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-gui-glibc-228:
+    name: GUI Linux glibc 2.28 compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build GUI package in Rocky Linux 8
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            rockylinux:8 \
+            bash -lc '
+              set -euo pipefail
+              cat /etc/redhat-release
+              dnf -y install dnf-plugins-core
+              dnf repolist all
+              if dnf repolist all | grep -q "^powertools"; then
+                dnf config-manager --set-enabled powertools
+              fi
+              dnf -y install epel-release
+              dnf -y install \
+                gcc \
+                gcc-gfortran \
+                make \
+                cmake \
+                blas-devel \
+                lapack-devel \
+                binutils \
+                findutils \
+                tar \
+                gzip \
+                curl \
+                unzip \
+                python39 \
+                python39-pip \
+                mesa-libGL \
+                mesa-libEGL \
+                libxcb \
+                libxkbcommon \
+                libxkbcommon-x11
+
+              curl --retry 3 -fsSL -o /tmp/ninja-linux.zip https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip
+              unzip -o /tmp/ninja-linux.zip -d /usr/local/bin
+              chmod +x /usr/local/bin/ninja
+              cmake --version
+              ninja --version
+              python3.9 --version
+
+              python3.9 -m pip install --upgrade pip
+              python3.9 -m pip install pyinstaller PyQt6 PyQt6-WebEngine
+
+              cmake -S . -B build-gui-linux-compat -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DMULTIWFN_GUI_BACKEND=3dmol \
+                -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt \
+                -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 \
+                -DCMAKE_BUILD_RPATH="\$ORIGIN/resources/lib" 2>&1 | tee configure.log
+              cmake --build build-gui-linux-compat --parallel 2 2>&1 | tee build.log
+              test -x build-gui-linux-compat/Multiwfn_QtGUI
+
+              python3.9 -m PyInstaller \
+                --clean \
+                --noconfirm \
+                --onefile \
+                --name multiwfn_qt_gui \
+                --hidden-import PyQt6.QtWebEngineCore \
+                --hidden-import PyQt6.QtWebEngineWidgets \
+                --distpath qt-launcher-dist \
+                --workpath qt-launcher-build \
+                frontend/qt-multiwfn-gui/qt_multiwfn_gui.py
+              test -x qt-launcher-dist/multiwfn_qt_gui
+
+              pkg=Multiwfn-gui-linux-glibc228
+              rm -rf "package/$pkg" dist
+              mkdir -p "package/$pkg/resources/lib" "package/$pkg/resources/tools" "package/$pkg/resources/frontend" dist
+              cp build-gui-linux-compat/Multiwfn_QtGUI "package/$pkg/Multiwfn_QtGUI"
+              cp LICENSE.txt "package/$pkg/LICENSE.txt"
+              cp settings.ini "package/$pkg/settings.ini"
+              cp tools/multiwfn_3dmol_server.py "package/$pkg/resources/tools/"
+              cp tools/multiwfn_3dmol_file_dialog.py "package/$pkg/resources/tools/"
+              cp tools/multiwfn_qt_gui.py "package/$pkg/resources/tools/"
+              cp qt-launcher-dist/multiwfn_qt_gui "package/$pkg/resources/tools/"
+              chmod +x "package/$pkg/resources/tools/multiwfn_qt_gui"
+              cp -R frontend/3dmol-viewer "package/$pkg/resources/frontend/"
+              cp -R frontend/qt-multiwfn-gui "package/$pkg/resources/frontend/"
+
+              ldd "package/$pkg/Multiwfn_QtGUI" | tee "package/$pkg/linux-runtime-libs.txt"
+              awk '\''/=> \// {print $3}'\'' "package/$pkg/linux-runtime-libs.txt" | while read -r lib; do
+                base="$(basename "$lib")"
+                case "$base" in
+                  libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
+                    ;;
+                  *)
+                    cp -L -n "$lib" "package/$pkg/resources/lib/"
+                    ;;
+                esac
+              done
+
+              find "package/$pkg" -type f -print0 |
+                xargs -0 -r file |
+                awk -F: '\''/ELF/ {print $1}'\'' |
+                while read -r elf; do
+                  readelf --version-info "$elf" 2>/dev/null || true
+                done | tee glibc-symbols.log
+              if grep -E "GLIBC_2\\.(29|[3-9][0-9])" glibc-symbols.log; then
+                echo "Found GLIBC symbols newer than 2.28 in GUI Linux package" >&2
+                exit 1
+              fi
+
+              tar -czf "dist/$pkg.tar.gz" -C package "$pkg"
+            ' 2>&1 | tee gui-linux-compat-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "===== gui-linux-compat-build.log tail ====="
+              tail -n 200 gui-linux-compat-build.log || true
+              for log in configure.log build.log glibc-symbols.log; do
+                [ -f "$log" ] || continue
+                echo "===== $log tail ====="
+                tail -n 120 "$log"
+              done
+            } > gui-linux-compat-failure-tail.log
+            python3 -c 'from pathlib import Path; message = Path("gui-linux-compat-failure-tail.log").read_text(errors="replace")[-3500:] or "GUI Linux compatibility build failed before logs were written"; message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"); print(f"::error file=gui-linux-compat-build.log::{message}")'
+          fi
+          exit "$status"
+
+      - name: Test GUI package in clean Rocky Linux 8
+        run: |
+          set -euo pipefail
+          rm -rf clean-gui-test
+          mkdir clean-gui-test
+          tar -xzf dist/Multiwfn-gui-linux-glibc228.tar.gz -C clean-gui-test
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            rockylinux:8 \
+            bash -lc '
+              set -euo pipefail
+              pkg=/work/clean-gui-test/Multiwfn-gui-linux-glibc228
+              test -x "$pkg/Multiwfn_QtGUI"
+              test -x "$pkg/resources/tools/multiwfn_qt_gui"
+              "$pkg/resources/tools/multiwfn_qt_gui" --manifest /tmp/does-not-exist.json >/tmp/qt-launcher.out 2>/tmp/qt-launcher.err && status=0 || status=$?
+              cat /tmp/qt-launcher.out
+              cat /tmp/qt-launcher.err >&2
+              test "$status" -eq 2
+              mkdir -p /tmp/multiwfn-gui-smoke
+              printf "3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n" > /tmp/multiwfn-gui-smoke/water.xyz
+              printf "26\n1\n\nq\n0\nq\n" | "$pkg/Multiwfn_QtGUI" /tmp/multiwfn-gui-smoke/water.xyz > /tmp/multiwfn-gui-smoke/geometry.out
+              grep -F "Formula: H2 O1" /tmp/multiwfn-gui-smoke/geometry.out
+            '
+
+      - name: Upload compatibility package and logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiwfn-gui-linux-glibc228
+          path: |
+            dist/Multiwfn-gui-linux-glibc228.tar.gz
+            gui-linux-compat-build.log
+            glibc-symbols.log
+          if-no-files-found: error
