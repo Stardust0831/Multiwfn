@@ -3,7 +3,7 @@ name: build
 on:
   push:
     branches: [main, official-build, upstream-tracking]
-    tags: ['v*']
+    tags: ['v*-nogui.*']
   pull_request:
     branches: [main]
   workflow_dispatch:

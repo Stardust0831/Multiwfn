@@ -70,6 +70,10 @@ MAX_DYNAMIC_ORBITAL_CUBES = 12
 BACKEND_UNAVAILABLE_MESSAGE = (
     "Multiwfn backend unavailable; restart visualization from menu 0 and keep the terminal open"
 )
+FILE_FILTER = (
+    "Multiwfn inputs (*.wfn *.wfx *.fch *.fchk *.molden *.mwfn *.chg *.pdb *.xyz *.mol *.mol2 *.cif *.cub *.cube);;"
+    "All files (*)"
+)
 
 
 def load_json(path: Path) -> dict:
@@ -635,20 +639,31 @@ class MultiwfnQtGui(QMainWindow):
 
     def _load_orbitals(self) -> None:
         self.orbital_list.clear()
-        orbitals = self.manifest.get("orbitals", {}).get("items", [])
+        orbitals_section = self.manifest.get("orbitals", {})
+        orbitals = orbitals_section.get("items", [])
+        if not orbitals:
+            gui_state = self.manifest.get("multiwfnGui", {}).get("state", {})
+            count = int(orbitals_section.get("count") or gui_state.get("orbitalCount") or 0)
+            orbitals = [{"index": index} for index in range(1, min(count, 2000) + 1)]
         layers = self.manifest.get("cubes", [])
         layer_by_orbital = {
             int(layer.get("orbitalIndex")): layer
             for layer in layers
             if str(layer.get("orbitalIndex", "")).isdigit()
         }
+        none_item = QListWidgetItem("    0  None")
+        none_item.setData(Qt.ItemDataRole.UserRole, {"index": 0, "layer": None})
+        self.orbital_list.addItem(none_item)
         if not orbitals:
-            self.orbital_list.addItem(QListWidgetItem("0  None"))
             return
         for orbital in orbitals:
             index = int(orbital.get("index", 0))
             suffix = " *" if index in layer_by_orbital else ""
-            item = QListWidgetItem(f"{index:5d}  occ={float(orbital.get('occupation', 0.0)):.3f}  ene={float(orbital.get('energy', 0.0)):.5f}{suffix}")
+            if "occupation" in orbital or "energy" in orbital:
+                label = f"{index:5d}  occ={float(orbital.get('occupation', 0.0)):.3f}  ene={float(orbital.get('energy', 0.0)):.5f}{suffix}"
+            else:
+                label = f"{index:5d}{suffix}"
+            item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, {"index": index, "layer": layer_by_orbital.get(index)})
             self.orbital_list.addItem(item)
 
@@ -680,13 +695,16 @@ class MultiwfnQtGui(QMainWindow):
             return
         data = current.data(Qt.ItemDataRole.UserRole) or {}
         index = data.get("index")
-        if index:
+        if index is not None:
             self.orbital_input.setText(str(index))
+            self._request_orbital_in_viewer(int(index))
         layer = data.get("layer")
-        if layer:
+        if index == 0:
+            self._status("No orbital selected")
+        elif layer:
             self._status(f"Selected orbital {index}")
         elif index:
-            self._status(f"Orbital {index} has no generated cube in this session")
+            self._status(f"Calculating orbital {index}")
 
     def _select_orbital_text(self) -> None:
         text = self.orbital_input.text().strip()
@@ -700,7 +718,9 @@ class MultiwfnQtGui(QMainWindow):
             if data.get("index") == target:
                 self.orbital_list.setCurrentRow(row)
                 return
-        self._status(f"Orbital {target} is not listed")
+        self.orbital_input.setText(str(target))
+        self._request_orbital_in_viewer(target)
+        self._status(f"Calculating orbital {target}")
 
     def _step_orbital(self, delta: int) -> None:
         row = self.orbital_list.currentRow()
@@ -711,6 +731,17 @@ class MultiwfnQtGui(QMainWindow):
         if self.web_view:
             self.web_view.reload()
         self._status("View reset requested")
+
+    def _request_orbital_in_viewer(self, index: int) -> None:
+        if not self.web_view:
+            return
+        isovalue = float(self.orbital_iso.value())
+        script = (
+            "window.multiwfnGui && window.multiwfnGui.requestOrbital"
+            f" ? window.multiwfnGui.requestOrbital({int(index)}, {{isovalue: {isovalue:.10g}}})"
+            " : undefined"
+        )
+        self.web_view.page().runJavaScript(script)
 
     def _not_implemented(self, text: str) -> None:
         QMessageBox.information(self, "Multiwfn Qt GUI", f"{text} is not wired to Multiwfn callbacks yet.")
@@ -785,7 +816,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", default="multiwfn_3dmol_session/manifest.json")
     parser.add_argument("--frontend", default=None, help="Path to frontend/3dmol-viewer")
     parser.add_argument("--profile-startup", action="store_true", help="Print Qt and frontend startup timings")
+    parser.add_argument("--select-file", action="store_true", help="Open a native file dialog and exit")
+    parser.add_argument("--output", default=None, help="Output path for --select-file")
+    parser.add_argument("--title", default="Choose a Multiwfn input file", help="Dialog title for --select-file")
     args = parser.parse_args(argv)
+
+    if args.select_file:
+        if not args.output:
+            print("--output is required with --select-file", file=sys.stderr)
+            return 2
+        app = QApplication(sys.argv)
+        selected, _ = QFileDialog.getOpenFileName(None, args.title, "", FILE_FILTER)
+        output = Path(args.output).expanduser().resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(f"{selected}\n" if selected else "", encoding="utf-8")
+        app.quit()
+        return 0
 
     manifest = Path(args.manifest)
     if not manifest.is_file():

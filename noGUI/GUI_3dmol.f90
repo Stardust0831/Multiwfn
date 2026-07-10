@@ -158,12 +158,13 @@ end subroutine
 
 subroutine write_orbital_preview_cubes(entry,session)
 character(len=*),intent(in) :: entry,session
-integer :: i,idx,limit,istat
+integer :: i,idx,limit,istat,orbtotal
 integer,allocatable :: indices(:)
 character(len=512) :: env
 
 if (trim(entry)/="drawmolgui") return
-if (nmo<=0.or..not.allocated(a).or.ncenter<=0) return
+orbtotal=gui_orbital_total()
+if (orbtotal<=0.or..not.allocated(a).or.ncenter<=0) return
 if (.not.allocated(MOene).or..not.allocated(MOocc)) return
 
 limit=-1
@@ -171,13 +172,13 @@ call get_environment_variable("MULTIWFN_3DMOL_ORBITAL_PREVIEW",env,status=istat)
 if (istat==0.and.len_trim(env)>0) read(env,*,iostat=istat) limit
 if (limit<0) return
 if (limit==0) then
-    if (nmo<=24) then
-        limit=nmo
+    if (orbtotal<=24) then
+        limit=orbtotal
     else
         limit=12
     end if
 end if
-limit=min(limit,nmo)
+limit=min(limit,orbtotal)
 if (limit<=0) return
 
 call select_preview_orbitals(limit,indices)
@@ -203,29 +204,30 @@ end subroutine
 subroutine select_preview_orbitals(limit,indices)
 integer,intent(in) :: limit
 integer,allocatable,intent(out) :: indices(:)
-integer :: startidx,endidx,homo,i,count,iout
+integer :: startidx,endidx,homo,i,count,iout,orbtotal
 
-if (limit>=nmo) then
-    allocate(indices(nmo))
-    do i=1,nmo
+orbtotal=gui_orbital_total()
+if (limit>=orbtotal) then
+    allocate(indices(orbtotal))
+    do i=1,orbtotal
         indices(i)=i
     end do
     return
 end if
 
-homo=idxHOMO
-if (homo<=0.or.homo>nmo) then
+homo=gui_homo_index()
+if (homo<=0.or.homo>orbtotal) then
     homo=0
     if (allocated(MOocc)) then
-        do i=1,nmo
+        do i=1,orbtotal
             if (MOocc(i)>1D-8) homo=i
         end do
     end if
-    if (homo<=0) homo=max(1,min(nmo,limit/2))
+    if (homo<=0) homo=max(1,min(orbtotal,limit/2))
 end if
 
 startidx=max(1,homo-limit/2+1)
-endidx=min(nmo,startidx+limit-1)
+endidx=min(orbtotal,startidx+limit-1)
 startidx=max(1,endidx-limit+1)
 count=endidx-startidx+1
 allocate(indices(count))
@@ -309,9 +311,10 @@ character(len=*),intent(in) :: session,respfile
 integer,intent(in) :: iorb,quality
 real*8,intent(in) :: isoval
 character(len=512) :: cubefile,cuberel
-integer :: iu,functype
+integer :: iu,functype,orbtotal
 
-if (iorb<0.or.iorb>nmo) then
+orbtotal=gui_orbital_total()
+if (iorb<0.or.iorb>orbtotal) then
     open(newunit=iu,file=trim(respfile),status="replace",action="write")
     write(iu,"(a)") '{ "ok": false, "message": "Orbital index out of range" }'
     close(iu)
@@ -448,15 +451,30 @@ end function
 
 subroutine select_file_with_dialog(selected)
 character(len=*),intent(out) :: selected
-character(len=512) :: session,home,python,tool,outfile,cmd
+character(len=512) :: session,home,python,tool,outfile,cmd,native
 integer :: istat,iu
 
 selected=" "
 call get_session_dir(session)
 call ensure_dir(session)
 call get_3dmol_home(home)
-call resolve_resource_path(home,"tools/multiwfn_3dmol_file_dialog.py",tool)
 outfile=trim(session)//"/selected_file.txt"
+call remove_session_file(trim(outfile))
+
+call resolve_native_qt_launcher(home,native)
+if (path_exists(native)) then
+    cmd='"'//trim(native)//'" --select-file --output "'//trim(outfile)//'"'
+    call execute_command_line(trim(cmd),exitstat=istat)
+    if (istat==0) then
+        open(newunit=iu,file=trim(outfile),status="old",action="read",iostat=istat)
+        if (istat==0) then
+            read(iu,"(a)",iostat=istat) selected
+            close(iu)
+            if (istat/=0) selected=" "
+            return
+        end if
+    end if
+end if
 
 #ifdef _WIN32
 python="python"
@@ -472,6 +490,7 @@ if (istat/=0.or.len_trim(python)==0) then
 #endif
 end if
 
+call resolve_resource_path(home,"tools/multiwfn_3dmol_file_dialog.py",tool)
 cmd=trim(python)//' "'//trim(tool)//'" --output "'//trim(outfile)//'"'
 call execute_command_line(trim(cmd),exitstat=istat)
 if (istat/=0) return
@@ -594,8 +613,10 @@ subroutine write_manifest(path,entry,mode,extra,init1,end1,init2,end2,init3,end3
 character(len=*),intent(in) :: path,entry
 integer,intent(in) :: mode,extra
 real*8,intent(in) :: init1,end1,init2,end2,init3,end3
-integer :: iu,ncube
+integer :: iu,ncube,orbtotal,homo
 
+orbtotal=gui_orbital_total()
+homo=gui_homo_index()
 open(newunit=iu,file=trim(path),status="replace",action="write")
 write(iu,"(a)") "{"
 write(iu,"(a)") '  "format": "multiwfn-3dmol-workbench",'
@@ -608,8 +629,8 @@ write(iu,"(a,i0,a)") '    "allowSetStyle": ',extra,','
 write(iu,"(a)") '    "state": {'
 write(iu,"(a,1pe16.8,a)") '      "sur_value": ',sur_value,','
 write(iu,"(a,1pe16.8,a)") '      "sur_value_orb": ',sur_value_orb,','
-write(iu,"(a,i0,a)") '      "orbitalCount": ',nmo,','
-write(iu,"(a,i0,a)") '      "homoIndex": ',idxHOMO,','
+write(iu,"(a,i0,a)") '      "orbitalCount": ',orbtotal,','
+write(iu,"(a,i0,a)") '      "homoIndex": ',homo,','
 write(iu,"(a,a,a)") '      "showMolecule": ',trim(json_bool(idrawmol/=0)),','
 write(iu,"(a,a,a)") '      "showBothSign": ',trim(json_bool(isosurshowboth/=0)),','
 write(iu,"(a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a)") &
@@ -681,16 +702,20 @@ end subroutine
 
 subroutine write_orbital_metadata(iu)
 integer,intent(in) :: iu
-integer :: i,imax
+integer :: i,imax,orbtotal,homo,maxvalues
 
+orbtotal=gui_orbital_total()
+homo=gui_homo_index()
+maxvalues=0
+if (allocated(MOene).and.allocated(MOocc)) maxvalues=min(size(MOene),size(MOocc))
 write(iu,"(a)") '  "orbitals": {'
-write(iu,"(a,i0,a)") '    "count": ',nmo,','
-write(iu,"(a,i0,a)") '    "homoIndex": ',idxHOMO,','
+write(iu,"(a,i0,a)") '    "count": ',orbtotal,','
+write(iu,"(a,i0,a)") '    "homoIndex": ',homo,','
 write(iu,"(a)") '    "items": ['
-if (nmo>0) then
-    imax=min(nmo,2000)
+if (orbtotal>0) then
+    imax=min(orbtotal,2000)
     do i=1,imax
-        if (allocated(MOene).and.allocated(MOocc)) then
+        if (i<=maxvalues) then
             if (i<imax) then
                 write(iu,"(a,i0,a,1pe16.8,a,1pe16.8,a)") '      { "index": ',i,', "energy": ',MOene(i),', "occupation": ',MOocc(i),' },'
             else
@@ -708,6 +733,28 @@ end if
 write(iu,"(a)") '    ]'
 write(iu,"(a)") '  },'
 end subroutine
+
+integer function gui_orbital_total()
+gui_orbital_total=nmo
+if (gui_orbital_total<=0) then
+    if (allocated(MOene)) gui_orbital_total=size(MOene)
+    if (gui_orbital_total<=0.and.allocated(MOocc)) gui_orbital_total=size(MOocc)
+end if
+end function
+
+integer function gui_homo_index()
+integer :: i,orbtotal
+gui_homo_index=idxHOMO
+orbtotal=gui_orbital_total()
+if (gui_homo_index<=0.or.gui_homo_index>orbtotal) then
+    gui_homo_index=0
+    if (allocated(MOocc)) then
+        do i=1,orbtotal
+            if (MOocc(i)>1D-8) gui_homo_index=i
+        end do
+    end if
+end if
+end function
 
 function json_bool(value) result(text)
 logical,intent(in) :: value

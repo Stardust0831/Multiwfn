@@ -1439,6 +1439,18 @@ async function requestGuiOrbital(index, options = {}) {
   }
 }
 
+window.multiwfnGui = {
+  requestOrbital(index, options = {}) {
+    if (Number.isFinite(Number(options.isovalue)) && Number(options.isovalue) > 0) {
+      setOrbitalIsovalue(options.isovalue);
+    }
+    return requestGuiOrbital(index);
+  },
+  setActiveLayer(id) {
+    return setActiveGuiLayer(String(id), { orbitalSelection: true });
+  }
+};
+
 function initializeMultiwfnOrbitalSelection() {
   const isDrawMolGui = String(state.multiwfnGui?.entry || '').toLowerCase().includes('drawmol');
   ensureOrbitalItemsFromCount();
