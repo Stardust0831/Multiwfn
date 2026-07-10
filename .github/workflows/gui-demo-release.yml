@@ -2,18 +2,23 @@ name: gui-demo-release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'gui-demo-preview-*'
       - 'gui-qt-preview-*'
       - 'v*-gui.*'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   package:
-    name: Package 3Dmol GUI demo (${{ matrix.platform }})
+    name: Package Multiwfn GUI (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -76,13 +81,16 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-openblas
 
-      - name: Build 3Dmol GUI demo executable
+      - name: Build Multiwfn GUI executable
         if: runner.os != 'Windows'
         run: |
           set -o pipefail
           default_shell="browser"
           exe_name="Multiwfn_3DmolGUI"
-          if [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* || "${GITHUB_REF_NAME:-}" == v*-gui.* ]]; then
+          if [[ "${GITHUB_REF_NAME:-}" == gui-demo-preview-* ]]; then
+            default_shell="browser"
+            exe_name="Multiwfn_3DmolGUI"
+          elif [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* || "${GITHUB_REF_NAME:-}" == v*-gui.* || "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch || "${GITHUB_REF_NAME:-}" == main ]]; then
             default_shell="qt"
             exe_name="Multiwfn_QtGUI"
           fi
@@ -101,14 +109,17 @@ jobs:
           test -x "build-3dmol-gui/${exe_name}"
           echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
-      - name: Build 3Dmol GUI demo executable on Windows
+      - name: Build Multiwfn GUI executable on Windows
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -o pipefail
           default_shell="browser"
           exe_name="Multiwfn_3DmolGUI"
-          if [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* || "${GITHUB_REF_NAME:-}" == v*-gui.* ]]; then
+          if [[ "${GITHUB_REF_NAME:-}" == gui-demo-preview-* ]]; then
+            default_shell="browser"
+            exe_name="Multiwfn_3DmolGUI"
+          elif [[ "${GITHUB_REF_NAME:-}" == gui-qt-preview-* || "${GITHUB_REF_NAME:-}" == v*-gui.* || "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch || "${GITHUB_REF_NAME:-}" == main ]]; then
             default_shell="qt"
             exe_name="Multiwfn_QtGUI"
           fi
@@ -122,7 +133,7 @@ jobs:
           echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
       - name: Build Qt native launcher
-        if: startsWith(github.ref_name, 'gui-qt-preview-') || contains(github.ref_name, '-gui.')
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || startsWith(github.ref_name, 'gui-qt-preview-') || contains(github.ref_name, '-gui.')
         shell: bash
         run: |
           set -euo pipefail
@@ -161,12 +172,14 @@ jobs:
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
             tag="$GITHUB_REF_NAME"
+          elif [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch ]]; then
+            tag="gui-qt-preview-manual-${GITHUB_RUN_NUMBER}"
           else
-            tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
+            tag="gui-qt-preview-ci-${GITHUB_RUN_NUMBER}"
           fi
           if [[ "$tag" == v*-gui.* ]]; then
             pkg="Multiwfn-gui-${tag}-${{ matrix.platform }}"
-          elif [[ "$tag" == gui-qt-preview-* ]]; then
+          elif [[ "$tag" == gui-qt-preview-* || "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch || "${GITHUB_REF_NAME:-}" == main ]]; then
             pkg="Multiwfn-qt-gui-preview-${tag}-${{ matrix.platform }}"
           else
             pkg="Multiwfn-3dmol-gui-demo-${tag}-${{ matrix.platform }}"
@@ -186,7 +199,7 @@ jobs:
             cp qt-launcher-dist/multiwfn_qt_gui "package/${pkg}/resources/tools/"
             chmod +x "package/${pkg}/resources/tools/multiwfn_qt_gui"
           fi
-          if [[ "$tag" == gui-qt-preview-* || "$tag" == v*-gui.* ]]; then
+          if [[ "$tag" == gui-qt-preview-* || "$tag" == v*-gui.* || "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch || "${GITHUB_REF_NAME:-}" == main ]]; then
             test -f "package/${pkg}/resources/tools/multiwfn_qt_gui.exe" || test -x "package/${pkg}/resources/tools/multiwfn_qt_gui"
           fi
 
@@ -283,18 +296,21 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "package/$env:PKG/*" -DestinationPath "dist/$env:PKG.zip" -Force
 
-      - name: Upload GUI demo package
+      - name: Upload GUI package
         uses: actions/upload-artifact@v4
         with:
-          name: multiwfn-3dmol-gui-demo-${{ matrix.platform }}
+          name: multiwfn-gui-package-${{ matrix.platform }}
           path: dist/*
           if-no-files-found: error
 
   release:
-    name: Publish 3Dmol GUI release
+    name: Publish Multiwfn GUI release
+    if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
     needs: package
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
 
     steps:
       - name: Download packages
@@ -306,8 +322,10 @@ jobs:
         run: |
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
             tag="$GITHUB_REF_NAME"
+          elif [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch ]]; then
+            tag="gui-qt-preview-manual-${GITHUB_RUN_NUMBER}"
           else
-            tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
+            tag="gui-qt-preview-ci-${GITHUB_RUN_NUMBER}"
           fi
           if [[ "$tag" == v*-gui.* ]]; then
             cat > release_notes.md <<'EOF'
@@ -371,7 +389,7 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
             tag="$GITHUB_REF_NAME"
           else
-            tag="gui-demo-preview-manual-${GITHUB_RUN_NUMBER}"
+            tag="gui-qt-preview-manual-${GITHUB_RUN_NUMBER}"
             git tag "$tag"
             git push origin "$tag"
           fi
