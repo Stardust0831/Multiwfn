@@ -116,12 +116,12 @@ jobs:
               cp tools/multiwfn_3dmol_file_dialog.py "package/$pkg/resources/tools/"
               cp tools/multiwfn_qt_gui.py "package/$pkg/resources/tools/"
               cp qt-launcher-dist/multiwfn_qt_gui "package/$pkg/resources/tools/multiwfn_qt_gui.bin"
-              printf '%s\n' \
-                '#!/usr/bin/env bash' \
-                'set -euo pipefail' \
-                'here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"' \
-                'export LD_LIBRARY_PATH="$here/../lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' \
-                'exec "$here/multiwfn_qt_gui.bin" "$@"' \
+              printf "%s\n" \
+                "#!/usr/bin/env bash" \
+                "set -euo pipefail" \
+                "here=\"\$(cd -- \"\$(dirname -- \"\${BASH_SOURCE[0]}\")\" && pwd)\"" \
+                "export LD_LIBRARY_PATH=\"\$here/../lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"" \
+                "exec \"\$here/multiwfn_qt_gui.bin\" \"\$@\"" \
                 > "package/$pkg/resources/tools/multiwfn_qt_gui"
               chmod +x "package/$pkg/resources/tools/multiwfn_qt_gui" "package/$pkg/resources/tools/multiwfn_qt_gui.bin"
               cp -R frontend/3dmol-viewer "package/$pkg/resources/frontend/"
