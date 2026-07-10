@@ -36,7 +36,7 @@ call set_color(C_BRIGHT_MAGENTA)
 write(*,*) "Multiwfn -- A Multifunctional Wavefunction Analyzer"
 call reset_color()
 call set_color(C_GREEN)
-write(*,*) "Version 2026.7.5 (release date is the same as version name)"
+write(*,*) "Version 2026.7.10 (release date is the same as version name)"
 call reset_color()
 write(*,*) "Developer: Tian Lu (Beijing Kein Research Center for Natural Sciences)"
 write(*,*) "Multiwfn official website: http://sobereva.com/multiwfn"

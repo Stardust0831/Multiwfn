@@ -7108,7 +7108,7 @@ read(*,*) imode
 
 if (imode==2) then
     magtran=-magtran
-	write(*,"(a)") " Transition magnetic dipole moments are inverted"
+	write(*,"(a)") " Note: Loaded transition magnetic dipole moments are inverted, but calculated rotatory strength and g are not thus affected"
 end if
 
 !Output results
@@ -7143,8 +7143,9 @@ do iexc=1,nexc
     tmp2=dsqrt(sum(magtran(:,iexc)**2))*1.85480184D-20
     angle=vecang_arr(eletran(:,iexc),magtran(:,iexc))
     cosangle=cos(ang2rad(angle))
-    Rfac=-tmp1*tmp2*cosangle
     Dfac=tmp1**2+tmp2**2
+    if (imode==1) Rfac=-tmp1*tmp2*cosangle
+    if (imode==2) Rfac=tmp1*tmp2*cosangle !Loaded transition magnetic dipole moment was inverted, when calculating R, this should be cancelled to avoid affecting sign of R
     gfac=4*Rfac/Dfac
     write(*,"(i5,f8.1,f9.2,f9.3,f8.2,f10.3,2f9.1,f11.6)") iexc,wavlen(iexc),tmp1/1D-20,tmp2/1D-20,angle,cosangle,Rfac/1D-40,Dfac/1D-38,gfac
 end do
