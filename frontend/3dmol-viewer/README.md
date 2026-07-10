@@ -29,6 +29,8 @@ Implemented:
 - Draw cube slices as 2D heatmaps.
 - Load simple 2D curve and filled-map data from CSV or JSON.
 - Extract atom positions from a cube file when no separate structure is loaded.
+- Select atoms with the right mouse button, identify bonds from 3Dmol's bond
+  topology, and annotate bond lengths and supported Multiwfn bond orders.
 - Load a JSON manifest produced by an external wrapper.
 - Export a PNG snapshot and a lightweight scene manifest.
 
@@ -58,6 +60,17 @@ Example manifest:
 ```json
 {
   "structure": { "path": "water.xyz", "format": "xyz" },
+  "bondAnalysis": {
+    "periodicSupported": false,
+    "openShell": false,
+    "methods": {
+      "mayer": { "available": true },
+      "gwbo": { "available": false, "reason": "GWBO is only distinct for open-shell wavefunctions" },
+      "wiberg_lowdin": { "available": true },
+      "mulliken": { "available": true },
+      "fbo": { "available": true }
+    }
+  },
   "cubes": [
     {
       "path": "homo.cube",
@@ -97,6 +110,11 @@ Example manifest:
 Relative manifest paths work when the directory is served over HTTP. Browsers
 cannot fetch arbitrary neighboring files from a locally opened `file://` page,
 so use a static server for manifest-based workflows.
+
+The generated GUI service exposes bond orders through
+`GET /api/bond?atom1=1&atom2=2&method=mayer`. Atom indices are one-based and
+the response contains `value` plus spin components when applicable. Bond
+length is calculated locally and does not call this endpoint.
 
 3Dmol.js references used while implementing this prototype:
 
