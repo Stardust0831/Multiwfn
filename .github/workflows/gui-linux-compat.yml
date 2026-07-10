@@ -230,7 +230,7 @@ jobs:
               export LIBGL_ALWAYS_SOFTWARE=1
               export LIBGL_DEBUG=verbose
               export QTWEBENGINE_DISABLE_SANDBOX=1
-              export QTWEBENGINE_CHROMIUM_FLAGS="--no-sandbox --use-gl=desktop --enable-webgl"
+              export QTWEBENGINE_CHROMIUM_FLAGS="--no-sandbox --use-gl=angle --enable-webgl"
               export QT_X11_NO_MITSHM=1
               Xvfb "$DISPLAY" -screen 0 1280x800x24 -ac +extension GLX +render +iglx -noreset \
                 >/tmp/xvfb.log 2>&1 &
