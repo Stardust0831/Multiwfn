@@ -111,6 +111,35 @@ Relative manifest paths work when the directory is served over HTTP. Browsers
 cannot fetch arbitrary neighboring files from a locally opened `file://` page,
 so use a static server for manifest-based workflows.
 
+Cube coordinates are normalized to Angstrom in frontend world space. Positive
+voxel counts declare Bohr coordinates; negative voxel counts declare Angstrom.
+An individual cube entry may override the compatibility-level global periodic
+settings without replicating the structure:
+
+```json
+{
+  "path": "density.cube",
+  "role": "density",
+  "periodic": {
+    "relationship": "independent",
+    "enabled": true,
+    "tileCubes": true,
+    "cell": {
+      "a": [4.0, 0.0, 0.0],
+      "b": [1.0, 3.5, 0.0],
+      "c": [0.5, 0.25, 5.0]
+    },
+    "ranges": {
+      "a": [-0.5, 1.5],
+      "b": [0.0, 1.0],
+      "c": [0.0, 1.0]
+    }
+  }
+}
+```
+
+Layers without this override continue to follow the global periodic controls.
+
 The generated GUI service exposes bond orders through
 `GET /api/bond?atom1=1&atom2=2&method=mayer`. Atom indices are one-based and
 the response contains `value` plus spin components when applicable. Bond

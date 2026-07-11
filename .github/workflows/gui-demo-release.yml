@@ -137,6 +137,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node --test frontend/3dmol-viewer/tests/*.test.js
           tests/functional/run_3dmol_cube_unit_test.sh "build-3dmol-gui/${MULTIWFN_GUI_EXE}"
 
       - name: Build Qt native launcher
