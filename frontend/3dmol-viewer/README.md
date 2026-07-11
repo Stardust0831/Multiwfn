@@ -33,7 +33,8 @@ Implemented:
   orders. Gaussian FCHK connectivity arrays and MOL/MOL2 bond records take
   precedence. Geometry-only inputs use Multiwfn's CSD-radius connectivity
   rule, followed by GaussView-derived order thresholds, valence constraints,
-  and aromatic-ring validation.
+  and aromatic-ring validation. FCHK topology parsing is isolated in the
+  3Dmol backend and does not change Multiwfn's core file readers or `connmat`.
 - Select atoms with the right mouse button, identify bonds from 3Dmol's bond
   topology, and annotate displayed order, bond length, and supported Multiwfn
   bond orders.
