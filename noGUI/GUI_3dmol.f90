@@ -100,13 +100,7 @@ call ensure_dir(session)
 call remove_session_file(trim(session)//"/gui_stop.flag")
 call remove_session_file(trim(session)//"/gui_request.txt")
 
-if (allocated(a).and.ncenter>0) then
-    if (iconnsource==1.and.allocated(connmat).and.size(connmat,1)==ncenter.and.size(connmat,2)==ncenter) then
-        call write_structure_mol2(trim(session)//"/structure.mol2")
-    else
-        call write_structure_xyz(trim(session)//"/structure.xyz")
-    end if
-end if
+if (allocated(a).and.ncenter>0) call write_structure_xyz(trim(session)//"/structure.xyz")
 if (allocated(cubmat)) then
     call write_cube(trim(session)//"/cubmat.cube",cubmat)
     gui_has_cubmat_file=.true.
@@ -722,43 +716,6 @@ end do
 close(iu)
 end subroutine
 
-subroutine write_structure_mol2(path)
-character(len=*),intent(in) :: path
-integer :: iu,i,j,ibond,nbond
-character(len=24) :: atomlabel
-character(len=8) :: bondtype
-
-nbond=count(connmat/=0)/2
-open(newunit=iu,file=trim(path),status="replace",action="write")
-write(iu,"(a)") "@<TRIPOS>MOLECULE"
-write(iu,"(a)") "Generated_by_Multiwfn_3Dmol_GUI_backend"
-write(iu,"(2(i0,1x))") ncenter,nbond
-write(iu,"(a)") "SMALL"
-write(iu,"(a)") "NO_CHARGES"
-write(iu,*)
-write(iu,"(a)") "@<TRIPOS>ATOM"
-do i=1,ncenter
-    write(atomlabel,"(a,i0)") trim(a(i)%name),i
-    write(iu,"(i0,1x,a,3(1x,f18.10),1x,a,1x,i0,1x,a,1x,f8.4)") &
-        i,trim(atomlabel),a(i)%x*b2a,a(i)%y*b2a,a(i)%z*b2a,trim(a(i)%name),1,"MOL",0D0
-end do
-write(iu,"(a)") "@<TRIPOS>BOND"
-ibond=0
-do i=1,ncenter
-    do j=i+1,ncenter
-        if (connmat(i,j)==0) cycle
-        ibond=ibond+1
-        if (connmat(i,j)==4) then
-            bondtype="ar"
-        else
-            write(bondtype,"(i0)") connmat(i,j)
-        end if
-        write(iu,"(3(i0,1x),a)") ibond,i,j,trim(bondtype)
-    end do
-end do
-close(iu)
-end subroutine
-
 subroutine write_cube(path,data)
 character(len=*),intent(in) :: path
 real*8,intent(in) :: data(:,:,:)
@@ -820,11 +777,7 @@ write(iu,"(a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a)") &
 write(iu,"(a)") '    }'
 write(iu,"(a)") '  },'
 if (allocated(a).and.ncenter>0) then
-    if (iconnsource==1.and.allocated(connmat).and.size(connmat,1)==ncenter.and.size(connmat,2)==ncenter) then
-        write(iu,"(a)") '  "structure": { "path": "structure.mol2", "format": "mol2" },'
-    else
-        write(iu,"(a)") '  "structure": { "path": "structure.xyz", "format": "xyz" },'
-    end if
+    write(iu,"(a)") '  "structure": { "path": "structure.xyz", "format": "xyz" },'
 else
     write(iu,"(a)") '  "structure": null,'
 end if
