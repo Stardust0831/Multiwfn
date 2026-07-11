@@ -84,6 +84,19 @@ def is_wsl() -> bool:
         return False
 
 
+def recommended_window_geometry(screen_width: int, screen_height: int) -> tuple[int, int, int, int]:
+    """Return minimum and initial window sizes that stay within the usable screen."""
+    width = max(1, int(screen_width))
+    height = max(1, int(screen_height))
+    minimum_width = min(width, 800)
+    minimum_height = min(height, 560)
+    initial_width = min(width, 1440, max(1200, round(width * 0.92)))
+    initial_height = min(height, 960, max(800, round(height * 0.90)))
+    initial_width = max(minimum_width, initial_width)
+    initial_height = max(minimum_height, initial_height)
+    return minimum_width, minimum_height, initial_width, initial_height
+
+
 def open_system_browser(url: str) -> bool:
     if is_wsl():
         cmd_exe = Path("/mnt/c/Windows/System32/cmd.exe")
@@ -439,7 +452,7 @@ class MultiwfnQtGui(QMainWindow):
             pass
 
         self.setWindowTitle("Multiwfn Qt GUI")
-        self.resize(1280, 820)
+        self._configure_window_size()
         self._build_menu()
         self._build_ui()
         self._load_manifest()
@@ -448,6 +461,20 @@ class MultiwfnQtGui(QMainWindow):
         self._start_startup_profiler()
         if open_browser:
             QTimer.singleShot(0, self._open_in_browser)
+
+    def _configure_window_size(self) -> None:
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self.setMinimumSize(900, 600)
+            self.resize(1360, 900)
+            return
+        available = screen.availableGeometry()
+        minimum_width, minimum_height, initial_width, initial_height = recommended_window_geometry(
+            available.width(),
+            available.height(),
+        )
+        self.setMinimumSize(minimum_width, minimum_height)
+        self.resize(initial_width, initial_height)
 
     def _mark_startup(self, name: str) -> None:
         if self.profile_startup:

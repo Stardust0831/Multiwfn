@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Multiwfn 3Dmol GUI</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="modern.css">
     <script defer src="vendor/3Dmol-min.js"></script>
     <script defer src="cube-coordinates.js"></script>
     <script defer src="app.js"></script>
@@ -29,13 +30,13 @@
           </div>
 
           <div class="gui-window-bar">
-            <button id="gui-return" class="primary-action" type="button">RETURN</button>
+            <button id="gui-return" class="primary-action" type="button">Return</button>
             <button id="gui-rot-up" type="button">Up</button>
             <button id="gui-rot-down" type="button">Down</button>
             <button id="gui-rot-left" type="button">Left</button>
             <button id="gui-rot-right" type="button">Right</button>
-            <button id="gui-reset" type="button">Reset view</button>
-            <button id="gui-save-picture" type="button">Save picture</button>
+            <button id="gui-reset" type="button">Reset</button>
+            <button id="gui-save-picture" type="button">Save</button>
           </div>
 
           <div class="gui-pad" aria-label="View rotation">
@@ -43,29 +44,42 @@
 
           <section class="gui-section is-active" data-gui-section="molecule">
             <div class="group">
-              <h2>Geometry structure / orbital isosurfaces</h2>
+              <h2>Scene</h2>
               <div class="checks">
                 <label><input id="gui-show-structure" type="checkbox" checked> Show molecule</label>
                 <label><input id="gui-show-labels" type="checkbox"> Show labels</label>
                 <label><input id="gui-show-axis" type="checkbox" checked> Show axis</label>
-                <label><input id="gui-show-second" type="checkbox"> Show+Sel. isosur#2</label>
+                <label><input id="gui-show-second" type="checkbox"> Show surface 2</label>
               </div>
+              <h3 class="subsection-title">Geometry</h3>
               <div class="control-grid">
-                <label>
-                  <span>Bonding threshold</span>
-                  <input id="gui-bond-threshold" type="range" min="0" max="5" step="0.01" value="1.15">
+                <label class="parameter-control">
+                  <span class="parameter-heading"><span>Bonding threshold</span><small>relative</small></span>
+                  <span class="inline-number-control">
+                    <input id="gui-bond-threshold" type="range" min="0" max="5" step="0.01" value="1.15">
+                    <input id="gui-bond-threshold-number" type="text" inputmode="decimal" value="1.15" aria-label="Bonding threshold value">
+                  </span>
                 </label>
-                <label>
-                  <span>Ratio of atomic size</span>
-                  <input id="gui-atom-size" type="range" min="0" max="5" step="0.01" value="1">
+                <label class="parameter-control">
+                  <span class="parameter-heading"><span>Atom size ratio</span><small>scale</small></span>
+                  <span class="inline-number-control">
+                    <input id="gui-atom-size" type="range" min="0" max="5" step="0.01" value="1">
+                    <input id="gui-atom-size-number" type="text" inputmode="decimal" value="1.00" aria-label="Atom size ratio value">
+                  </span>
                 </label>
-                <label>
-                  <span>Radius of bonds</span>
-                  <input id="gui-bond-radius" type="range" min="0" max="1" step="0.01" value="0.2">
+                <label class="parameter-control">
+                  <span class="parameter-heading"><span>Bond radius</span><small>relative</small></span>
+                  <span class="inline-number-control">
+                    <input id="gui-bond-radius" type="range" min="0" max="1" step="0.01" value="0.2">
+                    <input id="gui-bond-radius-number" type="text" inputmode="decimal" value="0.20" aria-label="Bond radius value">
+                  </span>
                 </label>
-                <label>
-                  <span>Size of atomic labels</span>
-                  <input id="gui-label-size" type="range" min="0" max="100" step="1" value="38">
+                <label class="parameter-control">
+                  <span class="parameter-heading"><span>Label size</span><small>px</small></span>
+                  <span class="inline-number-control">
+                    <input id="gui-label-size" type="range" min="0" max="100" step="1" value="38">
+                    <input id="gui-label-size-number" type="text" inputmode="numeric" value="38" aria-label="Label size value">
+                  </span>
                 </label>
               </div>
             </div>
@@ -80,11 +94,22 @@
                   <span>Orbital index</span>
                   <input id="gui-orbital-input" type="text" value="0">
                 </label>
-                <label>
+                <label class="isovalue-control">
                   <span>Isovalue</span>
                   <span class="inline-number-control">
                     <input id="gui-orbital-isovalue" type="range" min="0" max="0.3" step="0.001" value="0.015">
-                    <input id="gui-orbital-isovalue-number" type="number" min="0" max="0.3" step="0.001" value="0.015">
+                    <input
+                      id="gui-orbital-isovalue-number"
+                      type="text"
+                      inputmode="decimal"
+                      value="0.0150"
+                      data-min="0"
+                      data-max="0.3"
+                      data-step="0.001"
+                      aria-label="Orbital isovalue"
+                      autocomplete="off"
+                      spellcheck="false"
+                    >
                   </span>
                 </label>
               </div>
@@ -269,7 +294,7 @@
           </section>
 
           <div class="gui-menu-strip" aria-label="Original GUI menus">
-            <button id="gui-menu-orbital-info" type="button">Orbital info.</button>
+            <button id="gui-menu-orbital-info" type="button">Orbital info</button>
             <div id="gui-isosur1-menu-control" class="gui-menu-control">
               <button
                 id="gui-menu-isosur1"
@@ -277,7 +302,7 @@
                 aria-haspopup="menu"
                 aria-expanded="false"
                 aria-controls="gui-isosur1-menu"
-              >Isosur#1 style</button>
+              >Surface 1</button>
               <div
                 id="gui-isosur1-menu"
                 class="gui-style-menu"
@@ -351,18 +376,18 @@
                 </button>
               </div>
             </div>
-            <button id="gui-menu-isosur2" type="button">Isosur#2 style</button>
+            <button id="gui-menu-isosur2" type="button">Surface 2</button>
             <select id="gui-menu-quality" aria-label="Isosurface quality">
               <option value="25000">Very poor quality (25k)</option>
               <option value="50000">Poor quality (50k)</option>
-              <option value="120000" selected>Isosur. quality: Default (120k)</option>
+              <option value="120000" selected>Quality: Default (120k)</option>
               <option value="300000">Good quality (300k)</option>
               <option value="500000">High quality (500k)</option>
               <option value="1000000">Very high quality (1000k)</option>
               <option value="1500000">Perfect quality (1500k)</option>
             </select>
-            <button id="gui-menu-view" type="button">Set view</button>
-            <button id="gui-menu-settings" type="button">Other settings</button>
+            <button id="gui-menu-view" type="button">View</button>
+            <button id="gui-menu-settings" type="button">Settings</button>
             <button id="gui-menu-tools" type="button">Tools</button>
           </div>
         </section>
