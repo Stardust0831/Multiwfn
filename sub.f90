@@ -2857,6 +2857,7 @@ if (allocated(MOsym)) deallocate(MOsym)
 if (allocated(MOene)) deallocate(MOene)
 if (allocated(MOtype)) deallocate(MOtype)
 if (allocated(connmat)) deallocate(connmat)
+iconnsource=0
 if (allocated(bndordmat)) deallocate(bndordmat)
 !Related to basis functions
 if (allocated(shtype)) deallocate(shtype,shcen,shcon,primshexp,primshcoeff)
@@ -4313,6 +4314,7 @@ integer infomode,iallowPBC
 if (allocated(a)) then
     if (allocated(connmat)) deallocate(connmat)
     allocate(connmat(ncenter,ncenter))
+    iconnsource=2
     if (infomode==1) then
 		write(*,*) "Generating bonding relationship..."
 		write(*,"(a,f5.3,a)") " Note: If distance between two atoms is smaller than sum of their &

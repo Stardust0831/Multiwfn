@@ -196,6 +196,7 @@ const atomSelectionColor = '#ffd400';
 const atomClickSphereRadius = 0.45;
 const bondPropertyDefinitions = [
   { id: 'length', label: 'Bond length', backend: false },
+  { id: 'display_order', label: 'Displayed bond order', backend: false },
   { id: 'mayer', label: 'Mayer', backend: true },
   { id: 'gwbo', label: 'GWBO', backend: true, openShellOnly: true },
   { id: 'wiberg_lowdin', label: 'Wiberg (Lowdin)', backend: true },
@@ -248,7 +249,7 @@ const state = {
   viewer: null,
   orientationViewer: null,
   orientationBaseView: null,
-  structure: { data: '', name: '', format: 'xyz', atoms: 0, baseData: '' },
+  structure: { data: '', name: '', format: 'xyz', atoms: 0, baseData: '', bonding: null },
   layers: [],
   periodic: {
     enabled: false,
@@ -284,6 +285,8 @@ const state = {
     orbitalRequestBusy: false,
     orbitalOpacity: 0.68,
     orbitalIsovalue: 0.015,
+    bondingThreshold: 1.15,
+    bondRenderFrame: 0,
     pendingOrbitalIndex: 0,
     manifestOrbitalLoads: new Map()
   },
@@ -658,26 +661,34 @@ function modelStyle() {
   const atomScale = toNumber(els.atomScale.value, 0.24);
   const bondRadius = toNumber(els.bondRadius.value, 0.14);
   const colorscheme = 'Jmol';
+  const stick = (radius) => ({
+    radius,
+    colorscheme,
+    aromaticStyle: 'dashed',
+    dashedBondConfig: { dashLength: 0.12, gapLength: 0.12 }
+  });
 
   if (els.modelStyle.value === 'sphere') {
     return { sphere: { scale: atomScale * 1.85, colorscheme } };
   }
   if (els.modelStyle.value === 'line') {
-    return { line: { linewidth: 2, colorscheme } };
+    // 3Dmol's line renderer omits fractional aromatic bonds. A very thin stick
+    // keeps the wireframe appearance while retaining 0.5/1.5 bond semantics.
+    return { stick: stick(Math.max(0.025, bondRadius * 0.28)) };
   }
   if (els.modelStyle.value === 'cartoon') {
     return {
       cartoon: { color: 'spectrum' },
-      stick: { radius: bondRadius * 0.72, colorscheme }
+      stick: stick(bondRadius * 0.72)
     };
   }
   if (els.modelStyle.value === 'ballstick') {
     return {
-      stick: { radius: bondRadius, colorscheme },
+      stick: stick(bondRadius),
       sphere: { scale: atomScale, colorscheme }
     };
   }
-  return { stick: { radius: bondRadius * 1.18, colorscheme } };
+  return { stick: stick(bondRadius * 1.18) };
 }
 
 function applySceneStyle() {
@@ -785,6 +796,8 @@ function makeSelectedBond(atom1, atom2) {
   const dx = Number(second.x) - Number(first.x);
   const dy = Number(second.y) - Number(first.y);
   const dz = Number(second.z) - Number(first.z);
+  const neighborPosition = Array.isArray(first.bonds) ? first.bonds.indexOf(secondIndex) : -1;
+  const displayedOrder = neighborPosition >= 0 ? Number(first.bondOrder?.[neighborPosition]) || 1 : 1;
   return {
     key: bondPairKey(firstIndex, secondIndex),
     atom1Index: firstIndex,
@@ -793,6 +806,7 @@ function makeSelectedBond(atom1, atom2) {
     atom2Name: atomDisplayName(second, secondIndex),
     label: `${atomDisplayName(first, firstIndex)}-${atomDisplayName(second, secondIndex)}`,
     length: Math.sqrt(dx * dx + dy * dy + dz * dz),
+    displayedOrder,
     atom1Position: { x: Number(first.x), y: Number(first.y), z: Number(first.z) },
     atom2Position: { x: Number(second.x), y: Number(second.y), z: Number(second.z) },
     midpoint: {
@@ -831,6 +845,10 @@ function bondPropertyDefinition(method) {
 function formatBondValue(method, value) {
   if (!Number.isFinite(Number(value))) return '';
   if (method === 'length') return `${Number(value).toFixed(4)} \u00c5`;
+  if (method === 'display_order') {
+    const labels = { 0.5: '0.5 (weak)', 1: '1 (single)', 1.5: '1.5 (aromatic)', 2: '2 (double)', 3: '3 (triple)', 4: 'aromatic' };
+    return labels[Number(value)] || String(Number(value));
+  }
   return Number(value).toFixed(6).replace(/\.?0+$/, '');
 }
 
@@ -1520,8 +1538,11 @@ function renderBondPropertyMenu(menu, bond) {
     if (property.openShellOnly && !state.bondAnalysis.capabilities.openShell) return;
     const cached = state.bondAnalysis.resultCache.get(bondResultCacheKey(bond, property.id));
     const capability = property.backend ? bondMethodCapability(property.id) : { available: true };
-    const value = property.id === 'length'
-      ? formatBondValue('length', bond.length)
+    const localValue = property.id === 'length' ? bond.length
+      : property.id === 'display_order' ? bond.displayedOrder
+        : null;
+    const value = localValue !== null
+      ? formatBondValue(property.id, localValue)
       : cached ? formatBondValue(property.id, cached.value) : '';
     const detail = cached ? bondPropertyDetail(cached) : '';
     const button = createBondMenuButton(property.label, {
@@ -1656,13 +1677,14 @@ function setBondRequestBusy(busy) {
 async function selectBondProperty(bond, method) {
   const annotation = ensureBondAnnotation(bond);
   const cached = state.bondAnalysis.resultCache.get(bondResultCacheKey(bond, method));
-  if (method === 'length') {
-    const payload = { ok: true, method, value: bond.length, components: { total: bond.length } };
+  if (method === 'length' || method === 'display_order') {
+    const value = method === 'length' ? bond.length : bond.displayedOrder;
+    const payload = { ok: true, method, value, components: { total: value } };
     state.bondAnalysis.resultCache.set(bondResultCacheKey(bond, method), payload);
     annotation.results.set(method, payload);
     renderBondAnnotation(annotation);
     syncSceneOverlays();
-    setStatus(`${bond.label} length: ${formatBondValue(method, bond.length)}`);
+    setStatus(`${bond.label} ${bondPropertyDefinition(method).label.toLowerCase()}: ${formatBondValue(method, value)}`);
     return;
   }
   if (cached) {
@@ -1746,6 +1768,74 @@ function handleAtomContextMenu(selected, x = 0, y = 0) {
   setStatus(`${action} atom ${atomDisplayName(selected, atomIndex)} (${state.atomSelection.indices.size} selected)`);
 }
 
+function applyDisplayedBondOrders(model, data, format) {
+  const perception = window.MultiwfnBondPerception;
+  if (!perception || !model || typeof model.selectedAtoms !== 'function') {
+    state.structure.bonding = null;
+    return null;
+  }
+  const atoms = model.selectedAtoms({});
+  const explicit = perception.hasExplicitBondTopology(data, format);
+  if (explicit) {
+    perception.applyExplicitBondOrders(atoms, data, format);
+    const existingStats = perception.summarizeExistingBonds(atoms);
+    const topologyOnly = ['pdb', 'pqr'].includes(String(format).toLowerCase())
+      && existingStats.total > 0
+      && existingStats.total === existingStats.single;
+    const ordered = topologyOnly
+      ? perception.assignOrdersToExistingTopology(atoms)
+      : null;
+    const result = {
+      source: topologyOnly ? 'explicit-topology' : 'explicit',
+      stats: ordered?.stats || existingStats,
+      bondingScale: null
+    };
+    state.structure.bonding = result;
+    return result;
+  }
+
+  const bondingScale = clamp(
+    toNumber(state.gui.bondingThreshold, perception.DEFAULTS.bondingScale),
+    0,
+    5
+  );
+  const perceived = perception.applyBondOrders(atoms, { bondingScale });
+  const result = {
+    source: 'inferred',
+    stats: perceived.stats,
+    bondingScale: perceived.options.bondingScale
+  };
+  state.structure.bonding = result;
+  return result;
+}
+
+function displayedBondSummary(bonding = state.structure.bonding) {
+  if (!bonding?.stats) return 'Bond topology unavailable';
+  const stats = bonding.stats;
+  const details = [
+    stats.single ? `${stats.single} single` : '',
+    stats.double ? `${stats.double} double` : '',
+    stats.triple ? `${stats.triple} triple` : '',
+    stats.aromatic ? `${stats.aromatic} aromatic` : '',
+    stats.weak ? `${stats.weak} weak` : ''
+  ].filter(Boolean).join(', ') || 'no bonds';
+  const source = bonding.source === 'explicit' ? 'Input'
+    : bonding.source === 'explicit-topology' ? 'Input topology / inferred orders'
+      : 'Inferred';
+  return `${source} bond orders: ${details}`;
+}
+
+function scheduleBondTopologyUpdate(value) {
+  state.gui.bondingThreshold = clamp(toNumber(value, 1.15), 0, 5);
+  if (state.gui.bondRenderFrame) cancelAnimationFrame(state.gui.bondRenderFrame);
+  state.gui.bondRenderFrame = requestAnimationFrame(() => {
+    state.gui.bondRenderFrame = 0;
+    clearBondAnalysisState();
+    renderScene(false);
+    setStatus(displayedBondSummary());
+  });
+}
+
 function addStructureToViewer() {
   let data = state.structure.data;
   let format = state.structure.format;
@@ -1758,6 +1848,7 @@ function addStructureToViewer() {
   try {
     const display = getDisplayStructureData(data, format);
     const model = state.viewer.addModel(display.data, display.format);
+    applyDisplayedBondOrders(model, display.data, display.format);
     model.setStyle({}, modelStyle());
     enableAtomContextSelection(model);
     if (!els.showStructure.checked) model.hide();
@@ -2608,21 +2699,22 @@ function setStructureData(text, name = 'structure.xyz', format = 'xyz', options 
     name,
     format: normalizedFormat,
     atoms: parseStructureAtomCount(text, normalizedFormat),
-    baseData: text
+    baseData: text,
+    bonding: null
   };
   state.dirtyZoom = true;
 }
 
 function loadStructure(text, name = 'structure.xyz', format = 'xyz') {
   setStructureData(text, name, format);
-  setStatus('Structure loaded');
   renderScene(true);
+  setStatus(displayedBondSummary());
 }
 
 function clearStructure() {
   clearAtomSelectionState();
   clearBondAnalysisState({ resetCapabilities: true });
-  state.structure = { data: '', name: '', format: 'xyz', atoms: 0, baseData: '' };
+  state.structure = { data: '', name: '', format: 'xyz', atoms: 0, baseData: '', bonding: null };
   state.dirtyZoom = true;
   setStatus('Structure cleared');
   renderScene(true);
@@ -2807,6 +2899,10 @@ function initialManifestLayerSpec(specs) {
 
 async function setManifestStructure(structureEntry, baseUrl) {
   if (!structureEntry) return false;
+  if (Number.isFinite(Number(structureEntry.bondingThreshold))) {
+    state.gui.bondingThreshold = clamp(Number(structureEntry.bondingThreshold), 0, 5);
+    if (els.guiBondThreshold) els.guiBondThreshold.value = String(state.gui.bondingThreshold);
+  }
   const structureData = await loadTextFromManifestEntry(structureEntry, baseUrl);
   const name = structureEntry.name || structureEntry.path || structureEntry.url || 'structure';
   setStructureData(structureData, name, structureEntry.format || detectFormat(name), {
@@ -3012,7 +3108,9 @@ function saveManifest() {
       ? {
           name: state.structure.name,
           format: state.structure.format,
-          atoms: state.structure.atoms
+          atoms: state.structure.atoms,
+          bondingThreshold: state.gui.bondingThreshold,
+          displayedBondOrders: state.structure.bonding
         }
       : null,
     layers: state.layers.map((layer) => ({
@@ -3491,8 +3589,10 @@ function syncMultiwfnGuiControls() {
   els.guiRangeA.value = els.rangeA.value;
   els.guiRangeB.value = els.rangeB.value;
   els.guiRangeC.value = els.rangeC.value;
+  if (els.guiBondSummary) els.guiBondSummary.textContent = displayedBondSummary();
 
   const atomRatio = clamp(toNumber(els.atomScale.value, 0.24) / 0.24, 0, 5);
+  els.guiBondThreshold.value = String(state.gui.bondingThreshold);
   els.guiAtomSize.value = atomRatio.toFixed(2);
   els.guiBondRadius.value = clamp(toNumber(els.bondRadius.value, 0.14) / 0.7, 0, 1).toFixed(2);
   els.guiLabelSize.value = String(state.gui.labelSize);
@@ -3799,7 +3899,7 @@ function bindEvents() {
   });
   bindRangeNumberControl(els.guiBondThreshold, els.guiBondThresholdNumber, {
     decimals: 2,
-    onInput: () => setStatus('Bonding threshold is stored for Multiwfn GUI parity')
+    onInput: (value) => scheduleBondTopologyUpdate(value)
   });
   bindRangeNumberControl(els.guiAtomSize, els.guiAtomSizeNumber, {
     decimals: 2,
@@ -4083,6 +4183,7 @@ function cacheElements() {
     guiShowSecond: byId('gui-show-second'),
     guiBondThreshold: byId('gui-bond-threshold'),
     guiBondThresholdNumber: byId('gui-bond-threshold-number'),
+    guiBondSummary: byId('gui-bond-summary'),
     guiAtomSize: byId('gui-atom-size'),
     guiAtomSizeNumber: byId('gui-atom-size-number'),
     guiBondRadius: byId('gui-bond-radius'),
