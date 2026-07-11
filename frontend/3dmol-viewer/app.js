@@ -52,9 +52,9 @@ function makeSampleCube(title, valueAt) {
     title,
     'Generated for Multiwfn 3Dmol workbench',
     `    3 ${origin.toFixed(6).padStart(11)} ${origin.toFixed(6).padStart(11)} ${origin.toFixed(6).padStart(11)}`,
-    `    ${count} ${step.toFixed(6).padStart(11)}    0.000000    0.000000`,
-    `    ${count}    0.000000 ${step.toFixed(6).padStart(11)}    0.000000`,
-    `    ${count}    0.000000    0.000000 ${step.toFixed(6).padStart(11)}`,
+    `    ${-count} ${step.toFixed(6).padStart(11)}    0.000000    0.000000`,
+    `    ${-count}    0.000000 ${step.toFixed(6).padStart(11)}    0.000000`,
+    `    ${-count}    0.000000    0.000000 ${step.toFixed(6).padStart(11)}`,
     '    8    0.000000    0.000000    0.000000    0.000000',
     '    1    0.000000    0.000000    0.757000    0.586000',
     '    1    0.000000    0.000000   -0.757000    0.586000'
@@ -123,9 +123,9 @@ function makePeriodicCube(title, valueAt) {
     title,
     'Synthetic periodic ESP sample for Multiwfn 3Dmol workbench',
     `${String(periodicAtoms.length).padStart(5)} ${origin.map((value) => value.toFixed(6).padStart(11)).join(' ')}`,
-    `${String(dims[0]).padStart(5)} ${vectors[0].map((value) => value.toFixed(6).padStart(11)).join(' ')}`,
-    `${String(dims[1]).padStart(5)} ${vectors[1].map((value) => value.toFixed(6).padStart(11)).join(' ')}`,
-    `${String(dims[2]).padStart(5)} ${vectors[2].map((value) => value.toFixed(6).padStart(11)).join(' ')}`,
+    `${String(-dims[0]).padStart(5)} ${vectors[0].map((value) => value.toFixed(6).padStart(11)).join(' ')}`,
+    `${String(-dims[1]).padStart(5)} ${vectors[1].map((value) => value.toFixed(6).padStart(11)).join(' ')}`,
+    `${String(-dims[2]).padStart(5)} ${vectors[2].map((value) => value.toFixed(6).padStart(11)).join(' ')}`,
     ...periodicAtoms.map((atom) => (
       `${String(atom.atomicNumber).padStart(5)}    0.000000 ${atom.x.toFixed(6).padStart(11)} ${atom.y.toFixed(6).padStart(11)} ${atom.z.toFixed(6).padStart(11)}`
     ))
@@ -184,6 +184,8 @@ const atomicSymbols = {
   16: 'S', 17: 'Cl', 18: 'Ar', 19: 'K', 20: 'Ca', 26: 'Fe', 29: 'Cu',
   30: 'Zn', 35: 'Br', 53: 'I'
 };
+
+const cubeCoordinates = window.MultiwfnCubeCoordinates;
 
 const orbitalPhaseColors = {
   positive: '#f5a9b8',
@@ -355,29 +357,7 @@ function roleLabel(role) {
 }
 
 function parseCubeMetadata(cubeText) {
-  const lines = cubeText.split(/\r?\n/).filter((line) => line.trim().length);
-  if (lines.length < 6) return { atoms: 0, gridPoints: 0, dims: [] };
-
-  const atomParts = lines[2].trim().split(/\s+/);
-  const atoms = Math.abs(parseInt(atomParts[0], 10));
-  const origin = atomParts.slice(1, 4).map(Number);
-  const dims = [3, 4, 5].map((lineIndex) => {
-    const parts = lines[lineIndex].trim().split(/\s+/);
-    return Math.abs(parseInt(parts[0], 10));
-  });
-  const vectors = [3, 4, 5].map((lineIndex) => {
-    const parts = lines[lineIndex].trim().split(/\s+/);
-    return parts.slice(1, 4).map(Number);
-  });
-  const validDims = dims.every((value) => Number.isFinite(value) && value > 0);
-
-  return {
-    atoms: Number.isFinite(atoms) ? atoms : 0,
-    gridPoints: validDims ? dims.reduce((acc, value) => acc * value, 1) : 0,
-    dims: validDims ? dims : [],
-    origin: origin.every(Number.isFinite) ? origin : [0, 0, 0],
-    vectors: vectors.every((vector) => vector.every(Number.isFinite)) ? vectors : []
-  };
+  return cubeCoordinates.parseCubeMetadata(cubeText);
 }
 
 function parseCubeGrid(cubeText) {
@@ -485,21 +465,7 @@ function parseStructureAtomCount(data, format) {
 }
 
 function xyzFromCube(cubeText) {
-  const lines = cubeText.split(/\r?\n/).filter((line) => line.trim().length);
-  if (lines.length < 7) return '';
-
-  const atomCount = Math.abs(parseInt(lines[2].trim().split(/\s+/)[0], 10));
-  if (!Number.isFinite(atomCount) || atomCount <= 0 || lines.length < 6 + atomCount) return '';
-
-  const atoms = [];
-  for (let i = 0; i < atomCount; i += 1) {
-    const parts = lines[6 + i].trim().split(/\s+/);
-    const atomicNumber = Math.abs(parseInt(parts[0], 10));
-    const symbol = atomicSymbols[atomicNumber] || 'X';
-    atoms.push(`${symbol} ${parts[2]} ${parts[3]} ${parts[4]}`);
-  }
-
-  return `${atoms.length}\nfrom cube\n${atoms.join('\n')}\n`;
+  return cubeCoordinates.cubeAtomsToXYZ(cubeText, atomicSymbols);
 }
 
 function parseXYZAtoms(xyzText) {
@@ -586,36 +552,12 @@ function drawCellBox() {
 }
 
 function shiftCubeText(cubeText, offset) {
-  const lines = cubeText.split(/\r?\n/);
-  if (lines.length < 6) return cubeText;
-  const parts = lines[2].trim().split(/\s+/);
-  if (parts.length < 4) return cubeText;
-  const atomCount = parts[0];
-  const origin = parts.slice(1, 4).map(Number);
-  if (origin.some((value) => !Number.isFinite(value))) return cubeText;
-  const shifted = vectorAdd(origin, offset);
-  lines[2] = `${atomCount.padStart(5)} ${shifted.map((value) => value.toFixed(6).padStart(11)).join(' ')}`;
-  return lines.join('\n');
+  return cubeCoordinates.shiftCubeText(cubeText, offset);
 }
 
-function cubeOffsets() {
-  if (!state.periodic.enabled || !state.periodic.tileCubes) return [[0, 0, 0]];
-
-  const { a, b, c } = getCellVectors();
-  const offsets = [];
-  const offsetsA = rangeOffsets(state.periodic.ranges.a, state.periodic.repeatMode);
-  const offsetsB = rangeOffsets(state.periodic.ranges.b, state.periodic.repeatMode);
-  const offsetsC = rangeOffsets(state.periodic.ranges.c, state.periodic.repeatMode);
-  offsetsA.forEach((ia) => {
-    offsetsB.forEach((ib) => {
-      offsetsC.forEach((ic) => {
-        if (offsets.length < state.periodic.cubeRepeatCap) {
-          offsets.push(vectorAdd(vectorScale(a, ia), vectorScale(b, ib), vectorScale(c, ic)));
-        }
-      });
-    });
-  });
-  return offsets.length ? offsets : [[0, 0, 0]];
+function cubeOffsets(layer) {
+  const periodic = cubeCoordinates.resolveLayerPeriodic(layer?.periodic, state.periodic);
+  return cubeCoordinates.periodicOffsets(periodic);
 }
 
 function makeGradient(name, min, max) {
@@ -1864,7 +1806,7 @@ function addCubeLayer(layer) {
   const colorMax = toNumber(layer.colorMax, 0.05);
   const surfaceStyle = layer.surfaceStyle || 'transparent';
 
-  cubeOffsets().forEach((offset) => {
+  cubeOffsets(layer).forEach((offset) => {
     let volume;
     let colorVolume = null;
     try {
@@ -2641,6 +2583,7 @@ function layerFromCube(text, options = {}) {
     surfaceStyle: options.surfaceStyle || 'transparent',
     colorMin: toNumber(options.colorMin, -0.05),
     colorMax: toNumber(options.colorMax, 0.05),
+    periodic: options.periodic || null,
     stats: parseCubeMetadata(text)
   };
 }
@@ -3017,6 +2960,7 @@ function saveManifest() {
       colorMin: layer.colorMin,
       colorMax: layer.colorMax,
       visible: layer.visible,
+      periodic: layer.periodic || undefined,
       gridPoints: layer.stats.gridPoints
     })),
     periodic: state.periodic,
