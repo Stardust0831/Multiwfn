@@ -4,11 +4,10 @@ This repository keeps the original `Makefile` unchanged for the upstream
 Intel/Linux workflow and adds a minimal CMake path for reproducible noGUI
 builds.
 
-## Supported CMake Target
+## Supported CMake Targets
 
-The CMake build currently targets `Multiwfn_noGUI` only. This avoids DISLIN,
-Motif, X11, and OpenGL so CI can build on Linux, macOS, and Windows with GNU
-Fortran.
+The default CMake build targets `Multiwfn_noGUI`. This avoids DISLIN, Motif,
+X11, and OpenGL so CI can build on Linux, macOS, and Windows with GNU Fortran.
 
 The repository includes the upstream Multiwfn license terms in `LICENSE.txt`.
 Release assets must carry this file alongside the binaries.
@@ -18,9 +17,38 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The GUI executable is intentionally not wired into CMake yet. Use the original
-`Makefile` for the upstream GUI build until the GUI dependency boundary is
-handled separately.
+The artifact-based 3Dmol GUI backend is also available through CMake. To build
+the native Qt shell by default:
+
+```sh
+cmake -S . -B build-qt-gui \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMULTIWFN_GUI_BACKEND=3dmol \
+  -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt
+cmake --build build-qt-gui --parallel
+```
+
+This produces `Multiwfn_QtGUI`, copies `settings.ini` beside the executable,
+and stages its Python launchers plus web frontend under
+`build-qt-gui/resources/`. This is a development build layout, not a
+self-contained release package. The executable can be run directly from the
+build directory when its development runtime dependencies are available.
+
+Both 3Dmol shells require Python 3. The browser shell uses only the Python
+standard library plus the system's default browser. The Qt shell additionally
+requires PyQt6, and its embedded 3D viewer requires PyQt6-WebEngine. CMake
+checks these imports with the Python interpreter found at configure time and
+prints a warning when the selected shell's dependencies are unavailable. At
+runtime, set `MULTIWFN_3DMOL_PYTHON` to use a Python interpreter other than
+`python3` from `PATH`.
+
+A browser-default build uses `MULTIWFN_3DMOL_DEFAULT_SHELL=browser` and
+produces `Multiwfn_3DmolGUI` with the same staged configuration and resources.
+Formal release packages use a separately tested, self-contained runtime and
+must not rely on this development staging layout.
+
+The original DISLIN/Motif GUI remains outside the CMake build; use the upstream
+`Makefile` when that legacy backend is required.
 
 ## Optional Features
 
