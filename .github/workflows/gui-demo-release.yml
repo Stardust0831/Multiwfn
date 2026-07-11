@@ -132,6 +132,13 @@ jobs:
           test -x "build-3dmol-gui/${exe_name}.exe"
           echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
+      - name: Verify cube coordinate units
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests/functional/run_3dmol_cube_unit_test.sh "build-3dmol-gui/${MULTIWFN_GUI_EXE}"
+
       - name: Build Qt native launcher
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || startsWith(github.ref_name, 'gui-qt-preview-') || contains(github.ref_name, '-gui.')
         shell: bash

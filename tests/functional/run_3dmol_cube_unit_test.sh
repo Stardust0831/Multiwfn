@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 /path/to/Multiwfn_3DmolGUI" >&2
+  exit 2
+fi
+
+exe="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+if [ ! -x "$exe" ]; then
+  echo "Executable is not runnable: $exe" >&2
+  exit 2
+fi
+
+workdir="$(mktemp -d)"
+cleanup() {
+  rm -rf "$workdir"
+}
+trap cleanup EXIT
+
+cat > "$workdir/tiny.cube" <<'EOF'
+Cube coordinate unit regression test
+Coordinates are in Bohr because voxel counts are positive
+    1    2.000000   -1.000000    0.500000
+    2    0.400000    0.000000    0.000000
+    2    0.000000    0.500000    0.000000
+    2    0.000000    0.000000    0.600000
+    8    0.000000    1.250000   -0.750000    0.500000
+  1.000000E-01  2.000000E-01  3.000000E-01  4.000000E-01
+  5.000000E-01  6.000000E-01  7.000000E-01  8.000000E-01
+EOF
+
+mkdir -p "$workdir/session"
+(
+  cd "$workdir"
+  MULTIWFN_3DMOL_SESSION="$workdir/session" \
+  MULTIWFN_3DMOL_SHELL=browser \
+  MULTIWFN_3DMOL_PYTHON="$(command -v true)" \
+    "$exe" tiny.cube <<'EOF' > multiwfn.out
+13
+-2
+-1
+q
+EOF
+)
+
+cube="$workdir/session/cubmat.cube"
+xyz="$workdir/session/structure.xyz"
+test -f "$cube"
+test -f "$xyz"
+
+awk '
+  NR == 3 && ($1 != 1 || $2 != 2.0 || $3 != -1.0 || $4 != 0.5) { exit 1 }
+  NR == 4 && ($1 != 2 || $2 != 0.4 || $3 != 0.0 || $4 != 0.0) { exit 1 }
+  NR == 5 && ($1 != 2 || $2 != 0.0 || $3 != 0.5 || $4 != 0.0) { exit 1 }
+  NR == 6 && ($1 != 2 || $2 != 0.0 || $3 != 0.0 || $4 != 0.6) { exit 1 }
+  NR == 7 && ($1 != 8 || $3 != 1.25 || $4 != -0.75 || $5 != 0.5) { exit 1 }
+' "$cube"
+
+awk '
+  NR == 3 {
+    tolerance = 0.000001
+    if ($1 != "O" || ($2 - 0.6614715)^2 > tolerance^2 || \
+        ($3 + 0.3968829)^2 > tolerance^2 || ($4 - 0.2645886)^2 > tolerance^2) exit 1
+  }
+' "$xyz"
+
+echo "3Dmol cube coordinate unit test passed"
