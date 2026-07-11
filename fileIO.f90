@@ -10,6 +10,7 @@ integer infomode,inamelen
 call path2filename(thisfilename,filenameonly) !Remove folder part
 
 iresinfo=0 !First assume residue information is not available from input file (but will set to 1 in the subroutine of loading pdb/pqr/gro)
+iconnsource=0 !The reader below may set this when explicit input topology is available
 
 inamelen=len_trim(thisfilename)
 if (infomode==0) write(*,*) "Please wait..."
@@ -428,6 +429,7 @@ integer,allocatable :: shelltype6D(:) !Temporarily store Cartesian shell types c
 real*8,external :: normgau
 ifiletype=1
 imodwfn=0
+iconnsource=0
 s2f(-5,1:11)=(/ -32,-31,-30,-29,-28,-27,-26,-25,-24,-23,-22 /)
 s2f(-4,1:9)=(/ -21,-20,-19,-18,-17,-16,-15,-14,-13 /)
 s2f(-3,1:7)=(/ -12,-11,-10,-9,-8,-7,-6 /)
@@ -653,6 +655,7 @@ if (isaveNBOene==1) MOocc=0D0 !For saveNBO, the automatically determined occupat
 where (MOocc==1000) MOocc=0D0 !When saveNBO is used, the latest several occupation/energy of NBO are 1000, we modify them to zero
 where (MOene==1000) MOene=0D0
 
+call readfchconn(10,infomode)
 close(10)
 
 !!!!!! Reading have finished, now generate basis information
@@ -935,6 +938,103 @@ if (infomode==0) then
 end if
 
 call getHOMOidx !Find out index of HOMO, will be used in some cases
+end subroutine
+
+
+!!--------------------------------------------------------------------
+!! Read Gaussian's optional formal connectivity arrays from an opened
+!! formatted checkpoint file. RBond=1.5 is represented by connmat=4,
+!! consistently with the existing MOL/MOL2 aromatic-bond convention.
+subroutine readfchconn(fileid,infomode)
+use defvar
+use util
+implicit none
+integer,intent(in) :: fileid,infomode
+integer :: ifound,ierror,mxbond,nval,i,k,idx,j,itype,nbond
+integer,allocatable :: nbondatm(:),ibond(:)
+integer*2,allocatable :: directed(:,:),connread(:,:)
+real*8,allocatable :: rbond(:)
+logical,allocatable :: present(:,:)
+logical :: valid
+
+call loclabel(fileid,'MxBond',ifound)
+if (ifound==0) return
+read(fileid,"(49x,i12)",iostat=ierror) mxbond
+if (ierror/=0.or.mxbond<=0) return
+
+call loclabel(fileid,'NBond',ifound)
+if (ifound==0) return
+read(fileid,"(49x,i12)",iostat=ierror) nval
+if (ierror/=0.or.nval/=ncenter) return
+allocate(nbondatm(ncenter))
+read(fileid,"(6i12)",iostat=ierror) nbondatm
+if (ierror/=0.or.any(nbondatm<0).or.any(nbondatm>mxbond)) return
+
+call loclabel(fileid,'IBond',ifound)
+if (ifound==0) return
+read(fileid,"(49x,i12)",iostat=ierror) nval
+if (ierror/=0.or.nval/=mxbond*ncenter) return
+allocate(ibond(nval))
+read(fileid,"(6i12)",iostat=ierror) ibond
+if (ierror/=0) return
+
+call loclabel(fileid,'RBond',ifound)
+if (ifound==0) return
+read(fileid,"(49x,i12)",iostat=ierror) nval
+if (ierror/=0.or.nval/=mxbond*ncenter) return
+allocate(rbond(nval))
+read(fileid,"(5(1PE16.8))",iostat=ierror) rbond
+if (ierror/=0) return
+
+allocate(directed(ncenter,ncenter),present(ncenter,ncenter))
+directed=0
+present=.false.
+valid=.true.
+do i=1,ncenter
+    do k=1,nbondatm(i)
+        idx=(i-1)*mxbond+k
+        j=ibond(idx)
+        if (j<1.or.j>ncenter.or.j==i) then
+            valid=.false.
+            exit
+        end if
+        if (abs(rbond(idx)-1.5D0)<1D-6) then
+            itype=4
+        else if (abs(rbond(idx)-1D0)<1D-6) then
+            itype=1
+        else if (abs(rbond(idx)-2D0)<1D-6) then
+            itype=2
+        else if (abs(rbond(idx)-3D0)<1D-6) then
+            itype=3
+        else
+            valid=.false.
+            exit
+        end if
+        if (present(i,j).and.directed(i,j)/=itype) then
+            valid=.false.
+            exit
+        end if
+        present(i,j)=.true.
+        directed(i,j)=itype
+    end do
+    if (.not.valid) exit
+end do
+if (.not.valid) return
+do i=1,ncenter
+    do j=i+1,ncenter
+        if (present(i,j).neqv.present(j,i)) return
+        if (present(i,j).and.directed(i,j)/=directed(j,i)) return
+    end do
+end do
+
+allocate(connread(ncenter,ncenter))
+connread=0
+where (present) connread=directed
+if (allocated(connmat)) deallocate(connmat)
+call move_alloc(connread,connmat)
+iconnsource=1
+nbond=count(connmat/=0)/2
+if (infomode==0) write(*,"(' Loaded',i8,' explicit bonds from formatted checkpoint connectivity')") nbond
 end subroutine
 
 
@@ -2411,6 +2511,7 @@ do ibond=1,nbond
 	connmat(i,j)=ntmp
 	connmat(j,i)=ntmp
 end do
+iconnsource=1
 close(10)
 a%x=a%x/b2a
 a%y=a%y/b2a
@@ -2471,6 +2572,7 @@ do ibond=1,nbond
 	connmat(i,j)=ntmp
 	connmat(j,i)=ntmp
 end do
+iconnsource=1
 
 call loclabel(10,"@<TRIPOS>CRYSIN",ifound)
 if (ifound==1) then
@@ -2556,6 +2658,7 @@ else !Read mol
 	end do
 end if
 close(10)
+iconnsource=1
 end subroutine
 
 
