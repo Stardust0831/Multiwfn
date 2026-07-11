@@ -336,6 +336,8 @@ jobs:
             tag="gui-qt-preview-ci-${GITHUB_RUN_NUMBER}"
           fi
           if [[ "$tag" == v*-gui.* ]]; then
+            version="${tag#v}"
+            version="${version%-gui.*}"
             cat > release_notes.md <<'EOF'
           This release publishes Multiwfn executables with the Qt/3Dmol GUI backend.
 
@@ -348,7 +350,7 @@ jobs:
 
           Note: the Qt/3Dmol GUI is still under active development. Please report GUI workflow regressions through issues.
           EOF
-            echo "RELEASE_TITLE=Multiwfn 2026.6.2 GUI build" >> "$GITHUB_ENV"
+            echo "RELEASE_TITLE=Multiwfn ${version} GUI build" >> "$GITHUB_ENV"
             echo "RELEASE_PRERELEASE=false" >> "$GITHUB_ENV"
             exit 0
           fi
