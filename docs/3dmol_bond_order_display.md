@@ -9,10 +9,11 @@ wavefunction calculation.
 ## Data precedence
 
 1. When a Gaussian formatted checkpoint contains all four optional
-   `MxBond`/`NBond`/`IBond`/`RBond` fields, Multiwfn validates and loads them
-   into `connmat`. The 3Dmol backend exports that explicit topology as MOL2;
-   `RBond=1.5` is carried as an aromatic bond. Missing, dimensionally
-   inconsistent, or unsupported values leave connectivity unavailable.
+   `MxBond`/`NBond`/`IBond`/`RBond` fields, the 3Dmol GUI backend validates
+   them into a GUI-local sparse bond list and exports it as MOL2;
+   `RBond=1.5` is carried as an aromatic bond. Multiwfn's core `readfch` and
+   global `connmat` behavior remain unchanged. Missing, dimensionally
+   inconsistent, or unsupported values leave GUI connectivity unavailable.
 2. SDF/MOL and MOL2 bond orders are preserved. CIF bond records are also left
    to the 3Dmol parser.
 3. PDB/PQR `CONECT` records preserve the input topology. When all parsed orders
@@ -25,6 +26,8 @@ This prevents a geometry heuristic from overwriting bond orders already stored
 by the source program while still making geometry-only quantum-chemistry files
 useful. The FCHK arrays describe Gaussian's stored formal drawing topology;
 they remain distinct from wavefunction-derived Mayer, Wiberg, or FBO values.
+The file-format detection and FCHK parsing are confined to the 3Dmol backend;
+no topology provenance state is added to Multiwfn's core modules.
 
 ## Perception pipeline
 

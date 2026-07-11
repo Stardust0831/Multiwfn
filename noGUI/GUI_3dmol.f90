@@ -8,6 +8,10 @@ integer :: gui_orbital_count=0
 logical :: gui_has_cubmat_file=.false.,gui_has_cubmattmp_file=.false.
 real*8,allocatable :: gui_fbo_cache(:,:)
 logical :: gui_fbo_ready=.false.
+integer,allocatable :: gui_bond_atom1(:),gui_bond_atom2(:)
+integer*2,allocatable :: gui_bond_order(:)
+integer :: gui_bond_count=0
+logical :: gui_has_explicit_topology=.false.
 
 contains
 
@@ -99,9 +103,10 @@ call get_session_dir(session)
 call ensure_dir(session)
 call remove_session_file(trim(session)//"/gui_stop.flag")
 call remove_session_file(trim(session)//"/gui_request.txt")
+call prepare_gui_structure_topology()
 
 if (allocated(a).and.ncenter>0) then
-    if (iconnsource==1.and.allocated(connmat).and.size(connmat,1)==ncenter.and.size(connmat,2)==ncenter) then
+    if (gui_has_explicit_topology) then
         call write_structure_mol2(trim(session)//"/structure.mol2")
     else
         call write_structure_xyz(trim(session)//"/structure.xyz")
@@ -138,6 +143,193 @@ subroutine reset_bond_analysis_cache()
 if (allocated(gui_fbo_cache)) deallocate(gui_fbo_cache)
 gui_fbo_ready=.false.
 end subroutine
+
+subroutine prepare_gui_structure_topology()
+character(len=8) :: extension
+
+gui_has_explicit_topology=.false.
+gui_bond_count=0
+if (allocated(gui_bond_atom1)) deallocate(gui_bond_atom1)
+if (allocated(gui_bond_atom2)) deallocate(gui_bond_atom2)
+if (allocated(gui_bond_order)) deallocate(gui_bond_order)
+if (.not.allocated(a).or.ncenter<=0) return
+
+call get_filename_extension(filename,extension)
+select case(trim(extension))
+case("fch","fchk")
+    call read_gui_fchk_topology(trim(filename),gui_has_explicit_topology)
+case("mol","sdf","mol2")
+    if (allocated(connmat)) then
+        if (size(connmat,1)==ncenter.and.size(connmat,2)==ncenter) then
+            call copy_gui_bonds_from_connmat()
+        end if
+    end if
+end select
+end subroutine
+
+subroutine copy_gui_bonds_from_connmat()
+integer :: i,j,ibond
+
+gui_bond_count=0
+do i=1,ncenter
+    do j=i+1,ncenter
+        if (connmat(i,j)/=0) gui_bond_count=gui_bond_count+1
+    end do
+end do
+allocate(gui_bond_atom1(gui_bond_count),gui_bond_atom2(gui_bond_count),gui_bond_order(gui_bond_count))
+ibond=0
+do i=1,ncenter
+    do j=i+1,ncenter
+        if (connmat(i,j)==0) cycle
+        ibond=ibond+1
+        gui_bond_atom1(ibond)=i
+        gui_bond_atom2(ibond)=j
+        gui_bond_order(ibond)=connmat(i,j)
+    end do
+end do
+gui_has_explicit_topology=.true.
+end subroutine
+
+subroutine get_filename_extension(path,extension)
+character(len=*),intent(in) :: path
+character(len=*),intent(out) :: extension
+integer :: i,idot,islash,ich,ncopy
+
+extension=" "
+idot=0
+islash=0
+do i=1,len_trim(path)
+    if (path(i:i)=="/".or.path(i:i)=="\") islash=i
+    if (path(i:i)==".") idot=i
+end do
+if (idot<=islash.or.idot>=len_trim(path)) return
+ncopy=min(len(extension),len_trim(path)-idot)
+extension(1:ncopy)=path(idot+1:idot+ncopy)
+do i=1,ncopy
+    ich=iachar(extension(i:i))
+    if (ich>=iachar("A").and.ich<=iachar("Z")) extension(i:i)=achar(ich+32)
+end do
+end subroutine
+
+subroutine read_gui_fchk_topology(path,found)
+use util
+implicit none
+character(len=*),intent(in) :: path
+logical,intent(out) :: found
+integer :: iu,ifound,ierror,mxbond,nval,i,k,k2,idx,idx2,j,itype,reciprocal_type,iedge
+integer,allocatable :: nbondatm(:),ibondatm(:)
+real*8,allocatable :: rbond(:)
+logical :: valid
+
+found=.false.
+open(newunit=iu,file=path,status="old",action="read",iostat=ierror)
+if (ierror/=0) return
+
+call loclabel(iu,'MxBond',ifound)
+if (ifound==0) goto 900
+read(iu,"(49x,i12)",iostat=ierror) mxbond
+if (ierror/=0.or.mxbond<=0) goto 900
+
+call loclabel(iu,'NBond',ifound)
+if (ifound==0) goto 900
+read(iu,"(49x,i12)",iostat=ierror) nval
+if (ierror/=0.or.nval/=ncenter) goto 900
+allocate(nbondatm(ncenter))
+read(iu,"(6i12)",iostat=ierror) nbondatm
+if (ierror/=0.or.any(nbondatm<0).or.any(nbondatm>mxbond)) goto 900
+
+call loclabel(iu,'IBond',ifound)
+if (ifound==0) goto 900
+read(iu,"(49x,i12)",iostat=ierror) nval
+if (ierror/=0.or.nval/=mxbond*ncenter) goto 900
+allocate(ibondatm(nval))
+read(iu,"(6i12)",iostat=ierror) ibondatm
+if (ierror/=0) goto 900
+
+call loclabel(iu,'RBond',ifound)
+if (ifound==0) goto 900
+read(iu,"(49x,i12)",iostat=ierror) nval
+if (ierror/=0.or.nval/=mxbond*ncenter) goto 900
+allocate(rbond(nval))
+read(iu,"(5(1PE16.8))",iostat=ierror) rbond
+if (ierror/=0) goto 900
+
+valid=.true.
+gui_bond_count=0
+do i=1,ncenter
+    do k=1,nbondatm(i)
+        idx=(i-1)*mxbond+k
+        j=ibondatm(idx)
+        if (j<1.or.j>ncenter.or.j==i) then
+            valid=.false.
+            exit
+        end if
+        itype=gui_fchk_bond_type(rbond(idx))
+        if (itype==0) then
+            valid=.false.
+            exit
+        end if
+        do k2=1,k-1
+            idx2=(i-1)*mxbond+k2
+            if (ibondatm(idx2)==j) then
+                valid=.false.
+                exit
+            end if
+        end do
+        if (.not.valid) exit
+        reciprocal_type=0
+        do k2=1,nbondatm(j)
+            idx2=(j-1)*mxbond+k2
+            if (ibondatm(idx2)/=i) cycle
+            if (reciprocal_type/=0) then
+                valid=.false.
+                exit
+            end if
+            reciprocal_type=gui_fchk_bond_type(rbond(idx2))
+        end do
+        if (.not.valid.or.reciprocal_type/=itype) then
+            valid=.false.
+            exit
+        end if
+        if (i<j) gui_bond_count=gui_bond_count+1
+    end do
+    if (.not.valid) exit
+end do
+if (.not.valid) goto 900
+
+allocate(gui_bond_atom1(gui_bond_count),gui_bond_atom2(gui_bond_count),gui_bond_order(gui_bond_count))
+iedge=0
+do i=1,ncenter
+    do k=1,nbondatm(i)
+        idx=(i-1)*mxbond+k
+        j=ibondatm(idx)
+        if (i>=j) cycle
+        iedge=iedge+1
+        gui_bond_atom1(iedge)=i
+        gui_bond_atom2(iedge)=j
+        gui_bond_order(iedge)=gui_fchk_bond_type(rbond(idx))
+    end do
+end do
+found=.true.
+write(*,"(' 3Dmol GUI loaded',i8,' explicit bonds from formatted checkpoint connectivity')") gui_bond_count
+
+900 close(iu)
+end subroutine
+
+integer function gui_fchk_bond_type(value)
+real*8,intent(in) :: value
+
+gui_fchk_bond_type=0
+if (abs(value-1D0)<1D-6) then
+    gui_fchk_bond_type=1
+else if (abs(value-1.5D0)<1D-6) then
+    gui_fchk_bond_type=4
+else if (abs(value-2D0)<1D-6) then
+    gui_fchk_bond_type=2
+else if (abs(value-3D0)<1D-6) then
+    gui_fchk_bond_type=3
+end if
+end function
 
 subroutine get_session_dir(session)
 character(len=*),intent(out) :: session
@@ -724,15 +916,14 @@ end subroutine
 
 subroutine write_structure_mol2(path)
 character(len=*),intent(in) :: path
-integer :: iu,i,j,ibond,nbond
+integer :: iu,i,ibond
 character(len=24) :: atomlabel
 character(len=8) :: bondtype
 
-nbond=count(connmat/=0)/2
 open(newunit=iu,file=trim(path),status="replace",action="write")
 write(iu,"(a)") "@<TRIPOS>MOLECULE"
 write(iu,"(a)") "Generated_by_Multiwfn_3Dmol_GUI_backend"
-write(iu,"(2(i0,1x))") ncenter,nbond
+write(iu,"(2(i0,1x))") ncenter,gui_bond_count
 write(iu,"(a)") "SMALL"
 write(iu,"(a)") "NO_CHARGES"
 write(iu,*)
@@ -743,18 +934,13 @@ do i=1,ncenter
         i,trim(atomlabel),a(i)%x*b2a,a(i)%y*b2a,a(i)%z*b2a,trim(a(i)%name),1,"MOL",0D0
 end do
 write(iu,"(a)") "@<TRIPOS>BOND"
-ibond=0
-do i=1,ncenter
-    do j=i+1,ncenter
-        if (connmat(i,j)==0) cycle
-        ibond=ibond+1
-        if (connmat(i,j)==4) then
-            bondtype="ar"
-        else
-            write(bondtype,"(i0)") connmat(i,j)
-        end if
-        write(iu,"(3(i0,1x),a)") ibond,i,j,trim(bondtype)
-    end do
+do ibond=1,gui_bond_count
+    if (gui_bond_order(ibond)==4) then
+        bondtype="ar"
+    else
+        write(bondtype,"(i0)") gui_bond_order(ibond)
+    end if
+    write(iu,"(3(i0,1x),a)") ibond,gui_bond_atom1(ibond),gui_bond_atom2(ibond),trim(bondtype)
 end do
 close(iu)
 end subroutine
@@ -820,7 +1006,7 @@ write(iu,"(a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a,1pe16.8,a)") &
 write(iu,"(a)") '    }'
 write(iu,"(a)") '  },'
 if (allocated(a).and.ncenter>0) then
-    if (iconnsource==1.and.allocated(connmat).and.size(connmat,1)==ncenter.and.size(connmat,2)==ncenter) then
+    if (gui_has_explicit_topology) then
         write(iu,"(a)") '  "structure": { "path": "structure.mol2", "format": "mol2" },'
     else
         write(iu,"(a)") '  "structure": { "path": "structure.xyz", "format": "xyz" },'

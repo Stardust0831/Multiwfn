@@ -350,10 +350,9 @@ real*8 spcred !Spacing of reduced grids
 real*8 orgx_neigh,orgy_neigh,orgz_neigh !Starting position of reduced grids
 
 !-------- Connectivity matrix
-!Loaded from .fch/.mol/mol2 using their readers or readmolconn (from mol), value is formal bond order; can also be guessed via genconnmat, value is 1/0 (connected, not connected)
+!Loaded from .mol/mol2 using readmol/readmol2 or readmolconn (from mol), value is formal bond order; can also be guessed via genconnmat, value is 1/0 (connected, not connected)
 !Special: ar (aromatic) in mol2 is load as 4, am (nitrogen in piptide bond) in mol2 is read as 1, "un = unknown", "nc = not connected" and "du = dummy" are read as 0
 integer*2,allocatable :: connmat(:,:) !Diagonal terms are always zero
-integer :: iconnsource=0 !=0: unavailable, =1: explicit input-file topology, =2: geometry-inferred topology
 
 !-------- Energy related arrays and matrices
 real*8,allocatable,target :: FmatA(:,:),FmatB(:,:) !Fock matrix of total/alpha and beta spin
