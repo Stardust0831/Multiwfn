@@ -10,7 +10,7 @@ wavefunction calculation.
 
 1. When a Gaussian formatted checkpoint contains all four optional
    `MxBond`/`NBond`/`IBond`/`RBond` fields, the 3Dmol GUI backend validates
-   them into a GUI-local topology matrix and exports it as MOL2;
+   them into a GUI-local sparse bond list and exports it as MOL2;
    `RBond=1.5` is carried as an aromatic bond. Multiwfn's core `readfch` and
    global `connmat` behavior remain unchanged. Missing, dimensionally
    inconsistent, or unsupported values leave GUI connectivity unavailable.
