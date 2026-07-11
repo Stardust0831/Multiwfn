@@ -1,4 +1,5 @@
 build/
+/build-qt-gui/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt

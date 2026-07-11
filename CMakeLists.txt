@@ -209,6 +209,62 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_3DMOL_DEFAULT_SHELL STREQU
   target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_3DMOL_DEFAULT_SHELL_QT)
 endif()
 
+if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  if(NOT Python3_Interpreter_FOUND)
+    message(WARNING
+      "The 3Dmol development shell requires Python 3 at runtime. "
+      "Install Python 3 or provide an interpreter through MULTIWFN_3DMOL_PYTHON when launching."
+    )
+  elseif(MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "qt")
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" -c "import PyQt6; import PyQt6.QtWebEngineWidgets"
+      RESULT_VARIABLE _multiwfn_qt_python_status
+      OUTPUT_QUIET
+      ERROR_QUIET
+    )
+    if(NOT _multiwfn_qt_python_status EQUAL 0)
+      message(WARNING
+        "The Qt development shell requires PyQt6 and PyQt6-WebEngine for its embedded 3D viewer. "
+        "They were not importable with ${Python3_EXECUTABLE}; install them or configure "
+        "MULTIWFN_3DMOL_DEFAULT_SHELL=browser."
+      )
+    endif()
+  endif()
+
+  set(MULTIWFN_3DMOL_BUILD_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/resources")
+  add_custom_target(multiwfn_3dmol_resources ALL
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools"
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/3dmol-viewer"
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/qt-multiwfn-gui"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools"
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/settings.ini"
+      "${CMAKE_CURRENT_BINARY_DIR}/settings.ini"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_server.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_file_dialog.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_qt_gui.py"
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/3dmol-viewer"
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/3dmol-viewer"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/qt-multiwfn-gui"
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/qt-multiwfn-gui"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools/__pycache__"
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/3dmol-viewer/__pycache__"
+      "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/qt-multiwfn-gui/__pycache__"
+    DEPENDS ${MULTIWFN_EXECUTABLE_NAME}
+    COMMENT "Staging Multiwfn settings and 3Dmol GUI runtime resources"
+    VERBATIM
+  )
+endif()
+
 if(WIN32)
   target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_WINDOWS)
   target_sources(${MULTIWFN_EXECUTABLE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.rc")
