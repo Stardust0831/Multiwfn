@@ -29,8 +29,14 @@ Implemented:
 - Draw cube slices as 2D heatmaps.
 - Load simple 2D curve and filled-map data from CSV or JSON.
 - Extract atom positions from a cube file when no separate structure is loaded.
+- Display explicit or inferred single, double, triple, aromatic, and weak bond
+  orders. Gaussian FCHK connectivity arrays and MOL/MOL2 bond records take
+  precedence. Geometry-only inputs use Multiwfn's CSD-radius connectivity
+  rule, followed by GaussView-derived order thresholds, valence constraints,
+  and aromatic-ring validation.
 - Select atoms with the right mouse button, identify bonds from 3Dmol's bond
-  topology, and annotate bond lengths and supported Multiwfn bond orders.
+  topology, and annotate displayed order, bond length, and supported Multiwfn
+  bond orders.
 - Load a JSON manifest produced by an external wrapper.
 - Export a PNG snapshot and a lightweight scene manifest.
 
@@ -151,6 +157,10 @@ length is calculated locally and does not call this endpoint.
 - `GLViewer.addModel(data, format, options)` for molecular structures.
 - `VolumeData(data, "cube")` and `GLViewer.addIsosurface(...)` for cube
   isosurfaces.
+
+The displayed structural bond-order design and its distinction from calculated
+Multiwfn bond-order values are documented in
+[`docs/3dmol_bond_order_display.md`](../../docs/3dmol_bond_order_display.md).
 
 Vendored third-party assets:
 
