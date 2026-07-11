@@ -9,6 +9,8 @@
     <script defer src="vendor/3Dmol-min.js"></script>
     <script defer src="cube-coordinates.js"></script>
     <script defer src="bond-perception.js"></script>
+    <script defer src="esp-scale.js"></script>
+    <script defer src="esp-extrema.js"></script>
     <script defer src="app.js"></script>
   </head>
   <body>
@@ -188,6 +190,7 @@
                 <label>
                   <span>Gradient</span>
                   <select id="gui-gradient">
+                    <option value="trans">Trans flag</option>
                     <option value="rwb">Red-white-blue</option>
                     <option value="roygb">Rainbow</option>
                     <option value="sinebow">Sinebow</option>
@@ -390,7 +393,55 @@
             </select>
             <button id="gui-menu-view" type="button">View</button>
             <button id="gui-menu-settings" type="button">Settings</button>
-            <button id="gui-menu-tools" type="button">Tools</button>
+            <div id="gui-tools-menu-control" class="gui-menu-control">
+              <button
+                id="gui-menu-tools"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="gui-tools-menu"
+              >Tools</button>
+              <div id="gui-tools-menu" class="gui-style-menu gui-tools-menu" role="menu" aria-label="Tools" hidden>
+                <button
+                  id="gui-tool-esp"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  aria-controls="gui-esp-menu"
+                ><span>Electrostatic potential (ESP)</span><span aria-hidden="true">&gt;</span></button>
+              </div>
+              <div id="gui-esp-menu" class="gui-style-submenu gui-esp-menu" role="menu" aria-label="ESP controls" hidden>
+                <button id="gui-tool-esp-show" class="gui-style-menu-item" type="button" role="menuitem">
+                  <span>Show ESP surface</span>
+                </button>
+                <button
+                  id="gui-tool-esp-extrema"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked="false"
+                ><span>Show ESP extrema</span><span class="gui-menu-check" aria-hidden="true"></span></button>
+                <div class="gui-esp-opacity" role="none">
+                  <label for="gui-esp-opacity">
+                    <span class="gui-opacity-heading">
+                      <span>ESP surface opacity</span>
+                      <output id="gui-esp-opacity-value" for="gui-esp-opacity">88%</output>
+                    </span>
+                    <input
+                      id="gui-esp-opacity"
+                      type="range"
+                      min="5"
+                      max="100"
+                      step="1"
+                      value="88"
+                      aria-valuetext="88%"
+                    >
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

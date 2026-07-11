@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import http.server
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path
@@ -158,9 +159,11 @@ BACKEND_REQUEST_CONSUME_TIMEOUT = 5.0
 ORBITAL_REQUEST_TIMEOUT = 300.0
 BOND_REQUEST_TIMEOUT = 300.0
 FBO_REQUEST_TIMEOUT = 900.0
+ESP_REQUEST_TIMEOUT = 900.0
 BACKEND_REQUEST_POLL_INTERVAL = 0.2
 MAX_DYNAMIC_ORBITAL_CUBES = 12
 BOND_METHODS = frozenset(("mayer", "gwbo", "wiberg_lowdin", "mulliken", "fbo"))
+ESP_QUALITY_LEVELS = frozenset((25000, 50000, 120000, 300000, 500000, 1000000, 1500000))
 LAST_REQUEST_ID = 0
 BACKEND_UNAVAILABLE_MESSAGE = (
     "Multiwfn backend unavailable; restart visualization from menu 0 and keep the terminal open"
@@ -203,7 +206,7 @@ def send_json(handler: http.server.BaseHTTPRequestHandler, payload: dict, status
 def cleanup_session_files(session_dir: Path, *, startup: bool = False) -> None:
     patterns = ["response_*.json"]
     if startup:
-        patterns.append("orbital_*.cube")
+        patterns.extend(("orbital_*.cube", "esp_density_*.cube", "esp_potential_*.cube"))
     for pattern in patterns:
         for path in session_dir.glob(pattern):
             try:
@@ -223,6 +226,22 @@ def prune_dynamic_orbital_cubes(session_dir: Path, keep: int = MAX_DYNAMIC_ORBIT
             path.unlink()
         except OSError:
             pass
+
+
+def prune_dynamic_esp_cubes(session_dir: Path, payload: dict) -> None:
+    keep = {
+        Path(str(layer.get("path", ""))).name
+        for layer in (payload.get("densityLayer", {}), payload.get("espLayer", {}))
+        if isinstance(layer, dict) and layer.get("path")
+    }
+    for pattern in ("esp_density_*.cube", "esp_potential_*.cube"):
+        for path in session_dir.glob(pattern):
+            if path.name in keep:
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 def next_request_id() -> int:
@@ -319,6 +338,27 @@ def request_bond(session_dir: Path, query: dict[str, list[str]]) -> dict:
     )
 
 
+def request_esp(session_dir: Path, query: dict[str, list[str]]) -> dict:
+    try:
+        quality = int(query.get("quality", ["120000"])[0] or 120000)
+        isovalue = float(query.get("isovalue", ["0.001"])[0] or 0.001)
+    except ValueError:
+        return {"ok": False, "message": "ESP quality and isovalue must be numeric"}
+    if quality not in ESP_QUALITY_LEVELS:
+        return {"ok": False, "message": "Unsupported ESP grid quality"}
+    if not math.isfinite(isovalue) or isovalue <= 0.0 or isovalue > 0.1:
+        return {"ok": False, "message": "ESP density isovalue must be between 0 and 0.1 a.u."}
+    payload = request_backend(
+        session_dir,
+        f"esp {quality} {isovalue:.10g}",
+        timeout=ESP_REQUEST_TIMEOUT,
+        timeout_message="Timed out waiting for Multiwfn ESP calculation",
+    )
+    if payload.get("ok"):
+        prune_dynamic_esp_cubes(session_dir, payload)
+    return payload
+
+
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
@@ -368,6 +408,12 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
             if request_path == "/api/bond":
                 try:
                     send_json(self, request_bond(session_dir, query))
+                except Exception as exc:
+                    send_json(self, {"ok": False, "message": str(exc)}, status=500)
+                return
+            if request_path == "/api/esp":
+                try:
+                    send_json(self, request_esp(session_dir, query))
                 except Exception as exc:
                     send_json(self, {"ok": False, "message": str(exc)}, status=500)
                 return

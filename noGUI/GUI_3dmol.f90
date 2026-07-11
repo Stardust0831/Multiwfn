@@ -326,6 +326,13 @@ do
                     else
                         call write_gui_json_error(trim(respfile),"Malformed bond request")
                     end if
+                else if (trim(action)=="esp") then
+                    read(line,*,iostat=istat) reqid,action,quality,isoval
+                    if (istat==0) then
+                        call handle_esp_request(trim(session),trim(respfile),quality,isoval)
+                    else
+                        call write_gui_json_error(trim(respfile),"Malformed ESP request")
+                    end if
                 else
                     call write_gui_json_error(trim(respfile),"Unknown GUI request")
                 end if
@@ -395,6 +402,82 @@ write(iu,"(a)") '    "visible": true'
 write(iu,"(a)") '  }'
 write(iu,"(a)") "}"
 close(iu)
+end subroutine
+
+subroutine handle_esp_request(session,respfile,quality,isoval)
+character(len=*),intent(in) :: session,respfile
+integer,intent(in) :: quality
+real*8,intent(in) :: isoval
+character(len=512) :: densityfile,densityrel,espfile,esprel
+integer :: iu
+real*8 :: esprhoiso_org
+
+if (ifPBC>0) then
+    call write_gui_json_error(respfile,"ESP visualization is not supported for periodic systems")
+    return
+end if
+if (.not.allocated(a).or.ncenter<=0.or..not.allocated(b).or.nprims<=0.or. &
+    .not.allocated(CO).or.nmo<=0) then
+    call write_gui_json_error(respfile,"Wavefunction and GTF information is unavailable for ESP calculation")
+    return
+end if
+if (quality<25000.or.quality>1500000) then
+    call write_gui_json_error(respfile,"ESP grid quality is out of range")
+    return
+end if
+if (isoval<=0D0.or.isoval>0.1D0) then
+    call write_gui_json_error(respfile,"ESP density isovalue is out of range")
+    return
+end if
+
+nprevorbgrid=quality
+call setup_orbital_grid()
+if (allocated(cubmat)) deallocate(cubmat)
+allocate(cubmat(nx,ny,nz))
+call savecubmat(1,1,0)
+
+write(densityrel,"('esp_density_',i0,'.cube')") quality
+densityfile=trim(session)//"/"//trim(densityrel)
+call write_cube(trim(densityfile),cubmat)
+
+esprhoiso_org=ESPrhoiso
+ESPrhoiso=isoval
+call savecubmat(12,1,0)
+ESPrhoiso=esprhoiso_org
+
+write(esprel,"('esp_potential_',i0,'.cube')") quality
+espfile=trim(session)//"/"//trim(esprel)
+call write_cube(trim(espfile),cubmat)
+
+open(newunit=iu,file=trim(respfile),status="replace",action="write")
+write(iu,"(a)") "{"
+write(iu,"(a)") '  "ok": true,'
+write(iu,"(a,i0,a)") '  "quality": ',quality,','
+write(iu,"(a,es24.16,a)") '  "isovalue": ',isoval,','
+write(iu,"(a)") '  "densityLayer": {'
+write(iu,"(a)") '    "name": "ESP on electron density",'
+write(iu,"(a,a,a)") '    "path": "',trim(densityrel),'",'
+write(iu,"(a)") '    "role": "density",'
+write(iu,"(a)") '    "analysisKind": "esp-density",'
+write(iu,"(a,i0,a)") '    "gridQuality": ',quality,','
+write(iu,"(a)") '    "mode": "positive",'
+write(iu,"(a,es24.16,a)") '    "isovalue": ',isoval,','
+write(iu,"(a)") '    "opacity": 0.88,'
+write(iu,"(a)") '    "visible": true'
+write(iu,"(a)") '  },'
+write(iu,"(a)") '  "espLayer": {'
+write(iu,"(a)") '    "name": "Electrostatic potential",'
+write(iu,"(a,a,a)") '    "path": "',trim(esprel),'",'
+write(iu,"(a)") '    "role": "esp",'
+write(iu,"(a)") '    "analysisKind": "esp-potential",'
+write(iu,"(a,i0,a)") '    "gridQuality": ',quality,','
+write(iu,"(a)") '    "mode": "signed",'
+write(iu,"(a)") '    "isovalue": 0.02,'
+write(iu,"(a)") '    "visible": false'
+write(iu,"(a)") '  }'
+write(iu,"(a)") "}"
+close(iu)
+if (allocated(cubmat)) deallocate(cubmat)
 end subroutine
 
 subroutine handle_bond_request(respfile,iatm1,iatm2,method)
@@ -829,6 +912,7 @@ else
     write(iu,"(a)") '  "structure": null,'
 end if
 call write_bond_analysis_manifest(iu)
+call write_esp_analysis_manifest(iu)
 if (ifPBC>0) then
     write(iu,"(a)") '  "periodic": {'
     write(iu,"(a)") '    "enabled": true,'
@@ -887,6 +971,27 @@ call write_bond_method_capability(iu,"wiberg_lowdin",basisok,basisreason,.true.)
 call write_bond_method_capability(iu,"mulliken",basisok,basisreason,.true.)
 call write_bond_method_capability(iu,"fbo",fbook,fboreason,.false.)
 write(iu,"(a)") '    }'
+write(iu,"(a)") '  },'
+end subroutine
+
+subroutine write_esp_analysis_manifest(iu)
+integer,intent(in) :: iu
+logical :: available
+character(len=96) :: reason
+
+available=ifPBC==0.and.allocated(a).and.ncenter>0.and.allocated(b).and.nprims>0.and. &
+    allocated(CO).and.nmo>0
+if (ifPBC>0) then
+    reason="ESP visualization is not supported for periodic systems"
+else
+    reason="Wavefunction and GTF information is unavailable for ESP calculation"
+end if
+
+write(iu,"(a)") '  "espAnalysis": {'
+write(iu,"(a)") '    "periodicSupported": false,'
+write(iu,"(a,a,a)") '    "available": ',trim(json_bool(available)),','
+if (.not.available) write(iu,"(a,a,a)") '    "reason": "',trim(reason),'",'
+write(iu,"(a)") '    "defaultIsovalue": 0.001'
 write(iu,"(a)") '  },'
 end subroutine
 

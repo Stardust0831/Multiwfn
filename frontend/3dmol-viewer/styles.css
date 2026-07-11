@@ -903,6 +903,16 @@ body {
   padding: 2px;
 }
 
+.gui-tools-menu {
+  right: 0;
+  left: auto;
+  width: min(260px, calc(100vw - 16px));
+}
+
+.gui-esp-menu {
+  width: min(260px, calc(100vw - 16px));
+}
+
 .gui-style-submenu {
   position: fixed;
   z-index: 13;
@@ -915,7 +925,8 @@ body {
   display: none;
 }
 
-.gui-style-menu .gui-style-menu-item {
+.gui-style-menu .gui-style-menu-item,
+.gui-esp-menu .gui-style-menu-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -924,8 +935,15 @@ body {
   padding: 0 7px;
 }
 
-.gui-style-menu .gui-style-menu-item[aria-expanded="true"] {
+.gui-style-menu .gui-style-menu-item[aria-expanded="true"],
+.gui-esp-menu .gui-style-menu-item[aria-expanded="true"] {
   background: #d8e7ff;
+}
+
+.gui-style-menu .gui-style-menu-item[aria-disabled="true"],
+.gui-esp-menu .gui-style-menu-item[aria-disabled="true"] {
+  color: #666;
+  opacity: 0.62;
 }
 
 .gui-menu-check {
@@ -949,7 +967,8 @@ body {
   transform: rotate(45deg);
 }
 
-.gui-transparency-menu label {
+.gui-transparency-menu label,
+.gui-esp-opacity label {
   margin: 0;
   font: 700 14px/1.1 var(--ui-font);
 }
@@ -965,10 +984,17 @@ body {
   font: 14px/1.1 var(--mono-font);
 }
 
-.gui-transparency-menu input[type="range"] {
+.gui-transparency-menu input[type="range"],
+.gui-esp-opacity input[type="range"] {
   display: block;
   width: 100%;
   margin-top: 6px;
+}
+
+.gui-esp-opacity {
+  margin-top: 3px;
+  padding: 9px 7px 2px;
+  border-top: 1px solid #aaa;
 }
 
 .gui-background-menu {

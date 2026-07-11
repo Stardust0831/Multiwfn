@@ -189,6 +189,16 @@ body {
   padding: 5px;
 }
 
+.gui-tools-menu {
+  right: 0;
+  left: auto;
+  width: min(260px, calc(100vw - 24px));
+}
+
+.gui-esp-menu {
+  width: min(272px, calc(100vw - 24px));
+}
+
 .gui-style-submenu {
   position: fixed;
   z-index: 13;
@@ -197,6 +207,7 @@ body {
 }
 
 .gui-style-menu .gui-style-menu-item,
+.gui-esp-menu .gui-style-menu-item,
 .gui-background-menu button {
   min-height: 32px;
   padding: 0 8px;
@@ -208,9 +219,21 @@ body {
 
 .gui-style-menu .gui-style-menu-item:hover,
 .gui-style-menu .gui-style-menu-item[aria-expanded="true"],
+.gui-esp-menu .gui-style-menu-item:hover,
+.gui-esp-menu .gui-style-menu-item[aria-expanded="true"],
 .gui-background-menu button:hover,
 .gui-background-menu button[aria-checked="true"] {
   background: var(--accent-soft);
+}
+
+.gui-style-menu .gui-style-menu-item[aria-disabled="true"],
+.gui-esp-menu .gui-style-menu-item[aria-disabled="true"] {
+  color: var(--muted);
+  opacity: 0.62;
+}
+
+.gui-esp-opacity {
+  border-top-color: var(--line);
 }
 
 .gui-menu-check {
