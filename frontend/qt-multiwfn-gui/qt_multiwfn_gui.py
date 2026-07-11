@@ -435,6 +435,7 @@ class MultiwfnQtGui(QMainWindow):
         self.profile_reported = False
         self.manifest_path = manifest_path.resolve()
         self.session_dir = self.manifest_path.parent
+        self.backend_return_signaled = False
         cleanup_session_files(self.session_dir, startup=True)
         self.frontend_dir = frontend_dir.resolve() if frontend_dir else None
         self.manifest = load_json(self.manifest_path)
@@ -450,6 +451,11 @@ class MultiwfnQtGui(QMainWindow):
             pass
         except OSError:
             pass
+
+        application = QApplication.instance()
+        if application is not None:
+            application.lastWindowClosed.connect(self._signal_backend_return)
+            application.aboutToQuit.connect(self._signal_backend_return)
 
         self.setWindowTitle("Multiwfn Qt GUI")
         self._configure_window_size()
@@ -1006,15 +1012,22 @@ class MultiwfnQtGui(QMainWindow):
         if (self.session_dir / "gui_stop.flag").is_file():
             self.close()
 
+    def _signal_backend_return(self) -> None:
+        if self.backend_return_signaled:
+            return
+        try:
+            (self.session_dir / "gui_stop.flag").write_text("return\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"[multiwfn-qt] Could not notify backend of GUI close: {exc}", file=sys.stderr, flush=True)
+            return
+        self.backend_return_signaled = True
+
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API name
+        self._signal_backend_return()
         if self.stop_timer:
             self.stop_timer.stop()
         if self.profile_timer:
             self.profile_timer.stop()
-        try:
-            (self.session_dir / "gui_stop.flag").write_text("return\n", encoding="utf-8")
-        except OSError:
-            pass
         if self.server:
             self.server.stop()
         super().closeEvent(event)
