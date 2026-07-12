@@ -11,7 +11,7 @@ fix from [`janosh/matterviz#377`](https://github.com/janosh/matterviz/pull/377).
 
 ## Build
 
-Node.js 24 and pnpm 11 are recommended.
+Node.js 24.11 or newer and pnpm 11 are recommended.
 
 ```bash
 pnpm install
