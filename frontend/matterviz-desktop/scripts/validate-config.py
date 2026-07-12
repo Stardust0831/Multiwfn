@@ -41,6 +41,9 @@ def main() -> int:
         fail("build.devUrl must point at the local Multiwfn service")
     if config.get("app", {}).get("windows") != []:
         fail("windows must be created by Rust for runtime URL selection")
+    icons = config.get("bundle", {}).get("icon", [])
+    if not icons or not all((ROOT / icon).is_file() for icon in icons):
+        fail("configured bundle icons are missing")
     if capabilities.get("permissions") != []:
         fail("the default capability set must remain empty")
 
