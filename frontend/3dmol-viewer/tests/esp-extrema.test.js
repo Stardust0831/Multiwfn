@@ -112,3 +112,51 @@ test('rejects incompatible cube dimensions', () => {
     triTable: oneCornerTriangleTable()
   }), /dimensions do not match/);
 });
+
+test('rejects cube volumes with missing or incomplete data arrays', () => {
+  const size = { x: 2, y: 2, z: 2 };
+  const complete = volume(size, new Array(8).fill(0));
+  const missing = { size };
+  const incomplete = volume(size, new Array(7).fill(0));
+  const options = { triTable: oneCornerTriangleTable() };
+
+  assert.throws(
+    () => buildInterpolatedIsosurface(missing, complete, 0.001, options),
+    /cube data is incomplete/
+  );
+  assert.throws(
+    () => buildInterpolatedIsosurface(complete, missing, 0.001, options),
+    /cube data is incomplete/
+  );
+  assert.throws(
+    () => buildInterpolatedIsosurface(incomplete, complete, 0.001, options),
+    /cube data is incomplete/
+  );
+  assert.throws(
+    () => buildInterpolatedIsosurface(complete, incomplete, 0.001, options),
+    /cube data is incomplete/
+  );
+});
+
+test('skips marching-cubes cells containing non-finite density or ESP samples', () => {
+  const size = { x: 2, y: 2, z: 2 };
+  const densityValues = [2, 0, 0, 0, 0, 0, 0, 0];
+  const espValues = [0, 2, 4, 0, 6, 0, 0, 0];
+  const options = { triTable: oneCornerTriangleTable() };
+  const cases = [
+    { density: [NaN, ...densityValues.slice(1)], esp: espValues },
+    { density: densityValues, esp: [Infinity, ...espValues.slice(1)] },
+    { density: densityValues, esp: [-Infinity, ...espValues.slice(1)] }
+  ];
+
+  cases.forEach((sample) => {
+    const mesh = buildInterpolatedIsosurface(
+      volume(size, sample.density),
+      volume(size, sample.esp),
+      1,
+      options
+    );
+    assert.deepEqual(mesh.vertices, []);
+    assert.deepEqual(mesh.faces, []);
+  });
+});
