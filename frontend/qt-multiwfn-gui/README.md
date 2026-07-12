@@ -23,12 +23,12 @@ python3 frontend/qt-multiwfn-gui/qt_multiwfn_gui.py \
   --frontend frontend/3dmol-viewer
 ```
 
-The packaged top-level `Multiwfn_QtGUI` is also the backend launcher. It starts
-the internal Fortran executable, mirrors its output to the terminal and the GUI
-session's `runtime.log`, and converts the original carriage-return `Progress:`
-records to the JSON files consumed by the frontend. This uses the Python runtime
-already embedded in the native Qt executable; it does not require or package a
-second interpreter.
+The top-level `Multiwfn_QtGUI` is a small native launcher built by CMake. It
+starts the sibling Fortran `Multiwfn_QtGUI.backend`, mirrors output to the
+terminal and the GUI session's `runtime.log`, and converts the original
+carriage-return `Progress:` records to the JSON files consumed by the frontend.
+This progress path has no Python or Qt dependency. The current Qt window remains
+a separate replaceable child frontend.
 
 Add `--profile-startup` to print one JSON timing record after the active
 orbital and all background preview layers are ready. The record includes Qt

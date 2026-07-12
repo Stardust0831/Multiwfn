@@ -203,10 +203,21 @@ else()
   list(APPEND MULTIWFN_CORE_SOURCES ext/no2F2.c)
 endif()
 
-add_executable(${MULTIWFN_EXECUTABLE_NAME} ${MULTIWFN_CORE_SOURCES})
+if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
+  set(MULTIWFN_BACKEND_TARGET "${MULTIWFN_EXECUTABLE_NAME}_backend")
+  add_executable(${MULTIWFN_BACKEND_TARGET} ${MULTIWFN_CORE_SOURCES})
+  set_target_properties(${MULTIWFN_BACKEND_TARGET} PROPERTIES OUTPUT_NAME "${MULTIWFN_EXECUTABLE_NAME}.backend")
+  add_executable(${MULTIWFN_EXECUTABLE_NAME} tools/multiwfn_progress_launcher.c)
+  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE
+    MULTIWFN_BACKEND_BASENAME="${MULTIWFN_EXECUTABLE_NAME}.backend${CMAKE_EXECUTABLE_SUFFIX}"
+  )
+else()
+  set(MULTIWFN_BACKEND_TARGET "${MULTIWFN_EXECUTABLE_NAME}")
+  add_executable(${MULTIWFN_BACKEND_TARGET} ${MULTIWFN_CORE_SOURCES})
+endif()
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "qt")
-  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_3DMOL_DEFAULT_SHELL_QT)
+  target_compile_definitions(${MULTIWFN_BACKEND_TARGET} PRIVATE MULTIWFN_3DMOL_DEFAULT_SHELL_QT)
 endif()
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
@@ -248,7 +259,6 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_server.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_analysis.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_file_dialog.py"
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_progress.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_qt_gui.py"
       "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -261,37 +271,40 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
       "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools/__pycache__"
       "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/3dmol-viewer/__pycache__"
       "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/qt-multiwfn-gui/__pycache__"
-    DEPENDS ${MULTIWFN_EXECUTABLE_NAME}
+    DEPENDS ${MULTIWFN_EXECUTABLE_NAME} ${MULTIWFN_BACKEND_TARGET}
     COMMENT "Staging Multiwfn settings and 3Dmol GUI runtime resources"
     VERBATIM
   )
 endif()
 
 if(WIN32)
-  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_WINDOWS)
-  target_sources(${MULTIWFN_EXECUTABLE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.rc")
+  target_compile_definitions(${MULTIWFN_BACKEND_TARGET} PRIVATE MULTIWFN_WINDOWS)
+  target_sources(${MULTIWFN_BACKEND_TARGET} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Multiwfn.rc")
 endif()
-target_include_directories(${MULTIWFN_EXECUTABLE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/ext")
-target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+target_include_directories(${MULTIWFN_BACKEND_TARGET} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/ext")
+target_link_libraries(${MULTIWFN_BACKEND_TARGET} PRIVATE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 
 if(WIN32 AND MULTIWFN_WINDOWS_STATIC_LINK AND CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
-  target_link_options(${MULTIWFN_EXECUTABLE_NAME} PRIVATE -static -static-libgcc -static-libgfortran)
-  target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${MULTIWFN_WINDOWS_STATIC_EXTRA_LIBRARIES})
+  target_link_options(${MULTIWFN_BACKEND_TARGET} PRIVATE -static -static-libgcc -static-libgfortran)
+  target_link_libraries(${MULTIWFN_BACKEND_TARGET} PRIVATE ${MULTIWFN_WINDOWS_STATIC_EXTRA_LIBRARIES})
 endif()
 
 if(MULTIWFN_WITH_FD)
-  target_include_directories(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${GMP_INCLUDE_DIRS} ${FLINT_INCLUDE_DIRS} ${ARB_INCLUDE_DIRS})
-  target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE ${GMP_LINK_LIBRARIES} ${FLINT_LINK_LIBRARIES} ${ARB_LINK_LIBRARIES})
+  target_include_directories(${MULTIWFN_BACKEND_TARGET} PRIVATE ${GMP_INCLUDE_DIRS} ${FLINT_INCLUDE_DIRS} ${ARB_INCLUDE_DIRS})
+  target_link_libraries(${MULTIWFN_BACKEND_TARGET} PRIVATE ${GMP_LINK_LIBRARIES} ${FLINT_LINK_LIBRARIES} ${ARB_LINK_LIBRARIES})
 endif()
 
 if(MULTIWFN_WITH_OPENMP)
   find_package(OpenMP)
   if(OpenMP_Fortran_FOUND)
-    target_link_libraries(${MULTIWFN_EXECUTABLE_NAME} PRIVATE OpenMP::OpenMP_Fortran)
+    target_link_libraries(${MULTIWFN_BACKEND_TARGET} PRIVATE OpenMP::OpenMP_Fortran)
   else()
     message(WARNING "OpenMP was requested but not found; continuing without OpenMP.")
   endif()
 endif()
 
-install(TARGETS ${MULTIWFN_EXECUTABLE_NAME} RUNTIME DESTINATION bin)
+install(TARGETS ${MULTIWFN_BACKEND_TARGET} RUNTIME DESTINATION bin)
+if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
+  install(TARGETS ${MULTIWFN_EXECUTABLE_NAME} RUNTIME DESTINATION bin)
+endif()
 install(FILES settings.ini DESTINATION etc/multiwfn)

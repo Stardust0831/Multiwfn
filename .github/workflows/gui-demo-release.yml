@@ -107,6 +107,7 @@ jobs:
             -DCMAKE_BUILD_RPATH="$rpath" 2>&1 | tee configure.log
           cmake --build build-3dmol-gui --parallel 2 2>&1 | tee build.log
           test -x "build-3dmol-gui/${exe_name}"
+          test -x "build-3dmol-gui/${exe_name}.backend"
           echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
       - name: Build Multiwfn GUI executable on Windows
@@ -130,6 +131,7 @@ jobs:
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 2>&1 | tee configure.log
           cmake --build build-3dmol-gui --parallel 2 2>&1 | tee build.log
           test -x "build-3dmol-gui/${exe_name}.exe"
+          test -x "build-3dmol-gui/${exe_name}.backend.exe"
           echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
       - name: Verify cube coordinate units
@@ -154,7 +156,6 @@ jobs:
             --name multiwfn_qt_gui \
             --paths tools \
             --hidden-import multiwfn_analysis \
-            --hidden-import multiwfn_progress \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --distpath qt-launcher-dist \
@@ -201,21 +202,26 @@ jobs:
           cp settings.ini "package/${pkg}/settings.ini"
           cp tools/multiwfn_3dmol_server.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_analysis.py "package/${pkg}/resources/tools/"
-          cp tools/multiwfn_progress.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_3dmol_file_dialog.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_qt_gui.py "package/${pkg}/resources/tools/"
           cp -R frontend/3dmol-viewer "package/${pkg}/resources/frontend/"
           cp -R frontend/qt-multiwfn-gui "package/${pkg}/resources/frontend/"
+          if [[ -f qt-launcher-dist/multiwfn_qt_gui.exe ]]; then
+            cp qt-launcher-dist/multiwfn_qt_gui.exe "package/${pkg}/resources/tools/"
+          elif [[ -f qt-launcher-dist/multiwfn_qt_gui ]]; then
+            cp qt-launcher-dist/multiwfn_qt_gui "package/${pkg}/resources/tools/"
+            chmod +x "package/${pkg}/resources/tools/multiwfn_qt_gui"
+          fi
       - name: Package Linux demo
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
           exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
-          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}.backend"
-          cp qt-launcher-dist/multiwfn_qt_gui "package/${PKG}/${exe_name}"
+          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}"
+          cp "build-3dmol-gui/${exe_name}.backend" "package/${PKG}/${exe_name}.backend"
           chmod +x "package/${PKG}/${exe_name}" "package/${PKG}/${exe_name}.backend"
-          ldd "build-3dmol-gui/${exe_name}" > linux-runtime-libs.txt
+          ldd "build-3dmol-gui/${exe_name}.backend" > linux-runtime-libs.txt
           awk '/=> \// {print $3}' linux-runtime-libs.txt | while read -r lib; do
             base="$(basename "$lib")"
             case "$base" in
@@ -235,10 +241,10 @@ jobs:
         run: |
           set -euo pipefail
           exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
-          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}.backend"
-          cp qt-launcher-dist/multiwfn_qt_gui "package/${PKG}/${exe_name}"
+          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}"
+          cp "build-3dmol-gui/${exe_name}.backend" "package/${PKG}/${exe_name}.backend"
           chmod +x "package/${PKG}/${exe_name}" "package/${PKG}/${exe_name}.backend"
-          otool -L "build-3dmol-gui/${exe_name}" > macos-runtime-libs.txt
+          otool -L "build-3dmol-gui/${exe_name}.backend" > macos-runtime-libs.txt
           awk 'NR>1 {print $1}' macos-runtime-libs.txt | while read -r lib; do
             case "$lib" in
               /usr/lib/*|/System/*|@*)
@@ -259,8 +265,8 @@ jobs:
         run: |
           set -euo pipefail
           exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
-          cp "build-3dmol-gui/${exe_name}.exe" "package/${PKG}/${exe_name}.backend.exe"
-          cp qt-launcher-dist/multiwfn_qt_gui.exe "package/${PKG}/${exe_name}.exe"
+          cp "build-3dmol-gui/${exe_name}.exe" "package/${PKG}/${exe_name}.exe"
+          cp "build-3dmol-gui/${exe_name}.backend.exe" "package/${PKG}/${exe_name}.backend.exe"
           : > windows-dlls.log
           processed=""
           while :; do

@@ -31,7 +31,6 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from multiwfn_analysis import AnalysisStore, cleanup_analysis_session
-from multiwfn_progress import packaged_backend, run_backend
 
 PROCESS_STARTED_AT = time.perf_counter()
 
@@ -1175,12 +1174,6 @@ class MultiwfnQtGui(QMainWindow):
 
 
 def main(argv: list[str] | None = None) -> int:
-    raw_args = list(sys.argv[1:] if argv is None else argv)
-    gui_child = "--manifest" in raw_args or "--select-file" in raw_args
-    backend = None if gui_child else packaged_backend()
-    if backend is not None:
-        return run_backend(backend, raw_args)
-
     parser = argparse.ArgumentParser(description="Qt prototype shell for Multiwfn GUI sessions")
     parser.add_argument("--manifest", default="multiwfn_3dmol_session/manifest.json")
     parser.add_argument("--source", default=None, help="Original Multiwfn input used for analysis detection")
@@ -1190,7 +1183,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", default=None, help="Output path for --select-file")
     parser.add_argument("--title", default="Choose a Multiwfn input file", help="Dialog title for --select-file")
     parser.add_argument("--open-browser", action="store_true", help="Open the 3Dmol viewer in the system browser after startup")
-    args = parser.parse_args(raw_args)
+    args = parser.parse_args(argv)
 
     if args.select_file:
         if not args.output:
