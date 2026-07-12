@@ -49,12 +49,13 @@ def main() -> int:
 
     source = (ROOT / "src" / "main.rs").read_text(encoding="utf-8")
     for required in (
+        "DEFAULT_URL",
         "MATTERVIZ_WEB_URL",
         "WebviewUrl::External",
-        "--url",
         "is_loopback_host",
-        '"http" if !is_loopback_host(&host)',
-        '"http" | "https"',
+        "parsed.scheme()",
+        '"http"',
+        '"https"',
     ):
         if required not in source:
             fail(f"src/main.rs does not contain {required}")

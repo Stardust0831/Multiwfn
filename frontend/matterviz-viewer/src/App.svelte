@@ -21,7 +21,7 @@
     type ManifestEntry,
     type MultiwfnManifest,
   } from './manifest'
-  import { inject_manifest_lattice } from './periodic'
+  import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -176,7 +176,12 @@
       const nextColorIdx = layer.color_volume_idx === undefined
         ? undefined
         : oldToNew.get(layer.color_volume_idx)
-      return [{ ...layer, volume_idx: nextVolumeIdx, color_volume_idx: nextColorIdx }]
+      return [{
+        ...layer,
+        volume_idx: nextVolumeIdx,
+        color_volume_idx: nextColorIdx,
+        ...(nextColorIdx === undefined ? { colormap: undefined, color_range: undefined } : {}),
+      }]
     })
     volumetricData = nextVolumes
     volumeEntries = nextEntries
@@ -284,7 +289,7 @@
         throw new Error(payload.message || 'Orbital calculation failed')
       }
       remove_volumes((entry) => entry.role === 'orbital' && entry.orbitalIndex === orbitalIndex)
-      await apply_entries([payload.layer], new URL('/session/', window.location.href), 'append')
+      await apply_entries([payload.layer], manifestBase, 'append')
       set_status(`Orbital ${orbitalIndex} loaded`)
     } catch (error) {
       report_error(error)
@@ -309,21 +314,11 @@
       }
       remove_volumes((entry) => entry.analysisKind === 'esp-density' || entry.analysisKind === 'esp-potential')
       const entries: ManifestEntry[] = [payload.densityLayer, payload.espLayer]
-      const firstVolumeIdx = await apply_entries(entries, new URL('/session/', window.location.href), 'append')
+      const firstVolumeIdx = await apply_entries(entries, manifestBase, 'append')
       const volumes = volumetricData ?? []
       if (volumes.length >= firstVolumeIdx + 2) {
-        const color = auto_color_config(volumes[firstVolumeIdx + 1].data_range)
-        isosurfaceSettings = {
-          ...isosurfaceSettings,
-          layers: (isosurfaceSettings.layers ?? []).map((layer) => layer.volume_idx === firstVolumeIdx
-            ? {
-                ...layer,
-                color_volume_idx: firstVolumeIdx + 1,
-                colormap: color.colormap,
-                color_range: color.color_range,
-              }
-            : layer.volume_idx === firstVolumeIdx + 1 ? { ...layer, visible: false } : layer),
-        }
+        set_color_volume(firstVolumeIdx, firstVolumeIdx + 1)
+        update_layer(firstVolumeIdx + 1, { visible: false })
       }
       set_status('ESP mapped onto the electron-density surface')
     } catch (error) {
@@ -383,7 +378,10 @@
   const set_range = (axis: number, bound: number, value: number): void => {
     const current = isosurfaceSettings.display_range ?? [[0, 1], [0, 1], [0, 1]]
     const next = current.map((range) => [...range]) as [[number, number], [number, number], [number, number]]
-    next[axis][bound] = value
+    const clamped = clamp_periodic_bound(value)
+    if (clamped === undefined) return
+    const [lower, upper] = next[axis]
+    next[axis][bound] = bound === 0 ? Math.min(clamped, upper) : Math.max(clamped, lower)
     isosurfaceSettings = { ...isosurfaceSettings, display_range: next }
   }
 

@@ -78,7 +78,11 @@ def main() -> int:
         server.server_close()
         if process.poll() is None:
             process.terminate()
-        process.wait(timeout=5)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
     return 0
 
 

@@ -149,6 +149,13 @@ button:disabled { opacity: 0.45; cursor: default; }
   right: auto;
   width: min(460px, calc(100% - 20px));
 }
+
+@media (min-width: 901px) and (max-width: 1100px) {
+  .log-panel,
+  .layer-panel {
+    width: calc(50% - 15px);
+  }
+}
 .layer-list { min-height: 90px; overflow: auto; padding: 6px; }
 .layer-list > section {
   padding: 7px;

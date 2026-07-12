@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=24.11.1"
+  },
   "scripts": {
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",

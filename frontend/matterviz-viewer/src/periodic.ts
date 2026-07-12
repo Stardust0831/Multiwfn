@@ -12,6 +12,18 @@ import type { MultiwfnManifest } from './manifest'
 export type FractionalRange = readonly [number, number]
 export type FractionalRanges = readonly [FractionalRange, FractionalRange, FractionalRange]
 
+export const PERIODIC_RANGE_LIMIT = 20
+
+export const clamp_periodic_bound = (value: unknown): number | undefined => {
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() !== ''
+      ? Number(value)
+      : Number.NaN
+  if (!Number.isFinite(parsed)) return undefined
+  return Math.max(-PERIODIC_RANGE_LIMIT, Math.min(PERIODIC_RANGE_LIMIT, parsed))
+}
+
 export type ManifestLatticeOptions = {
   /** Replace an existing structure lattice when set to true. */
   override?: boolean

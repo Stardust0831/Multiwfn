@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  clamp_periodic_bound,
   inject_manifest_lattice,
   supercell_scaling_for_ranges,
 } from '../src/periodic.ts'
+
+test('clamps periodic range inputs and rejects missing or non-finite values', () => {
+  assert.equal(clamp_periodic_bound(-50), -20)
+  assert.equal(clamp_periodic_bound('4.25'), 4.25)
+  assert.equal(clamp_periodic_bound(50), 20)
+  assert.equal(clamp_periodic_bound(''), undefined)
+  assert.equal(clamp_periodic_bound(Number.NaN), undefined)
+})
 import type { MultiwfnManifest } from '../src/manifest.ts'
 import type { AnyStructure, Crystal, Molecule } from 'matterviz/structure'
 

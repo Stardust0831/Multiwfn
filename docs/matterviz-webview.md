@@ -37,8 +37,8 @@ for the static validation command below.
 
 ## Development
 
-From the repository root (`matterviz-gui`), build the frontend and start the
-existing service in one terminal:
+From the MatterViz checkout root, build the frontend and start the existing
+service in one terminal:
 
 ```sh
 pnpm --dir frontend/matterviz-viewer install
