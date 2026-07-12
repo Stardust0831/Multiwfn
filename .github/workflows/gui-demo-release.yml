@@ -148,10 +148,12 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/launcher 测试"
+          fixture_root="$RUNNER_TEMP/launcher-fixture"
           session="$root/nested 会话/session"
-          mkdir -p "$root"
+          mkdir -p "$root" "$fixture_root"
           cp build-3dmol-gui/Multiwfn_QtGUI.exe "$root/Multiwfn_QtGUI.exe"
-          gcc -municode tests/progress_launcher_fixture.c -o "$root/Multiwfn_QtGUI.backend.exe"
+          gcc -municode tests/progress_launcher_fixture.c -o "$fixture_root/Multiwfn_QtGUI.backend.exe"
+          cp "$fixture_root/Multiwfn_QtGUI.backend.exe" "$root/Multiwfn_QtGUI.backend.exe"
           MULTIWFN_3DMOL_SESSION="$session" "$root/Multiwfn_QtGUI.exe" "argument with spaces"
           test -s "$session/runtime.log"
           grep -q '"phase":"complete"' "$session/esp_progress_fixture.json"
