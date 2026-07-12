@@ -25,6 +25,8 @@
 - Verification for this increment: 37 frontend unit tests passed; Svelte check reported zero diagnostics; the production build passed; seven WebView adapter tests, Python compilation, desktop configuration validation and `git diff --check` passed; Playwright structure-state round trips passed at 1440x900 and 800x700 with no page errors.
 - Final read-only review found no blocking correctness or scope issue and explicitly confirmed strict `origin/main` scope, whole-molecule visibility semantics, optional state compatibility and normal/failure WebView signaling. Real installed-shell concurrent shutdown remains a documented smoke-test gap.
 - Adopted independent `agent/*` worktree branches for bounded, non-overlapping parity tasks while long PR CI runs. Measurement ordering tests and periodic workflow tests were started in separate branches; the development branch remains the sole owner of TODO/log integration and final conflict resolution.
+- The measurement branch correctly stopped without code changes after disproving the checklist assumption: `origin/main` 3Dmol stores modified-click selections in an unordered set and has no geometry-measurement API, while the Qt action is explicitly unimplemented. MatterViz already provides native distance/angle overlays; ordered angle/dihedral behavior would be a new extension, not a first-stage parity requirement.
+- The periodic branch added focused coverage for negative/fractional display ranges remaining independent from persisted atom-supercell settings and for preservation of MatterViz-compatible cross-boundary bond `cell_shift` metadata through oblique-cell injection. It deliberately did not invent a new Multiwfn adapter field.
 
 ## Earlier work, superseded
 

@@ -33,8 +33,10 @@ Updated: 2026-07-13
 - [ ] P1: verify remaining representation presets, axes behavior and PNG export through MatterViz native controls.
 - [x] P1: expose per-layer negative phase, phase colors, cross-color colormap and editable color range using the existing state-covered fields.
 - [ ] P1: verify and expose remaining global surface material/mesh/quality controls not already available through MatterViz native controls.
-- [ ] P1: verify periodic oblique cells, negative/noninteger surface ranges, independent atom supercells and cross-boundary bonds end to end. In progress on `agent/periodic-parity-tests`.
-- [ ] P2: add wrapper-level measurement tests for distance, angle and dihedral selection ordering. In progress on `agent/measurement-parity-tests`.
+- [x] P1: cover oblique cells, negative/noninteger display ranges, independent atom supercells and preservation of MatterViz-compatible cross-boundary bond `cell_shift` metadata with focused tests.
+- [ ] Complete browser-level periodic workflow validation with a real cross-boundary-bond artifact; no separate Multiwfn adapter setting currently exists and no new protocol should be invented without a native source.
+- [x] P2: audit measurement parity. `origin/main` 3Dmol uses an unordered selection set and exposes no distance/angle/dihedral measurement workflow; the Qt measurement action is unimplemented. MatterViz native distance/angle plus the connected two-site bond request are not weaker than this baseline.
+- [ ] Consider ordered angle/dihedral measurement only as a separately approved post-parity extension; do not add an unused frontend helper.
 - [ ] P2: persist or explicitly scope slice, legend and remaining native structure control state.
 - [x] P2: cover WebView startup/bind/launch/interruption and normal child-close signaling with adapter unit tests and CI.
 - [ ] P2: complete an installed-shell browser/WebView Return and shutdown smoke test.
