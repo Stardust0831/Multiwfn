@@ -132,6 +132,10 @@ test('rejects cube volumes with missing or incomplete data arrays', () => {
     () => buildInterpolatedIsosurface(incomplete, complete, 0.001, options),
     /cube data is incomplete/
   );
+  assert.throws(
+    () => buildInterpolatedIsosurface(complete, incomplete, 0.001, options),
+    /cube data is incomplete/
+  );
 });
 
 test('skips marching-cubes cells containing non-finite density or ESP samples', () => {
