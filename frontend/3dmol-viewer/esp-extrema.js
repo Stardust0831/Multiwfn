@@ -52,7 +52,12 @@
     if (!expected || densityShape.some((value, index) => value !== espShape[index])) {
       throw new Error('Density and ESP cube dimensions do not match');
     }
-    if (density?.data?.length < expected || esp?.data?.length < expected) {
+    if (
+      !density?.data
+      || !esp?.data
+      || density.data.length < expected
+      || esp.data.length < expected
+    ) {
       throw new Error('Density or ESP cube data is incomplete');
     }
   }
@@ -109,9 +114,18 @@
             index(x + offset[0], y + offset[1], z + offset[2])
           ));
           let cubeIndex = 0;
+          let finiteCorners = true;
           for (let corner = 0; corner < 8; corner += 1) {
-            if (Number(densityData[cornerIndices[corner]]) > iso) cubeIndex |= 1 << corner;
+            const cornerIndex = cornerIndices[corner];
+            const densityValue = Number(densityData[cornerIndex]);
+            const espValue = Number(espData[cornerIndex]);
+            if (!Number.isFinite(densityValue) || !Number.isFinite(espValue)) {
+              finiteCorners = false;
+              break;
+            }
+            if (densityValue > iso) cubeIndex |= 1 << corner;
           }
+          if (!finiteCorners) continue;
           if (cubeIndex === 0 || cubeIndex === 255) continue;
           const triangles = triTable[cubeIndex];
           if (!triangles?.length) continue;
