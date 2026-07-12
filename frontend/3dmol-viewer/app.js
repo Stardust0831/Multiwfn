@@ -239,6 +239,23 @@ function defaultEspAnalysisCapabilities() {
   };
 }
 
+const analysisKindDefinitions = {
+  dos: { label: 'Density of states', shortLabel: 'DOS' },
+  band: { label: 'Band structure', shortLabel: 'Bands' },
+  ir: { label: 'Infrared spectrum', shortLabel: 'IR' },
+  nmr: { label: 'NMR spectrum', shortLabel: 'NMR' }
+};
+
+function unavailableAnalysisCapability(kind) {
+  const missing = {
+    dos: 'No orbital energies or supported DOS output detected',
+    band: 'No CP2K .bs or VASP EIGENVAL/KPOINTS dataset detected',
+    ir: 'No supported vibrational frequencies and IR intensities detected',
+    nmr: 'No supported isotropic magnetic shielding values detected'
+  };
+  return { available: false, reason: missing[kind] || 'Analysis data unavailable' };
+}
+
 const roleDefaults = {
   homo: { label: 'HOMO', ...orbitalPhaseColors, isovalue: 0.015 },
   lumo: { label: 'LUMO', ...orbitalPhaseColors, isovalue: 0.015 },
@@ -361,6 +378,14 @@ const state = {
     isovalue: 0.001,
     opacity: 0.88,
     opacityFrame: 0,
+    restoreSnapshot: null,
+    progress: {
+      hideTimer: 0,
+      pollTimer: 0,
+      pollGeneration: 0,
+      pollToken: '',
+      lastValue: 0
+    },
     legend: {
       enabled: true,
       position: null,
@@ -381,6 +406,22 @@ const state = {
       label: null,
       selectedPointId: ''
     }
+  },
+  analysis: {
+    manifest: null,
+    datasets: [],
+    activeKind: '',
+    activeDatasetId: '',
+    dataCache: new Map(),
+    resultCache: new Map(),
+    settings: new Map(),
+    requestBusy: false,
+    generation: 0,
+    worker: null,
+    workerPending: new Map(),
+    workerRequestId: 0,
+    currentData: null,
+    currentResult: null
   },
   activePlot: null,
   selectedCubeFile: null,
@@ -1647,6 +1688,7 @@ function renderBondPropertyMenu(menu, bond) {
         || state.bondAnalysis.requestBusy
         || state.gui.orbitalRequestBusy
         || state.espAnalysis.requestBusy
+        || state.analysis.requestBusy
       ),
       reason: property.backend && !capability.available ? capability.reason : '',
       title: detail || capability.reason || '',
@@ -1770,6 +1812,7 @@ function syncBackendRequestControls() {
     state.gui.orbitalRequestBusy
     || state.bondAnalysis.requestBusy
     || state.espAnalysis.requestBusy
+    || state.analysis.requestBusy
   );
   [
     els.guiOrbitalSelect,
@@ -1779,11 +1822,12 @@ function syncBackendRequestControls() {
     els.guiOrbPrev,
     els.guiOrbNext,
     els.guiMenuQuality,
-    els.guiToolEspShow,
     els.guiToolEspExtrema
   ].forEach((control) => {
     if (control) control.disabled = busy;
   });
+  syncEspSurfaceToggleState();
+  syncAnalysisToolStates();
 }
 
 function setBondRequestBusy(busy) {
@@ -1811,7 +1855,7 @@ async function selectBondProperty(bond, method) {
     setStatus(`${bondPropertyDefinition(method).label} loaded from cache`);
     return;
   }
-  if (state.bondAnalysis.requestBusy || state.gui.orbitalRequestBusy || state.espAnalysis.requestBusy) {
+  if (state.bondAnalysis.requestBusy || state.gui.orbitalRequestBusy || state.espAnalysis.requestBusy || state.analysis.requestBusy) {
     setStatus('Multiwfn backend is busy', false);
     return;
   }
@@ -2726,7 +2770,8 @@ function setStyleMenuOpen(open, options = {}) {
 }
 
 function toolsMenuButtons() {
-  return [...els.guiToolsMenu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]')];
+  return [...els.guiToolsMenu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]')]
+    .filter((control) => !control.disabled);
 }
 
 function espToolsMenuControls() {
@@ -2752,6 +2797,7 @@ function setEspToolsMenuOpen(open, options = {}) {
   els.guiToolEsp.setAttribute('aria-expanded', String(isOpen));
   if (!isOpen) return;
   syncEspOpacityControls();
+  syncEspSurfaceToggleState();
   syncEspLegendVisibility();
   positionStyleSubmenu(els.guiToolEsp, els.guiEspMenu);
   if (options.focus) requestAnimationFrame(() => espToolsMenuControls()[0]?.focus());
@@ -2830,7 +2876,7 @@ function setGuiOrbitalRequestBusy(busy) {
 }
 
 async function requestGuiOrbital(index, options = {}) {
-  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy || state.espAnalysis.requestBusy) return;
+  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy || state.espAnalysis.requestBusy || state.analysis.requestBusy) return;
   const orbitalIndex = Number(index) || 0;
   els.guiOrbitalInput.value = String(orbitalIndex);
   if (orbitalIndex <= 0) {
@@ -2938,6 +2984,221 @@ function espLayerByKind(kind) {
   return state.layers.find((layer) => layer.analysisKind === kind) || null;
 }
 
+function isEspAnalysisLayer(layer) {
+  return layer?.analysisKind === 'esp-density' || layer?.analysisKind === 'esp-potential';
+}
+
+function clearEspProgressHideTimer() {
+  if (!state.espAnalysis.progress.hideTimer) return;
+  window.clearTimeout(state.espAnalysis.progress.hideTimer);
+  state.espAnalysis.progress.hideTimer = 0;
+}
+
+function stopEspProgressPolling() {
+  const progress = state.espAnalysis.progress;
+  if (progress.pollTimer) window.clearTimeout(progress.pollTimer);
+  progress.pollTimer = 0;
+  progress.pollGeneration += 1;
+  progress.pollToken = '';
+}
+
+function hideEspProgress() {
+  clearEspProgressHideTimer();
+  stopEspProgressPolling();
+  if (!els.espProgress) return;
+  els.espProgress.hidden = true;
+  els.espProgress.removeAttribute('data-state');
+}
+
+function setEspProgress({ detail, value = null, stateName = 'active', valueText = '' }) {
+  clearEspProgressHideTimer();
+  if (!els.espProgress || !els.espProgressBar) return;
+  els.espProgress.hidden = false;
+  els.espProgress.dataset.state = stateName;
+  const detailText = String(detail || 'Working...');
+  els.espProgressDetail.textContent = detailText;
+  els.espProgressBar.setAttribute(
+    'aria-valuetext',
+    valueText ? `${valueText}; ${detailText}` : detailText
+  );
+  if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
+    const numericValue = clamp(Number(value), 0, 100);
+    const displayPercent = Math.round(numericValue);
+    els.espProgressBar.value = numericValue;
+    els.espProgressBar.textContent = `${displayPercent}%`;
+    els.espProgressValue.textContent = valueText || `${displayPercent}%`;
+  } else {
+    els.espProgressBar.removeAttribute('value');
+    els.espProgressBar.textContent = String(valueText || 'Working');
+    els.espProgressValue.textContent = String(valueText || '');
+  }
+}
+
+function createEspProgressToken() {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).slice(2, 12);
+  return `esp-${timestamp}-${random}`;
+}
+
+function startEspProgressPolling(token, sessionGeneration) {
+  stopEspProgressPolling();
+  const progress = state.espAnalysis.progress;
+  const pollGeneration = progress.pollGeneration;
+  progress.pollToken = token;
+  progress.lastValue = 0;
+
+  const isCurrent = () => (
+    progress.pollGeneration === pollGeneration
+    && progress.pollToken === token
+    && state.espAnalysis.extrema.sessionGeneration === sessionGeneration
+  );
+  const poll = async () => {
+    if (!isCurrent()) return;
+    try {
+      const response = await fetch(
+        `/session/esp_progress_${encodeURIComponent(token)}.json?ts=${Date.now()}`,
+        { cache: 'no-store' }
+      );
+      if (response.ok) {
+        const payload = await response.json();
+        if (!isCurrent()) return;
+        const phase = String(payload.phase || '').toLowerCase();
+        const phaseProgress = Math.round(clamp(Number(payload.phaseProgress), 0, 100));
+        const reported = clamp(Number(payload.progress), 0, 75);
+        if (Number.isFinite(phaseProgress) && Number.isFinite(reported)) {
+          progress.lastValue = Math.max(progress.lastValue, reported);
+          const phaseLabel = phase === 'density' ? 'Density grid' : 'ESP grid';
+          setEspProgress({
+            detail: `${phaseLabel} ${phaseProgress}%`,
+            value: progress.lastValue
+          });
+        }
+      }
+    } catch (error) {
+      // The backend replaces this tiny JSON file in place; retry partial reads.
+    }
+    if (isCurrent()) progress.pollTimer = window.setTimeout(poll, 100);
+  };
+  void poll();
+}
+
+function waitForEspProgressPaint() {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      window.clearTimeout(fallback);
+      resolve();
+    };
+    const fallback = window.setTimeout(finish, 50);
+    requestAnimationFrame(finish);
+  });
+}
+
+async function showEspProgressStage(detail, value) {
+  setEspProgress({ detail, value });
+  await waitForEspProgressPaint();
+}
+
+function scheduleEspProgressHide(delay) {
+  clearEspProgressHideTimer();
+  state.espAnalysis.progress.hideTimer = window.setTimeout(() => {
+    state.espAnalysis.progress.hideTimer = 0;
+    if (els.espProgress) els.espProgress.hidden = true;
+  }, delay);
+}
+
+function finishEspProgress(quality, options = {}) {
+  stopEspProgressPolling();
+  const qualityLabel = formatGridQuality(quality);
+  setEspProgress({
+    detail: options.cached
+      ? `ESP restored from session cache at ${qualityLabel}`
+      : `ESP ready at ${qualityLabel}`,
+    value: 100
+  });
+  scheduleEspProgressHide(2000);
+}
+
+function failEspProgress(message) {
+  stopEspProgressPolling();
+  setEspProgress({
+    detail: message || 'ESP calculation failed',
+    value: 0,
+    stateName: 'error',
+    valueText: 'Error'
+  });
+  scheduleEspProgressHide(5000);
+}
+
+function captureEspRestoreSnapshot() {
+  const visibleLayerIds = state.layers
+    .filter((layer) => !isEspAnalysisLayer(layer) && layer.visible)
+    .map((layer) => String(layer.id));
+  const activeLayer = layerById(state.gui.activeLayerId);
+  state.espAnalysis.restoreSnapshot = {
+    visibleLayerIds,
+    activeLayerId: activeLayer && !isEspAnalysisLayer(activeLayer)
+      ? String(activeLayer.id)
+      : ''
+  };
+}
+
+function clearEspRestoreSnapshot() {
+  state.espAnalysis.restoreSnapshot = null;
+}
+
+function syncEspSurfaceToggleState() {
+  if (!els.guiToolEspShow) return;
+  const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
+  const backendBusy = Boolean(
+    state.gui.orbitalRequestBusy
+    || state.bondAnalysis.requestBusy
+    || state.espAnalysis.requestBusy
+    || state.analysis.requestBusy
+  );
+  els.guiToolEspShow.setAttribute('aria-checked', String(isEspVisualizationActive()));
+  els.guiToolEspShow.setAttribute('aria-disabled', String(!capability.available || backendBusy));
+  els.guiToolEspShow.setAttribute('aria-busy', String(state.espAnalysis.requestBusy));
+  els.guiToolEspShow.disabled = backendBusy;
+  els.guiToolEspShow.title = capability.available
+    ? (backendBusy ? 'Multiwfn backend is busy' : '')
+    : capability.reason;
+}
+
+function deactivateEspLayers(options = {}) {
+  const density = espLayerByKind('esp-density');
+  const potential = espLayerByKind('esp-potential');
+  if (density) density.visible = false;
+  if (potential) potential.visible = false;
+
+  const snapshot = state.espAnalysis.restoreSnapshot;
+  const visibleIds = new Set(snapshot?.visibleLayerIds || []);
+  state.layers.forEach((layer) => {
+    if (!isEspAnalysisLayer(layer)) layer.visible = visibleIds.has(String(layer.id));
+  });
+  const restoredActive = snapshot?.activeLayerId
+    ? layerById(snapshot.activeLayerId)
+    : null;
+  const fallbackActive = state.layers.find((layer) => !isEspAnalysisLayer(layer) && layer.visible) || null;
+  state.gui.activeLayerId = restoredActive
+    && !isEspAnalysisLayer(restoredActive)
+    && restoredActive.visible
+    ? String(restoredActive.id)
+    : fallbackActive ? String(fallbackActive.id) : '';
+  state.gui.pendingOrbitalIndex = 0;
+  clearEspRestoreSnapshot();
+  hideEspProgress();
+  renderLayerList();
+  updateLayerSelectors();
+  renderScene(false);
+  if (options.announce !== false) {
+    setOrbitalStatus('ESP hidden; previous layers restored');
+    setStatus('ESP hidden; previous layers restored');
+  }
+}
+
 function removeEspAnalysisLayers(options = {}) {
   const removedIds = new Set(
     state.layers
@@ -2952,6 +3213,8 @@ function removeEspAnalysisLayers(options = {}) {
   state.espAnalysis.densityLayerId = '';
   state.espAnalysis.potentialLayerId = '';
   state.espAnalysis.quality = 0;
+  clearEspRestoreSnapshot();
+  hideEspProgress();
   if (state.espAnalysis.opacityFrame) {
     cancelAnimationFrame(state.espAnalysis.opacityFrame);
     state.espAnalysis.opacityFrame = 0;
@@ -2960,6 +3223,7 @@ function removeEspAnalysisLayers(options = {}) {
   renderLayerList();
   updateLayerSelectors();
   syncEspOpacityControls();
+  syncEspSurfaceToggleState();
   syncEspLegendVisibility();
   return removedIds.size > 0;
 }
@@ -3402,6 +3666,8 @@ function resetEspExtremaState(options = {}) {
   if (options.clearCache !== false) {
     extrema.cache.clear();
     extrema.sessionGeneration += 1;
+    clearEspRestoreSnapshot();
+    hideEspProgress();
   }
   clearEspExtremaMarkers({ render: options.render, clearSelection: true });
   syncEspExtremaMenuState();
@@ -3589,6 +3855,7 @@ function upsertEspLayer(text, options) {
 }
 
 function activateEspLayers(density, potential, options = {}) {
+  if (!isEspVisualizationActive()) captureEspRestoreSnapshot();
   const opacity = clamp(toNumber(density.opacity, state.espAnalysis.opacity), 0.05, 1);
   state.layers.forEach((layer) => { layer.visible = false; });
   density.visible = true;
@@ -3627,11 +3894,16 @@ function estimateEspColorLimit(densityText, espText, isovalue) {
 async function requestGuiEsp(options = {}) {
   const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
   if (!capability.available) {
-    setStatus(capability.reason || 'ESP calculation is unavailable', false);
+    const message = capability.reason || 'ESP calculation is unavailable';
+    setStatus(message, false);
+    failEspProgress(message);
+    syncEspSurfaceToggleState();
     return false;
   }
-  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy || state.espAnalysis.requestBusy) {
-    setStatus('Multiwfn backend is busy', false);
+  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy || state.espAnalysis.requestBusy || state.analysis.requestBusy) {
+    const message = 'Multiwfn backend is busy';
+    setStatus(message, false);
+    failEspProgress(message);
     return false;
   }
   const sessionGeneration = state.espAnalysis.extrema.sessionGeneration;
@@ -3653,18 +3925,29 @@ async function requestGuiEsp(options = {}) {
     activateEspLayers(existingDensity, existingPotential, { quality, isovalue });
     setOrbitalStatus(`ESP loaded at ${formatGridQuality(quality)}`);
     setStatus(`ESP loaded from session cache at ${formatGridQuality(quality)}`);
+    finishEspProgress(quality, { cached: true });
     return true;
   }
 
   const params = new URLSearchParams({
     quality: String(quality),
-    isovalue: String(isovalue)
+    isovalue: String(isovalue),
+    progressToken: createEspProgressToken()
   });
+  const progressToken = params.get('progressToken');
   setGuiEspRequestBusy(true);
   setOrbitalStatus(`Calculating ESP at ${formatGridQuality(quality)}...`);
   setStatus(`Calculating ESP at ${formatGridQuality(quality)}...`);
+  setEspProgress({
+    detail: `Waiting for Multiwfn ESP grid at ${formatGridQuality(quality)}`,
+    value: 0
+  });
   try {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    if (!sessionIsCurrent()) return false;
+    startEspProgressPolling(progressToken, sessionGeneration);
     const response = await fetch(`/api/esp?${params.toString()}`, { cache: 'no-store' });
+    stopEspProgressPolling();
     if (!response.ok) throw new Error(`ESP API returned HTTP ${response.status}`);
     let payload;
     try {
@@ -3679,11 +3962,15 @@ async function requestGuiEsp(options = {}) {
     if (!densitySpec?.path || !potentialSpec?.path) {
       throw new Error('ESP API response did not include both cube layers');
     }
+    await showEspProgressStage('ESP grid calculation complete', 75);
+    if (!sessionIsCurrent()) return false;
     const sessionUrl = new URL('/session/', window.location.href).toString();
     const [densityText, potentialText] = await Promise.all([
       loadTextFromManifestEntry(densitySpec, sessionUrl),
       loadTextFromManifestEntry(potentialSpec, sessionUrl)
     ]);
+    if (!sessionIsCurrent()) return false;
+    await showEspProgressStage('Density and potential cubes loaded', 85);
     if (!sessionIsCurrent()) return false;
     const resolvedIsovalue = Number(payload.isovalue || isovalue);
     const resolvedQuality = Number(payload.quality || quality);
@@ -3719,9 +4006,12 @@ async function requestGuiEsp(options = {}) {
       colorMin: -colorLimit,
       colorMax: colorLimit
     });
+    await showEspProgressStage('ESP colors and surface layers prepared', 95);
+    if (!sessionIsCurrent()) return false;
     activateEspLayers(density, potential, { quality: resolvedQuality, isovalue: resolvedIsovalue });
     setOrbitalStatus(`ESP loaded at ${formatGridQuality(resolvedQuality)}`);
     setStatus(`ESP mapped at ${formatGridQuality(resolvedQuality)} (±${colorLimit.toPrecision(3)} a.u.)`);
+    finishEspProgress(resolvedQuality);
     return true;
   } catch (error) {
     if (!sessionIsCurrent()) return false;
@@ -3729,8 +4019,11 @@ async function requestGuiEsp(options = {}) {
     const message = error?.message || 'ESP API unavailable';
     setStatus(message, false);
     setOrbitalStatus(message, false);
+    failEspProgress(message);
+    syncEspSurfaceToggleState();
     return false;
   } finally {
+    stopEspProgressPolling();
     setGuiEspRequestBusy(false);
   }
 }
@@ -3765,9 +4058,11 @@ function initializeMultiwfnOrbitalSelection() {
 }
 
 function setStructureData(text, name = 'structure.xyz', format = 'xyz', options = {}) {
+  resetAnalysisForStructureChange();
   clearAtomSelectionState();
   clearBondAnalysisState({ resetCapabilities: !options.preserveBondCapabilities });
-  resetEspExtremaState({ render: false });
+  if (state.layers.some(isEspAnalysisLayer)) removeEspAnalysisLayers({ render: false });
+  else resetEspExtremaState({ render: false });
   const normalizedFormat = format === 'auto' ? detectFormat(name) : format;
   state.structure = {
     data: text,
@@ -3787,9 +4082,11 @@ function loadStructure(text, name = 'structure.xyz', format = 'xyz') {
 }
 
 function clearStructure() {
+  resetAnalysisForStructureChange();
   clearAtomSelectionState();
   clearBondAnalysisState({ resetCapabilities: true });
-  resetEspExtremaState({ render: false });
+  if (state.layers.some(isEspAnalysisLayer)) removeEspAnalysisLayers({ render: false });
+  else resetEspExtremaState({ render: false });
   state.structure = { data: '', name: '', format: 'xyz', atoms: 0, baseData: '', bonding: null };
   state.dirtyZoom = true;
   setStatus('Structure cleared');
@@ -3872,6 +4169,7 @@ function upsertOrbitalLayer(text, options = {}) {
 }
 
 function clearCubes() {
+  removeEspAnalysisLayers({ render: false });
   state.layers = [];
   state.dirtyZoom = true;
   renderLayerList();
@@ -4122,12 +4420,7 @@ function refreshEspAnalysisCapabilities() {
       ? 'ESP visualization is not supported for periodic systems'
       : String(base.reason || '')
   };
-  if (els.guiToolEspShow) {
-    els.guiToolEspShow.setAttribute('aria-disabled', String(!state.espAnalysis.capabilities.available));
-    els.guiToolEspShow.title = state.espAnalysis.capabilities.available
-      ? ''
-      : state.espAnalysis.capabilities.reason;
-  }
+  syncEspSurfaceToggleState();
   if (els.guiToolEsp) els.guiToolEsp.title = state.espAnalysis.capabilities.reason || '';
   syncEspExtremaMenuState();
   syncEspOpacityControls();
@@ -4137,6 +4430,7 @@ function refreshEspAnalysisCapabilities() {
 async function loadManifestObject(manifest, baseUrl = '') {
   state.bondAnalysis.baseCapabilities = normalizeBondAnalysisCapabilities(manifest.bondAnalysis);
   state.espAnalysis.baseCapabilities = normalizeEspAnalysisCapabilities(manifest.espAnalysis);
+  state.analysis.manifest = manifest.analysis || null;
   if (manifest.multiwfnGui) {
     state.multiwfnGui = {
       entry: manifest.multiwfnGui.entry || 'standalone',
@@ -4193,6 +4487,7 @@ async function loadManifestObject(manifest, baseUrl = '') {
   const structureEntry = manifest.structure;
   const layerEntries = manifest.cubes || manifest.layers || [];
   if (manifest.replaceLayers !== false) {
+    removeEspAnalysisLayers({ render: false });
     state.layers = [];
     state.nextLayerId = 1;
   }
@@ -4201,6 +4496,10 @@ async function loadManifestObject(manifest, baseUrl = '') {
     && manifest.replaceLayers !== false;
   if (drawMolGui) await loadDrawMolManifest(structureEntry, specs, baseUrl);
   else await loadBatchManifest(structureEntry, specs, baseUrl);
+  const fallbackDataset = manifestAnalysisDataset();
+  state.analysis.datasets = fallbackDataset ? [fallbackDataset] : [];
+  syncAnalysisToolStates();
+  void refreshAnalysisDatasets({ quiet: true });
 }
 
 async function loadManifestText(text, baseUrl = '') {
@@ -4352,6 +4651,10 @@ function drawEspLegendForExport(context, model, image) {
 
 async function savePng() {
   try {
+    if (state.activePlot === 'analysis' && !els.plotPanel.classList.contains('is-hidden')) {
+      await exportAnalysisPng();
+      return;
+    }
     const dataUri = typeof state.viewer.pngURI === 'function'
       ? state.viewer.pngURI()
       : els.viewer.querySelector('canvas').toDataURL('image/png');
@@ -4396,9 +4699,14 @@ function plotLayout(title) {
 }
 
 let plotlyLoadPromise = null;
+let plotlyApi = null;
 
 function ensurePlotly() {
-  if (window.Plotly) return Promise.resolve(window.Plotly);
+  if (plotlyApi) return Promise.resolve(plotlyApi);
+  if (window.Plotly) {
+    plotlyApi = window.Plotly;
+    return Promise.resolve(plotlyApi);
+  }
   if (plotlyLoadPromise) return plotlyLoadPromise;
   setStatus('Loading 2D renderer...');
   markStartup('plotlyLoadStartedAt');
@@ -4414,7 +4722,8 @@ function ensurePlotly() {
         return;
       }
       markStartup('plotlyLoadedAt');
-      resolve(window.Plotly);
+      plotlyApi = window.Plotly;
+      resolve(plotlyApi);
     }, { once: true });
     script.addEventListener('error', () => {
       script.remove();
@@ -4426,9 +4735,748 @@ function ensurePlotly() {
   return plotlyLoadPromise;
 }
 
+function analysisCapability(dataset, kind) {
+  return dataset?.capabilities?.[kind] || unavailableAnalysisCapability(kind);
+}
+
+function analysisDatasetsForKind(kind) {
+  return state.analysis.datasets.filter((dataset) => analysisCapability(dataset, kind).available);
+}
+
+function manifestAnalysisDataset() {
+  const capabilities = state.analysis.manifest?.capabilities;
+  if (!capabilities || typeof capabilities !== 'object') return null;
+  return {
+    id: 'primary',
+    label: state.structure.name || 'Current Multiwfn input',
+    source: 'primary',
+    files: state.structure.name ? [state.structure.name] : [],
+    capabilities: Object.fromEntries(Object.keys(analysisKindDefinitions).map((kind) => [
+      kind,
+      capabilities[kind] || unavailableAnalysisCapability(kind)
+    ])),
+    removable: false
+  };
+}
+
+function analysisUnavailableReason(kind) {
+  const reasons = state.analysis.datasets
+    .map((dataset) => analysisCapability(dataset, kind).reason)
+    .filter(Boolean);
+  return [...new Set(reasons)][0] || unavailableAnalysisCapability(kind).reason;
+}
+
+function syncAnalysisToolStates() {
+  if (!els.guiToolDos) return;
+  const busy = Boolean(
+    state.gui.orbitalRequestBusy
+    || state.bondAnalysis.requestBusy
+    || state.espAnalysis.requestBusy
+    || state.analysis.requestBusy
+  );
+  const controls = {
+    dos: els.guiToolDos,
+    band: els.guiToolBand,
+    ir: els.guiToolIr,
+    nmr: els.guiToolNmr
+  };
+  Object.entries(controls).forEach(([kind, control]) => {
+    const available = analysisDatasetsForKind(kind).length > 0;
+    control.disabled = !available || busy;
+    control.setAttribute('aria-disabled', String(!available || busy));
+    control.title = available
+      ? (busy ? 'Multiwfn analysis backend is busy' : '')
+      : analysisUnavailableReason(kind);
+  });
+  if (els.guiToolAnalysisImport) {
+    els.guiToolAnalysisImport.disabled = busy;
+    els.guiToolAnalysisImport.setAttribute('aria-disabled', String(busy));
+    els.guiToolAnalysisImport.title = busy ? 'Multiwfn analysis backend is busy' : '';
+  }
+}
+
+function setAnalysisRequestBusy(busy) {
+  state.analysis.requestBusy = Boolean(busy);
+  syncBackendRequestControls();
+}
+
+async function analysisJsonResponse(response) {
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new Error(`Analysis service returned HTTP ${response.status}`);
+  }
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.message || `Analysis service returned HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+async function refreshAnalysisDatasets(options = {}) {
+  const previous = state.analysis.activeDatasetId;
+  try {
+    const response = await fetch('/api/analysis/datasets', { cache: 'no-store' });
+    const payload = await analysisJsonResponse(response);
+    state.analysis.datasets = Array.isArray(payload.datasets) ? payload.datasets : [];
+  } catch (error) {
+    const fallback = manifestAnalysisDataset();
+    state.analysis.datasets = fallback ? [fallback] : [];
+    if (!options.quiet) console.error(error);
+  }
+  if (previous && state.analysis.datasets.some((dataset) => dataset.id === previous)) {
+    state.analysis.activeDatasetId = previous;
+  }
+  syncAnalysisToolStates();
+  syncAnalysisDatasetSelect();
+  return state.analysis.datasets;
+}
+
+function numericTokens(text) {
+  return String(text || '').trim().split(/\s+/).map(Number).filter(Number.isFinite);
+}
+
+function analysisImportRole(fileName, text) {
+  const canonical = String(fileName || '').toUpperCase();
+  const canonicalRoles = {
+    EIGENVAL: 'eigenval', KPOINTS: 'kpoints', OUTCAR: 'outcar',
+    DOSCAR: 'doscar', POSCAR: 'poscar', CONTCAR: 'poscar'
+  };
+  if (canonicalRoles[canonical]) return canonicalRoles[canonical];
+  const lines = String(text || '').split(/\r?\n/);
+  const lower = String(text || '').toLowerCase();
+  if (/^\s*line[- ]?mode\s*$/im.test(text)) return 'kpoints';
+  if (lower.includes('vasp.') && (lower.includes('executed on') || lower.includes('e-fermi'))) return 'outcar';
+  if (lines.length >= 7) {
+    const dosHeader = numericTokens(lines[5]);
+    if (dosHeader.length >= 4 && Number.isInteger(dosHeader[2]) && dosHeader[2] >= 3
+      && numericTokens(lines[6]).length >= 3) return 'doscar';
+    const vectors = [2, 3, 4].every((index) => numericTokens(lines[index]).length >= 3);
+    const elements = lines[5].trim().split(/\s+/).filter(Boolean);
+    const counts = lines[6].trim().split(/\s+/).filter(Boolean);
+    if (Number.isFinite(Number(lines[1].trim().split(/\s+/)[0])) && vectors && elements.length
+      && elements.every((token) => /^[A-Za-z]{1,3}$/.test(token))
+      && counts.length && counts.every((token) => /^\d+$/.test(token))) return 'poscar';
+    const eigenHeader = numericTokens(lines[5]);
+    let probe = 6;
+    while (probe < lines.length && !lines[probe].trim()) probe += 1;
+    if (eigenHeader.length >= 3 && eigenHeader[eigenHeader.length - 2] > 0 && eigenHeader[eigenHeader.length - 1] > 0
+      && numericTokens(lines[probe]).length >= 4 && numericTokens(lines[probe + 1]).length >= 3) return 'eigenval';
+  }
+  return '';
+}
+
+async function groupAnalysisImportFiles(files) {
+  const groups = [];
+  const classified = await Promise.all(files.map(async (file) => ({
+    file,
+    role: analysisImportRole(file.name, await file.slice(0, 512 * 1024).text())
+  })));
+  const vasp = classified.filter((item) => item.role).map((item) => item.file);
+  if (vasp.length) groups.push({ label: `VASP outputs (${vasp.length} files)`, files: vasp });
+  classified.filter((item) => !item.role).forEach(({ file }) => {
+    groups.push({ label: file.name, files: [file] });
+  });
+  return groups;
+}
+
+async function deleteAnalysisDatasetById(datasetId, options = {}) {
+  if (!datasetId || datasetId === 'primary') return false;
+  const response = await fetch(`/api/analysis/datasets/${encodeURIComponent(datasetId)}`, { method: 'DELETE' });
+  await analysisJsonResponse(response);
+  [...state.analysis.dataCache.keys()].forEach((key) => {
+    if (key.startsWith(`${datasetId}:`)) state.analysis.dataCache.delete(key);
+  });
+  [...state.analysis.resultCache.keys()].forEach((key) => {
+    if (key.startsWith(`${datasetId}:`)) state.analysis.resultCache.delete(key);
+  });
+  [...state.analysis.settings.keys()].forEach((key) => {
+    if (key.startsWith(`${datasetId}:`)) state.analysis.settings.delete(key);
+  });
+  await refreshAnalysisDatasets({ quiet: true });
+  if (!options.quiet) setStatus('Analysis dataset deleted');
+  return true;
+}
+
+async function importAnalysisFiles(fileList) {
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  const tooLarge = files.find((file) => file.size > 512 * 1024 * 1024);
+  if (tooLarge) {
+    setStatus(`${tooLarge.name} exceeds the 512 MiB analysis-file limit`, false);
+    return;
+  }
+  const groups = await groupAnalysisImportFiles(files);
+  if (groups.some((group) => group.files.length > 8)) {
+    setStatus('An analysis dataset can contain at most 8 files', false);
+    return;
+  }
+  setAnalysisRequestBusy(true);
+  let imported = 0;
+  try {
+    for (const group of groups) {
+      setStatus(`Importing ${group.label}...`);
+      const createResponse = await fetch('/api/analysis/datasets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: group.label })
+      });
+      const created = await analysisJsonResponse(createResponse);
+      const datasetId = created.dataset?.id;
+      if (!datasetId) throw new Error('Analysis service did not create a dataset');
+      try {
+        for (const file of group.files) {
+          const upload = await fetch(
+            `/api/analysis/datasets/${encodeURIComponent(datasetId)}/files?name=${encodeURIComponent(file.name)}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file }
+          );
+          await analysisJsonResponse(upload);
+        }
+        const inspect = await fetch(`/api/analysis/datasets/${encodeURIComponent(datasetId)}/inspect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        await analysisJsonResponse(inspect);
+        imported += 1;
+      } catch (error) {
+        await deleteAnalysisDatasetById(datasetId, { quiet: true }).catch(() => {});
+        throw error;
+      }
+    }
+    await refreshAnalysisDatasets({ quiet: true });
+    setStatus(`${imported} analysis dataset${imported === 1 ? '' : 's'} imported`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error?.message || 'Analysis import failed', false);
+  } finally {
+    setAnalysisRequestBusy(false);
+    if (els.analysisFileInput) els.analysisFileInput.value = '';
+  }
+}
+
+function syncAnalysisDatasetSelect() {
+  if (!els.analysisDataset) return;
+  const kind = state.analysis.activeKind;
+  const datasets = kind ? analysisDatasetsForKind(kind) : [];
+  els.analysisDataset.replaceChildren(...datasets.map((dataset) => {
+    const option = document.createElement('option');
+    option.value = dataset.id;
+    option.textContent = dataset.label || dataset.id;
+    return option;
+  }));
+  if (datasets.some((dataset) => dataset.id === state.analysis.activeDatasetId)) {
+    els.analysisDataset.value = state.analysis.activeDatasetId;
+  } else if (datasets[0]) {
+    state.analysis.activeDatasetId = datasets[0].id;
+    els.analysisDataset.value = datasets[0].id;
+  }
+  const active = state.analysis.datasets.find((dataset) => dataset.id === state.analysis.activeDatasetId);
+  els.analysisDelete.disabled = !active?.removable;
+  els.analysisDelete.title = active?.removable ? 'Delete imported dataset' : 'The current Multiwfn input cannot be deleted';
+}
+
+function resetAnalysisForStructureChange() {
+  state.analysis.generation += 1;
+  state.analysis.dataCache.clear();
+  state.analysis.resultCache.clear();
+  state.analysis.settings.clear();
+  if (state.analysis.activeKind) closeAnalysisPlot();
+}
+
+function closeAnalysisPlot(options = {}) {
+  state.analysis.generation += 1;
+  state.analysis.activeKind = '';
+  state.analysis.activeDatasetId = '';
+  state.analysis.currentData = null;
+  state.analysis.currentResult = null;
+  state.activePlot = null;
+  if (els.analysisToolbar) els.analysisToolbar.hidden = true;
+  if (options.purge !== false && plotlyApi && els.plotView) plotlyApi.purge(els.plotView);
+  if (options.hide !== false) showPlotPanel(false);
+}
+
+function analysisSettingsKey(datasetId, kind) {
+  return `${datasetId}:${kind}`;
+}
+
+function analysisSettingsFor(datasetId, kind, data) {
+  const key = analysisSettingsKey(datasetId, kind);
+  if (state.analysis.settings.has(key)) return state.analysis.settings.get(key);
+  const settings = kind === 'dos'
+    ? {
+        broadening: 'gaussian',
+        fwhm: Number(data.controls?.defaultFwhm || 0.35),
+        projectionMode: 'none',
+        showSticks: true
+      }
+    : kind === 'ir'
+      ? {
+          mode: data.controls?.defaultMode || 'harmonic',
+          bandTypes: ['fundamental', 'overtone', 'combination'],
+          broadening: 'lorentzian',
+          fwhm: Number(data.controls?.defaultFwhm || 8),
+          showSticks: true
+        }
+      : kind === 'nmr'
+        ? {
+            element: 'all',
+            mode: 'shielding',
+            reference: 0,
+            slope: 1,
+            intercept: 0,
+            fwhm: Number(data.controls?.defaultFwhmHeavy || 0.2)
+          }
+        : { spin: 'all' };
+  state.analysis.settings.set(key, settings);
+  return settings;
+}
+
+function analysisControl(labelText, control, className = '') {
+  const label = document.createElement('label');
+  label.className = `analysis-control ${className}`.trim();
+  const caption = document.createElement('span');
+  caption.textContent = labelText;
+  label.append(caption, control);
+  return label;
+}
+
+function analysisSelect(label, value, choices, onChange) {
+  const select = document.createElement('select');
+  choices.forEach(([choiceValue, choiceLabel]) => {
+    const option = document.createElement('option');
+    option.value = choiceValue;
+    option.textContent = choiceLabel;
+    select.append(option);
+  });
+  select.value = String(value);
+  select.addEventListener('change', () => onChange(select.value));
+  return analysisControl(label, select);
+}
+
+function analysisNumber(label, value, options, onChange) {
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.value = String(value);
+  input.step = String(options.step || 'any');
+  if (options.min !== undefined) input.min = String(options.min);
+  if (options.max !== undefined) input.max = String(options.max);
+  input.addEventListener('change', () => {
+    const next = Number(input.value);
+    if (Number.isFinite(next)) onChange(next);
+  });
+  return analysisControl(label, input);
+}
+
+function analysisCheckbox(labelText, checked, onChange) {
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = Boolean(checked);
+  input.addEventListener('change', () => onChange(input.checked));
+  return analysisControl(labelText, input, 'is-check');
+}
+
+function scheduleAnalysisRender(rebuildControls = false) {
+  const generation = state.analysis.generation;
+  requestAnimationFrame(() => {
+    if (generation !== state.analysis.generation) return;
+    void renderCurrentAnalysis({ rebuildControls });
+  });
+}
+
+function renderAnalysisControls(kind, data, settings) {
+  const controls = [];
+  const update = (property, value, rebuild = false) => {
+    settings[property] = value;
+    scheduleAnalysisRender(rebuild);
+  };
+  if (kind === 'dos') {
+    controls.push(analysisSelect('Shape', settings.broadening, [
+      ['gaussian', 'Gaussian'], ['lorentzian', 'Lorentzian']
+    ], (value) => update('broadening', value)));
+    controls.push(analysisNumber('FWHM', settings.fwhm, { min: 0.001, step: 0.01 }, (value) => update('fwhm', value)));
+    const projectionModes = Array.isArray(data.controls?.projectionModes) ? data.controls.projectionModes : [];
+    if (projectionModes.length || data.series?.projections?.length) {
+      const modes = ['none', ...new Set(projectionModes.length ? projectionModes : ['element', 'orbital', 'element-orbital'])];
+      controls.push(analysisSelect('PDOS', settings.projectionMode, modes.map((value) => [value, {
+        none: 'Off', element: 'Element', orbital: 'Orbital', 'element-orbital': 'Element × orbital'
+      }[value] || value]), (value) => update('projectionMode', value)));
+    }
+    if (data.series?.levels?.length) {
+      controls.push(analysisCheckbox('Levels', settings.showSticks, (value) => update('showSticks', value)));
+    }
+  } else if (kind === 'band') {
+    if (data.metadata?.spin) {
+      controls.push(analysisSelect('Spin', settings.spin, [
+        ['all', 'Both'], ['alpha', 'Alpha'], ['beta', 'Beta']
+      ], (value) => update('spin', value)));
+    }
+  } else if (kind === 'ir') {
+    const hasHarmonic = Boolean(data.series?.harmonic?.length);
+    const hasAnharmonic = Boolean(data.series?.anharmonic?.length);
+    if (hasHarmonic && hasAnharmonic) {
+      controls.push(analysisSelect('Data', settings.mode, [
+        ['anharmonic', 'Anharmonic'], ['harmonic', 'Harmonic']
+      ], (value) => update('mode', value, true)));
+    }
+    controls.push(analysisSelect('Shape', settings.broadening, [
+      ['lorentzian', 'Lorentzian'], ['gaussian', 'Gaussian']
+    ], (value) => update('broadening', value)));
+    controls.push(analysisNumber('FWHM', settings.fwhm, { min: 0.001, step: 1 }, (value) => update('fwhm', value)));
+    if (settings.mode === 'anharmonic') {
+      [['fundamental', 'Fund.'], ['overtone', 'Over.'], ['combination', 'Comb.']].forEach(([bandType, label]) => {
+        controls.push(analysisCheckbox(label, settings.bandTypes.includes(bandType), (checked) => {
+          const selected = new Set(settings.bandTypes);
+          if (checked) selected.add(bandType); else selected.delete(bandType);
+          update('bandTypes', [...selected]);
+        }));
+      });
+    }
+    controls.push(analysisCheckbox('Sticks', settings.showSticks, (value) => update('showSticks', value)));
+  } else if (kind === 'nmr') {
+    const elements = Array.isArray(data.metadata?.elements) ? data.metadata.elements : [];
+    controls.push(analysisSelect('Element', settings.element, [['all', 'All'], ...elements.map((value) => [value, value])], (value) => {
+      settings.element = value;
+      if (value === 'all' && settings.mode !== 'shielding') settings.mode = 'shielding';
+      scheduleAnalysisRender(true);
+    }));
+    const modeChoices = [['shielding', 'Shielding']];
+    if (settings.element !== 'all') modeChoices.push(['shift', 'Reference shift'], ['scale', 'Linear scale']);
+    controls.push(analysisSelect('Mode', settings.mode, modeChoices, (value) => update('mode', value, true)));
+    if (settings.mode === 'shift') {
+      controls.push(analysisNumber('Reference', settings.reference, { step: 0.1 }, (value) => update('reference', value)));
+    } else if (settings.mode === 'scale') {
+      controls.push(analysisNumber('Slope', settings.slope, { step: 0.01 }, (value) => update('slope', value)));
+      controls.push(analysisNumber('Intercept', settings.intercept, { step: 0.1 }, (value) => update('intercept', value)));
+    }
+    controls.push(analysisNumber('FWHM', settings.fwhm, { min: 0.0001, step: 0.01 }, (value) => update('fwhm', value)));
+  }
+  els.analysisControls.replaceChildren(...controls);
+}
+
+function ensureAnalysisWorker() {
+  if (state.analysis.worker) return state.analysis.worker;
+  const worker = new Worker('analysis-worker.js');
+  worker.addEventListener('message', (event) => {
+    const pending = state.analysis.workerPending.get(event.data?.id);
+    if (!pending) return;
+    state.analysis.workerPending.delete(event.data.id);
+    window.clearTimeout(pending.timeout);
+    if (event.data.ok) pending.resolve(event.data.result);
+    else pending.reject(new Error(event.data.message || 'Analysis processing failed'));
+  });
+  worker.addEventListener('error', (event) => {
+    state.analysis.workerPending.forEach((pending) => {
+      window.clearTimeout(pending.timeout);
+      pending.reject(new Error(event.message || 'Analysis worker failed'));
+    });
+    state.analysis.workerPending.clear();
+    worker.terminate();
+    state.analysis.worker = null;
+  });
+  state.analysis.worker = worker;
+  return worker;
+}
+
+function runAnalysisWorker(kind, data, settings) {
+  const worker = ensureAnalysisWorker();
+  const id = ++state.analysis.workerRequestId;
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      state.analysis.workerPending.delete(id);
+      reject(new Error('Analysis processing timed out'));
+    }, 120000);
+    state.analysis.workerPending.set(id, { resolve, reject, timeout });
+    worker.postMessage({ id, kind, data, settings });
+  });
+}
+
+function bandAnalysisResult(data, settings = {}) {
+  const x = Array.isArray(data.series?.x) ? data.series.x : [];
+  const alpha = Array.isArray(data.series?.alpha) ? data.series.alpha : [];
+  const beta = Array.isArray(data.series?.beta) ? data.series.beta : [];
+  const traces = [];
+  const csv = [];
+  const breakIndices = new Set(Array.isArray(data.markers?.breakIndices) ? data.markers.breakIndices : []);
+  const appendSpin = (matrix, spin, color) => {
+    if (!matrix.length || (settings.spin !== 'all' && settings.spin !== spin)) return;
+    const bandCount = Math.max(0, ...matrix.map((row) => Array.isArray(row) ? row.length : 0));
+    for (let band = 0; band < bandCount; band += 1) {
+      const energy = matrix.map((row) => Number(row?.[band]));
+      const plottedX = [];
+      const plottedEnergy = [];
+      x.forEach((position, index) => {
+        if (index > 0 && breakIndices.has(index)) {
+          plottedX.push(null);
+          plottedEnergy.push(null);
+        }
+        plottedX.push(position);
+        plottedEnergy.push(energy[index]);
+      });
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: spin === 'alpha' ? 'Alpha' : 'Beta',
+        legendgroup: spin,
+        showlegend: band === 0,
+        x: plottedX,
+        y: plottedEnergy,
+        line: { color, width: 1.35 },
+        hovertemplate: `${spin} band ${band + 1}<br>k=%{x:.4f}<br>E=%{y:.5f} eV<extra></extra>`
+      });
+      x.forEach((position, index) => csv.push([spin, band + 1, position, energy[index]]));
+    }
+  };
+  appendSpin(alpha, 'alpha', '#3978b8');
+  appendSpin(beta, 'beta', '#d95778');
+  const ticks = Array.isArray(data.markers?.ticks) ? data.markers.ticks : [];
+  const shapes = ticks.map((tick) => ({
+    type: 'line', x0: tick.x, x1: tick.x, xref: 'x', y0: 0, y1: 1, yref: 'paper',
+    line: { color: '#b8c0c7', width: 1 }
+  }));
+  const annotations = [];
+  const energyMarkers = [];
+  const referenceLabel = data.metadata?.reference === 'fermi' ? 'E<sub>F</sub>' : 'VBM';
+  const addEnergyMarker = (value, label, color, dash) => {
+    const energy = Number(value);
+    if (!Number.isFinite(energy)) return;
+    const duplicate = energyMarkers.find((marker) => Math.abs(marker.energy - energy) < 1e-8);
+    if (duplicate) {
+      if (!duplicate.labels.includes(label)) duplicate.labels.push(label);
+      return;
+    }
+    energyMarkers.push({ energy, labels: [label], color, dash });
+  };
+  addEnergyMarker(data.markers?.reference, referenceLabel, '#4b5961', 'dash');
+  addEnergyMarker(data.markers?.vbm, 'VBM', '#d95778', 'dot');
+  addEnergyMarker(data.markers?.cbm, 'CBM', '#3978b8', 'dot');
+  energyMarkers.forEach((marker) => {
+    shapes.push({
+      type: 'line', x0: 0, x1: 1, xref: 'paper', y0: marker.energy, y1: marker.energy, yref: 'y',
+      line: { color: marker.color, width: 1, dash: marker.dash }
+    });
+    annotations.push({
+      x: 1, xref: 'paper', xanchor: 'right', y: marker.energy, yref: 'y', yanchor: 'bottom',
+      text: marker.labels.join(' / '), showarrow: false,
+      font: { size: 10, color: marker.color }, bgcolor: 'rgba(255,255,255,0.78)', borderpad: 1
+    });
+  });
+  return {
+    traces,
+    xTitle: 'k-path',
+    yTitle: `${data.axes?.y?.label || 'Energy'} (${data.axes?.y?.unit || 'eV'})`,
+    layout: {
+      shapes,
+      annotations,
+      xaxis: {
+        tickmode: ticks.length ? 'array' : 'auto',
+        tickvals: ticks.map((tick) => tick.x),
+        ticktext: ticks.map((tick) => tick.label)
+      }
+    },
+    csv
+  };
+}
+
+function analysisResultCacheKey(datasetId, kind, settings) {
+  return `${datasetId}:${kind}:${JSON.stringify(settings)}`;
+}
+
+function analysisPlotLayout(kind, result) {
+  const definition = analysisKindDefinitions[kind];
+  const layout = plotLayout(definition?.label || 'Analysis');
+  layout.margin = { l: 62, r: 24, t: 38, b: 56 };
+  layout.legend = { orientation: 'h', x: 0, y: 1.02, xanchor: 'left', yanchor: 'bottom' };
+  layout.hovermode = 'closest';
+  layout.xaxis = {
+    title: { text: result.xTitle || '' },
+    showgrid: true,
+    gridcolor: '#e1e7ea',
+    zerolinecolor: '#aab4ba',
+    autorange: result.reversed ? 'reversed' : true,
+    ...(result.layout?.xaxis || {})
+  };
+  layout.yaxis = {
+    title: { text: result.yTitle || '' },
+    showgrid: true,
+    gridcolor: '#e1e7ea',
+    zerolinecolor: '#aab4ba',
+    ...(result.layout?.yaxis || {})
+  };
+  if (result.layout?.shapes) layout.shapes = result.layout.shapes;
+  if (result.layout?.annotations) layout.annotations = result.layout.annotations;
+  return layout;
+}
+
+async function renderCurrentAnalysis(options = {}) {
+  const { activeKind: kind, activeDatasetId: datasetId, currentData: data } = state.analysis;
+  if (!kind || !datasetId || !data) return false;
+  const generation = state.analysis.generation;
+  const settings = analysisSettingsFor(datasetId, kind, data);
+  if (options.rebuildControls !== false) renderAnalysisControls(kind, data, settings);
+  els.analysisTitle.textContent = analysisKindDefinitions[kind]?.label || 'Analysis';
+  syncAnalysisDatasetSelect();
+  try {
+    const plotly = await ensurePlotly();
+    let result;
+    if (kind === 'band') {
+      result = bandAnalysisResult(data, settings);
+    } else {
+      const cacheKey = analysisResultCacheKey(datasetId, kind, settings);
+      result = state.analysis.resultCache.get(cacheKey);
+      if (!result) {
+        result = await runAnalysisWorker(kind, data, settings);
+        if (generation !== state.analysis.generation) return false;
+        state.analysis.resultCache.set(cacheKey, result);
+      }
+    }
+    if (generation !== state.analysis.generation) return false;
+    state.analysis.currentResult = result;
+    state.activePlot = 'analysis';
+    els.analysisToolbar.hidden = false;
+    showPlotPanel(true);
+    await plotly.react(els.plotView, result.traces || [], analysisPlotLayout(kind, result), {
+      responsive: true,
+      displaylogo: false,
+      scrollZoom: true
+    });
+    setStatus(`${analysisKindDefinitions[kind].shortLabel} displayed`);
+    return true;
+  } catch (error) {
+    if (generation !== state.analysis.generation) return false;
+    console.error(error);
+    setStatus(error?.message || 'Analysis rendering failed', false);
+    return false;
+  }
+}
+
+async function loadAnalysisPayload(datasetId, kind, generation) {
+  const cacheKey = `${datasetId}:${kind}`;
+  if (state.analysis.dataCache.has(cacheKey)) return state.analysis.dataCache.get(cacheKey);
+  const response = await fetch(`/api/analysis?dataset=${encodeURIComponent(datasetId)}&kind=${encodeURIComponent(kind)}`, {
+    cache: 'no-store'
+  });
+  const payload = await analysisJsonResponse(response);
+  if (generation !== state.analysis.generation) return null;
+  const artifactPath = String(payload.path || '').replace(/^\/+/, '');
+  if (!artifactPath) throw new Error('Analysis service returned no data file');
+  const artifact = await fetch(`/session/${artifactPath}`, { cache: 'no-store' });
+  if (!artifact.ok) throw new Error(`Analysis data could not be loaded (HTTP ${artifact.status})`);
+  const data = await artifact.json();
+  if (generation !== state.analysis.generation) return null;
+  if (data.version !== 1 || data.kind !== kind) throw new Error('Analysis data format is incompatible');
+  state.analysis.dataCache.set(cacheKey, data);
+  return data;
+}
+
+async function openAnalysis(kind, requestedDatasetId = '') {
+  const candidates = analysisDatasetsForKind(kind);
+  const dataset = candidates.find((item) => item.id === requestedDatasetId)
+    || candidates.find((item) => item.id === state.analysis.activeDatasetId)
+    || candidates[0];
+  if (!dataset) {
+    setStatus(analysisUnavailableReason(kind), false);
+    return false;
+  }
+  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy || state.espAnalysis.requestBusy || state.analysis.requestBusy) {
+    setStatus('Multiwfn analysis backend is busy', false);
+    return false;
+  }
+  setToolsMenuOpen(false);
+  const generation = ++state.analysis.generation;
+  state.analysis.activeKind = kind;
+  state.analysis.activeDatasetId = dataset.id;
+  state.analysis.currentData = null;
+  state.analysis.currentResult = null;
+  els.analysisToolbar.hidden = false;
+  els.analysisTitle.textContent = `Loading ${analysisKindDefinitions[kind].shortLabel}...`;
+  els.analysisControls.replaceChildren();
+  syncAnalysisDatasetSelect();
+  showPlotPanel(true);
+  setStatus(`Loading ${analysisKindDefinitions[kind].shortLabel} data...`);
+  setAnalysisRequestBusy(true);
+  try {
+    const data = await loadAnalysisPayload(dataset.id, kind, generation);
+    if (!data || generation !== state.analysis.generation) return false;
+    state.analysis.currentData = data;
+    return await renderCurrentAnalysis();
+  } catch (error) {
+    if (generation === state.analysis.generation) {
+      console.error(error);
+      setStatus(error?.message || `${analysisKindDefinitions[kind].shortLabel} analysis failed`, false);
+      closeAnalysisPlot();
+    }
+    return false;
+  } finally {
+    setAnalysisRequestBusy(false);
+  }
+}
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function analysisCsvRows() {
+  const kind = state.analysis.activeKind;
+  const rows = state.analysis.currentResult?.csv || [];
+  const headers = {
+    dos: ['series', 'energy', 'density'],
+    band: ['spin', 'band', 'k_path', 'energy'],
+    ir: ['dataset', 'band_type', 'mode', 'frequency', 'intensity'],
+    nmr: ['atom', 'element', 'shielding', 'plotted_position']
+  }[kind] || ['series', 'x', 'y'];
+  return [headers, ...rows];
+}
+
+function exportAnalysisCsv() {
+  if (!state.analysis.activeKind || !state.analysis.currentResult) return;
+  const rows = analysisCsvRows();
+  const csv = `${rows.map((row) => row.map(csvCell).join(',')).join('\n')}\n`;
+  downloadBlob(`${state.analysis.activeKind}-${state.analysis.activeDatasetId}.csv`, 'text/csv;charset=utf-8', csv);
+  setStatus('CSV saved');
+}
+
+async function exportAnalysisPng() {
+  if (!state.analysis.activeKind) return false;
+  const plotly = await ensurePlotly();
+  await plotly.downloadImage(els.plotView, {
+    format: 'png',
+    filename: `${state.analysis.activeKind}-${state.analysis.activeDatasetId}`,
+    width: Math.max(900, els.plotView.clientWidth * 2),
+    height: Math.max(600, els.plotView.clientHeight * 2),
+    scale: 1
+  });
+  setStatus('Plot PNG saved');
+  return true;
+}
+
+async function deleteActiveAnalysisDataset() {
+  const dataset = state.analysis.datasets.find((item) => item.id === state.analysis.activeDatasetId);
+  if (!dataset?.removable) return;
+  const kind = state.analysis.activeKind;
+  try {
+    setAnalysisRequestBusy(true);
+    await deleteAnalysisDatasetById(dataset.id, { quiet: true });
+    const next = analysisDatasetsForKind(kind)[0];
+    setAnalysisRequestBusy(false);
+    if (next) await openAnalysis(kind, next.id);
+    else closeAnalysisPlot();
+    setStatus('Analysis dataset deleted');
+  } catch (error) {
+    console.error(error);
+    setStatus(error?.message || 'Dataset deletion failed', false);
+  } finally {
+    setAnalysisRequestBusy(false);
+  }
+}
+
 async function drawHeatmap(title, matrix, colorscale, zmin = null, zmax = null) {
   try {
     const plotly = await ensurePlotly();
+    if (state.activePlot === 'analysis') closeAnalysisPlot({ hide: false });
+    state.activePlot = 'generic';
+    els.analysisToolbar.hidden = true;
     showPlotPanel(true);
     const trace = {
       type: 'heatmap',
@@ -4450,6 +5498,9 @@ async function drawHeatmap(title, matrix, colorscale, zmin = null, zmax = null) 
 async function drawCurve(title, x, y) {
   try {
     const plotly = await ensurePlotly();
+    if (state.activePlot === 'analysis') closeAnalysisPlot({ hide: false });
+    state.activePlot = 'generic';
+    els.analysisToolbar.hidden = true;
     showPlotPanel(true);
     await plotly.react(els.plotView, [{
       type: 'scatter',
@@ -4606,6 +5657,7 @@ function cellFromFirstCube() {
 }
 
 function loadSampleScene() {
+  removeEspAnalysisLayers({ render: false });
   state.layers = [];
   state.nextLayerId = 1;
   state.periodic.enabled = false;
@@ -4630,6 +5682,7 @@ function loadSampleScene() {
 }
 
 function loadPeriodicEspSample() {
+  removeEspAnalysisLayers({ render: false });
   state.layers = [];
   state.nextLayerId = 1;
   state.periodic = {
@@ -4797,6 +5850,7 @@ function syncMultiwfnGuiControls() {
 
   syncOrbitalOpacityControls();
   syncAxesControls();
+  syncEspSurfaceToggleState();
 
   els.guiShowStructure.checked = els.showStructure.checked;
   els.guiShowLabels.checked = els.showLabels.checked;
@@ -5117,14 +6171,28 @@ function bindEvents() {
     setToolsMenuOpen(true, { focus: true });
     event.preventDefault();
   });
+  els.guiToolAnalysisImport.addEventListener('click', () => {
+    setToolsMenuOpen(false);
+    els.analysisFileInput.click();
+  });
+  els.analysisFileInput.addEventListener('change', () => {
+    void importAnalysisFiles(els.analysisFileInput.files);
+  });
+  [
+    [els.guiToolDos, 'dos'],
+    [els.guiToolBand, 'band'],
+    [els.guiToolIr, 'ir'],
+    [els.guiToolNmr, 'nmr']
+  ].forEach(([control, kind]) => control.addEventListener('click', () => {
+    if (!control.disabled) void openAnalysis(kind);
+  }));
   els.guiToolEsp.addEventListener('click', () => {
     setEspToolsMenuOpen(els.guiEspMenu.hidden, { focus: true });
   });
   els.guiToolEspShow.addEventListener('click', () => {
     setToolsMenuOpen(false);
-    const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
-    if (!capability.available) {
-      setStatus(capability.reason || 'ESP calculation is unavailable', false);
+    if (isEspVisualizationActive()) {
+      deactivateEspLayers();
       return;
     }
     void requestGuiEsp().then((loaded) => {
@@ -5180,6 +6248,14 @@ function bindEvents() {
     els.guiMenuTools.focus();
     event.preventDefault();
   });
+
+  els.analysisDataset.addEventListener('change', () => {
+    void openAnalysis(state.analysis.activeKind, els.analysisDataset.value);
+  });
+  els.analysisExportCsv.addEventListener('click', exportAnalysisCsv);
+  els.analysisExportPng.addEventListener('click', () => { void exportAnalysisPng(); });
+  els.analysisDelete.addEventListener('click', () => { void deleteActiveAnalysisDataset(); });
+  els.analysisClose.addEventListener('click', closeAnalysisPlot);
 
   els.guiShowStructure.addEventListener('input', () => {
     setStructureVisible(els.guiShowStructure.checked);
@@ -5291,7 +6367,13 @@ function bindEvents() {
   });
   els.guiSampleCurve.addEventListener('click', sampleCurve);
   els.guiSampleMap.addEventListener('click', sampleMap);
-  els.guiHidePlot.addEventListener('click', () => showPlotPanel(false));
+  els.guiHidePlot.addEventListener('click', () => {
+    if (state.activePlot === 'analysis') closeAnalysisPlot();
+    else {
+      state.activePlot = null;
+      showPlotPanel(false);
+    }
+  });
 
   [
     els.guiPeriodicEnabled,
@@ -5473,7 +6555,20 @@ function cacheElements() {
     orientationWidget: byId('orientation-widget'),
     plotPanel: byId('plot-panel'),
     plotView: byId('plot-view'),
+    analysisToolbar: byId('analysis-toolbar'),
+    analysisTitle: byId('analysis-title'),
+    analysisDataset: byId('analysis-dataset'),
+    analysisControls: byId('analysis-controls'),
+    analysisExportCsv: byId('analysis-export-csv'),
+    analysisExportPng: byId('analysis-export-png'),
+    analysisDelete: byId('analysis-delete'),
+    analysisClose: byId('analysis-close'),
+    analysisFileInput: byId('analysis-file-input'),
     status: byId('status'),
+    espProgress: byId('esp-progress'),
+    espProgressValue: byId('esp-progress-value'),
+    espProgressDetail: byId('esp-progress-detail'),
+    espProgressBar: byId('esp-progress-bar'),
     guiEntryLabel: byId('gui-entry-label'),
     guiReturn: byId('gui-return'),
     guiReset: byId('gui-reset'),
@@ -5557,6 +6652,11 @@ function cacheElements() {
     guiMenuTools: byId('gui-menu-tools'),
     guiToolsMenuControl: byId('gui-tools-menu-control'),
     guiToolsMenu: byId('gui-tools-menu'),
+    guiToolAnalysisImport: byId('gui-tool-analysis-import'),
+    guiToolDos: byId('gui-tool-dos'),
+    guiToolBand: byId('gui-tool-band'),
+    guiToolIr: byId('gui-tool-ir'),
+    guiToolNmr: byId('gui-tool-nmr'),
     guiToolEsp: byId('gui-tool-esp'),
     guiEspMenu: byId('gui-esp-menu'),
     guiToolEspShow: byId('gui-tool-esp-show'),
@@ -5675,6 +6775,7 @@ async function init() {
 
   bindEvents();
   syncBackgroundStyleControls();
+  syncAnalysisToolStates();
   updateOrientationVisibility();
   renderLayerList();
   const loadedFromQuery = await loadManifestFromQuery();
@@ -5702,6 +6803,9 @@ window.addEventListener('resize', () => {
   if (!state.viewer) return;
   state.viewer.resize();
   state.viewer.render();
+  if (plotlyApi && !els.plotPanel.classList.contains('is-hidden')) {
+    plotlyApi.Plots.resize(els.plotView);
+  }
   updateOrientationVisibility();
   syncSceneOverlays();
   closeBondContextMenu();

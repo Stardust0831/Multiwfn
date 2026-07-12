@@ -24,6 +24,15 @@
           <span id="status">Starting renderer...</span>
         </header>
 
+        <section id="esp-progress" class="esp-progress" aria-live="polite" aria-atomic="true" hidden>
+          <div class="esp-progress-heading">
+            <strong>Electrostatic potential</strong>
+            <output id="esp-progress-value" for="esp-progress-bar"></output>
+          </div>
+          <div id="esp-progress-detail" class="esp-progress-detail">Preparing ESP...</div>
+          <progress id="esp-progress-bar" max="100" value="0" aria-label="ESP calculation progress">0%</progress>
+        </section>
+
         <section class="multiwfn-gui" aria-label="Multiwfn GUI controls">
           <div class="gui-modebar">
             <button class="gui-mode is-active" data-gui-mode="molecule" type="button">Molecule</button>
@@ -403,6 +412,46 @@
               >Tools</button>
               <div id="gui-tools-menu" class="gui-style-menu gui-tools-menu" role="menu" aria-label="Tools" hidden>
                 <button
+                  id="gui-tool-analysis-import"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitem"
+                ><span>Import analysis outputs...</span></button>
+                <div class="gui-menu-separator" role="separator"></div>
+                <button
+                  id="gui-tool-dos"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitem"
+                  aria-disabled="true"
+                  disabled
+                ><span>Density of states (DOS)</span></button>
+                <button
+                  id="gui-tool-band"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitem"
+                  aria-disabled="true"
+                  disabled
+                ><span>Band structure</span></button>
+                <button
+                  id="gui-tool-ir"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitem"
+                  aria-disabled="true"
+                  disabled
+                ><span>Infrared spectrum</span></button>
+                <button
+                  id="gui-tool-nmr"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitem"
+                  aria-disabled="true"
+                  disabled
+                ><span>NMR spectrum</span></button>
+                <div class="gui-menu-separator" role="separator"></div>
+                <button
                   id="gui-tool-esp"
                   class="gui-style-menu-item"
                   type="button"
@@ -413,9 +462,13 @@
                 ><span>Electrostatic potential (ESP)</span><span aria-hidden="true">&gt;</span></button>
               </div>
               <div id="gui-esp-menu" class="gui-style-submenu gui-esp-menu" role="menu" aria-label="ESP controls" hidden>
-                <button id="gui-tool-esp-show" class="gui-style-menu-item" type="button" role="menuitem">
-                  <span>Show ESP surface</span>
-                </button>
+                <button
+                  id="gui-tool-esp-show"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked="false"
+                ><span>Show ESP surface</span><span class="gui-menu-check" aria-hidden="true"></span></button>
                 <button
                   id="gui-tool-esp-legend"
                   class="gui-style-menu-item"
@@ -449,6 +502,7 @@
                   </label>
                 </div>
               </div>
+              <input id="analysis-file-input" type="file" multiple hidden>
             </div>
           </div>
         </section>
@@ -816,7 +870,23 @@
         <div id="bond-context-submenu" class="bond-context-menu bond-context-submenu" role="menu" aria-label="Bond properties" hidden></div>
         <div id="orientation-widget" class="orientation-widget" aria-label="Orientation axes"></div>
         <div id="plot-panel" class="plot-panel is-hidden" aria-label="2D plot">
-          <div id="plot-view"></div>
+          <header id="analysis-toolbar" class="analysis-toolbar" hidden>
+            <div class="analysis-toolbar-main">
+              <strong id="analysis-title">Analysis</strong>
+              <label class="analysis-dataset-control">
+                <span>Dataset</span>
+                <select id="analysis-dataset" aria-label="Analysis dataset"></select>
+              </label>
+              <div id="analysis-controls" class="analysis-controls"></div>
+            </div>
+            <div class="analysis-toolbar-actions">
+              <button id="analysis-export-csv" type="button" title="Export plotted data as CSV">CSV</button>
+              <button id="analysis-export-png" type="button" title="Export plot as PNG">PNG</button>
+              <button id="analysis-delete" type="button" title="Delete imported dataset" disabled>Delete</button>
+              <button id="analysis-close" type="button" title="Close analysis plot" aria-label="Close analysis plot">Close</button>
+            </div>
+          </header>
+          <div id="plot-view" aria-live="polite"></div>
         </div>
         <div class="hud">
           <span id="model-label">No structure</span>

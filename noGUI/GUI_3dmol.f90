@@ -12,6 +12,7 @@ integer,allocatable :: gui_bond_atom1(:),gui_bond_atom2(:)
 integer*2,allocatable :: gui_bond_order(:)
 integer :: gui_bond_count=0
 logical :: gui_has_explicit_topology=.false.
+logical :: gui_has_primary_dos=.false.,gui_primary_dos_has_pdos=.false.
 
 contains
 
@@ -120,6 +121,7 @@ if (allocated(cubmattmp)) then
     call write_cube(trim(session)//"/cubmattmp.cube",cubmattmp)
     gui_has_cubmattmp_file=.true.
 end if
+call write_primary_dos_artifact(trim(session))
 call write_orbital_preview_cubes(entry,trim(session))
 
 manifest=trim(session)//"/manifest.json"
@@ -483,6 +485,7 @@ subroutine run_3dmol_gui_loop(session)
 character(len=*),intent(in) :: session
 character(len=1024) :: reqfile,stopfile,respfile,line
 character(len=32) :: action,method
+character(len=64) :: progressid
 integer :: iu,istat,iorb,quality,iatm1,iatm2
 integer*8 :: reqid,lastid
 real*8 :: isoval
@@ -519,9 +522,14 @@ do
                         call write_gui_json_error(trim(respfile),"Malformed bond request")
                     end if
                 else if (trim(action)=="esp") then
-                    read(line,*,iostat=istat) reqid,action,quality,isoval
+                    progressid=""
+                    read(line,*,iostat=istat) reqid,action,quality,isoval,progressid
+                    if (istat/=0) then
+                        progressid=""
+                        read(line,*,iostat=istat) reqid,action,quality,isoval
+                    end if
                     if (istat==0) then
-                        call handle_esp_request(trim(session),trim(respfile),quality,isoval)
+                        call handle_esp_request(trim(session),trim(respfile),quality,isoval,trim(progressid))
                     else
                         call write_gui_json_error(trim(respfile),"Malformed ESP request")
                     end if
@@ -596,8 +604,26 @@ write(iu,"(a)") "}"
 close(iu)
 end subroutine
 
-subroutine handle_esp_request(session,respfile,quality,isoval)
-character(len=*),intent(in) :: session,respfile
+logical function gui_progress_token_valid(token)
+character(len=*),intent(in) :: token
+integer :: idx,code
+
+gui_progress_token_valid=len_trim(token)>0.and.len_trim(token)<=64
+if (.not.gui_progress_token_valid) return
+do idx=1,len_trim(token)
+    code=iachar(token(idx:idx))
+    if (.not.((code>=iachar('a').and.code<=iachar('z')).or. &
+        (code>=iachar('A').and.code<=iachar('Z')).or. &
+        (code>=iachar('0').and.code<=iachar('9')).or. &
+        token(idx:idx)=='_'.or.token(idx:idx)=='-')) then
+        gui_progress_token_valid=.false.
+        return
+    end if
+end do
+end function
+
+subroutine handle_esp_request(session,respfile,quality,isoval,progressid)
+character(len=*),intent(in) :: session,respfile,progressid
 integer,intent(in) :: quality
 real*8,intent(in) :: isoval
 character(len=512) :: densityfile,densityrel,espfile,esprel
@@ -608,6 +634,16 @@ real*8 :: nelec_org,naelec_org,nbelec_org
 real*8,allocatable :: cubmat_org(:,:,:)
 logical :: cubmat_was_allocated
 
+gui_grid_progress_enabled=.false.
+gui_grid_progress_file=""
+gui_grid_progress_phase=""
+gui_grid_progress_start=0D0
+gui_grid_progress_end=100D0
+
+if (len_trim(progressid)>0.and..not.gui_progress_token_valid(progressid)) then
+    call write_gui_json_error(respfile,"Invalid ESP progress token")
+    return
+end if
 if (ifPBC>0) then
     call write_gui_json_error(respfile,"ESP visualization is not supported for periodic systems")
     return
@@ -650,9 +686,18 @@ nbelec_org=nbelec
 cubmat_was_allocated=allocated(cubmat)
 if (cubmat_was_allocated) call move_alloc(cubmat,cubmat_org)
 
+if (len_trim(progressid)>0) then
+    gui_grid_progress_file=trim(session)//"/esp_progress_"//trim(progressid)//".json"
+    gui_grid_progress_enabled=.true.
+end if
+
 nprevorbgrid=quality
 call setup_orbital_grid()
 allocate(cubmat(nx,ny,nz))
+gui_grid_progress_phase="density"
+gui_grid_progress_start=0D0
+gui_grid_progress_end=20D0
+if (gui_grid_progress_enabled) call write_gui_grid_progress(0)
 call savecubmat(1,1,0)
 
 write(densityrel,"('esp_density_',i0,'.cube')") quality
@@ -660,6 +705,10 @@ densityfile=trim(session)//"/"//trim(densityrel)
 call write_cube(trim(densityfile),cubmat)
 
 ESPrhoiso=isoval
+gui_grid_progress_phase="esp"
+gui_grid_progress_start=20D0
+gui_grid_progress_end=75D0
+if (gui_grid_progress_enabled) call write_gui_grid_progress(0)
 call savecubmat(12,1,0)
 
 write(esprel,"('esp_potential_',i0,'.cube')") quality
@@ -689,6 +738,11 @@ ESPrhoiso=esprhoiso_org
 nelec=nelec_org
 naelec=naelec_org
 nbelec=nbelec_org
+gui_grid_progress_enabled=.false.
+gui_grid_progress_file=""
+gui_grid_progress_phase=""
+gui_grid_progress_start=0D0
+gui_grid_progress_end=100D0
 
 open(newunit=iu,file=trim(respfile),status="replace",action="write")
 write(iu,"(a)") "{"
@@ -864,9 +918,11 @@ if (trim(shell)=="qt") then
     if (path_exists(native)) then
         tool=trim(native)
 #ifdef MULTIWFN_WINDOWS
-        cmd='cmd /d /c start "" "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+        cmd='cmd /d /c start "" "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)// &
+            '" --source "'//trim(filename)//'"'
 #else
-        cmd='"'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+        cmd='"'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)// &
+            '" --source "'//trim(filename)//'"'
 #endif
         return
     end if
@@ -890,9 +946,11 @@ if (istat/=0.or.len_trim(python)==0) then
 end if
 
 if (trim(shell)=="qt") then
-    cmd=trim(python)//' "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+    cmd=trim(python)//' "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)// &
+        '" --source "'//trim(filename)//'"'
 else
-    cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
+    cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)// &
+        '" --manifest "'//trim(manifest)//'" --source "'//trim(filename)//'" --open'
 end if
 end subroutine
 
@@ -1147,6 +1205,7 @@ else
 end if
 call write_bond_analysis_manifest(iu)
 call write_esp_analysis_manifest(iu)
+call write_analysis_manifest(iu)
 if (ifPBC>0) then
     write(iu,"(a)") '  "periodic": {'
     write(iu,"(a)") '    "enabled": true,'
@@ -1171,6 +1230,160 @@ call write_orbital_cube_manifest(iu,ncube)
 write(iu,"(a)") '  ]'
 write(iu,"(a)") "}"
 close(iu)
+end subroutine
+
+subroutine write_analysis_manifest(iu)
+integer,intent(in) :: iu
+
+write(iu,"(a)") '  "analysis": {'
+write(iu,"(a)") '    "capabilities": {'
+if (gui_has_primary_dos) then
+    write(iu,"(a,a,a)") '      "dos": { "available": true, "format": "multiwfn-orbitals", "features": { "tdos": true, "pdos": ', &
+        trim(json_bool(gui_primary_dos_has_pdos)),' } },'
+else
+    write(iu,"(a)") '      "dos": { "available": false, "reason": "No finite orbital energies were detected" },'
+end if
+write(iu,"(a)") '      "band": { "available": false, "reason": "No band-structure output was detected in the Multiwfn state" },'
+write(iu,"(a)") '      "ir": { "available": false, "reason": "No IR output was detected in the Multiwfn state" },'
+write(iu,"(a)") '      "nmr": { "available": false, "reason": "No NMR output was detected in the Multiwfn state" }'
+write(iu,"(a)") '    },'
+if (gui_has_primary_dos) then
+    write(iu,"(a,a,a)") '    "primaryDos": { "path": "analysis_primary_dos.json", "pdos": ', &
+        trim(json_bool(gui_primary_dos_has_pdos)),' }'
+else
+    write(iu,"(a)") '    "primaryDos": null'
+end if
+write(iu,"(a)") '  },'
+end subroutine
+
+subroutine write_primary_dos_artifact(session)
+character(len=*),intent(in) :: session
+character(len=1024) :: path
+character(len=4),allocatable :: elements(:)
+real*8,allocatable :: coeff(:),weights(:)
+integer :: iu,imo,icol,iatm,iele,nelem,nlevel,nvalid,ibas,ilo,ihi
+real*8 :: energy,occupation,total
+logical :: beta,has_projection,element_exists
+
+gui_has_primary_dos=.false.
+gui_primary_dos_has_pdos=.false.
+if (ifPBC>0) return
+if (.not.allocated(MOene)) return
+nlevel=size(MOene)
+if (allocated(MOocc)) nlevel=min(nlevel,size(MOocc))
+if (nlevel<=0) return
+nvalid=0
+do imo=1,nlevel
+    energy=MOene(imo)
+    if (energy==energy.and.abs(energy)<huge(1D0).and.energy/=0D0) nvalid=nvalid+1
+end do
+if (nvalid==0) return
+
+allocate(elements(max(1,ncenter)))
+elements=""
+nelem=0
+if (allocated(a).and.ncenter>0) then
+    do iatm=1,ncenter
+        if (len_trim(a(iatm)%name)==0) cycle
+        element_exists=.false.
+        if (nelem>0) element_exists=any(trim(a(iatm)%name)==elements(1:nelem))
+        if (.not.element_exists) then
+            nelem=nelem+1
+            elements(nelem)=trim(a(iatm)%name)
+        end if
+    end do
+end if
+
+has_projection=nelem>0.and.allocated(CObasa).and.allocated(basstart).and.allocated(basend).and.nbasis>0
+if (has_projection) has_projection=size(CObasa,1)>=nbasis
+if (has_projection.and.nlevel>nbasis) has_projection=allocated(CObasb)
+if (has_projection) then
+    allocate(coeff(nbasis),weights(nelem))
+end if
+
+write(path,"(a,'/analysis_primary_dos.json')") trim(session)
+open(newunit=iu,file=trim(path),status="replace",action="write")
+write(iu,"(a)") '{'
+write(iu,"(a)") '  "format": "multiwfn-analysis-data",'
+write(iu,"(a)") '  "version": 1,'
+write(iu,"(a)") '  "kind": "dos",'
+write(iu,"(a)") '  "axes": { "x": { "label": "Orbital energy", "unit": "eV" }, "y": { "label": "Density of states", "unit": "states/eV" } },'
+write(iu,"(a)") '  "series": { "levels": ['
+nvalid=0
+do imo=1,nlevel
+    energy=MOene(imo)
+    if (.not.(energy==energy.and.abs(energy)<huge(1D0).and.energy/=0D0)) cycle
+    nvalid=nvalid+1
+    occupation=0D0
+    if (allocated(MOocc)) occupation=MOocc(imo)
+    beta=nlevel>nbasis.and.imo>nbasis
+    if (nvalid>1) write(iu,"(a)") ','
+    if (beta) then
+        write(iu,"(a,i0,a,es24.16,a,es24.16,a)",advance="no") '    { "index": ',imo,', "energy": ', &
+            energy*au2eV,', "occupation": ',occupation,', "spin": "beta"'
+    else if (nlevel>nbasis) then
+        write(iu,"(a,i0,a,es24.16,a,es24.16,a)",advance="no") '    { "index": ',imo,', "energy": ', &
+            energy*au2eV,', "occupation": ',occupation,', "spin": "alpha"'
+    else
+        write(iu,"(a,i0,a,es24.16,a,es24.16,a)",advance="no") '    { "index": ',imo,', "energy": ', &
+            energy*au2eV,', "occupation": ',occupation,', "spin": "total"'
+    end if
+    if (has_projection) then
+        coeff=0D0
+        if (beta) then
+            icol=imo-nbasis
+            if (icol>=1.and.icol<=size(CObasb,2)) coeff=CObasb(1:nbasis,icol)
+        else
+            icol=imo
+            if (icol>=1.and.icol<=size(CObasa,2)) coeff=CObasa(1:nbasis,icol)
+        end if
+        total=sum(coeff**2)
+        weights=0D0
+        if (total>0D0) then
+            do iatm=1,ncenter
+                iele=0
+                do ibas=1,nelem
+                    if (trim(elements(ibas))==trim(a(iatm)%name)) then
+                        iele=ibas
+                        exit
+                    end if
+                end do
+                if (iele==0) cycle
+                ilo=max(1,basstart(iatm))
+                ihi=min(nbasis,basend(iatm))
+                if (ihi>=ilo) weights(iele)=weights(iele)+sum(coeff(ilo:ihi)**2)/total
+            end do
+        end if
+        write(iu,"(a)",advance="no") ', "projections": {'
+        do iele=1,nelem
+            if (iele>1) write(iu,"(a)",advance="no") ','
+            write(iu,"(a,a,a,es24.16)",advance="no") '"',trim(elements(iele)),'":',weights(iele)
+        end do
+        write(iu,"(a)",advance="no") '}'
+    end if
+    write(iu,"(a)",advance="no") ' }'
+end do
+write(iu,*)
+write(iu,"(a)") '  ], "projections": [] },'
+write(iu,"(a)") '  "markers": [],'
+write(iu,"(a,a,a)") '  "metadata": { "program": "Multiwfn", "sampled": false, "pdos": ', &
+    trim(json_bool(has_projection)),' },'
+if (has_projection) then
+    write(iu,"(a)",advance="no") '  "controls": { "defaultFwhm": 1.3605693122994, "projectionModes": ["element"], "elements": ['
+    do iele=1,nelem
+        if (iele>1) write(iu,"(a)",advance="no") ','
+        write(iu,"(a,a,a)",advance="no") '"',trim(elements(iele)),'"'
+    end do
+    write(iu,"(a)") '] }'
+else
+    write(iu,"(a)") '  "controls": { "defaultFwhm": 1.3605693122994, "projectionModes": [] }'
+end if
+write(iu,"(a)") '}'
+close(iu)
+gui_has_primary_dos=.true.
+gui_primary_dos_has_pdos=has_projection
+if (allocated(coeff)) deallocate(coeff,weights)
+if (allocated(elements)) deallocate(elements)
 end subroutine
 
 subroutine write_bond_analysis_manifest(iu)

@@ -39,13 +39,28 @@ Implemented:
   identify bonds from 3Dmol's bond topology, and use right-click menus to
   annotate displayed order, bond length, and supported Multiwfn bond orders.
 - Open the Tools > Electrostatic potential submenu to request a live Multiwfn
-  ESP calculation, adjust the existing surface opacity in place, and map the
-  potential onto the 0.001 a.u. electron-density surface with a
-  pink-white-blue trans-flag gradient.
+  ESP calculation, follow its live backend and staged progress
+  in the right sidebar, adjust the existing surface opacity in place, and map
+  the potential onto the 0.001 a.u. electron-density surface with a
+  pink-white-blue trans-flag gradient. Turning the ESP surface off restores the
+  previously visible cube layers while keeping the calculated ESP pair in the
+  session cache.
 - Toggle local ESP surface minima and maxima from the same submenu. Extrema are
   extracted in a worker from the current density/ESP cube pair, candidates at
   the cube boundary are rejected, and a clicked marker reports its a.u. and
   kcal/mol values without rebuilding the isosurface.
+- Import quantum-chemistry and solid-state outputs from Tools and plot DOS,
+  band structures, IR spectra, and NMR spectra with the vendored Plotly build.
+  Content inspection enables only compatible analyses: Gaussian/ORCA outputs
+  provide IR/NMR, CP2K `.bs` files provide bands, complete CP2K k-point output
+  provides DOS, and VASP uses EIGENVAL/KPOINTS or DOSCAR/POSCAR groups.
+- Generate molecular TDOS directly from the active Multiwfn orbital energies,
+  including alpha/beta channels and element SCPA-PDOS when coefficients are
+  available. DOS, IR, and NMR broadening runs in a Web Worker and is cached by
+  dataset and control values.
+- Switch among session-scoped imported datasets, export normalized plotted
+  data as CSV or Plotly PNG, and close the 2D view without changing the 3D
+  camera, cube layers, atom selections, or bond annotations.
 - Load a JSON manifest produced by an external wrapper.
 - Export a PNG snapshot and a lightweight scene manifest.
 
@@ -165,6 +180,12 @@ Live non-periodic wavefunction sessions also expose
 density and ESP cube files. Repeating the same request in the frontend uses the
 current session cache; changing the active quality requests a fresh pair from
 Multiwfn. Periodic and structure-only sessions report ESP as unavailable.
+
+Analysis imports use the session-scoped `/api/analysis/datasets` endpoints.
+After inspection, `GET /api/analysis?dataset=<id>&kind=<dos|band|ir|nmr>`
+returns a reference to a normalized version-1 JSON artifact. Uploads are
+content-detected rather than extension-gated and are limited to 512 MiB per
+file, 1 GiB per session, and eight files per dataset.
 
 3Dmol.js references used while implementing this prototype:
 

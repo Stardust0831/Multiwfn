@@ -10,6 +10,7 @@ import math
 import mimetypes
 from pathlib import Path
 import platform
+import re
 import shutil
 import socket
 import socketserver
@@ -19,6 +20,8 @@ import threading
 import time
 import urllib.parse
 import webbrowser
+
+from multiwfn_analysis import AnalysisStore, cleanup_analysis_session
 
 
 BACKEND_REQUEST_LOCK = threading.Lock()
@@ -75,7 +78,7 @@ def send_json(handler: http.server.BaseHTTPRequestHandler, payload: dict, status
 
 
 def cleanup_session_files(session_dir: Path, *, startup: bool = False) -> None:
-    patterns = ["response_*.json"]
+    patterns = ["response_*.json", "esp_progress_*.json"]
     if startup:
         patterns.extend(("orbital_*.cube", "esp_density_*.cube", "esp_potential_*.cube"))
     for pattern in patterns:
@@ -84,6 +87,8 @@ def cleanup_session_files(session_dir: Path, *, startup: bool = False) -> None:
                 path.unlink()
             except OSError:
                 pass
+    if startup:
+        cleanup_analysis_session(session_dir)
 
 
 def prune_dynamic_orbital_cubes(session_dir: Path, keep: int = MAX_DYNAMIC_ORBITAL_CUBES) -> None:
@@ -127,11 +132,19 @@ def request_backend(
     *,
     timeout: float,
     timeout_message: str,
+    cleanup_patterns: tuple[str, ...] = (),
 ) -> dict:
     with BACKEND_REQUEST_LOCK:
         stop = session_dir / "gui_stop.flag"
         if stop.is_file():
             return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+
+        for pattern in cleanup_patterns:
+            for path in session_dir.glob(pattern):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
 
         reqid = next_request_id()
         response = session_dir / f"response_{reqid}.json"
@@ -219,11 +232,18 @@ def request_esp(session_dir: Path, query: dict[str, list[str]]) -> dict:
         return {"ok": False, "message": "Unsupported ESP grid quality"}
     if not math.isfinite(isovalue) or isovalue <= 0.0 or isovalue > 0.1:
         return {"ok": False, "message": "ESP density isovalue must be between 0 and 0.1 a.u."}
+    progress_token = str(query.get("progressToken", [""])[0] or "").strip()
+    if progress_token and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", progress_token) is None:
+        return {"ok": False, "message": "Invalid ESP progress token"}
+    request_payload = f"esp {quality} {isovalue:.10g}"
+    if progress_token:
+        request_payload += f" {progress_token}"
     payload = request_backend(
         session_dir,
-        f"esp {quality} {isovalue:.10g}",
+        request_payload,
         timeout=ESP_REQUEST_TIMEOUT,
         timeout_message="Timed out waiting for Multiwfn ESP calculation",
+        cleanup_patterns=("esp_progress_*.json",),
     )
     if payload.get("ok"):
         prune_dynamic_esp_cubes(session_dir, payload)
@@ -275,12 +295,14 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
 
-def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
+def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, analysis_store: AnalysisStore):
     class Multiwfn3DmolHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(frontend_dir), **kwargs)
 
         def log_message(self, fmt: str, *args) -> None:
+            if urllib.parse.urlparse(self.path).path.startswith("/session/esp_progress_"):
+                return
             sys.stderr.write("[multiwfn-3dmol] " + fmt % args + "\n")
 
         def do_HEAD(self) -> None:
@@ -291,6 +313,59 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
                 self.end_headers()
                 return
             super().do_HEAD()
+
+        def _analysis_error(self, exc: Exception, status: int = 400) -> None:
+            send_json(self, {"ok": False, "message": str(exc)}, status=status)
+
+        def do_POST(self) -> None:
+            parsed = urllib.parse.urlparse(self.path)
+            request_path = urllib.parse.unquote(parsed.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            try:
+                length = int(self.headers.get("Content-Length", "0") or 0)
+            except ValueError:
+                self._analysis_error(ValueError("Invalid Content-Length"), status=411)
+                return
+            if length < 0:
+                self._analysis_error(ValueError("Invalid Content-Length"), status=411)
+                return
+            try:
+                if request_path == "/api/analysis/datasets":
+                    if length > 65536:
+                        raise ValueError("Dataset metadata is too large")
+                    body = self.rfile.read(length) if length else b"{}"
+                    payload = json.loads(body.decode("utf-8"))
+                    if not isinstance(payload, dict):
+                        raise ValueError("Dataset metadata must be a JSON object")
+                    send_json(self, {"ok": True, "dataset": analysis_store.create_dataset(payload.get("label", ""))})
+                    return
+                file_match = re.fullmatch(r"/api/analysis/datasets/([A-Za-z0-9_-]{1,64})/files", request_path)
+                if file_match:
+                    name = str(query.get("name", [""])[0] or "")
+                    send_json(self, analysis_store.upload_file(file_match.group(1), name, self.rfile, length))
+                    return
+                inspect_match = re.fullmatch(r"/api/analysis/datasets/([A-Za-z0-9_-]{1,64})/inspect", request_path)
+                if inspect_match:
+                    if length:
+                        self.rfile.read(length)
+                    with BACKEND_REQUEST_LOCK:
+                        payload = analysis_store.inspect(inspect_match.group(1))
+                    send_json(self, payload)
+                    return
+                self.send_error(404, "Unknown analysis endpoint")
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                self._analysis_error(exc)
+
+        def do_DELETE(self) -> None:
+            request_path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
+            match = re.fullmatch(r"/api/analysis/datasets/([A-Za-z0-9_-]{1,64})", request_path)
+            if not match:
+                self.send_error(404, "Unknown analysis endpoint")
+                return
+            try:
+                send_json(self, analysis_store.delete(match.group(1)))
+            except (OSError, ValueError) as exc:
+                self._analysis_error(exc)
 
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
@@ -330,6 +405,21 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
                     send_json(self, {"ok": False, "message": str(exc)}, status=500)
                 return
 
+            if request_path == "/api/analysis/datasets":
+                send_json(self, {"ok": True, "datasets": analysis_store.list_datasets()})
+                return
+
+            if request_path == "/api/analysis":
+                dataset_id = str(query.get("dataset", [""])[0] or "")
+                kind = str(query.get("kind", [""])[0] or "").lower()
+                try:
+                    with BACKEND_REQUEST_LOCK:
+                        payload = analysis_store.extract(dataset_id, kind)
+                    send_json(self, payload)
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    self._analysis_error(exc)
+                return
+
             if request_path == "/api/return":
                 (session_dir / "gui_stop.flag").write_text("return\n", encoding="utf-8")
                 send_json(self, {"ok": True})
@@ -361,6 +451,7 @@ def main() -> int:
     parser.add_argument("--frontend", default="frontend/3dmol-viewer", help="Path to the 3Dmol frontend directory")
     parser.add_argument("--session", default="multiwfn_3dmol_session", help="Path to the generated GUI session")
     parser.add_argument("--manifest", default=None, help="Path to the generated manifest")
+    parser.add_argument("--source", default=None, help="Original Multiwfn input used for analysis detection")
     parser.add_argument("--host", default="127.0.0.1", help="HTTP bind address")
     parser.add_argument("--port", type=int, default=8765, help="Preferred HTTP port")
     parser.add_argument("--open", action="store_true", help="Open the frontend in the default browser")
@@ -381,7 +472,10 @@ def main() -> int:
         return 2
 
     port = find_free_port(args.host, args.port)
-    handler = make_handler(frontend_dir, session_dir, manifest)
+    manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+    source = Path(args.source).expanduser().resolve() if args.source else None
+    analysis_store = AnalysisStore(session_dir, manifest_payload, source)
+    handler = make_handler(frontend_dir, session_dir, manifest, analysis_store)
     server = ThreadingHTTPServer((args.host, port), handler)
     url = f"http://{args.host}:{port}/index.html?manifest=/session/manifest.json"
 

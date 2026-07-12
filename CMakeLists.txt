@@ -246,6 +246,7 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
       "${CMAKE_CURRENT_BINARY_DIR}/settings.ini"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_server.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_analysis.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_file_dialog.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_qt_gui.py"
       "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools"

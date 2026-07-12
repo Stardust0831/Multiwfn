@@ -16,6 +16,8 @@ real*8 xarr(nx),yarr(ny),zarr(nz)
 character c80tmp*80,c200tmp*200,c400tmp*400,filename_tmp*200
 integer*2,allocatable :: corpos(:,:,:)
 logical,allocatable :: boundgrd(:,:,:)
+logical :: trackprogress
+integer :: iprogress
 
 !---- Special case, use cubegen to directly evaluate ESP grid data
 alive=.false.
@@ -55,6 +57,7 @@ if (alive.and.ifiletype==1.and.functype==12) then !Use cubegen to calculate tota
     call delfile("cubegenpt.txt ESPresult.cub ESPgridtmp.cub nouseout")
 	call walltime(iwalltime2)
 	if (infomode==0) write(*,"(' Calculation of grid data took up wall clock time',i10,' s')") iwalltime2-iwalltime1
+    if (gui_grid_progress_enabled) call write_gui_grid_progress(100)
     
 	return
 end if
@@ -62,6 +65,7 @@ end if
 !--- Another special case, use slow but specifically optimized code for evaluating ESP grid data (deprecated)
 if (functype==12.and.iESPcode==1) then
     call cubesp
+    if (gui_grid_progress_enabled) call write_gui_grid_progress(100)
     return
 end if
 
@@ -151,9 +155,11 @@ end if
 
 !Start calculation of grid data!!!!!!!!!!!!
 if (infomode==0) call showprog(0,nz*ny)
+if (gui_grid_progress_enabled) call write_gui_grid_progress(0)
 ifinish=0;ishowprog=1
 ntmp=floor(ny*nz/100D0)
 cubmat=0
+trackprogress=infomode==0.or.gui_grid_progress_enabled
 !$OMP PARALLEL DO SHARED(cubmat,ifinish,ishowprog) PRIVATE(i,j,k,tmpx,tmpy,tmpz,densval) schedule(dynamic) NUM_THREADS(nthreads) collapse(2)
 do k=1,nz
 	do j=1,ny
@@ -178,19 +184,26 @@ do k=1,nz
 				cubmat(i,j,k)=calcfuncall(functype,tmpx,tmpy,tmpz)
 			end if
 		end do
-		if (infomode==0) then
+		if (trackprogress) then
 			if (ntmp/=0) then
 				!$OMP CRITICAL
 				ifinish=ifinish+1
 				ishowprog=mod(ifinish,ntmp)
-				if (ishowprog==0) call showprog(floor(100D0*ifinish/(ny*nz)),100)
+				if (ishowprog==0) then
+                    iprogress=floor(100D0*ifinish/(ny*nz))
+                    if (infomode==0) call showprog(iprogress,100)
+                    if (gui_grid_progress_enabled) call write_gui_grid_progress(iprogress)
+                end if
 				!$OMP END CRITICAL
 			end if
         end if
 	end do
 end do
 !$OMP END PARALLEL DO
-if (infomode==0.and.ishowprog/=0) call showprog(100,100)
+if (ishowprog/=0) then
+    if (infomode==0) call showprog(100,100)
+    if (gui_grid_progress_enabled) call write_gui_grid_progress(100)
+end if
 nthreads=nthreads_old
 
 call del_GTFuniq !Destory unique GTF informtaion
@@ -217,6 +230,24 @@ if (infomode==0) then
     call walltime(iwalltime2)
     write(*,"(' Calculation of grid data took up wall clock time',i10,' s')") iwalltime2-iwalltime1
 end if
+end subroutine
+
+
+!Mirror the same row-completion percentage used by showprog() to the GUI session.
+subroutine write_gui_grid_progress(phasepercent)
+use defvar
+integer,intent(in) :: phasepercent
+integer :: iu,istat,clamped,overall
+
+if (.not.gui_grid_progress_enabled.or.len_trim(gui_grid_progress_file)==0) return
+clamped=max(0,min(100,phasepercent))
+overall=nint(gui_grid_progress_start+ &
+    (gui_grid_progress_end-gui_grid_progress_start)*dfloat(clamped)/100D0)
+open(newunit=iu,file=trim(gui_grid_progress_file),status="replace",action="write",iostat=istat)
+if (istat/=0) return
+write(iu,"(a,a,a,i0,a,i0,a)") '{"phase":"',trim(gui_grid_progress_phase), &
+    '","phaseProgress":',clamped,',"progress":',overall,'}'
+close(iu)
 end subroutine
 
 
