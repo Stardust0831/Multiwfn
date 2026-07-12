@@ -634,12 +634,6 @@ real*8 :: nelec_org,naelec_org,nbelec_org
 real*8,allocatable :: cubmat_org(:,:,:)
 logical :: cubmat_was_allocated
 
-gui_grid_progress_enabled=.false.
-gui_grid_progress_file=""
-gui_grid_progress_phase=""
-gui_grid_progress_start=0D0
-gui_grid_progress_end=100D0
-
 if (len_trim(progressid)>0.and..not.gui_progress_token_valid(progressid)) then
     call write_gui_json_error(respfile,"Invalid ESP progress token")
     return
@@ -686,30 +680,20 @@ nbelec_org=nbelec
 cubmat_was_allocated=allocated(cubmat)
 if (cubmat_was_allocated) call move_alloc(cubmat,cubmat_org)
 
-if (len_trim(progressid)>0) then
-    gui_grid_progress_file=trim(session)//"/esp_progress_"//trim(progressid)//".json"
-    gui_grid_progress_enabled=.true.
-end if
-
 nprevorbgrid=quality
 call setup_orbital_grid()
 allocate(cubmat(nx,ny,nz))
-gui_grid_progress_phase="density"
-gui_grid_progress_start=0D0
-gui_grid_progress_end=20D0
-if (gui_grid_progress_enabled) call write_gui_grid_progress(0)
-call savecubmat(1,1,0)
+call write_gui_progress_marker(progressid,"density",0,20)
+call savecubmat(1,merge(0,1,len_trim(progressid)>0),0)
 
 write(densityrel,"('esp_density_',i0,'.cube')") quality
 densityfile=trim(session)//"/"//trim(densityrel)
 call write_cube(trim(densityfile),cubmat)
 
 ESPrhoiso=isoval
-gui_grid_progress_phase="esp"
-gui_grid_progress_start=20D0
-gui_grid_progress_end=75D0
-if (gui_grid_progress_enabled) call write_gui_grid_progress(0)
-call savecubmat(12,1,0)
+call write_gui_progress_marker(progressid,"esp",20,75)
+call savecubmat(12,merge(0,1,len_trim(progressid)>0),0)
+call write_gui_progress_marker(progressid,"finalizing",75,100)
 
 write(esprel,"('esp_potential_',i0,'.cube')") quality
 espfile=trim(session)//"/"//trim(esprel)
@@ -738,12 +722,7 @@ ESPrhoiso=esprhoiso_org
 nelec=nelec_org
 naelec=naelec_org
 nbelec=nbelec_org
-gui_grid_progress_enabled=.false.
-gui_grid_progress_file=""
-gui_grid_progress_phase=""
-gui_grid_progress_start=0D0
-gui_grid_progress_end=100D0
-
+call write_gui_progress_marker(progressid,"complete",100,100)
 open(newunit=iu,file=trim(respfile),status="replace",action="write")
 write(iu,"(a)") "{"
 write(iu,"(a)") '  "ok": true,'
@@ -772,6 +751,16 @@ write(iu,"(a)") '    "visible": false'
 write(iu,"(a)") '  }'
 write(iu,"(a)") "}"
 close(iu)
+end subroutine
+
+subroutine write_gui_progress_marker(token,phase,phase_start,phase_end)
+character(len=*),intent(in) :: token,phase
+integer,intent(in) :: phase_start,phase_end
+
+if (len_trim(token)==0) return
+write(*,"(a,1x,a,1x,a,1x,i0,1x,i0)") "MULTIWFN_GUI_PROGRESS",trim(token), &
+    trim(phase),phase_start,phase_end
+flush(6)
 end subroutine
 
 subroutine handle_bond_request(respfile,iatm1,iatm2,method)
