@@ -5,6 +5,12 @@ import {
   inject_manifest_lattice,
   supercell_scaling_for_ranges,
 } from '../src/periodic.ts'
+import { display_range } from '../src/manifest.ts'
+import {
+  create_workbench_state,
+  parse_workbench_state,
+  restore_workbench_state,
+} from '../src/state.ts'
 
 test('clamps periodic range inputs and rejects missing or non-finite values', () => {
   assert.equal(clamp_periodic_bound(-50), -20)
@@ -14,7 +20,7 @@ test('clamps periodic range inputs and rejects missing or non-finite values', ()
   assert.equal(clamp_periodic_bound(Number.NaN), undefined)
 })
 import type { MultiwfnManifest } from '../src/manifest.ts'
-import type { AnyStructure, Crystal, Molecule } from 'matterviz/structure'
+import type { Crystal, Molecule } from 'matterviz/structure'
 
 const molecule = (): Molecule => ({
   sites: [{
@@ -106,4 +112,73 @@ test('maps fractional and negative ranges to integer atom supercells', () => {
     supercell_scaling_for_ranges([[Number.NaN, 1], [0, Number.POSITIVE_INFINITY], [2, -1]]),
     '1x1x3',
   )
+})
+
+test('keeps fractional display ranges independent from persisted atom supercell settings', () => {
+  const manifest = {
+    periodic: {
+      enabled: true,
+      ranges: {
+        a: [-1.25, 2.75],
+        b: [0.125, 1.875],
+        c: [-0.5, 0.5],
+      },
+    },
+  }
+  const ranges = display_range(manifest)
+  assert.deepEqual(ranges, [[-1.25, 2.75], [0.125, 1.875], [-0.5, 0.5]])
+  assert.equal(supercell_scaling_for_ranges(ranges), '5x2x2')
+
+  const exported = create_workbench_state({
+    manifest,
+    entries: [{ path: 'density.cube' }],
+    isosurfaceSettings: { display_range: ranges },
+    activeVolume: 0,
+    atomSupercell: '1x1x1',
+    showBoundaryAtoms: true,
+    showUnitCell: false,
+  })
+  assert.deepEqual(exported.periodic, {
+    displayRange: ranges,
+    atomSupercell: '1x1x1',
+    showBoundaryAtoms: true,
+    showUnitCell: false,
+  })
+
+  const restored = restore_workbench_state(parse_workbench_state(exported), {
+    entries: [{ path: 'density.cube' }],
+    isosurfaceSettings: {},
+  })
+  assert.deepEqual(restored.periodic, exported.periodic)
+})
+
+test('preserves cross-boundary bond cell-shift metadata for MatterViz', () => {
+  const structure = inject_manifest_lattice(
+    {
+      sites: [
+        {
+          species: [{ element: 'H', occu: 1, oxidation_state: 0 }],
+          abc: [0, 0, 0],
+          xyz: [0, 0, 0],
+          label: 'H0',
+          properties: {},
+        },
+        {
+          species: [{ element: 'H', occu: 1, oxidation_state: 0 }],
+          abc: [0.5, 0, 0],
+          xyz: [1, 0, 0],
+          label: 'H1',
+          properties: {},
+        },
+      ],
+      properties: {
+        bonds: [{ site_idx_1: 0, site_idx_2: 1, order: 1, cell_shift: [1, 0, 0] }],
+      },
+    },
+    manifest_with_cell({ a: [2, 0, 0], b: [0, 3, 0], c: [0, 0, 4] }),
+  )
+  assert.ok('lattice' in structure && structure.lattice)
+  assert.deepEqual(structure.properties?.bonds, [
+    { site_idx_1: 0, site_idx_2: 1, order: 1, cell_shift: [1, 0, 0] },
+  ])
 })
