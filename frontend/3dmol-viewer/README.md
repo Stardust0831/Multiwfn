@@ -35,9 +35,17 @@ Implemented:
   rule, followed by GaussView-derived order thresholds, valence constraints,
   and aromatic-ring validation. FCHK topology parsing is isolated in the
   3Dmol backend and does not change Multiwfn's core file readers or `connmat`.
-- Select atoms with the right mouse button, identify bonds from 3Dmol's bond
-  topology, and annotate displayed order, bond length, and supported Multiwfn
-  bond orders.
+- Select atoms with Command-click on macOS or Ctrl-click on Windows/Linux,
+  identify bonds from 3Dmol's bond topology, and use right-click menus to
+  annotate displayed order, bond length, and supported Multiwfn bond orders.
+- Open the Tools > Electrostatic potential submenu to request a live Multiwfn
+  ESP calculation, adjust the existing surface opacity in place, and map the
+  potential onto the 0.001 a.u. electron-density surface with a
+  pink-white-blue trans-flag gradient.
+- Toggle local ESP surface minima and maxima from the same submenu. Extrema are
+  extracted in a worker from the current density/ESP cube pair, candidates at
+  the cube boundary are rejected, and a clicked marker reports its a.u. and
+  kcal/mol values without rebuilding the isosurface.
 - Load a JSON manifest produced by an external wrapper.
 - Export a PNG snapshot and a lightweight scene manifest.
 
@@ -151,6 +159,12 @@ The generated GUI service exposes bond orders through
 `GET /api/bond?atom1=1&atom2=2&method=mayer`. Atom indices are one-based and
 the response contains `value` plus spin components when applicable. Bond
 length is calculated locally and does not call this endpoint.
+
+Live non-periodic wavefunction sessions also expose
+`GET /api/esp?quality=120000&isovalue=0.001`. The response references matching
+density and ESP cube files. Repeating the same request in the frontend uses the
+current session cache; changing the active quality requests a fresh pair from
+Multiwfn. Periodic and structure-only sessions report ESP as unavailable.
 
 3Dmol.js references used while implementing this prototype:
 

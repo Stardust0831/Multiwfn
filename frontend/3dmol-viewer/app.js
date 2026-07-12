@@ -186,6 +186,8 @@ const atomicSymbols = {
 };
 
 const cubeCoordinates = window.MultiwfnCubeCoordinates;
+const espScale = window.MultiwfnEspScale;
+const espExtrema = window.MultiwfnEspExtrema;
 
 const orbitalPhaseColors = {
   positive: '#f5a9b8',
@@ -194,6 +196,17 @@ const orbitalPhaseColors = {
 
 const atomSelectionColor = '#ffd400';
 const atomClickSphereRadius = 0.45;
+const espSurfaceColors = {
+  negative: '#f5a9b8',
+  zero: '#ffffff',
+  positive: '#5bcefa'
+};
+const espExtremaMarkerRadii = {
+  local: 0.18,
+  global: 0.24
+};
+const espExtremaMarkerVisualScale = 0.45;
+const ESP_EXTREMA_WORKER_TIMEOUT = 60000;
 const bondPropertyDefinitions = [
   { id: 'length', label: 'Bond length', backend: false },
   { id: 'display_order', label: 'Displayed bond order', backend: false },
@@ -217,12 +230,21 @@ function defaultBondAnalysisCapabilities() {
   };
 }
 
+function defaultEspAnalysisCapabilities() {
+  return {
+    available: false,
+    periodicSupported: false,
+    defaultIsovalue: 0.001,
+    reason: 'Multiwfn ESP backend is unavailable for this session'
+  };
+}
+
 const roleDefaults = {
   homo: { label: 'HOMO', ...orbitalPhaseColors, isovalue: 0.015 },
   lumo: { label: 'LUMO', ...orbitalPhaseColors, isovalue: 0.015 },
   density: { label: 'Density', positive: '#7c5ac9', negative: '#7c5ac9', isovalue: 0.02 },
   elf: { label: 'ELF', positive: '#d4a21b', negative: '#d4a21b', isovalue: 0.65 },
-  esp: { label: 'ESP', positive: '#2b73c8', negative: '#cf3f55', isovalue: 0.02 },
+  esp: { label: 'ESP', positive: espSurfaceColors.positive, negative: espSurfaceColors.negative, isovalue: 0.02 },
   custom: { label: 'Custom', ...orbitalPhaseColors, isovalue: 0.015 }
 };
 
@@ -240,6 +262,20 @@ const backgrounds = {
 };
 
 const gradients = {
+  trans: {
+    label: 'Trans flag',
+    make: (min, max) => ({
+      gradient: 'multiwfn-trans',
+      min,
+      max,
+      range: () => [min, max],
+      valueToHex: (value, range) => espScale.transFlagColorHex(
+        value,
+        range?.[0] ?? min,
+        range?.[1] ?? max
+      )
+    })
+  },
   rwb: { label: 'RWB', make: (min, max) => new $3Dmol.Gradient.RWB(min, max) },
   roygb: { label: 'ROYGB', make: (min, max) => new $3Dmol.Gradient.ROYGB(min, max) },
   sinebow: { label: 'Sinebow', make: (min, max) => new $3Dmol.Gradient.Sinebow(min, max) }
@@ -291,6 +327,7 @@ const state = {
     manifestOrbitalLoads: new Map()
   },
   orbitalShapes: new Map(),
+  surfaceShapes: new Map(),
   atomSelection: {
     indices: new Set(),
     model: null,
@@ -312,6 +349,37 @@ const state = {
       clickedAtomIndex: null,
       bonds: [],
       activeBondKey: ''
+    }
+  },
+  espAnalysis: {
+    capabilities: defaultEspAnalysisCapabilities(),
+    baseCapabilities: defaultEspAnalysisCapabilities(),
+    requestBusy: false,
+    densityLayerId: '',
+    potentialLayerId: '',
+    quality: 0,
+    isovalue: 0.001,
+    opacity: 0.88,
+    opacityFrame: 0,
+    legend: {
+      enabled: true,
+      position: null,
+      drag: null
+    },
+    extrema: {
+      enabled: false,
+      busy: false,
+      sessionGeneration: 0,
+      requestGeneration: 0,
+      worker: null,
+      workerTimeout: 0,
+      workerReject: null,
+      cache: new Map(),
+      result: null,
+      resultKey: '',
+      markerShapes: [],
+      label: null,
+      selectedPointId: ''
     }
   },
   activePlot: null,
@@ -506,7 +574,14 @@ function syncPeriodicFromControls() {
   if (previousStructureKey !== nextStructureKey) {
     clearAtomSelectionState();
     clearBondAnalysisState();
+    const espBase = state.espAnalysis.baseCapabilities || defaultEspAnalysisCapabilities();
+    if (state.periodic.enabled && !espBase.periodicSupported) {
+      removeEspAnalysisLayers({ render: false });
+    } else {
+      resetEspExtremaState({ render: false });
+    }
     refreshBondAnalysisCapabilities();
+    refreshEspAnalysisCapabilities();
   }
 }
 
@@ -648,9 +723,13 @@ function isOrbitalLayer(layer) {
   return ['orbital', 'homo', 'lumo'].includes(layer.role) || Number(layer.orbitalIndex) > 0;
 }
 
-function registerOrbitalShape(layer, shape) {
-  if (!isOrbitalLayer(layer) || !shape) return shape;
+function registerSurfaceShape(layer, shape) {
+  if (!shape) return shape;
   const layerId = String(layer.id);
+  const surfaceShapes = state.surfaceShapes.get(layerId) || [];
+  surfaceShapes.push(shape);
+  state.surfaceShapes.set(layerId, surfaceShapes);
+  if (!isOrbitalLayer(layer)) return shape;
   const shapes = state.orbitalShapes.get(layerId) || [];
   shapes.push(shape);
   state.orbitalShapes.set(layerId, shapes);
@@ -1026,12 +1105,28 @@ function atomSelectionSpec(indices) {
   return { index: values.length === 1 ? values[0] : values };
 }
 
-function enableAtomContextSelection(model, selection = {}) {
+function atomSelectionPlatform() {
+  if (typeof navigator === 'undefined') return '';
+  return String(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '');
+}
+
+function atomSelectionModifierPressed(event, platform = atomSelectionPlatform()) {
+  if (!event) return false;
+  return /mac|iphone|ipad|ipod/i.test(platform)
+    ? event.metaKey === true
+    : event.ctrlKey === true;
+}
+
+function isPrimaryAtomClick(event) {
+  return Boolean(event) && (event.button === undefined || Number(event.button) === 0);
+}
+
+function enableAtomInteractions(model, selection = {}) {
   if (!model) return;
   if (typeof model.setStyle === 'function') {
     model.setStyle(selection, { clicksphere: { radius: atomClickSphereRadius } }, true);
   }
-  if (typeof model.setClickable === 'function') model.setClickable(selection, true, () => {});
+  if (typeof model.setClickable === 'function') model.setClickable(selection, true, handleAtomClick);
   if (typeof model.enableContextMenu === 'function') model.enableContextMenu(selection, true);
 }
 
@@ -1042,7 +1137,7 @@ function applyAtomSelectionStyle(model, indices, selected) {
   if (!model || !values.length || typeof model.setStyle !== 'function') return;
   const selection = atomSelectionSpec(values);
   model.setStyle(selection, selected ? selectedAtomModelStyle() : modelStyle());
-  enableAtomContextSelection(model, selection);
+  enableAtomInteractions(model, selection);
 }
 
 function renderAtomSelectionDecorations(model = state.atomSelection.model, options = {}) {
@@ -1066,7 +1161,7 @@ function updateStructureAppearance() {
   const model = state.atomSelection.model;
   if (!state.viewer || !model || typeof model.setStyle !== 'function') return;
   model.setStyle({}, modelStyle());
-  enableAtomContextSelection(model);
+  enableAtomInteractions(model);
   const selectedIndices = [...state.atomSelection.indices];
   if (selectedIndices.length) applyAtomSelectionStyle(model, selectedIndices, true);
   if (els.showStructure.checked) model.show();
@@ -1548,7 +1643,10 @@ function renderBondPropertyMenu(menu, bond) {
     const button = createBondMenuButton(property.label, {
       value,
       disabled: property.backend && (
-        !capability.available || state.bondAnalysis.requestBusy || state.gui.orbitalRequestBusy
+        !capability.available
+        || state.bondAnalysis.requestBusy
+        || state.gui.orbitalRequestBusy
+        || state.espAnalysis.requestBusy
       ),
       reason: property.backend && !capability.available ? capability.reason : '',
       title: detail || capability.reason || '',
@@ -1574,15 +1672,28 @@ function openBondPropertySubmenu(trigger, bond) {
   requestAnimationFrame(() => bondMenuButtons(els.bondContextSubmenu)[0]?.focus());
 }
 
-function deselectAtomIndex(atomIndex) {
-  if (!state.atomSelection.indices.has(atomIndex)) return;
-  const atomName = atomDisplayName(atomMapForModel().get(atomIndex), atomIndex);
-  state.atomSelection.indices.delete(atomIndex);
-  applyAtomSelectionStyle(state.atomSelection.model, atomIndex, false);
+function setAtomSelected(atomIndex, selected, atom = atomMapForModel().get(atomIndex)) {
+  const isSelected = state.atomSelection.indices.has(atomIndex);
+  if (isSelected === selected) return false;
+  if (selected) state.atomSelection.indices.add(atomIndex);
+  else state.atomSelection.indices.delete(atomIndex);
+  applyAtomSelectionStyle(state.atomSelection.model, atomIndex, selected);
   syncAtomLabels({ indices: atomIndex, forceStyles: true, render: false });
   state.viewer.render();
   syncSceneOverlays();
-  setStatus(`Deselected atom ${atomName} (${state.atomSelection.indices.size} selected)`);
+  const action = selected ? 'Selected' : 'Deselected';
+  setStatus(`${action} atom ${atomDisplayName(atom, atomIndex)} (${state.atomSelection.indices.size} selected)`);
+  return true;
+}
+
+function toggleAtomSelection(selected) {
+  if (!selected || !Number.isFinite(Number(selected.index))) return false;
+  const atomIndex = Number(selected.index);
+  return setAtomSelected(atomIndex, !state.atomSelection.indices.has(atomIndex), selected);
+}
+
+function deselectAtomIndex(atomIndex) {
+  return setAtomSelected(atomIndex, false);
 }
 
 function clearSelectedAtoms() {
@@ -1604,7 +1715,7 @@ function openBondContextMenu(selected, x, y, bonds) {
 
   if (bonds.length === 1) {
     renderBondPropertyMenu(els.bondContextMenu, bonds[0]);
-  } else {
+  } else if (bonds.length > 1) {
     appendBondMenuHeading(els.bondContextMenu, 'Selected bonds');
     bonds.forEach((bond) => {
       const trigger = createBondMenuButton(bond.label, {
@@ -1618,7 +1729,7 @@ function openBondContextMenu(selected, x, y, bonds) {
     });
   }
 
-  appendBondMenuSeparator(els.bondContextMenu);
+  if (bonds.length) appendBondMenuSeparator(els.bondContextMenu);
   const clickedName = atomDisplayName(selected, Number(selected.index));
   els.bondContextMenu.append(createBondMenuButton(`Deselect ${clickedName}`, {
     onClick: () => {
@@ -1655,7 +1766,11 @@ function cacheRelatedOpenShellResults(bond, payload) {
 }
 
 function syncBackendRequestControls() {
-  const busy = Boolean(state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy);
+  const busy = Boolean(
+    state.gui.orbitalRequestBusy
+    || state.bondAnalysis.requestBusy
+    || state.espAnalysis.requestBusy
+  );
   [
     els.guiOrbitalSelect,
     els.guiOrbitalInput,
@@ -1663,7 +1778,9 @@ function syncBackendRequestControls() {
     els.guiOrbitalIsovalueNumber,
     els.guiOrbPrev,
     els.guiOrbNext,
-    els.guiMenuQuality
+    els.guiMenuQuality,
+    els.guiToolEspShow,
+    els.guiToolEspExtrema
   ].forEach((control) => {
     if (control) control.disabled = busy;
   });
@@ -1694,7 +1811,7 @@ async function selectBondProperty(bond, method) {
     setStatus(`${bondPropertyDefinition(method).label} loaded from cache`);
     return;
   }
-  if (state.bondAnalysis.requestBusy || state.gui.orbitalRequestBusy) {
+  if (state.bondAnalysis.requestBusy || state.gui.orbitalRequestBusy || state.espAnalysis.requestBusy) {
     setStatus('Multiwfn backend is busy', false);
     return;
   }
@@ -1740,32 +1857,20 @@ async function selectBondProperty(bond, method) {
   }
 }
 
-function handleAtomContextMenu(selected, x = 0, y = 0) {
-  if (!selected || !Number.isFinite(Number(selected.index))) {
-    closeBondContextMenu();
-    clearSelectedAtoms();
-    return;
-  }
+function handleAtomClick(selected, _viewer, event) {
+  if (!isPrimaryAtomClick(event) || !atomSelectionModifierPressed(event)) return;
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  closeBondContextMenu();
+  toggleAtomSelection(selected);
+}
 
+function handleAtomContextMenu(selected, x = 0, y = 0) {
+  closeBondContextMenu();
+  if (!selected || !Number.isFinite(Number(selected.index))) return;
   const atomIndex = Number(selected.index);
-  const wasSelected = state.atomSelection.indices.has(atomIndex);
-  if (wasSelected) {
-    const bonds = selectedAdjacentBonds();
-    if (bonds.length) {
-      openBondContextMenu(selected, x, y, bonds);
-      return;
-    }
-    state.atomSelection.indices.delete(atomIndex);
-  } else {
-    closeBondContextMenu();
-    state.atomSelection.indices.add(atomIndex);
-  }
-  applyAtomSelectionStyle(state.atomSelection.model, atomIndex, !wasSelected);
-  syncAtomLabels({ indices: atomIndex, forceStyles: true, render: false });
-  state.viewer.render();
-  syncSceneOverlays();
-  const action = wasSelected ? 'Deselected' : 'Selected';
-  setStatus(`${action} atom ${atomDisplayName(selected, atomIndex)} (${state.atomSelection.indices.size} selected)`);
+  if (!state.atomSelection.indices.has(atomIndex)) return;
+  openBondContextMenu(selected, x, y, selectedAdjacentBonds());
 }
 
 function applyDisplayedBondOrders(model, data, format) {
@@ -1850,7 +1955,7 @@ function addStructureToViewer() {
     const model = state.viewer.addModel(display.data, display.format);
     applyDisplayedBondOrders(model, display.data, display.format);
     model.setStyle({}, modelStyle());
-    enableAtomContextSelection(model);
+    enableAtomInteractions(model);
     if (!els.showStructure.checked) model.hide();
     return model;
   } catch (error) {
@@ -1996,7 +2101,7 @@ function addCubeLayer(layer) {
         if (!startupMetrics.ready) {
           startupMetrics.initialIsosurfaceCalls = (startupMetrics.initialIsosurfaceCalls || 0) + 1;
         }
-        return registerOrbitalShape(layer, state.viewer.addIsosurface(volume, spec));
+        return registerSurfaceShape(layer, state.viewer.addIsosurface(volume, spec));
       };
       if (surfaceStyle === 'mesh' || surfaceStyle === 'points') {
         addIsosurface({
@@ -2032,13 +2137,16 @@ function renderScene(zoom = false) {
   if (!startupMetrics.ready) startupMetrics.initialSceneRenders = (startupMetrics.initialSceneRenders || 0) + 1;
 
   state.orbitalShapes.clear();
+  state.surfaceShapes.clear();
   resetAtomDecorationReferences();
+  resetEspExtremaDecorationReferences();
   state.viewer.clear();
   applySceneStyle();
   const structureModel = addStructureToViewer();
   state.layers.filter((layer) => layer.visible).forEach(addCubeLayer);
   drawCellBox();
   renderAtomSelectionDecorations(structureModel);
+  renderEspExtremaMarkers({ render: false });
 
   if (zoom || state.dirtyZoom) {
     state.viewer.zoomTo();
@@ -2049,6 +2157,7 @@ function renderScene(zoom = false) {
   updateLabels();
   updateStats();
   syncMultiwfnGuiControls();
+  syncEspLegendVisibility();
 }
 
 function updateLabels() {
@@ -2467,6 +2576,68 @@ function setGlobalOrbitalOpacity(value, options = {}) {
   if (options.announce) setStatus(`Orbital opacity: ${orbitalOpacityPercent(opacity)}%`);
 }
 
+function espOpacityPercent(opacity = state.espAnalysis.opacity) {
+  return Math.round(clamp(toNumber(opacity, 0.88), 0.05, 1) * 100);
+}
+
+function syncEspOpacityControls() {
+  const opacity = clamp(toNumber(state.espAnalysis.opacity, 0.88), 0.05, 1);
+  const percent = espOpacityPercent(opacity);
+  if (els.guiEspOpacity) {
+    els.guiEspOpacity.value = String(percent);
+    els.guiEspOpacity.setAttribute('aria-valuetext', `${percent}%`);
+  }
+  if (els.guiEspOpacityValue) els.guiEspOpacityValue.textContent = `${percent}%`;
+
+  const density = espLayerByKind('esp-density');
+  if (density) density.opacity = opacity;
+  const rowControl = density
+    ? document.querySelector(`.layer-row[data-layer-id="${density.id}"] [data-action="opacity"]`)
+    : null;
+  if (rowControl) rowControl.value = String(opacity);
+  if (density && String(state.gui.activeLayerId) === String(density.id) && els.guiIsosurfaceOpacity) {
+    els.guiIsosurfaceOpacity.value = String(opacity);
+  }
+}
+
+function updateEspSurfaceOpacity(opacity) {
+  const density = espLayerByKind('esp-density');
+  if (!state.viewer || !density) return;
+  const shapes = state.surfaceShapes.get(String(density.id)) || [];
+  let updated = 0;
+  shapes.forEach((shape) => {
+    if (!shape || typeof shape.updateStyle !== 'function') return;
+    try {
+      const style = { opacity };
+      if (shape.stylespec?.voldata && shape.stylespec?.volscheme) {
+        style.voldata = shape.stylespec.voldata;
+        style.volscheme = shape.stylespec.volscheme;
+      }
+      shape.updateStyle(style);
+      updated += 1;
+    } catch (error) {
+      console.error(error);
+    }
+  });
+  if (updated) state.viewer.render();
+}
+
+function scheduleEspSurfaceOpacityUpdate() {
+  if (state.espAnalysis.opacityFrame) return;
+  state.espAnalysis.opacityFrame = requestAnimationFrame(() => {
+    state.espAnalysis.opacityFrame = 0;
+    updateEspSurfaceOpacity(state.espAnalysis.opacity);
+  });
+}
+
+function setEspSurfaceOpacity(value, options = {}) {
+  const opacity = clamp(toNumber(value, state.espAnalysis.opacity), 0.05, 1);
+  state.espAnalysis.opacity = opacity;
+  syncEspOpacityControls();
+  if (options.updateShapes !== false) scheduleEspSurfaceOpacityUpdate();
+  if (options.announce) setStatus(`ESP surface opacity: ${espOpacityPercent(opacity)}%`);
+}
+
 function syncBackgroundStyleControls() {
   const background = els.background?.value || 'white';
   if (els.guiBackgroundWhite) els.guiBackgroundWhite.setAttribute('aria-checked', String(background === 'white'));
@@ -2554,13 +2725,112 @@ function setStyleMenuOpen(open, options = {}) {
   }
 }
 
+function toolsMenuButtons() {
+  return [...els.guiToolsMenu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]')];
+}
+
+function espToolsMenuControls() {
+  return [
+    els.guiToolEspShow,
+    els.guiToolEspLegend,
+    els.guiToolEspExtrema,
+    els.guiEspOpacity
+  ].filter(Boolean);
+}
+
+function closeEspToolsMenu(options = {}) {
+  if (!els.guiEspMenu) return;
+  els.guiEspMenu.hidden = true;
+  els.guiToolEsp.setAttribute('aria-expanded', 'false');
+  if (options.focus) els.guiToolEsp.focus();
+}
+
+function setEspToolsMenuOpen(open, options = {}) {
+  if (!els.guiEspMenu) return;
+  const isOpen = Boolean(open);
+  els.guiEspMenu.hidden = !isOpen;
+  els.guiToolEsp.setAttribute('aria-expanded', String(isOpen));
+  if (!isOpen) return;
+  syncEspOpacityControls();
+  syncEspLegendVisibility();
+  positionStyleSubmenu(els.guiToolEsp, els.guiEspMenu);
+  if (options.focus) requestAnimationFrame(() => espToolsMenuControls()[0]?.focus());
+}
+
+function repositionOpenEspToolsMenu() {
+  if (els.guiEspMenu && !els.guiEspMenu.hidden) {
+    positionStyleSubmenu(els.guiToolEsp, els.guiEspMenu);
+  }
+}
+
+function setToolsMenuOpen(open, options = {}) {
+  const isOpen = Boolean(open);
+  if (!isOpen) closeEspToolsMenu();
+  els.guiToolsMenu.hidden = !isOpen;
+  els.guiMenuTools.setAttribute('aria-expanded', String(isOpen));
+  if (isOpen && options.focus) requestAnimationFrame(() => toolsMenuButtons()[0]?.focus());
+}
+
+function handleToolsMenuKeydown(event) {
+  const buttons = toolsMenuButtons();
+  const current = buttons.indexOf(document.activeElement);
+  if (event.key === 'ArrowRight' && document.activeElement === els.guiToolEsp) {
+    setEspToolsMenuOpen(true, { focus: true });
+    event.preventDefault();
+    return;
+  }
+  if (event.key === 'Escape') {
+    setToolsMenuOpen(false);
+    els.guiMenuTools.focus();
+    event.preventDefault();
+    return;
+  }
+  let target = -1;
+  if (event.key === 'ArrowDown') target = current < 0 ? 0 : (current + 1) % buttons.length;
+  if (event.key === 'ArrowUp') target = current < 0 ? buttons.length - 1 : (current - 1 + buttons.length) % buttons.length;
+  if (event.key === 'Home') target = 0;
+  if (event.key === 'End') target = buttons.length - 1;
+  if (target >= 0) {
+    buttons[target]?.focus();
+    event.preventDefault();
+  }
+}
+
+function handleEspToolsMenuKeydown(event) {
+  const controls = espToolsMenuControls();
+  const current = controls.indexOf(document.activeElement);
+  if (document.activeElement === els.guiEspOpacity) {
+    if (event.key === 'Escape') {
+      closeEspToolsMenu({ focus: true });
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    return;
+  }
+  if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+    closeEspToolsMenu({ focus: true });
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  let target = -1;
+  if (event.key === 'ArrowDown') target = current < 0 ? 0 : (current + 1) % controls.length;
+  if (event.key === 'ArrowUp') target = current < 0 ? controls.length - 1 : (current - 1 + controls.length) % controls.length;
+  if (event.key === 'Home') target = 0;
+  if (event.key === 'End') target = controls.length - 1;
+  if (target >= 0) {
+    controls[target]?.focus();
+    event.preventDefault();
+  }
+}
+
 function setGuiOrbitalRequestBusy(busy) {
   state.gui.orbitalRequestBusy = Boolean(busy);
   syncBackendRequestControls();
 }
 
 async function requestGuiOrbital(index, options = {}) {
-  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy) return;
+  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy || state.espAnalysis.requestBusy) return;
   const orbitalIndex = Number(index) || 0;
   els.guiOrbitalInput.value = String(orbitalIndex);
   if (orbitalIndex <= 0) {
@@ -2664,6 +2934,807 @@ async function requestGuiOrbital(index, options = {}) {
   }
 }
 
+function espLayerByKind(kind) {
+  return state.layers.find((layer) => layer.analysisKind === kind) || null;
+}
+
+function removeEspAnalysisLayers(options = {}) {
+  const removedIds = new Set(
+    state.layers
+      .filter((layer) => layer.analysisKind === 'esp-density' || layer.analysisKind === 'esp-potential')
+      .map((layer) => String(layer.id))
+  );
+  [state.espAnalysis.densityLayerId, state.espAnalysis.potentialLayerId]
+    .filter(Boolean)
+    .forEach((id) => removedIds.add(String(id)));
+  state.layers = state.layers.filter((layer) => !removedIds.has(String(layer.id)));
+  if (removedIds.has(String(state.gui.activeLayerId))) state.gui.activeLayerId = '';
+  state.espAnalysis.densityLayerId = '';
+  state.espAnalysis.potentialLayerId = '';
+  state.espAnalysis.quality = 0;
+  if (state.espAnalysis.opacityFrame) {
+    cancelAnimationFrame(state.espAnalysis.opacityFrame);
+    state.espAnalysis.opacityFrame = 0;
+  }
+  resetEspExtremaState({ render: options.render, clearCache: true });
+  renderLayerList();
+  updateLayerSelectors();
+  syncEspOpacityControls();
+  syncEspLegendVisibility();
+  return removedIds.size > 0;
+}
+
+function isEspVisualizationActive() {
+  const density = espLayerByKind('esp-density');
+  return Boolean(density?.visible && String(state.gui.activeLayerId) === String(density.id));
+}
+
+function espExtremaPoints(result = state.espAnalysis.extrema.result) {
+  return result ? [...(result.minima || []), ...(result.maxima || [])] : [];
+}
+
+function isPlotPanelVisible() {
+  return Boolean(els.plotPanel && !els.plotPanel.classList.contains('is-hidden'));
+}
+
+function currentEspLegendModel() {
+  const density = espLayerByKind('esp-density');
+  if (!density) return null;
+  const min = Number(density.colorMin);
+  const max = Number(density.colorMax);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return null;
+  const gradient = makeGradient(density.gradient || 'trans', min, max);
+  const ticks = espScale?.espLegendTicks(min, max, 5) || [];
+  if (!ticks.length) return null;
+  return {
+    layerId: String(density.id),
+    min,
+    max,
+    gradient,
+    ticks
+  };
+}
+
+function espLegendColorHex(model, value) {
+  let color = 0xffffff;
+  try {
+    color = model.gradient.valueToHex(value, [model.min, model.max]);
+  } catch (error) {
+    console.error(error);
+  }
+  if (typeof color === 'string') {
+    const normalized = color.trim();
+    if (/^#[0-9a-f]{6}$/i.test(normalized)) return normalized;
+    if (/^[0-9a-f]{6}$/i.test(normalized)) return `#${normalized}`;
+  }
+  const numeric = Number(color);
+  return Number.isFinite(numeric)
+    ? `#${(numeric & 0xffffff).toString(16).padStart(6, '0')}`
+    : '#ffffff';
+}
+
+function paintEspLegendGradient(context, model, x, y, width, height) {
+  const rows = Math.max(1, Math.ceil(height));
+  for (let row = 0; row < rows; row += 1) {
+    const fraction = rows === 1 ? 0 : row / (rows - 1);
+    const value = model.max + fraction * (model.min - model.max);
+    context.fillStyle = espLegendColorHex(model, value);
+    context.fillRect(x, y + row * height / rows, width, Math.max(1, height / rows + 0.5));
+  }
+}
+
+function renderEspLegend(model) {
+  if (!els.espLegendGradient || !els.espLegendTicks) return;
+  const rect = els.espLegendGradient.getBoundingClientRect();
+  const pixelRatio = Math.max(1, Number(window.devicePixelRatio) || 1);
+  const width = Math.max(1, Math.round(rect.width * pixelRatio));
+  const height = Math.max(1, Math.round(rect.height * pixelRatio));
+  if (els.espLegendGradient.width !== width) els.espLegendGradient.width = width;
+  if (els.espLegendGradient.height !== height) els.espLegendGradient.height = height;
+  const context = els.espLegendGradient.getContext('2d');
+  context.clearRect(0, 0, width, height);
+  paintEspLegendGradient(context, model, 0, 0, width, height);
+
+  const fragment = document.createDocumentFragment();
+  model.ticks.forEach((tick) => {
+    const label = document.createElement('span');
+    label.textContent = tick.label;
+    label.dataset.atomicUnits = String(tick.atomicUnits);
+    fragment.append(label);
+  });
+  els.espLegendTicks.replaceChildren(fragment);
+}
+
+function syncEspLegendMenuState() {
+  if (!els.guiToolEspLegend) return;
+  const available = Boolean(espLayerByKind('esp-density') && espLayerByKind('esp-potential'));
+  els.guiToolEspLegend.setAttribute('aria-checked', String(state.espAnalysis.legend.enabled));
+  els.guiToolEspLegend.setAttribute('aria-disabled', String(!available));
+  els.guiToolEspLegend.title = available ? '' : 'Generate an ESP surface before showing its legend';
+}
+
+function shouldDisplayEspLegend() {
+  return Boolean(
+    state.espAnalysis.legend.enabled
+    && isEspVisualizationActive()
+    && !isPlotPanelVisible()
+  );
+}
+
+function syncEspLegendVisibility() {
+  syncEspLegendMenuState();
+  if (!els.espLegend) return;
+  const model = currentEspLegendModel();
+  const visible = Boolean(model && shouldDisplayEspLegend());
+  els.espLegend.hidden = !visible;
+  if (!visible) {
+    finishEspLegendDrag();
+    return;
+  }
+  applyEspLegendPosition();
+  renderEspLegend(model);
+}
+
+function setEspLegendEnabled(enabled, options = {}) {
+  state.espAnalysis.legend.enabled = Boolean(enabled);
+  syncEspLegendVisibility();
+  if (options.announce !== false) {
+    setStatus(state.espAnalysis.legend.enabled ? 'ESP legend shown' : 'ESP legend hidden');
+  }
+}
+
+function clampedEspLegendPosition(left, top) {
+  const viewportRect = els.viewerWrap.getBoundingClientRect();
+  const legendRect = els.espLegend.getBoundingClientRect();
+  return {
+    left: clamp(Number(left) || 0, 0, Math.max(0, viewportRect.width - legendRect.width)),
+    top: clamp(Number(top) || 0, 0, Math.max(0, viewportRect.height - legendRect.height))
+  };
+}
+
+function applyEspLegendPosition() {
+  const position = state.espAnalysis.legend.position;
+  if (!position || els.espLegend.hidden) return;
+  const clamped = clampedEspLegendPosition(position.left, position.top);
+  state.espAnalysis.legend.position = clamped;
+  els.espLegend.style.left = `${clamped.left}px`;
+  els.espLegend.style.top = `${clamped.top}px`;
+}
+
+function finishEspLegendDrag(event = null) {
+  const legend = state.espAnalysis.legend;
+  const drag = legend.drag;
+  if (!drag) return;
+  if (drag.source === 'pointer' && event && event.pointerId !== drag.pointerId) return;
+  if (drag.source === 'pointer' && els.espLegendHeader?.hasPointerCapture?.(drag.pointerId)) {
+    els.espLegendHeader.releasePointerCapture(drag.pointerId);
+  }
+  legend.drag = null;
+  els.espLegend.classList.remove('is-dragging');
+}
+
+function beginEspLegendDrag(event, source) {
+  if (
+    state.espAnalysis.legend.drag
+    || event.button !== 0
+    || event.isPrimary === false
+    || event.target.closest('button')
+  ) return false;
+  const legendRect = els.espLegend.getBoundingClientRect();
+  const viewportRect = els.viewerWrap.getBoundingClientRect();
+  state.espAnalysis.legend.position = {
+    left: legendRect.left - viewportRect.left,
+    top: legendRect.top - viewportRect.top
+  };
+  state.espAnalysis.legend.drag = {
+    source,
+    pointerId: event.pointerId,
+    offsetX: event.clientX - legendRect.left,
+    offsetY: event.clientY - legendRect.top
+  };
+  els.espLegend.classList.add('is-dragging');
+  event.preventDefault();
+  return true;
+}
+
+function updateEspLegendDrag(clientX, clientY) {
+  const drag = state.espAnalysis.legend.drag;
+  if (!drag) return;
+  const viewportRect = els.viewerWrap.getBoundingClientRect();
+  state.espAnalysis.legend.position = clampedEspLegendPosition(
+    clientX - viewportRect.left - drag.offsetX,
+    clientY - viewportRect.top - drag.offsetY
+  );
+  applyEspLegendPosition();
+}
+
+function startEspLegendDrag(event) {
+  if (!beginEspLegendDrag(event, 'pointer')) return;
+  els.espLegendHeader.setPointerCapture?.(event.pointerId);
+}
+
+function moveEspLegend(event) {
+  const drag = state.espAnalysis.legend.drag;
+  if (!drag || drag.source !== 'pointer' || event.pointerId !== drag.pointerId) return;
+  updateEspLegendDrag(event.clientX, event.clientY);
+  event.preventDefault();
+}
+
+function startEspLegendMouseDrag(event) {
+  beginEspLegendDrag(event, 'mouse');
+}
+
+function moveEspLegendMouse(event) {
+  if (state.espAnalysis.legend.drag?.source !== 'mouse') return;
+  updateEspLegendDrag(event.clientX, event.clientY);
+  event.preventDefault();
+}
+
+function finishEspLegendMouseDrag() {
+  if (state.espAnalysis.legend.drag?.source === 'mouse') finishEspLegendDrag();
+}
+
+function currentEspExtremaPair() {
+  const density = espLayerByKind('esp-density');
+  const potential = espLayerByKind('esp-potential');
+  return density?.data && potential?.data ? { density, potential } : null;
+}
+
+function currentEspExtremaKey(pair = currentEspExtremaPair()) {
+  if (!pair) return '';
+  const quality = Number(pair.density.gridQuality || state.espAnalysis.quality || 0);
+  const isovalue = Number(pair.density.isovalue || state.espAnalysis.isovalue || 0.001);
+  return espExtrema?.extremaCacheKey(
+    state.espAnalysis.extrema.sessionGeneration,
+    quality,
+    isovalue
+  ) || `${state.espAnalysis.extrema.sessionGeneration}:${quality}:${isovalue}`;
+}
+
+function syncEspExtremaMenuState() {
+  if (!els.guiToolEspExtrema) return;
+  const extrema = state.espAnalysis.extrema;
+  const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
+  els.guiToolEspExtrema.setAttribute('aria-checked', String(extrema.enabled));
+  els.guiToolEspExtrema.setAttribute('aria-disabled', String(!capability.available));
+  els.guiToolEspExtrema.setAttribute('aria-busy', String(extrema.busy));
+  els.guiToolEspExtrema.title = capability.available ? '' : capability.reason;
+}
+
+function removeEspExtremaLabel() {
+  const extrema = state.espAnalysis.extrema;
+  if (extrema.label && state.viewer && typeof state.viewer.removeLabel === 'function') {
+    withSuppressedViewerShow(() => state.viewer.removeLabel(extrema.label));
+  }
+  extrema.label = null;
+}
+
+function resetEspExtremaDecorationReferences() {
+  const extrema = state.espAnalysis.extrema;
+  extrema.markerShapes = [];
+  extrema.label = null;
+}
+
+function clearEspExtremaMarkers(options = {}) {
+  const extrema = state.espAnalysis.extrema;
+  removeEspExtremaLabel();
+  if (state.viewer && typeof state.viewer.removeShape === 'function') {
+    extrema.markerShapes.forEach((shape) => {
+      try {
+        state.viewer.removeShape(shape);
+      } catch (error) {
+        console.error(error);
+      }
+    });
+  }
+  extrema.markerShapes = [];
+  if (options.clearSelection) extrema.selectedPointId = '';
+  if (options.render !== false && state.viewer) state.viewer.render();
+}
+
+function shouldDisplayEspExtrema() {
+  const extrema = state.espAnalysis.extrema;
+  return Boolean(
+    extrema.enabled
+    && extrema.result
+    && extrema.resultKey === currentEspExtremaKey()
+    && isEspVisualizationActive()
+    && !isPlotPanelVisible()
+  );
+}
+
+function espExtremaPointColor(point) {
+  const value = Number(point?.value || 0);
+  if (Math.abs(value) <= 1e-12) return espSurfaceColors.zero;
+  return value < 0 ? espSurfaceColors.negative : espSurfaceColors.positive;
+}
+
+function formatEspExtremaPoint(point) {
+  const type = point.type === 'minimum' ? 'min' : 'max';
+  const name = point.global
+    ? `Global ${type}`
+    : `${type[0].toUpperCase()}${type.slice(1)} ${point.rank}`;
+  const value = Number(point.value);
+  const signedValue = `${value >= 0 ? '+' : ''}${value.toFixed(6)}`;
+  return `${name}  ${signedValue} a.u.  (${Number(point.kcalMol).toFixed(2)} kcal/mol)`;
+}
+
+function configureEspExtremaLabelLayer(label) {
+  if (!label?.sprite) return;
+  label.sprite.renderOrder = 300;
+  if (label.sprite.material) {
+    label.sprite.material.depthTest = false;
+    label.sprite.material.depthWrite = false;
+    label.sprite.material.needsUpdate = true;
+  }
+  const modelGroup = state.viewer?.modelGroup;
+  if (modelGroup && typeof modelGroup.remove === 'function' && typeof modelGroup.add === 'function') {
+    modelGroup.remove(label.sprite);
+    modelGroup.add(label.sprite);
+  }
+}
+
+function showEspExtremaLabel(point) {
+  const extrema = state.espAnalysis.extrema;
+  removeEspExtremaLabel();
+  if (!point || !state.viewer) return;
+  const text = formatEspExtremaPoint(point);
+  extrema.label = state.viewer.addLabel(text, {
+    position: { x: point.x, y: point.y, z: point.z },
+    fontSize: 12,
+    fontColor: '#111820',
+    backgroundColor: espExtremaPointColor(point),
+    backgroundOpacity: 0.96,
+    borderThickness: 1,
+    borderColor: '#111820',
+    inFront: true
+  }, undefined, true);
+  configureEspExtremaLabelLayer(extrema.label);
+  setStatus(text);
+}
+
+function handleEspExtremaMarkerClick(point, callbackArguments) {
+  const event = callbackArguments.find((argument) => (
+    argument && typeof argument === 'object'
+    && ('metaKey' in argument || 'ctrlKey' in argument || 'button' in argument)
+  ));
+  if (event?.metaKey || event?.ctrlKey || (event?.button !== undefined && Number(event.button) !== 0)) return;
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const extrema = state.espAnalysis.extrema;
+  if (extrema.selectedPointId === point.id) {
+    extrema.selectedPointId = '';
+    removeEspExtremaLabel();
+    state.viewer.render();
+    setStatus('ESP extrema label hidden');
+    return;
+  }
+  extrema.selectedPointId = point.id;
+  showEspExtremaLabel(point);
+  state.viewer.render();
+}
+
+function keepEspExtremaMarkerOpaque(shape) {
+  if (!shape || typeof shape.globj !== 'function') return shape;
+  const renderShape = shape.globj;
+  shape.globj = function renderOpaqueEspExtremaMarker(...args) {
+    const result = renderShape.apply(this, args);
+    const objects = [this.renderedShapeObj];
+    while (objects.length) {
+      const object = objects.pop();
+      if (!object) continue;
+      if (object.material) {
+        // 3Dmol rebuilds GLShape materials on every render. Keep markers in the
+        // transparent pass after the ESP surface without lowering their alpha.
+        object.material.transparent = true;
+        object.material.opacity = 1;
+        object.material.depthTest = true;
+        object.material.depthWrite = true;
+        object.material.needsUpdate = true;
+      }
+      if (Array.isArray(object.children)) objects.push(...object.children);
+    }
+    return result;
+  };
+  return shape;
+}
+
+function renderEspExtremaMarkers(options = {}) {
+  const extrema = state.espAnalysis.extrema;
+  clearEspExtremaMarkers({ render: false });
+  if (!shouldDisplayEspExtrema() || !state.viewer) {
+    extrema.selectedPointId = '';
+    if (options.render !== false && state.viewer) state.viewer.render();
+    return;
+  }
+
+  const points = espExtremaPoints();
+  points.forEach((point) => {
+    const radius = point.global ? espExtremaMarkerRadii.global : espExtremaMarkerRadii.local;
+    const callback = (...args) => handleEspExtremaMarkerClick(point, args);
+    const visibleShape = keepEspExtremaMarkerOpaque(state.viewer.addSphere({
+      center: { x: point.x, y: point.y, z: point.z },
+      radius: radius * espExtremaMarkerVisualScale,
+      color: espExtremaPointColor(point),
+      opacity: 1,
+      clickable: true,
+      callback
+    }));
+    const hitSphere = visibleShape?.intersectionShape?.sphere?.[0];
+    if (hitSphere) hitSphere.radius = radius;
+    extrema.markerShapes.push(visibleShape);
+  });
+  const selected = points.find((point) => point.id === extrema.selectedPointId);
+  if (selected) showEspExtremaLabel(selected);
+  else extrema.selectedPointId = '';
+  if (options.render !== false) state.viewer.render();
+}
+
+function syncEspExtremaVisibility(options = {}) {
+  renderEspExtremaMarkers(options);
+  syncEspExtremaMenuState();
+}
+
+function disposeEspExtremaWorker(reason = '') {
+  const extrema = state.espAnalysis.extrema;
+  const reject = extrema.workerReject;
+  extrema.workerReject = null;
+  if (extrema.workerTimeout) window.clearTimeout(extrema.workerTimeout);
+  extrema.workerTimeout = 0;
+  if (extrema.worker) extrema.worker.terminate();
+  extrema.worker = null;
+  if (reason && reject) {
+    const error = new Error(reason);
+    error.name = 'AbortError';
+    reject(error);
+  }
+}
+
+function resetEspExtremaState(options = {}) {
+  const extrema = state.espAnalysis.extrema;
+  extrema.requestGeneration += 1;
+  disposeEspExtremaWorker('ESP extrema analysis cancelled');
+  extrema.enabled = false;
+  extrema.busy = false;
+  extrema.result = null;
+  extrema.resultKey = '';
+  extrema.selectedPointId = '';
+  if (options.clearCache !== false) {
+    extrema.cache.clear();
+    extrema.sessionGeneration += 1;
+  }
+  clearEspExtremaMarkers({ render: options.render, clearSelection: true });
+  syncEspExtremaMenuState();
+}
+
+function invalidateEspExtremaCubeData() {
+  const extrema = state.espAnalysis.extrema;
+  extrema.requestGeneration += 1;
+  disposeEspExtremaWorker('ESP cube data changed');
+  extrema.busy = false;
+  extrema.result = null;
+  extrema.resultKey = '';
+  extrema.selectedPointId = '';
+  extrema.cache.clear();
+  clearEspExtremaMarkers({ render: false, clearSelection: true });
+  syncEspExtremaMenuState();
+}
+
+function runEspExtremaWorker(pair, isovalue) {
+  const extrema = state.espAnalysis.extrema;
+  if (typeof Worker !== 'function') return Promise.reject(new Error('Web Worker is unavailable'));
+  disposeEspExtremaWorker('ESP extrema analysis superseded');
+  const requestId = ++extrema.requestGeneration;
+  const workerUrl = new URL('esp-extrema-worker.js', window.location.href);
+  const worker = new Worker(workerUrl, { name: 'multiwfn-esp-extrema' });
+  extrema.worker = worker;
+
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      if (extrema.workerTimeout) window.clearTimeout(extrema.workerTimeout);
+      extrema.workerTimeout = 0;
+      if (extrema.worker === worker) extrema.worker = null;
+      if (extrema.workerReject === reject) extrema.workerReject = null;
+      worker.terminate();
+    };
+    extrema.workerReject = reject;
+    extrema.workerTimeout = window.setTimeout(() => {
+      finish();
+      reject(new Error('Timed out locating ESP extrema'));
+    }, ESP_EXTREMA_WORKER_TIMEOUT);
+    worker.addEventListener('message', (event) => {
+      const payload = event.data || {};
+      if (payload.requestId !== requestId || requestId !== extrema.requestGeneration) {
+        finish();
+        const error = new Error('ESP extrema analysis superseded');
+        error.name = 'AbortError';
+        reject(error);
+        return;
+      }
+      finish();
+      if (!payload.ok) reject(new Error(payload.message || 'ESP extrema analysis failed'));
+      else resolve(payload.result);
+    }, { once: true });
+    worker.addEventListener('error', (event) => {
+      finish();
+      reject(new Error(event.message || 'ESP extrema worker failed'));
+    }, { once: true });
+    worker.postMessage({
+      requestId,
+      densityCube: pair.density.data,
+      espCube: pair.potential.data,
+      isovalue
+    });
+  });
+}
+
+function cacheEspExtremaResult(key, result) {
+  const cache = state.espAnalysis.extrema.cache;
+  cache.set(key, result);
+  while (cache.size > 8) cache.delete(cache.keys().next().value);
+}
+
+async function ensureEspExtremaForCurrentEsp() {
+  const extrema = state.espAnalysis.extrema;
+  if (!extrema.enabled) return false;
+  const pair = currentEspExtremaPair();
+  if (!pair || !isEspVisualizationActive()) return false;
+  const key = currentEspExtremaKey(pair);
+  const quality = Number(pair.density.gridQuality || state.espAnalysis.quality || 0);
+  const isovalue = Number(pair.density.isovalue || state.espAnalysis.isovalue || 0.001);
+  if (extrema.cache.has(key)) {
+    extrema.result = extrema.cache.get(key);
+    extrema.resultKey = key;
+    extrema.busy = false;
+    syncEspExtremaVisibility();
+    const result = extrema.result;
+    setStatus(`ESP extrema loaded from session cache (${result.minima.length} minima, ${result.maxima.length} maxima)`);
+    return true;
+  }
+
+  extrema.busy = true;
+  syncEspExtremaMenuState();
+  setStatus(`Locating ESP extrema at ${formatGridQuality(quality)}...`);
+  try {
+    const result = await runEspExtremaWorker(pair, isovalue);
+    if (!extrema.enabled || key !== currentEspExtremaKey()) return false;
+    const stored = { ...result, quality, isovalue };
+    cacheEspExtremaResult(key, stored);
+    extrema.result = stored;
+    extrema.resultKey = key;
+    syncEspExtremaVisibility();
+    setStatus(`ESP extrema shown: ${stored.minima.length} minima, ${stored.maxima.length} maxima (${Math.round(stored.elapsedMs)} ms)`);
+    return true;
+  } catch (error) {
+    if (error?.name === 'AbortError') return false;
+    console.error(error);
+    extrema.enabled = false;
+    extrema.result = null;
+    extrema.resultKey = '';
+    clearEspExtremaMarkers({ clearSelection: true });
+    setStatus(error?.message || 'ESP extrema analysis failed', false);
+    return false;
+  } finally {
+    extrema.busy = false;
+    syncEspExtremaMenuState();
+  }
+}
+
+async function setEspExtremaEnabled(enabled, options = {}) {
+  const extrema = state.espAnalysis.extrema;
+  if (!enabled) {
+    extrema.enabled = false;
+    extrema.requestGeneration += 1;
+    disposeEspExtremaWorker('ESP extrema analysis cancelled');
+    extrema.busy = false;
+    clearEspExtremaMarkers({ clearSelection: true });
+    syncEspExtremaMenuState();
+    if (options.announce !== false) setStatus('ESP extrema hidden');
+    return true;
+  }
+
+  const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
+  if (!capability.available) {
+    extrema.enabled = false;
+    syncEspExtremaMenuState();
+    setStatus(capability.reason || 'ESP calculation is unavailable', false);
+    return false;
+  }
+  extrema.enabled = true;
+  syncEspExtremaMenuState();
+
+  const desiredQuality = currentGuiQuality();
+  let pair = currentEspExtremaPair();
+  if (!pair || Number(pair.density.gridQuality) !== desiredQuality) {
+    const loaded = await requestGuiEsp({ quality: desiredQuality });
+    if (!loaded || !extrema.enabled) {
+      extrema.enabled = false;
+      syncEspExtremaMenuState();
+      return false;
+    }
+    pair = currentEspExtremaPair();
+  } else if (!isEspVisualizationActive()) {
+    activateEspLayers(pair.density, pair.potential, {
+      quality: desiredQuality,
+      isovalue: pair.density.isovalue
+    });
+  }
+  if (!pair) {
+    extrema.enabled = false;
+    syncEspExtremaMenuState();
+    setStatus('ESP cube layers are unavailable', false);
+    return false;
+  }
+  return ensureEspExtremaForCurrentEsp();
+}
+
+function setGuiEspRequestBusy(busy) {
+  state.espAnalysis.requestBusy = Boolean(busy);
+  syncBackendRequestControls();
+}
+
+function upsertEspLayer(text, options) {
+  const existing = espLayerByKind(options.analysisKind);
+  const next = layerFromCube(text, options);
+  if (existing) {
+    const id = existing.id;
+    Object.assign(existing, next, { id });
+    return existing;
+  }
+  next.id = state.nextLayerId;
+  state.nextLayerId += 1;
+  state.layers.push(next);
+  state.layers.sort((left, right) => Number(left.id) - Number(right.id));
+  return next;
+}
+
+function activateEspLayers(density, potential, options = {}) {
+  const opacity = clamp(toNumber(density.opacity, state.espAnalysis.opacity), 0.05, 1);
+  state.layers.forEach((layer) => { layer.visible = false; });
+  density.visible = true;
+  density.opacity = opacity;
+  potential.visible = false;
+  density.colorMode = 'cube';
+  density.colorLayerId = String(potential.id);
+  density.gradient = 'trans';
+  state.gui.activeLayerId = String(density.id);
+  state.gui.pendingOrbitalIndex = 0;
+  state.espAnalysis.densityLayerId = String(density.id);
+  state.espAnalysis.potentialLayerId = String(potential.id);
+  state.espAnalysis.quality = Number(density.gridQuality || options.quality || 0);
+  state.espAnalysis.isovalue = Number(density.isovalue || options.isovalue || 0.001);
+  state.espAnalysis.opacity = opacity;
+  renderLayerList();
+  updateLayerSelectors();
+  syncEspOpacityControls();
+  renderScene(false);
+}
+
+function estimateEspColorLimit(densityText, espText, isovalue) {
+  try {
+    const densityVolume = new $3Dmol.VolumeData(densityText, 'cube');
+    const espVolume = new $3Dmol.VolumeData(espText, 'cube');
+    return espScale?.estimateSymmetricRange(densityVolume, espVolume, isovalue, {
+      percentile: 0.95,
+      fallback: 0.05
+    }) || 0.05;
+  } catch (error) {
+    console.error(error);
+    return 0.05;
+  }
+}
+
+async function requestGuiEsp(options = {}) {
+  const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
+  if (!capability.available) {
+    setStatus(capability.reason || 'ESP calculation is unavailable', false);
+    return false;
+  }
+  if (state.gui.orbitalRequestBusy || state.bondAnalysis.requestBusy || state.espAnalysis.requestBusy) {
+    setStatus('Multiwfn backend is busy', false);
+    return false;
+  }
+  const sessionGeneration = state.espAnalysis.extrema.sessionGeneration;
+  const sessionIsCurrent = () => (
+    sessionGeneration === state.espAnalysis.extrema.sessionGeneration
+  );
+
+  const existingDensity = espLayerByKind('esp-density');
+  const existingPotential = espLayerByKind('esp-potential');
+  const quality = Number(options.quality || currentGuiQuality());
+  const isovalue = clamp(toNumber(
+    options.isovalue,
+    existingDensity?.isovalue || capability.defaultIsovalue || 0.001
+  ), 0.000001, 0.1);
+  const cached = existingDensity && existingPotential
+    && Number(existingDensity.gridQuality) === quality
+    && Math.abs(Number(existingDensity.isovalue) - isovalue) < 1e-12;
+  if (cached && !options.forceRecompute) {
+    activateEspLayers(existingDensity, existingPotential, { quality, isovalue });
+    setOrbitalStatus(`ESP loaded at ${formatGridQuality(quality)}`);
+    setStatus(`ESP loaded from session cache at ${formatGridQuality(quality)}`);
+    return true;
+  }
+
+  const params = new URLSearchParams({
+    quality: String(quality),
+    isovalue: String(isovalue)
+  });
+  setGuiEspRequestBusy(true);
+  setOrbitalStatus(`Calculating ESP at ${formatGridQuality(quality)}...`);
+  setStatus(`Calculating ESP at ${formatGridQuality(quality)}...`);
+  try {
+    const response = await fetch(`/api/esp?${params.toString()}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`ESP API returned HTTP ${response.status}`);
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error('ESP API returned invalid JSON');
+    }
+    if (!sessionIsCurrent()) return false;
+    if (!payload.ok) throw new Error(payload.message || 'ESP calculation failed');
+    const densitySpec = payload.densityLayer;
+    const potentialSpec = payload.espLayer;
+    if (!densitySpec?.path || !potentialSpec?.path) {
+      throw new Error('ESP API response did not include both cube layers');
+    }
+    const sessionUrl = new URL('/session/', window.location.href).toString();
+    const [densityText, potentialText] = await Promise.all([
+      loadTextFromManifestEntry(densitySpec, sessionUrl),
+      loadTextFromManifestEntry(potentialSpec, sessionUrl)
+    ]);
+    if (!sessionIsCurrent()) return false;
+    const resolvedIsovalue = Number(payload.isovalue || isovalue);
+    const resolvedQuality = Number(payload.quality || quality);
+    const colorLimit = estimateEspColorLimit(densityText, potentialText, resolvedIsovalue);
+    if (
+      (existingDensity && existingDensity.data !== densityText)
+      || (existingPotential && existingPotential.data !== potentialText)
+    ) {
+      invalidateEspExtremaCubeData();
+    }
+    const potential = upsertEspLayer(potentialText, {
+      ...potentialSpec,
+      analysisKind: 'esp-potential',
+      gridQuality: resolvedQuality,
+      role: 'esp',
+      visible: false,
+      positiveColor: espSurfaceColors.positive,
+      negativeColor: espSurfaceColors.negative
+    });
+    const density = upsertEspLayer(densityText, {
+      ...densitySpec,
+      analysisKind: 'esp-density',
+      gridQuality: resolvedQuality,
+      role: 'density',
+      mode: 'positive',
+      isovalue: resolvedIsovalue,
+      opacity: state.espAnalysis.opacity,
+      visible: true,
+      colorMode: 'cube',
+      colorLayerId: String(potential.id),
+      gradient: 'trans',
+      surfaceStyle: 'transparent',
+      colorMin: -colorLimit,
+      colorMax: colorLimit
+    });
+    activateEspLayers(density, potential, { quality: resolvedQuality, isovalue: resolvedIsovalue });
+    setOrbitalStatus(`ESP loaded at ${formatGridQuality(resolvedQuality)}`);
+    setStatus(`ESP mapped at ${formatGridQuality(resolvedQuality)} (±${colorLimit.toPrecision(3)} a.u.)`);
+    return true;
+  } catch (error) {
+    if (!sessionIsCurrent()) return false;
+    console.error(error);
+    const message = error?.message || 'ESP API unavailable';
+    setStatus(message, false);
+    setOrbitalStatus(message, false);
+    return false;
+  } finally {
+    setGuiEspRequestBusy(false);
+  }
+}
+
 window.multiwfnGui = {
   requestOrbital(index, options = {}) {
     if (Number.isFinite(Number(options.isovalue)) && Number(options.isovalue) > 0) {
@@ -2673,6 +3744,9 @@ window.multiwfnGui = {
   },
   setActiveLayer(id) {
     return setActiveGuiLayer(String(id), { orbitalSelection: true });
+  },
+  requestEsp(options = {}) {
+    return requestGuiEsp(options);
   }
 };
 
@@ -2693,6 +3767,7 @@ function initializeMultiwfnOrbitalSelection() {
 function setStructureData(text, name = 'structure.xyz', format = 'xyz', options = {}) {
   clearAtomSelectionState();
   clearBondAnalysisState({ resetCapabilities: !options.preserveBondCapabilities });
+  resetEspExtremaState({ render: false });
   const normalizedFormat = format === 'auto' ? detectFormat(name) : format;
   state.structure = {
     data: text,
@@ -2714,6 +3789,7 @@ function loadStructure(text, name = 'structure.xyz', format = 'xyz') {
 function clearStructure() {
   clearAtomSelectionState();
   clearBondAnalysisState({ resetCapabilities: true });
+  resetEspExtremaState({ render: false });
   state.structure = { data: '', name: '', format: 'xyz', atoms: 0, baseData: '', bonding: null };
   state.dirtyZoom = true;
   setStatus('Structure cleared');
@@ -2732,6 +3808,8 @@ function layerFromCube(text, options = {}) {
     name: options.name || `${roleLabel(role)}.cube`,
     role,
     orbitalIndex,
+    analysisKind: String(options.analysisKind || ''),
+    gridQuality: Number(options.gridQuality || 0),
     data: text,
     visible: options.visible !== false,
     mode: options.mode || els.surfaceMode.value || 'signed',
@@ -3022,8 +4100,43 @@ function refreshBondAnalysisCapabilities() {
   };
 }
 
+function normalizeEspAnalysisCapabilities(source) {
+  const normalized = defaultEspAnalysisCapabilities();
+  if (!source || typeof source !== 'object') return normalized;
+  normalized.available = Boolean(source.available);
+  normalized.periodicSupported = Boolean(source.periodicSupported);
+  normalized.defaultIsovalue = clamp(toNumber(source.defaultIsovalue, 0.001), 0.000001, 0.1);
+  normalized.reason = String(source.reason || (
+    normalized.available ? '' : 'ESP calculation is unavailable for the current wavefunction'
+  ));
+  return normalized;
+}
+
+function refreshEspAnalysisCapabilities() {
+  const base = state.espAnalysis.baseCapabilities || defaultEspAnalysisCapabilities();
+  const periodicBlocked = Boolean(state.periodic.enabled && !base.periodicSupported);
+  state.espAnalysis.capabilities = {
+    ...base,
+    available: periodicBlocked ? false : Boolean(base.available),
+    reason: periodicBlocked
+      ? 'ESP visualization is not supported for periodic systems'
+      : String(base.reason || '')
+  };
+  if (els.guiToolEspShow) {
+    els.guiToolEspShow.setAttribute('aria-disabled', String(!state.espAnalysis.capabilities.available));
+    els.guiToolEspShow.title = state.espAnalysis.capabilities.available
+      ? ''
+      : state.espAnalysis.capabilities.reason;
+  }
+  if (els.guiToolEsp) els.guiToolEsp.title = state.espAnalysis.capabilities.reason || '';
+  syncEspExtremaMenuState();
+  syncEspOpacityControls();
+  syncEspLegendVisibility();
+}
+
 async function loadManifestObject(manifest, baseUrl = '') {
   state.bondAnalysis.baseCapabilities = normalizeBondAnalysisCapabilities(manifest.bondAnalysis);
+  state.espAnalysis.baseCapabilities = normalizeEspAnalysisCapabilities(manifest.espAnalysis);
   if (manifest.multiwfnGui) {
     state.multiwfnGui = {
       entry: manifest.multiwfnGui.entry || 'standalone',
@@ -3075,6 +4188,7 @@ async function loadManifestObject(manifest, baseUrl = '') {
     els.cubeRepeatCap.value = state.periodic.cubeRepeatCap || 8;
   }
   refreshBondAnalysisCapabilities();
+  refreshEspAnalysisCapabilities();
 
   const structureEntry = manifest.structure;
   const layerEntries = manifest.cubes || manifest.layers || [];
@@ -3104,6 +4218,7 @@ function saveManifest() {
     version: 1,
     multiwfnGui: state.multiwfnGui,
     bondAnalysis: state.bondAnalysis.capabilities,
+    espAnalysis: state.espAnalysis.capabilities,
     structure: state.structure.name
       ? {
           name: state.structure.name,
@@ -3116,6 +4231,8 @@ function saveManifest() {
     layers: state.layers.map((layer) => ({
       name: layer.name,
       role: layer.role,
+      analysisKind: layer.analysisKind || undefined,
+      gridQuality: layer.gridQuality || undefined,
       mode: layer.mode,
       isovalue: layer.isovalue,
       opacity: layer.opacity,
@@ -3145,17 +4262,114 @@ function saveManifest() {
   downloadBlob('multiwfn-3dmol-manifest.json', 'application/json', `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-function savePng() {
+function downloadPngDataUri(dataUri) {
+  const link = document.createElement('a');
+  link.href = dataUri;
+  link.download = 'multiwfn-3dmol-view.png';
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+function loadPngImage(dataUri) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener('load', () => resolve(image), { once: true });
+    image.addEventListener('error', () => reject(new Error('Could not decode the rendered PNG')), { once: true });
+    image.src = dataUri;
+  });
+}
+
+function roundedRectanglePath(context, x, y, width, height, radius) {
+  const corner = Math.max(0, Math.min(radius, width / 2, height / 2));
+  context.beginPath();
+  context.moveTo(x + corner, y);
+  context.lineTo(x + width - corner, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + corner);
+  context.lineTo(x + width, y + height - corner);
+  context.quadraticCurveTo(x + width, y + height, x + width - corner, y + height);
+  context.lineTo(x + corner, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - corner);
+  context.lineTo(x, y + corner);
+  context.quadraticCurveTo(x, y, x + corner, y);
+  context.closePath();
+}
+
+function drawEspLegendForExport(context, model, image) {
+  const viewportRect = els.viewerWrap.getBoundingClientRect();
+  const legendRect = els.espLegend.getBoundingClientRect();
+  const gradientRect = els.espLegendGradient.getBoundingClientRect();
+  if (!viewportRect.width || !viewportRect.height || !legendRect.width || !legendRect.height) return;
+
+  const scaleX = image.naturalWidth / viewportRect.width;
+  const scaleY = image.naturalHeight / viewportRect.height;
+  const scale = Math.min(scaleX, scaleY);
+  const projectRect = (rect) => ({
+    x: (rect.left - viewportRect.left) * scaleX,
+    y: (rect.top - viewportRect.top) * scaleY,
+    width: rect.width * scaleX,
+    height: rect.height * scaleY
+  });
+  const card = projectRect(legendRect);
+  const bar = projectRect(gradientRect);
+  const padding = (legendRect.width <= 160 ? 10 : 12) * scale;
+
+  context.save();
+  context.shadowColor = 'rgba(28, 36, 48, 0.14)';
+  context.shadowBlur = 12 * scale;
+  context.shadowOffsetY = 3 * scale;
+  roundedRectanglePath(context, card.x, card.y, card.width, card.height, 8 * scale);
+  context.fillStyle = 'rgba(247, 248, 250, 0.96)';
+  context.fill();
+  context.shadowColor = 'transparent';
+  context.strokeStyle = '#d7dde5';
+  context.lineWidth = Math.max(1, scale);
+  context.stroke();
+
+  const compact = legendRect.width <= 160;
+  context.fillStyle = '#1c2430';
+  context.font = `600 ${(compact ? 10 : 12) * scale}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  context.textBaseline = 'top';
+  context.fillText(els.espLegendTitle.textContent, card.x + padding, card.y + padding);
+  context.fillStyle = '#667085';
+  context.font = `400 ${(compact ? 10 : 11) * scale}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  context.fillText(els.espLegendUnit.textContent, card.x + padding, card.y + padding + 17 * scale);
+
+  paintEspLegendGradient(context, model, bar.x, bar.y, bar.width, bar.height);
+  context.strokeStyle = '#c8d0dc';
+  context.lineWidth = Math.max(1, scale);
+  context.strokeRect(bar.x, bar.y, bar.width, bar.height);
+
+  context.fillStyle = '#1c2430';
+  context.font = `400 ${11 * scale}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+  model.ticks.forEach((tick) => {
+    const y = bar.y + tick.fraction * bar.height;
+    context.textBaseline = tick.fraction === 0 ? 'top' : tick.fraction === 1 ? 'bottom' : 'middle';
+    context.fillText(tick.label, bar.x + bar.width + 10 * scale, y);
+  });
+  context.restore();
+}
+
+async function savePng() {
   try {
     const dataUri = typeof state.viewer.pngURI === 'function'
       ? state.viewer.pngURI()
       : els.viewer.querySelector('canvas').toDataURL('image/png');
-    const link = document.createElement('a');
-    link.href = dataUri;
-    link.download = 'multiwfn-3dmol-view.png';
-    document.body.append(link);
-    link.click();
-    link.remove();
+    const legendModel = currentEspLegendModel();
+    if (!legendModel || !shouldDisplayEspLegend() || els.espLegend.hidden) {
+      downloadPngDataUri(dataUri);
+      setStatus('PNG saved');
+      return;
+    }
+
+    const image = await loadPngImage(dataUri);
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    drawEspLegendForExport(context, legendModel, image);
+    downloadPngDataUri(canvas.toDataURL('image/png'));
     setStatus('PNG saved');
   } catch (error) {
     console.error(error);
@@ -3166,6 +4380,8 @@ function savePng() {
 function showPlotPanel(show = true) {
   els.plotPanel.classList.toggle('is-hidden', !show);
   updateOrientationVisibility();
+  syncEspExtremaVisibility();
+  syncEspLegendVisibility();
   syncSceneOverlays();
 }
 
@@ -3507,6 +4723,10 @@ function updateLayerFromControl(control) {
     setGlobalOrbitalOpacity(control.value, { announce: true });
     return;
   }
+  if (action === 'opacity' && layer.analysisKind === 'esp-density') {
+    setEspSurfaceOpacity(control.value, { announce: true });
+    return;
+  }
   if (action === 'opacity') layer.opacity = clamp(toNumber(control.value, layer.opacity), 0.05, 1);
   if (action === 'colorMode') layer.colorMode = control.value;
   if (action === 'colorLayerId') layer.colorLayerId = control.value;
@@ -3654,6 +4874,10 @@ function updateActiveLayerFromGui(event) {
   }
   if (event?.target === els.guiIsosurfaceOpacity && isOrbitalLayer(layer)) {
     setGlobalOrbitalOpacity(els.guiIsosurfaceOpacity.value, { announce: true });
+    return;
+  }
+  if (event?.target === els.guiIsosurfaceOpacity && layer.analysisKind === 'esp-density') {
+    setEspSurfaceOpacity(els.guiIsosurfaceOpacity.value, { announce: true });
     return;
   }
   layer.mode = els.guiIsosurfaceMode.value;
@@ -3837,6 +5061,7 @@ function bindEvents() {
   els.guiRotLeft.addEventListener('click', () => rotateGuiView('left'));
   els.guiRotRight.addEventListener('click', () => rotateGuiView('right'));
   els.guiMenuIsosur1.addEventListener('click', () => {
+    setToolsMenuOpen(false);
     setStyleMenuOpen(els.guiIsosur1Menu.hidden, { focus: true });
   });
   els.guiStyleTransparency.addEventListener('click', () => {
@@ -3878,6 +5103,81 @@ function bindEvents() {
     if (els.guiIsosur1Menu.hidden) return;
     setStyleMenuOpen(false);
     els.guiMenuIsosur1.focus();
+    event.preventDefault();
+  });
+
+  els.guiToolsMenu.addEventListener('keydown', handleToolsMenuKeydown);
+  els.guiEspMenu.addEventListener('keydown', handleEspToolsMenuKeydown);
+  els.guiMenuTools.addEventListener('click', () => {
+    setStyleMenuOpen(false);
+    setToolsMenuOpen(els.guiToolsMenu.hidden, { focus: true });
+  });
+  els.guiMenuTools.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    setToolsMenuOpen(true, { focus: true });
+    event.preventDefault();
+  });
+  els.guiToolEsp.addEventListener('click', () => {
+    setEspToolsMenuOpen(els.guiEspMenu.hidden, { focus: true });
+  });
+  els.guiToolEspShow.addEventListener('click', () => {
+    setToolsMenuOpen(false);
+    const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
+    if (!capability.available) {
+      setStatus(capability.reason || 'ESP calculation is unavailable', false);
+      return;
+    }
+    void requestGuiEsp().then((loaded) => {
+      if (loaded && state.espAnalysis.extrema.enabled) void ensureEspExtremaForCurrentEsp();
+    });
+  });
+  els.guiToolEspLegend.addEventListener('click', () => {
+    setToolsMenuOpen(false);
+    if (els.guiToolEspLegend.getAttribute('aria-disabled') === 'true') {
+      setStatus('Generate an ESP surface before showing its legend', false);
+      return;
+    }
+    setEspLegendEnabled(!state.espAnalysis.legend.enabled);
+  });
+  els.guiToolEspExtrema.addEventListener('click', () => {
+    setToolsMenuOpen(false);
+    const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
+    if (!capability.available) {
+      setStatus(capability.reason || 'ESP calculation is unavailable', false);
+      return;
+    }
+    void setEspExtremaEnabled(!state.espAnalysis.extrema.enabled);
+  });
+  els.guiEspOpacity.addEventListener('input', () => {
+    setEspSurfaceOpacity(Number(els.guiEspOpacity.value) / 100, { announce: true });
+  });
+  els.espLegendClose.addEventListener('click', () => {
+    setEspLegendEnabled(false);
+  });
+  els.espLegendHeader.addEventListener('pointerdown', startEspLegendDrag);
+  els.espLegendHeader.addEventListener('pointermove', moveEspLegend);
+  els.espLegendHeader.addEventListener('pointerup', finishEspLegendDrag);
+  els.espLegendHeader.addEventListener('pointercancel', finishEspLegendDrag);
+  els.espLegendHeader.addEventListener('lostpointercapture', finishEspLegendDrag);
+  els.espLegendHeader.addEventListener('mousedown', startEspLegendMouseDrag);
+  document.addEventListener('mousemove', moveEspLegendMouse);
+  document.addEventListener('mouseup', finishEspLegendMouseDrag);
+  document.addEventListener('click', (event) => {
+    const toolsOpen = !els.guiToolsMenu.hidden || !els.guiEspMenu.hidden;
+    if (toolsOpen && !els.guiToolsMenuControl.contains(event.target)) {
+      setToolsMenuOpen(false);
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (!els.guiEspMenu.hidden) {
+      closeEspToolsMenu({ focus: true });
+      event.preventDefault();
+      return;
+    }
+    if (els.guiToolsMenu.hidden) return;
+    setToolsMenuOpen(false);
+    els.guiMenuTools.focus();
     event.preventDefault();
   });
 
@@ -4018,13 +5318,18 @@ function bindEvents() {
     els.guiMenuOrbitalInfo,
     els.guiMenuIsosur2,
     els.guiMenuView,
-    els.guiMenuSettings,
-    els.guiMenuTools
+    els.guiMenuSettings
   ].forEach((el) => el.addEventListener('click', () => {
     document.querySelector('.advanced-panels').open = true;
     activateTab(el === els.guiMenuOrbitalInfo || el === els.guiMenuIsosur1 || el === els.guiMenuIsosur2 || el === els.guiMenuQuality ? 'layers' : 'style');
   }));
   els.guiMenuQuality.addEventListener('change', () => {
+    if (isEspVisualizationActive()) {
+      void requestGuiEsp({ forceRecompute: true }).then((loaded) => {
+        if (loaded && state.espAnalysis.extrema.enabled) void ensureEspExtremaForCurrentEsp();
+      });
+      return;
+    }
     const index = Number(activeGuiLayer()?.orbitalIndex || els.guiOrbitalInput.value || 0);
     if (index > 0) requestGuiOrbital(index, { forceRecompute: true });
     else setStatus('Select an orbital before changing grid quality', false);
@@ -4250,6 +5555,22 @@ function cacheElements() {
     guiMenuView: byId('gui-menu-view'),
     guiMenuSettings: byId('gui-menu-settings'),
     guiMenuTools: byId('gui-menu-tools'),
+    guiToolsMenuControl: byId('gui-tools-menu-control'),
+    guiToolsMenu: byId('gui-tools-menu'),
+    guiToolEsp: byId('gui-tool-esp'),
+    guiEspMenu: byId('gui-esp-menu'),
+    guiToolEspShow: byId('gui-tool-esp-show'),
+    guiToolEspLegend: byId('gui-tool-esp-legend'),
+    guiToolEspExtrema: byId('gui-tool-esp-extrema'),
+    guiEspOpacity: byId('gui-esp-opacity'),
+    guiEspOpacityValue: byId('gui-esp-opacity-value'),
+    espLegend: byId('esp-legend'),
+    espLegendHeader: byId('esp-legend-header'),
+    espLegendTitle: byId('esp-legend-title'),
+    espLegendUnit: byId('esp-legend-unit'),
+    espLegendClose: byId('esp-legend-close'),
+    espLegendGradient: byId('esp-legend-gradient'),
+    espLegendTicks: byId('esp-legend-ticks'),
     modelLabel: byId('model-label'),
     cubeLabel: byId('cube-label'),
     structureFile: byId('structure-file'),
@@ -4385,4 +5706,6 @@ window.addEventListener('resize', () => {
   syncSceneOverlays();
   closeBondContextMenu();
   repositionOpenStyleSubmenu();
+  repositionOpenEspToolsMenu();
+  syncEspLegendVisibility();
 });
