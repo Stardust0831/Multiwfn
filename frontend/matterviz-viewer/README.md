@@ -4,15 +4,15 @@ This is an experimental frontend developed independently from the current 3Dmol 
 It consumes the same Multiwfn session manifest and serialized backend API, so the Fortran
 calculation modules remain unchanged.
 
-The prototype pins MatterViz pull request
-[`janosh/matterviz#376`](https://github.com/janosh/matterviz/pull/376) at commit
-`b9ec891d617f7885b5a688c92e78454b08572c29`. That revision includes the periodic coordinate
-fix from [`janosh/matterviz#377`](https://github.com/janosh/matterviz/pull/377).
+The frontend consumes the prebuilt package in `vendor/`, generated from MatterViz commit
+`c8ca120a8091d9003bfd1247819d204d54d09585` on `feature/rendering-quality`. Keeping the package
+artifact in this repository makes clean installs reproducible and avoids rebuilding a Git-hosted
+dependency inside pnpm's temporary store. The corresponding MatterViz source branch remains the
+authoritative source for rendering changes.
 
 ## Build
 
-Node.js 22.23 and pnpm 11 are recommended. Node 24 currently conflicts with the pinned MatterViz
-Git package's TypeScript configuration during a clean dependency install.
+Node.js 24.11 or newer and pnpm 11 are recommended.
 
 ```bash
 pnpm install

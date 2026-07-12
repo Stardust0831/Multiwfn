@@ -10,7 +10,7 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
-    "matterviz": "github:janosh/matterviz#b9ec891d617f7885b5a688c92e78454b08572c29",
+    "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.c8ca120a.tgz",
     "svelte": "^5.56.4"
   },
   "devDependencies": {

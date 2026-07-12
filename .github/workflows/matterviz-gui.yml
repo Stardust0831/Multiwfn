@@ -42,7 +42,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.23.1
+          node-version: 24.11.1
           cache: pnpm
           cache-dependency-path: frontend/matterviz-viewer/pnpm-lock.yaml
 
