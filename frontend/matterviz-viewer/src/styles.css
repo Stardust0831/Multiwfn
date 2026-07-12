@@ -23,7 +23,7 @@ button, input, select { font: inherit; }
   max-width: none !important;
   margin: 0;
   padding: 0;
-  min-width: 760px;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -40,6 +40,8 @@ button, input, select { font: inherit; }
   padding: 6px 10px;
   background: #f8f9fb;
   border-bottom: 1px solid #cfd6df;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .brand { display: flex; align-items: baseline; gap: 7px; margin-right: 8px; }
@@ -184,7 +186,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .panel-empty { padding: 14px; color: #667085; }
 
 @media (max-width: 900px) {
-  .workbench { min-width: 680px; }
   .brand span { display: none; }
   .toolbar { gap: 5px; }
   .toolbar button { padding-inline: 7px; }

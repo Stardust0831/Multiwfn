@@ -12,6 +12,7 @@
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
   import { onMount } from 'svelte'
+  import SlicePanel from './SlicePanel.svelte'
   import {
     cube_entries,
     display_range,
@@ -20,6 +21,7 @@
     type ManifestEntry,
     type MultiwfnManifest,
   } from './manifest'
+  import { inject_manifest_lattice } from './periodic'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -30,6 +32,13 @@
   let activeVolumeIdx = $state(0)
   let measuredSites = $state<number[]>([])
   let supercellScaling = $state('1x1x1')
+  let showImageAtoms = $state(true)
+  let showUnitCell = $state(true)
+  let latticeProps = $state({
+    cell_edge_opacity: 1,
+    cell_surface_opacity: 0,
+    show_cell_vectors: true,
+  })
   let loading = $state(true)
   let errorMessage = $state<string | undefined>()
   let status = $state('Loading Multiwfn session...')
@@ -39,6 +48,7 @@
   let bondMethod = $state('mayer')
   let logOpen = $state(false)
   let layerOpen = $state(false)
+  let sliceOpen = $state(false)
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
 
   type ApiPayload = {
@@ -122,7 +132,10 @@
     const parsed = await Promise.all(entries.map((entry) => parse_cube_entry(entry, base)))
     const volumes = parsed.flatMap((item) => item.volumes)
     const expandedEntries = entries.flatMap((entry, idx) => parsed[idx].volumes.map(() => entry))
-    if (!structure) structure = parsed.find((item) => item.structure)?.structure
+    if (!structure) {
+      const parsedStructure = parsed.find((item) => item.structure)?.structure
+      if (parsedStructure) structure = inject_manifest_lattice(parsedStructure, manifest, { override: true })
+    }
     const previousVolumes = mode === 'append' ? (volumetricData ?? []) : []
     const previousLayers = mode === 'append' ? (isosurfaceSettings.layers ?? []) : []
     const firstVolumeIdx = previousVolumes.length
@@ -218,7 +231,7 @@
     const entry = manifest.structure
     if (!entry?.path) return
     const text = await fetch_text(resolve_entry_url(entry, manifestBase))
-    structure = parse_any_structure(text, entry.path)
+    structure = inject_manifest_lattice(parse_any_structure(text, entry.path), manifest, { override: true })
   }
 
   const load_manifest = async (): Promise<void> => {
@@ -233,6 +246,12 @@
       quality = Number(manifest.espAnalysis?.defaultQuality ?? 120000)
       espIsovalue = Number(manifest.espAnalysis?.defaultIsovalue ?? 0.001)
       orbitalIndex = Number(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex ?? 0)
+      showUnitCell = manifest.periodic?.showUnitCell !== false
+      latticeProps = {
+        ...latticeProps,
+        cell_edge_opacity: showUnitCell ? 1 : 0,
+        show_cell_vectors: showUnitCell,
+      }
       const availableBondMethod = Object.entries(manifest.bondAnalysis?.methods ?? {})
         .find(([, capability]) => capability.available !== false)?.[0]
       if (availableBondMethod) bondMethod = availableBondMethod
@@ -417,6 +436,7 @@
       >Calculate</button>
     {/if}
     <button type="button" onclick={() => layerOpen = !layerOpen} aria-expanded={layerOpen}>Layers ({volumeEntries.length})</button>
+    <button type="button" onclick={() => sliceOpen = !sliceOpen} disabled={!volumetricData?.length} aria-expanded={sliceOpen}>2D Slice</button>
     <button type="button" onclick={() => logOpen = !logOpen} aria-expanded={logOpen}>Logs ({logEntries.length})</button>
     <button class="return" type="button" onclick={return_to_multiwfn}>Return</button>
   </header>
@@ -446,6 +466,22 @@
         <span>Atoms</span>
         <input class="supercell" bind:value={supercellScaling} aria-label="Atom supercell" />
       </label>
+      <label>
+        <input type="checkbox" bind:checked={showImageAtoms} />
+        <span>Boundary atoms</span>
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          bind:checked={showUnitCell}
+          onchange={() => latticeProps = {
+            ...latticeProps,
+            cell_edge_opacity: showUnitCell ? 1 : 0,
+            show_cell_vectors: showUnitCell,
+          }}
+        />
+        <span>Cell frame</span>
+      </label>
     </section>
   {/if}
 
@@ -458,6 +494,8 @@
         bind:active_volume_idx={activeVolumeIdx}
         bind:measured_sites={measuredSites}
         bind:supercell_scaling={supercellScaling}
+        bind:show_image_atoms={showImageAtoms}
+        bind:lattice_props={latticeProps}
         bind:loading
         bind:error_msg={errorMessage}
         show_controls="always"
@@ -467,6 +505,13 @@
       <div class="empty">No structure is available in this session.</div>
     {/if}
     {#if loading}<div class="loading">Working...</div>{/if}
+    {#if sliceOpen}
+      <SlicePanel
+        volumes={volumetricData ?? []}
+        bind:active_volume_idx={activeVolumeIdx}
+        bind:open={sliceOpen}
+      />
+    {/if}
   </section>
 
   <footer class="statusbar" class:error={Boolean(errorMessage)}>

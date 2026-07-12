@@ -59,6 +59,8 @@ export type MultiwfnManifest = {
   }
   periodic?: {
     enabled?: boolean
+    showUnitCell?: boolean
+    tileCubes?: boolean
     cell?: { a?: number[]; b?: number[]; c?: number[] }
     ranges?: { a?: number[]; b?: number[]; c?: number[] }
   }

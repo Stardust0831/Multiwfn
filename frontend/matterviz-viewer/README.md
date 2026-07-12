@@ -47,6 +47,12 @@ strict-grid cross-coloring by another loaded volume. When the manifest exposes b
 capabilities, select two atoms with MatterViz's measurement tool and use the bond controls to run
 the corresponding Multiwfn calculation.
 
+For periodic sessions, manifest cell vectors are injected into structures that would otherwise be
+plain molecules (for example XYZ files), so MatterViz can render the cell, boundary atoms, periodic
+bonds, and atom supercells. Fractional surface ranges remain independent from the integer atom
+supercell. The 2D Slice panel samples any loaded cube on XY/XZ/YZ or custom Miller-index planes and
+renders the result on a resizable canvas with selectable color and value ranges.
+
 The first native WebView shell lives in `../matterviz-desktop`; see
 [`docs/matterviz-webview.md`](../../docs/matterviz-webview.md) for its runtime and packaging model.
 
