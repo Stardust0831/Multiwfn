@@ -140,6 +140,21 @@ jobs:
         run: |
           set -euo pipefail
           node --test frontend/3dmol-viewer/tests/*.test.js
+          python3 -m unittest tests.test_multiwfn_progress_launcher tests.test_multiwfn_analysis
+
+      - name: Verify native launcher on Windows Unicode paths
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/launcher 测试"
+          session="$root/nested 会话/session"
+          mkdir -p "$root"
+          cp build-3dmol-gui/Multiwfn_QtGUI.exe "$root/Multiwfn_QtGUI.exe"
+          gcc -municode tests/progress_launcher_fixture.c -o "$root/Multiwfn_QtGUI.backend.exe"
+          MULTIWFN_3DMOL_SESSION="$session" "$root/Multiwfn_QtGUI.exe" "argument with spaces"
+          test -s "$session/runtime.log"
+          grep -q '"phase":"complete"' "$session/esp_progress_fixture.json"
           tests/functional/run_3dmol_cube_unit_test.sh "build-3dmol-gui/${MULTIWFN_GUI_EXE}"
 
       - name: Build Qt native launcher
