@@ -8,7 +8,7 @@
 - Corrected the prior classification that treated PR #25 adapters as existing backend data. External output parsers are not a Multiwfn-native calculation-to-session chain and cannot establish MatterViz parity.
 - Removed all external-output parsers, `AnalysisStore`, analysis dataset APIs, source-file detection, five-kind spectrum capability declarations, SpectrumPanel/adapters, fixtures and associated tests.
 - Removed the previously committed DOS-only MatterViz panel and parser because the same native session capability is absent from `origin/main`.
-- Preserved the audit result in the parity TODO. The actual original 3Dmol plotting baseline is a generic user-selected CSV/JSON 2D curve/heatmap loader plus cube slices; MatterViz still needs the generic local plot import.
+- Preserved the audit result in the parity TODO. The original 3Dmol code contains a generic user-selected CSV/JSON 2D curve/heatmap loader, but product scope now defers that utility because it is not required for the current core GUI replacement phase; cube slices remain connected.
 - No commit or push was made before this cleanup.
 - Cleanup verification passed: 33 frontend unit tests, zero Svelte diagnostics, production Vite build and `git diff --check`.
 - Playwright passed at 1440x900 and 800x700 using a manifest with no analysis section: the structure canvas loaded, no page/console errors occurred, and no DOS/PDOS/IR/Raman/UV-Vis/NMR/Spectrum capability control was present.
@@ -19,6 +19,11 @@
 - Improved the native orbital workflow using existing manifest metadata only: added previous/next navigation, an orbital selector, energy/occupation display and HOMO/LUMO context. No calculation or protocol changes were required.
 - Final orbital review tightened edge cases: metadata selection is used only when the manifest item list covers the full orbital count, larger spaces retain numeric navigation, and HOMO/LUMO labels appear only for explicitly closed-shell sessions. Desktop and 800px Playwright navigation passed without page errors.
 - Expanded the native volume-layer workflow without changing data production: each layer now exposes positive/negative phase colors and visibility; compatible cross-volume coloring exposes colormap and numeric range controls. Existing workbench state fields already preserve these values.
+- Extended workbench state to preserve stable MatterViz structure appearance: molecule/atom visibility, bond display, atom radius, equal-size atoms, bond thickness/strategy, site labels/indices, sphere quality and background color/opacity. The original GUI `showMolecule` manifest value now initializes whole-molecule visibility, hiding both atoms and bonds when disabled.
+- Hardened the WebView adapter so every resolved-session exit path signals `gui_stop.flag`, including missing inputs, both bind attempts failing, desktop launch failure, service interruption and normal window close. Added seven lifecycle unit tests and CI coverage without changing Multiwfn calculation code.
+- Reconfirmed that generic CSV/JSON curve and heatmap import is not required for the current original-GUI replacement target; no such importer or capability is present in PR #26.
+- Verification for this increment: 37 frontend unit tests passed; Svelte check reported zero diagnostics; the production build passed; seven WebView adapter tests, Python compilation, desktop configuration validation and `git diff --check` passed; Playwright structure-state round trips passed at 1440x900 and 800x700 with no page errors.
+- Final read-only review found no blocking correctness or scope issue and explicitly confirmed strict `origin/main` scope, whole-molecule visibility semantics, optional state compatibility and normal/failure WebView signaling. Real installed-shell concurrent shutdown remains a documented smoke-test gap.
 
 ## Earlier work, superseded
 

@@ -10,7 +10,9 @@ on:
     paths:
       - CMakeLists.txt
       - noGUI/GUI_3dmol.f90
+      - tools/multiwfn_3dmol_server.py
       - tools/multiwfn_matterviz_webview.py
+      - tests/test_matterviz_webview.py
       - frontend/matterviz-viewer/**
       - frontend/matterviz-desktop/**
       - docs/matterviz-webview.md
@@ -59,6 +61,9 @@ jobs:
 
       - name: Validate MatterViz WebView configuration
         run: python3 frontend/matterviz-desktop/scripts/validate-config.py
+
+      - name: Test MatterViz WebView adapter
+        run: python3 -m unittest -v tests/test_matterviz_webview.py
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

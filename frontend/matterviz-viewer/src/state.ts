@@ -17,6 +17,20 @@ export type WorkbenchIsosurfaceAppearance = {
   halo?: number
 }
 
+export type WorkbenchStructureAppearance = {
+  showAtoms?: boolean
+  showBonds?: 'always' | 'never' | 'crystals' | 'molecules'
+  atomRadius?: number
+  sameSizeAtoms?: boolean
+  bondThickness?: number
+  bondingStrategy?: 'electroneg_ratio' | 'solid_angle'
+  showSiteLabels?: boolean
+  showSiteIndices?: boolean
+  sphereSegments?: number
+  backgroundColor?: string
+  backgroundOpacity?: number
+}
+
 export type MatterVizWorkbenchState = {
   format: 'multiwfn-matterviz-workbench'
   version: 1
@@ -42,6 +56,7 @@ export type MatterVizWorkbenchState = {
   }
   camera?: WorkbenchCameraState
   isosurface?: WorkbenchIsosurfaceAppearance
+  structureAppearance?: WorkbenchStructureAppearance
   session: Pick<MultiwfnManifest, 'multiwfnGui' | 'bondAnalysis' | 'espAnalysis'>
 }
 
@@ -55,6 +70,9 @@ export type WorkbenchStateInput = {
   showBoundaryAtoms: boolean
   showUnitCell: boolean
   camera?: WorkbenchCameraState
+  sceneProps?: Record<string, unknown>
+  backgroundColor?: string
+  backgroundOpacity?: number
 }
 
 export type WorkbenchStateRestoration = {
@@ -62,6 +80,7 @@ export type WorkbenchStateRestoration = {
   isosurfaceSettings: IsosurfaceSettings
   periodic?: MatterVizWorkbenchState['periodic']
   camera?: WorkbenchCameraState
+  structureAppearance?: WorkbenchStructureAppearance
 }
 
 const as_record = (value: unknown): Record<string, unknown> =>
@@ -86,6 +105,49 @@ const finite_number = (value: unknown): number | undefined => {
 const finite_integer = (value: unknown): number | undefined => {
   const number = finite_number(value)
   return number === undefined ? undefined : Math.trunc(number)
+}
+
+const clamp_finite = (value: unknown, minimum: number, maximum: number): number | undefined => {
+  const number = finite_number(value)
+  return number === undefined ? undefined : Math.min(maximum, Math.max(minimum, number))
+}
+
+const clamp_positive = (value: unknown, minimum: number, maximum: number): number | undefined =>
+  clamp_finite(value, minimum, maximum)
+
+const normalize_structure_appearance = (value: unknown): WorkbenchStructureAppearance | undefined => {
+  const row = as_record(value)
+  const appearance: WorkbenchStructureAppearance = {}
+  const read = (camel: string, snake: string): unknown => row[camel] ?? row[snake]
+
+  const showAtoms = read('showAtoms', 'show_atoms')
+  if (typeof showAtoms === 'boolean') appearance.showAtoms = showAtoms
+  const showBonds = read('showBonds', 'show_bonds')
+  if (showBonds === 'always' || showBonds === 'never' || showBonds === 'crystals' || showBonds === 'molecules') {
+    appearance.showBonds = showBonds
+  }
+  const atomRadius = clamp_positive(read('atomRadius', 'atom_radius'), 0.1, 3)
+  if (atomRadius !== undefined) appearance.atomRadius = atomRadius
+  const sameSizeAtoms = read('sameSizeAtoms', 'same_size_atoms')
+  if (typeof sameSizeAtoms === 'boolean') appearance.sameSizeAtoms = sameSizeAtoms
+  const bondThickness = clamp_positive(read('bondThickness', 'bond_thickness'), 0.01, 1)
+  if (bondThickness !== undefined) appearance.bondThickness = bondThickness
+  const bondingStrategy = read('bondingStrategy', 'bonding_strategy')
+  if (bondingStrategy === 'electroneg_ratio' || bondingStrategy === 'solid_angle') {
+    appearance.bondingStrategy = bondingStrategy
+  }
+  const showSiteLabels = read('showSiteLabels', 'show_site_labels')
+  if (typeof showSiteLabels === 'boolean') appearance.showSiteLabels = showSiteLabels
+  const showSiteIndices = read('showSiteIndices', 'show_site_indices')
+  if (typeof showSiteIndices === 'boolean') appearance.showSiteIndices = showSiteIndices
+  const sphereSegments = finite_integer(read('sphereSegments', 'sphere_segments'))
+  if (sphereSegments !== undefined) appearance.sphereSegments = Math.min(64, Math.max(8, sphereSegments))
+  const backgroundColor = normalize_color(read('backgroundColor', 'background_color'))
+  if (backgroundColor !== undefined) appearance.backgroundColor = backgroundColor
+  const backgroundOpacity = clamp_finite(read('backgroundOpacity', 'background_opacity'), 0, 1)
+  if (backgroundOpacity !== undefined) appearance.backgroundOpacity = backgroundOpacity
+
+  return Object.keys(appearance).length ? appearance : undefined
 }
 
 const finite_pair = (value: unknown): [number, number] | undefined => {
@@ -171,6 +233,12 @@ export const create_workbench_state = (input: WorkbenchStateInput): MatterVizWor
     ? displayRange as [[number, number], [number, number], [number, number]]
     : undefined
   const appearance = normalize_appearance(input.isosurfaceSettings)
+  const sceneProps = { ...(input.sceneProps ?? {}) }
+  const backgroundColor = normalize_color(input.backgroundColor)
+  if (backgroundColor !== undefined) sceneProps.backgroundColor = backgroundColor
+  const backgroundOpacity = clamp_finite(input.backgroundOpacity, 0, 1)
+  if (backgroundOpacity !== undefined) sceneProps.backgroundOpacity = backgroundOpacity
+  const structureAppearance = normalize_structure_appearance(sceneProps)
 
   return {
     format: 'multiwfn-matterviz-workbench',
@@ -205,6 +273,7 @@ export const create_workbench_state = (input: WorkbenchStateInput): MatterVizWor
     } : undefined,
     camera: normalize_camera(input.camera),
     isosurface: appearance,
+    structureAppearance,
     session: {
       multiwfnGui: input.manifest.multiwfnGui,
       bondAnalysis: input.manifest.bondAnalysis,
@@ -256,6 +325,7 @@ export const parse_workbench_state = (value: unknown): MatterVizWorkbenchState =
     periodic,
     camera: normalize_camera(root.camera),
     isosurface: normalize_appearance(root.isosurface),
+    structureAppearance: normalize_structure_appearance(root.structureAppearance),
     session,
   }
 }
@@ -312,6 +382,7 @@ export const restore_workbench_state = (
     isosurfaceSettings,
     periodic: state.periodic,
     camera: state.camera,
+    structureAppearance: state.structureAppearance,
   }
 }
 

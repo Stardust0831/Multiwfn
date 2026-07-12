@@ -152,3 +152,77 @@ test('normalizes reversed persisted color ranges', () => {
   })
   assert.deepEqual(parsed.volumes[0].colorRange, [-0.1, 0.2])
 })
+
+test('round-trips structure appearance and background state', () => {
+  const exported = create_workbench_state({
+    manifest: {},
+    entries: [{ path: 'structure.cif' }],
+    isosurfaceSettings: {},
+    activeVolume: 0,
+    atomSupercell: '1x1x1',
+    showBoundaryAtoms: true,
+    showUnitCell: true,
+    sceneProps: {
+      show_atoms: false,
+      show_bonds: 'molecules',
+      atom_radius: 1.25,
+      same_size_atoms: true,
+      bond_thickness: 0.2,
+      bonding_strategy: 'solid_angle',
+      show_site_labels: true,
+      show_site_indices: true,
+      sphere_segments: 32,
+    },
+    backgroundColor: '#112233',
+    backgroundOpacity: 0.65,
+  })
+  const expected = {
+    showAtoms: false,
+    showBonds: 'molecules',
+    atomRadius: 1.25,
+    sameSizeAtoms: true,
+    bondThickness: 0.2,
+    bondingStrategy: 'solid_angle',
+    showSiteLabels: true,
+    showSiteIndices: true,
+    sphereSegments: 32,
+    backgroundColor: '#112233',
+    backgroundOpacity: 0.65,
+  }
+  assert.deepEqual(exported.structureAppearance, expected)
+  const parsed = parse_workbench_state(JSON.parse(JSON.stringify(exported)))
+  assert.deepEqual(parsed.structureAppearance, expected)
+  const restored = restore_workbench_state(parsed, { entries: [{ path: 'structure.cif' }], isosurfaceSettings: {} })
+  assert.deepEqual(restored.structureAppearance, expected)
+})
+
+test('clamps bounded structure appearance values and ignores malformed fields', () => {
+  const parsed = parse_workbench_state({
+    format: 'multiwfn-matterviz-workbench',
+    version: 1,
+    activeVolume: 0,
+    volumes: [{ path: 'structure.cif', volumeIndex: 0 }],
+    structureAppearance: {
+      showAtoms: 'yes',
+      showBonds: 'invalid',
+      atomRadius: -10,
+      same_size_atoms: true,
+      bond_thickness: 10,
+      bondingStrategy: 'invalid',
+      show_site_labels: false,
+      showSiteIndices: Number.NaN,
+      sphere_segments: 100,
+      backgroundColor: '   ',
+      background_opacity: -1,
+    },
+    session: {},
+  })
+  assert.deepEqual(parsed.structureAppearance, {
+    atomRadius: 0.1,
+    sameSizeAtoms: true,
+    bondThickness: 1,
+    showSiteLabels: false,
+    sphereSegments: 64,
+    backgroundOpacity: 0,
+  })
+})

@@ -13,6 +13,18 @@ import threading
 import multiwfn_3dmol_server as web
 
 
+def signal_return(session: Path) -> None:
+    """Signal the Multiwfn caller that the WebView session has ended."""
+    try:
+        flag = session / "gui_stop.flag"
+        if not flag.exists():
+            flag.write_text("return\n", encoding="utf-8")
+    except OSError:
+        # The caller is already handling a launch/exit failure. There is no
+        # useful recovery if the session directory cannot be written.
+        pass
+
+
 def resolve_shell() -> Path | None:
     configured = os.environ.get("MULTIWFN_MATTERVIZ_WEBVIEW")
     if configured:
@@ -42,52 +54,77 @@ def main() -> int:
     session = Path(args.session).expanduser().resolve()
     manifest = Path(args.manifest).expanduser().resolve()
     state = Path(args.state).expanduser().resolve() if args.state else None
+
+    def failure(message: str) -> int:
+        print(message, file=sys.stderr)
+        signal_return(session)
+        return 2
+
     shell = resolve_shell()
     if shell is None:
-        print(
-            "MatterViz WebView executable not found; set MULTIWFN_MATTERVIZ_WEBVIEW to its path.",
-            file=sys.stderr,
+        return failure(
+            "MatterViz WebView executable not found; set MULTIWFN_MATTERVIZ_WEBVIEW to its path."
         )
-        return 2
     if not frontend.is_dir() or not manifest.is_file():
-        print("MatterViz frontend or session manifest was not found.", file=sys.stderr)
-        return 2
+        return failure("MatterViz frontend or session manifest was not found.")
     if state is not None and not state.is_file():
-        print(f"Workbench state not found: {state}", file=sys.stderr)
-        return 2
+        return failure(f"Workbench state not found: {state}")
 
-    web.cleanup_session_files(session, startup=True)
-    handler = web.make_handler(frontend, session, manifest, state)
+    server = None
+    process = None
     try:
-        server = web.ThreadingHTTPServer((args.host, args.port), handler)
-    except OSError:
-        server = web.ThreadingHTTPServer((args.host, 0), handler)
-    port = int(server.server_address[1])
-    url = web.build_workbench_url(args.host, port, state=state)
-    process = subprocess.Popen([str(shell), "--url", url])
+        web.cleanup_session_files(session, startup=True)
+        handler = web.make_handler(frontend, session, manifest, state)
+        try:
+            server = web.ThreadingHTTPServer((args.host, args.port), handler)
+        except OSError:
+            try:
+                server = web.ThreadingHTTPServer((args.host, 0), handler)
+            except OSError as second_error:
+                return failure(f"Could not bind MatterViz WebView service: {second_error}")
 
-    def window_waiter() -> None:
-        process.wait()
-        if not (session / "gui_stop.flag").exists():
-            (session / "gui_stop.flag").write_text("return\n", encoding="utf-8")
-        server.shutdown()
+        port = int(server.server_address[1])
+        url = web.build_workbench_url(args.host, port, state=state)
+        try:
+            process = subprocess.Popen([str(shell), "--url", url])
+        except OSError as exc:
+            return failure(f"Could not launch MatterViz WebView: {exc}")
 
-    threading.Thread(target=window_waiter, daemon=True).start()
-    print(f"Multiwfn MatterViz WebView service: {url}")
-    try:
-        server.serve_forever()
+        def window_waiter() -> None:
+            try:
+                process.wait()
+            except OSError as exc:
+                print(f"MatterViz WebView process wait failed: {exc}", file=sys.stderr)
+            finally:
+                signal_return(session)
+                server.shutdown()
+
+        threading.Thread(target=window_waiter, daemon=True).start()
+        print(f"Multiwfn MatterViz WebView service: {url}")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("MatterViz WebView interrupted.", file=sys.stderr)
+            return 2
+        except OSError as exc:
+            return failure(f"MatterViz WebView service failed: {exc}")
+        return 0
+    except OSError as exc:
+        return failure(f"MatterViz WebView startup failed: {exc}")
     except KeyboardInterrupt:
-        (session / "gui_stop.flag").write_text("return\n", encoding="utf-8")
+        print("MatterViz WebView interrupted.", file=sys.stderr)
+        return 2
     finally:
-        server.server_close()
-        if process.poll() is None:
+        signal_return(session)
+        if server is not None:
+            server.server_close()
+        if process is not None and process.poll() is None:
             process.terminate()
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-    return 0
 
 
 if __name__ == "__main__":

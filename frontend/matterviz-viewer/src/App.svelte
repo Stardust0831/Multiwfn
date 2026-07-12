@@ -72,6 +72,8 @@
   let espRange = $state<[number, number]>([-0.05, 0.05])
   let espLegendPosition = $state<LegendPosition>({ left: 16, top: 16 })
   let stateInput = $state<HTMLInputElement | undefined>()
+  let backgroundColor = $state('#ffffff')
+  let backgroundOpacity = $state(1)
   let sceneProps = $state<{
     camera_position?: [number, number, number]
     camera_target?: [number, number, number]
@@ -373,6 +375,23 @@
         ...(restored.camera.projection ? { camera_projection: restored.camera.projection } : {}),
       }
     }
+    if (restored.structureAppearance) {
+      const appearance = restored.structureAppearance
+      sceneProps = {
+        ...sceneProps,
+        ...(appearance.showAtoms !== undefined ? { show_atoms: appearance.showAtoms } : {}),
+        ...(appearance.showBonds !== undefined ? { show_bonds: appearance.showBonds } : {}),
+        ...(appearance.atomRadius !== undefined ? { atom_radius: appearance.atomRadius } : {}),
+        ...(appearance.sameSizeAtoms !== undefined ? { same_size_atoms: appearance.sameSizeAtoms } : {}),
+        ...(appearance.bondThickness !== undefined ? { bond_thickness: appearance.bondThickness } : {}),
+        ...(appearance.bondingStrategy !== undefined ? { bonding_strategy: appearance.bondingStrategy } : {}),
+        ...(appearance.showSiteLabels !== undefined ? { show_site_labels: appearance.showSiteLabels } : {}),
+        ...(appearance.showSiteIndices !== undefined ? { show_site_indices: appearance.showSiteIndices } : {}),
+        ...(appearance.sphereSegments !== undefined ? { sphere_segments: appearance.sphereSegments } : {}),
+      }
+      if (appearance.backgroundColor !== undefined) backgroundColor = appearance.backgroundColor
+      if (appearance.backgroundOpacity !== undefined) backgroundOpacity = appearance.backgroundOpacity
+    }
     set_status('MatterViz workbench state restored')
     add_log('Workbench state restored')
   }
@@ -403,6 +422,13 @@
       quality = Number(manifest.espAnalysis?.defaultQuality ?? 120000)
       espIsovalue = Number(manifest.espAnalysis?.defaultIsovalue ?? 0.001)
       orbitalIndex = Number(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex ?? 0)
+      if (manifest.multiwfnGui?.state?.showMolecule !== undefined) {
+        sceneProps = {
+          ...sceneProps,
+          show_atoms: manifest.multiwfnGui.state.showMolecule,
+          ...(!manifest.multiwfnGui.state.showMolecule ? { show_bonds: 'never' } : {}),
+        }
+      }
       showUnitCell = manifest.periodic?.showUnitCell !== false
       latticeProps = {
         ...latticeProps,
@@ -583,6 +609,9 @@
       showBoundaryAtoms: showImageAtoms,
       showUnitCell,
       camera,
+      sceneProps,
+      backgroundColor,
+      backgroundOpacity,
     }))
     set_status('MatterViz workbench state exported')
   }
@@ -752,6 +781,8 @@
         bind:show_image_atoms={showImageAtoms}
         bind:lattice_props={latticeProps}
         bind:scene_props={sceneProps}
+        bind:background_color={backgroundColor}
+        bind:background_opacity={backgroundOpacity}
         bind:loading
         bind:error_msg={errorMessage}
         on_camera_move={track_camera}
