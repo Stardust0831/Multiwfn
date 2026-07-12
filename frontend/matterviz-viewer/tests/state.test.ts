@@ -8,7 +8,7 @@ import {
 
 test('serializes volume, cross-coloring, and periodic display state', () => {
   const state = create_workbench_state({
-    manifest: { periodic: { enabled: true }, analysis: { primaryDos: { path: 'dos.json' } } },
+    manifest: { periodic: { enabled: true } },
     sourceManifest: 'http://127.0.0.1/session/manifest.json',
     entries: [{ path: 'density.cube', role: 'density' }, { path: 'esp.cube', role: 'esp' }],
     isosurfaceSettings: {
@@ -38,7 +38,6 @@ test('serializes volume, cross-coloring, and periodic display state', () => {
   assert.equal(state.volumes[0].negativeColor, '#654321')
   assert.equal(state.volumes[0].showNegative, true)
   assert.deepEqual(state.periodic?.displayRange, [[-1, 2], [0, 1], [0.5, 3]])
-  assert.equal(state.session.analysis?.primaryDos?.path, 'dos.json')
 })
 
 test('omits invalid display ranges and clamps the active index', () => {

@@ -49,6 +49,7 @@ button, input, select { font: inherit; }
 .brand span { color: #667085; font-size: 11px; }
 .toolbar label, .periodic-bar label { display: flex; align-items: center; gap: 5px; }
 .toolbar label > span, .periodic-bar label > span { color: #5c6675; font-size: 11px; }
+.toolbar select[aria-label="Orbital"] { width: 210px; }
 
 input, select, button {
   height: 30px;

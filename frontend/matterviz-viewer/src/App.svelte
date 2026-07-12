@@ -12,7 +12,6 @@
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
   import { onMount } from 'svelte'
-  import AnalysisPanel from './AnalysisPanel.svelte'
   import EspLegend from './EspLegend.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import {
@@ -66,8 +65,6 @@
   let logOpen = $state(false)
   let layerOpen = $state(false)
   let sliceOpen = $state(false)
-  let analysisOpen = $state(false)
-  let analysisData = $state<unknown>()
   let espLegendOpen = $state(false)
   let espExtremaOpen = $state(false)
   let espExtremaLoading = $state(false)
@@ -101,6 +98,26 @@
   const set_status = (message: string): void => {
     status = message
     add_log(message)
+  }
+
+  const orbital_label = (item: { index: number; energy?: number; occupation?: number }): string => {
+    const homo = Number(manifest.orbitals?.homoIndex ?? 0)
+    const frontier = manifest.bondAnalysis?.openShell === false
+      ? item.index === homo ? 'HOMO' : item.index === homo + 1 ? 'LUMO' : ''
+      : ''
+    const energy = Number.isFinite(item.energy) ? `${Number(item.energy).toFixed(6)} Ha` : ''
+    const occupation = Number.isFinite(item.occupation) ? `occ ${Number(item.occupation).toPrecision(4)}` : ''
+    return [`MO ${item.index}`, frontier, energy, occupation].filter(Boolean).join(' | ')
+  }
+
+  const move_orbital = (offset: number): void => {
+    const items = manifest.orbitals?.items ?? []
+    if (items.length && items.length >= Number(manifest.orbitals?.count ?? items.length)) {
+      const current = items.findIndex((item) => item.index === orbitalIndex)
+      orbitalIndex = items[Math.max(0, Math.min(items.length - 1, (current < 0 ? 0 : current) + offset))].index
+      return
+    }
+    orbitalIndex = Math.max(1, Math.min(Number(manifest.orbitals?.count ?? orbitalIndex + offset), orbitalIndex + offset))
   }
 
   const report_error = (error: unknown): void => {
@@ -289,20 +306,6 @@
     update_layer(densityIdx, { color_range: espRange })
   }
 
-  const load_analysis = async (): Promise<void> => {
-    analysisData = undefined
-    const source = manifest.analysis?.primaryDos
-    if (!source?.path) return
-    try {
-      const response = await fetch(new URL(source.path, manifestBase), { cache: 'no-store' })
-      if (!response.ok) throw new Error(`DOS request returned HTTP ${response.status}`)
-      analysisData = await response.json()
-      add_log('DOS analysis data loaded')
-    } catch (error) {
-      report_error(error)
-    }
-  }
-
   const state_url = (): URL | undefined => {
     const value = new URL(window.location.href).searchParams.get('state')
     return value ? new URL(value, window.location.href) : undefined
@@ -395,7 +398,6 @@
         refresh_esp_range(initialEsp.densityIdx, initialEsp.potentialIdx)
         espLegendOpen = true
       }
-      await load_analysis()
       set_status(entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
       if (startupState) apply_workbench_state(startupState)
     } catch (error) {
@@ -530,7 +532,7 @@
         maxExtrema: 12,
         excludeBoundary: true,
       })
-      set_status(`${espExtrema.minima.length} ESP minima and ${espExtrema.maxima.length} maxima found`)
+      set_status(`${espExtrema.minima.length} approximate ESP minima and ${espExtrema.maxima.length} maxima found`)
     } catch (error) {
       report_error(error)
     } finally {
@@ -579,14 +581,12 @@
     }
   }
 
-  const open_panel = (panel: 'layers' | 'slice' | 'analysis' | 'logs'): void => {
+  const open_panel = (panel: 'layers' | 'slice' | 'logs'): void => {
     const next = panel === 'layers' ? !layerOpen
       : panel === 'slice' ? !sliceOpen
-        : panel === 'analysis' ? !analysisOpen
-          : !logOpen
+        : !logOpen
     layerOpen = panel === 'layers' && next
     sliceOpen = panel === 'slice' && next
-    analysisOpen = panel === 'analysis' && next
     logOpen = panel === 'logs' && next
   }
 
@@ -609,10 +609,18 @@
       <strong>Multiwfn</strong>
       <span>MatterViz workbench</span>
     </div>
+    <button type="button" title="Previous orbital" aria-label="Previous orbital" onclick={() => move_orbital(-1)} disabled={loading || orbitalIndex <= 1}>&lt;</button>
     <label>
       <span>Orbital</span>
-      <input type="number" min="1" max={manifest.orbitals?.count || undefined} bind:value={orbitalIndex} />
+      {#if manifest.orbitals?.items?.length && manifest.orbitals.items.length >= Number(manifest.orbitals?.count ?? manifest.orbitals.items.length)}
+        <select bind:value={orbitalIndex} aria-label="Orbital">
+          {#each manifest.orbitals.items as item}<option value={item.index}>{orbital_label(item)}</option>{/each}
+        </select>
+      {:else}
+        <input aria-label="Orbital" type="number" min="1" max={manifest.orbitals?.count || undefined} bind:value={orbitalIndex} />
+      {/if}
     </label>
+    <button type="button" title="Next orbital" aria-label="Next orbital" onclick={() => move_orbital(1)} disabled={loading || orbitalIndex >= Number(manifest.orbitals?.count ?? 0)}>&gt;</button>
     <button type="button" onclick={request_orbital} disabled={loading || orbitalIndex <= 0}>Show orbital</button>
     <label>
       <span>Grid</span>
@@ -650,12 +658,9 @@
     {/if}
     <button type="button" onclick={() => open_panel('layers')} aria-expanded={layerOpen}>Layers ({volumeEntries.length})</button>
     <button type="button" onclick={() => open_panel('slice')} disabled={!volumetricData?.length} aria-expanded={sliceOpen}>2D Slice</button>
-    {#if manifest.analysis?.primaryDos?.path}
-      <button type="button" onclick={() => open_panel('analysis')} disabled={!analysisData} aria-expanded={analysisOpen}>DOS / PDOS</button>
-    {/if}
     {#if esp_pair()}
       <button type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>ESP legend</button>
-      <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>ESP extrema</button>
+      <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>Approx. ESP extrema</button>
     {/if}
     <button type="button" onclick={() => stateInput?.click()}>Import</button>
     <button type="button" onclick={export_state}>Export</button>
@@ -737,9 +742,6 @@
         bind:active_volume_idx={activeVolumeIdx}
         bind:open={sliceOpen}
       />
-    {/if}
-    {#if analysisOpen}
-      <AnalysisPanel data={analysisData} bind:open={analysisOpen} />
     {/if}
     {#if espLegendOpen}
       <EspLegend min={espRange[0]} max={espRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
@@ -846,13 +848,13 @@
   {/if}
 
   {#if espExtremaOpen}
-    <aside class="esp-extrema-panel" aria-label="ESP surface extrema">
+    <aside class="esp-extrema-panel" aria-label="Approximate ESP surface extrema">
       <header>
-        <strong>ESP extrema</strong>
+        <strong>Approximate ESP extrema</strong>
         <button type="button" onclick={() => espExtremaOpen = false}>Close</button>
       </header>
       {#if espExtremaLoading}
-        <div class="panel-empty">Calculating bounded surface extrema...</div>
+        <div class="panel-empty">Calculating bounded visual estimates...</div>
       {:else if espExtrema}
         <div class="esp-extrema-list">
           {#each [...espExtrema.minima, ...espExtrema.maxima] as point}

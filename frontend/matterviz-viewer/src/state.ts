@@ -42,7 +42,7 @@ export type MatterVizWorkbenchState = {
   }
   camera?: WorkbenchCameraState
   isosurface?: WorkbenchIsosurfaceAppearance
-  session: Pick<MultiwfnManifest, 'multiwfnGui' | 'bondAnalysis' | 'espAnalysis' | 'analysis'>
+  session: Pick<MultiwfnManifest, 'multiwfnGui' | 'bondAnalysis' | 'espAnalysis'>
 }
 
 export type WorkbenchStateInput = {
@@ -208,7 +208,6 @@ export const create_workbench_state = (input: WorkbenchStateInput): MatterVizWor
       multiwfnGui: input.manifest.multiwfnGui,
       bondAnalysis: input.manifest.bondAnalysis,
       espAnalysis: input.manifest.espAnalysis,
-      analysis: input.manifest.analysis,
     },
   }
 }
@@ -246,7 +245,6 @@ export const parse_workbench_state = (value: unknown): MatterVizWorkbenchState =
     multiwfnGui: record_or_undefined(sessionRecord.multiwfnGui) as MultiwfnManifest['multiwfnGui'],
     bondAnalysis: record_or_undefined(sessionRecord.bondAnalysis) as MultiwfnManifest['bondAnalysis'],
     espAnalysis: record_or_undefined(sessionRecord.espAnalysis) as MultiwfnManifest['espAnalysis'],
-    analysis: record_or_undefined(sessionRecord.analysis) as MultiwfnManifest['analysis'],
   }
   return {
     format: 'multiwfn-matterviz-workbench',

@@ -47,9 +47,7 @@ strict-grid cross-coloring by another loaded volume. When the manifest exposes b
 capabilities, select two atoms with MatterViz's measurement tool and use the bond controls to run
 the corresponding Multiwfn calculation.
 
-When a session exposes `analysis.primaryDos.path`, the workbench loads the versioned Multiwfn DOS
-artifact and renders responsive TDOS/PDOS curves with bounded Gaussian broadening. ESP-colored
-density surfaces receive a robust symmetric color range, a draggable kcal/mol/e legend, and an
+ESP-colored density surfaces receive a robust symmetric color range, a draggable kcal/mol/e legend, and an
 on-demand bounded extrema table. The current MatterViz renderer does not expose a stable API for
 arbitrary 3D extrema markers, so extrema coordinates are listed rather than drawn in the scene.
 The Export command writes a versioned JSON snapshot of layer, periodic, isosurface-material, and
