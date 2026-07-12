@@ -33,6 +33,7 @@ def main() -> int:
     parser.add_argument("--frontend", required=True)
     parser.add_argument("--session", required=True)
     parser.add_argument("--manifest", required=True)
+    parser.add_argument("--state", default=None, help="Optional path to a workbench state JSON file")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
@@ -40,6 +41,7 @@ def main() -> int:
     frontend = Path(args.frontend).expanduser().resolve()
     session = Path(args.session).expanduser().resolve()
     manifest = Path(args.manifest).expanduser().resolve()
+    state = Path(args.state).expanduser().resolve() if args.state else None
     shell = resolve_shell()
     if shell is None:
         print(
@@ -50,16 +52,18 @@ def main() -> int:
     if not frontend.is_dir() or not manifest.is_file():
         print("MatterViz frontend or session manifest was not found.", file=sys.stderr)
         return 2
+    if state is not None and not state.is_file():
+        print(f"Workbench state not found: {state}", file=sys.stderr)
+        return 2
 
     web.cleanup_session_files(session, startup=True)
-    handler = web.make_handler(frontend, session, manifest)
+    handler = web.make_handler(frontend, session, manifest, state)
     try:
         server = web.ThreadingHTTPServer((args.host, args.port), handler)
     except OSError:
         server = web.ThreadingHTTPServer((args.host, 0), handler)
     port = int(server.server_address[1])
-    url_host = f"[{args.host}]" if ":" in args.host and not args.host.startswith("[") else args.host
-    url = f"http://{url_host}:{port}/index.html?manifest=/session/manifest.json"
+    url = web.build_workbench_url(args.host, port, state=state)
     process = subprocess.Popen([str(shell), "--url", url])
 
     def window_waiter() -> None:

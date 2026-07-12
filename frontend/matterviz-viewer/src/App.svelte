@@ -30,10 +30,18 @@
     type MultiwfnManifest,
   } from './manifest'
   import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
-  import { create_workbench_state, download_workbench_state } from './state'
+  import {
+    create_workbench_state,
+    download_workbench_state,
+    parse_workbench_state,
+    restore_workbench_state,
+    type MatterVizWorkbenchState,
+    type WorkbenchCameraState,
+  } from './state'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
+  let loadedManifestUrl = $state(manifest_url())
   let structure = $state<AnyStructure | undefined>()
   let volumetricData = $state<VolumetricData[] | undefined>()
   let volumeEntries = $state<ManifestEntry[]>([])
@@ -66,6 +74,13 @@
   let espExtrema = $state<EspExtremaResult | undefined>()
   let espRange = $state<[number, number]>([-0.05, 0.05])
   let espLegendPosition = $state<LegendPosition>({ left: 16, top: 16 })
+  let stateInput = $state<HTMLInputElement | undefined>()
+  let sceneProps = $state<{
+    camera_position?: [number, number, number]
+    camera_target?: [number, number, number]
+    camera_projection?: 'perspective' | 'orthographic'
+    [key: string]: unknown
+  }>({})
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
 
   type ApiPayload = {
@@ -288,6 +303,53 @@
     }
   }
 
+  const state_url = (): URL | undefined => {
+    const value = new URL(window.location.href).searchParams.get('state')
+    return value ? new URL(value, window.location.href) : undefined
+  }
+
+  const fetch_workbench_state = async (url: URL): Promise<MatterVizWorkbenchState> => {
+    const response = await fetch(url, { cache: 'no-store' })
+    if (!response.ok) throw new Error(`Workbench state request returned HTTP ${response.status}`)
+    return parse_workbench_state(await response.json())
+  }
+
+  const apply_workbench_state = (state: MatterVizWorkbenchState): void => {
+    const restored = restore_workbench_state(state, { entries: volumeEntries, isosurfaceSettings })
+    const layers = (restored.isosurfaceSettings.layers ?? []).map((layer) => {
+      const volumeIdx = layer.volume_idx ?? 0
+      const colorIdx = layer.color_volume_idx
+      if (colorIdx === undefined || grids_compatible(volumeIdx, colorIdx)) return layer
+      add_log(`Ignored incompatible restored color grid for volume ${volumeIdx + 1}`, 'error')
+      return { ...layer, color_volume_idx: undefined, colormap: undefined, color_range: undefined }
+    })
+    isosurfaceSettings = { ...restored.isosurfaceSettings, layers }
+    activeVolumeIdx = restored.activeVolume
+    if (restored.periodic) {
+      if (restored.periodic.displayRange) {
+        isosurfaceSettings = { ...isosurfaceSettings, display_range: restored.periodic.displayRange }
+      }
+      supercellScaling = restored.periodic.atomSupercell
+      showImageAtoms = restored.periodic.showBoundaryAtoms
+      showUnitCell = restored.periodic.showUnitCell
+      latticeProps = {
+        ...latticeProps,
+        cell_edge_opacity: showUnitCell ? 1 : 0,
+        show_cell_vectors: showUnitCell,
+      }
+    }
+    if (restored.camera) {
+      sceneProps = {
+        ...sceneProps,
+        ...(restored.camera.position ? { camera_position: [...restored.camera.position] as [number, number, number] } : {}),
+        ...(restored.camera.target ? { camera_target: [...restored.camera.target] as [number, number, number] } : {}),
+        ...(restored.camera.projection ? { camera_projection: restored.camera.projection } : {}),
+      }
+    }
+    set_status('MatterViz workbench state restored')
+    add_log('Workbench state restored')
+  }
+
   const load_structure = async (): Promise<void> => {
     const entry = manifest.structure
     if (!entry?.path) return
@@ -299,7 +361,14 @@
     loading = true
     errorMessage = undefined
     try {
-      const url = manifest_url()
+      const startupStateUrl = state_url()
+      let startupState: MatterVizWorkbenchState | undefined
+      if (startupStateUrl) startupState = await fetch_workbench_state(startupStateUrl)
+      const pageUrl = new URL(window.location.href)
+      const url = !pageUrl.searchParams.has('manifest') && startupState?.sourceManifest
+        ? new URL(startupState.sourceManifest, startupStateUrl)
+        : manifest_url()
+      loadedManifestUrl = url
       const response = await fetch(url, { cache: 'no-store' })
       if (!response.ok) throw new Error(`Manifest request returned HTTP ${response.status}`)
       manifest = (await response.json()) as MultiwfnManifest
@@ -328,6 +397,7 @@
       }
       await load_analysis()
       set_status(entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
+      if (startupState) apply_workbench_state(startupState)
     } catch (error) {
       report_error(error)
       status = 'Session loading failed'
@@ -469,17 +539,44 @@
   }
 
   const export_state = (): void => {
+    const camera: WorkbenchCameraState = {
+      position: sceneProps.camera_position,
+      target: sceneProps.camera_target,
+      projection: sceneProps.camera_projection,
+    }
     download_workbench_state(create_workbench_state({
       manifest,
-      sourceManifest: manifest_url().href,
+      sourceManifest: loadedManifestUrl.href,
       entries: volumeEntries,
       isosurfaceSettings,
       activeVolume: activeVolumeIdx,
       atomSupercell: supercellScaling,
       showBoundaryAtoms: showImageAtoms,
       showUnitCell,
+      camera,
     }))
     set_status('MatterViz workbench state exported')
+  }
+
+  const import_state_file = async (event: Event): Promise<void> => {
+    const input = event.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    if (!file) return
+    try {
+      apply_workbench_state(parse_workbench_state(JSON.parse(await file.text())))
+    } catch (error) {
+      report_error(error)
+    } finally {
+      input.value = ''
+    }
+  }
+
+  const track_camera = (data: { camera_position?: [number, number, number]; camera_target?: [number, number, number] }): void => {
+    sceneProps = {
+      ...sceneProps,
+      ...(data.camera_position ? { camera_position: [...data.camera_position] as [number, number, number] } : {}),
+      ...(data.camera_target ? { camera_target: [...data.camera_target] as [number, number, number] } : {}),
+    }
   }
 
   const open_panel = (panel: 'layers' | 'slice' | 'analysis' | 'logs'): void => {
@@ -560,7 +657,9 @@
       <button type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>ESP legend</button>
       <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>ESP extrema</button>
     {/if}
+    <button type="button" onclick={() => stateInput?.click()}>Import</button>
     <button type="button" onclick={export_state}>Export</button>
+    <input class="hidden-file-input" bind:this={stateInput} type="file" accept="application/json,.json" onchange={import_state_file} />
     <button type="button" onclick={() => open_panel('logs')} aria-expanded={logOpen}>Logs ({logEntries.length})</button>
     <button class="return" type="button" onclick={return_to_multiwfn}>Return</button>
   </header>
@@ -620,8 +719,11 @@
         bind:supercell_scaling={supercellScaling}
         bind:show_image_atoms={showImageAtoms}
         bind:lattice_props={latticeProps}
+        bind:scene_props={sceneProps}
         bind:loading
         bind:error_msg={errorMessage}
+        on_camera_move={track_camera}
+        on_camera_reset={track_camera}
         show_controls="always"
         allow_file_drop={true}
       />

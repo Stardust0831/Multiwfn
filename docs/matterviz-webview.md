@@ -15,6 +15,11 @@ The shell uses this URL by default:
 http://127.0.0.1:8765/index.html?manifest=/session/manifest.json
 ```
 
+To restore a workbench state file, pass `--state <path>` to either the browser
+service or `tools/multiwfn_matterviz_webview.py`. The launcher adds
+`state=/session/workbench-state.json` to the URL and serves that fixed route
+from the explicitly selected file; it does not expose the source directory.
+
 The URL can be overridden with `--url <URL>`, `--url=<URL>`, or the
 `MATTERVIZ_WEB_URL` environment variable. Command-line arguments take
 precedence over the environment. Plain `http` URLs are restricted to
@@ -49,6 +54,16 @@ python3 tools/multiwfn_3dmol_server.py \
   --manifest multiwfn_3dmol_session/manifest.json
 ```
 
+With an optional saved workbench state:
+
+```sh
+python3 tools/multiwfn_3dmol_server.py \
+  --frontend frontend/matterviz-viewer/dist \
+  --session multiwfn_3dmol_session \
+  --manifest multiwfn_3dmol_session/manifest.json \
+  --state /path/to/multiwfn-matterviz-state.json
+```
+
 In a second terminal, run the shell:
 
 ```sh
@@ -72,8 +87,9 @@ For standalone shell development, the server must be started separately and
 must remain available while the window is open. In a Multiwfn build configured
 with `MULTIWFN_3DMOL_DEFAULT_SHELL=webview`,
 `tools/multiwfn_matterviz_webview.py` starts the session service, selects an
-available port, passes the exact URL to this executable, and closes the service
-when the window exits. Set `MULTIWFN_MATTERVIZ_WEBVIEW` to a development binary
+available port, passes the exact URL (including the optional `state` query) to
+this executable, and closes the service when the window exits. Set
+`MULTIWFN_MATTERVIZ_WEBVIEW` to a development binary
 when it is not installed next to the packaged launcher.
 
 ## Build and package

@@ -74,6 +74,19 @@ def send_json(handler: http.server.BaseHTTPRequestHandler, payload: dict, status
     handler.wfile.write(data)
 
 
+def workbench_query(*, state: Path | None = None) -> str:
+    """Build the frontend query while keeping the fixed session routes opaque."""
+    query = {"manifest": "/session/manifest.json"}
+    if state is not None:
+        query["state"] = "/session/workbench-state.json"
+    return urllib.parse.urlencode(query, safe="/")
+
+
+def build_workbench_url(host: str, port: int, *, state: Path | None = None) -> str:
+    url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return f"http://{url_host}:{port}/index.html?{workbench_query(state=state)}"
+
+
 def cleanup_session_files(session_dir: Path, *, startup: bool = False) -> None:
     patterns = ["response_*.json"]
     if startup:
@@ -275,7 +288,7 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
 
-def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
+def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, state: Path | None = None):
     class Multiwfn3DmolHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(frontend_dir), **kwargs)
@@ -298,7 +311,7 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
             query = urllib.parse.parse_qs(parsed.query)
 
             if request_path in ("", "/"):
-                target = "/index.html?manifest=/session/manifest.json"
+                target = f"/index.html?{workbench_query(state=state)}"
                 self.send_response(302)
                 self.send_header("Location", target)
                 self.end_headers()
@@ -340,6 +353,13 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
                 send_file(self, manifest)
                 return
 
+            if request_path == "/session/workbench-state.json":
+                if state is None:
+                    self.send_error(404, "Workbench state not found")
+                else:
+                    send_file(self, state)
+                return
+
             if request_path.startswith("/session/"):
                 rel = request_path[len("/session/") :]
                 candidate = (session_dir / rel).resolve()
@@ -361,6 +381,7 @@ def main() -> int:
     parser.add_argument("--frontend", default="frontend/3dmol-viewer", help="Path to the frontend directory")
     parser.add_argument("--session", default="multiwfn_3dmol_session", help="Path to the generated GUI session")
     parser.add_argument("--manifest", default=None, help="Path to the generated manifest")
+    parser.add_argument("--state", default=None, help="Optional path to a workbench state JSON file")
     parser.add_argument("--host", default="127.0.0.1", help="HTTP bind address")
     parser.add_argument("--port", type=int, default=8765, help="Preferred HTTP port")
     parser.add_argument("--open", action="store_true", help="Open the frontend in the default browser")
@@ -371,6 +392,7 @@ def main() -> int:
     frontend_dir = Path(args.frontend).expanduser().resolve()
     session_dir = Path(args.session).expanduser().resolve()
     manifest = Path(args.manifest).expanduser().resolve() if args.manifest else session_dir / "manifest.json"
+    state = Path(args.state).expanduser().resolve() if args.state else None
     cleanup_session_files(session_dir, startup=True)
 
     if not frontend_dir.is_dir():
@@ -379,11 +401,14 @@ def main() -> int:
     if not manifest.is_file():
         print(f"Manifest not found: {manifest}", file=sys.stderr)
         return 2
+    if state is not None and not state.is_file():
+        print(f"Workbench state not found: {state}", file=sys.stderr)
+        return 2
 
     port = find_free_port(args.host, args.port)
-    handler = make_handler(frontend_dir, session_dir, manifest)
+    handler = make_handler(frontend_dir, session_dir, manifest, state)
     server = ThreadingHTTPServer((args.host, port), handler)
-    url = f"http://{args.host}:{port}/index.html?manifest=/session/manifest.json"
+    url = build_workbench_url(args.host, port, state=state)
 
     frontend_name = "MatterViz" if "matterviz" in str(frontend_dir).lower() else "3Dmol"
     print(f"Multiwfn {frontend_name} GUI service: {url}")

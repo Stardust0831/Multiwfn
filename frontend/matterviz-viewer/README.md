@@ -52,8 +52,10 @@ artifact and renders responsive TDOS/PDOS curves with bounded Gaussian broadenin
 density surfaces receive a robust symmetric color range, a draggable kcal/mol/e legend, and an
 on-demand bounded extrema table. The current MatterViz renderer does not expose a stable API for
 arbitrary 3D extrema markers, so extrema coordinates are listed rather than drawn in the scene.
-The Export command writes a versioned JSON snapshot of layer and periodic display state; camera
-state is intentionally omitted until MatterViz exposes a supported camera serialization API.
+The Export command writes a versioned JSON snapshot of layer, periodic, isosurface-material, and
+camera state. The same snapshot can be restored with the Import command or a `state=` URL query;
+the browser and WebView launchers also accept `--state <path>` and expose only that selected file
+through a fixed session route.
 
 For periodic sessions, manifest cell vectors are injected into structures that would otherwise be
 plain molecules (for example XYZ files), so MatterViz can render the cell, boundary atoms, periodic
