@@ -1,0 +1,15 @@
+[package]
+name = "matterviz-desktop"
+version = "0.1.0"
+description = "Minimal Tauri desktop shell for the Multiwfn MatterViz frontend"
+authors = ["Multiwfn contributors"]
+edition = "2021"
+rust-version = "1.77"
+build = "build.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+url = "2"

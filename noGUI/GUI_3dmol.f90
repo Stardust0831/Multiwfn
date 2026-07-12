@@ -851,6 +851,8 @@ call resolve_resource_path(home,"frontend/3dmol-viewer",frontend)
 #endif
 #ifdef MULTIWFN_3DMOL_DEFAULT_SHELL_QT
 shell="qt"
+#elif defined(MULTIWFN_3DMOL_DEFAULT_SHELL_WEBVIEW)
+shell="webview"
 #else
 shell="browser"
 #endif
@@ -858,6 +860,8 @@ call get_environment_variable("MULTIWFN_3DMOL_SHELL",shell,status=istat)
 if (istat/=0.or.len_trim(shell)==0) then
 #ifdef MULTIWFN_3DMOL_DEFAULT_SHELL_QT
     shell="qt"
+#elif defined(MULTIWFN_3DMOL_DEFAULT_SHELL_WEBVIEW)
+    shell="webview"
 #else
     shell="browser"
 #endif
@@ -875,6 +879,8 @@ if (trim(shell)=="qt") then
         return
     end if
     call resolve_resource_path(home,"tools/multiwfn_qt_gui.py",tool)
+else if (trim(shell)=="webview") then
+    call resolve_resource_path(home,"tools/multiwfn_matterviz_webview.py",tool)
 else
     call resolve_resource_path(home,"tools/multiwfn_3dmol_server.py",tool)
 end if
@@ -895,6 +901,8 @@ end if
 
 if (trim(shell)=="qt") then
     cmd=trim(python)//' "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+else if (trim(shell)=="webview") then
+    cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'"'
 else
     cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
 end if

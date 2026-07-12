@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MatterViz Desktop",
+  "version": "0.1.0",
+  "identifier": "org.multiwfn.matterviz",
+  "build": {
+    "devUrl": "http://127.0.0.1:8765/index.html?manifest=/session/manifest.json",
+    "frontendDist": "../matterviz-viewer/dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": false,
+        "scope": []
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}

@@ -36,6 +36,19 @@ or be wrapped by Tauri (WebView2 on Windows, WKWebView on macOS, and WebKitGTK o
 changing the manifest or backend API. Qt is therefore optional rather than part of the MatterViz
 frontend architecture.
 
+The workbench keeps frontend and backend operation messages in an in-app log panel. Routine GUI
+use therefore does not depend on terminal output, while calculation failures remain available for
+copying into bug reports.
+
+The Multiwfn integration currently preserves independent volume layers when dynamic orbitals or
+ESP data are calculated. The layer panel controls visibility, isovalue, opacity, deletion, and
+strict-grid cross-coloring by another loaded volume. When the manifest exposes bond-analysis
+capabilities, select two atoms with MatterViz's measurement tool and use the bond controls to run
+the corresponding Multiwfn calculation.
+
+The first native WebView shell lives in `../matterviz-desktop`; see
+[`docs/matterviz-webview.md`](../../docs/matterviz-webview.md) for its runtime and packaging model.
+
 Build a Multiwfn executable which selects this frontend with:
 
 ```bash
@@ -43,7 +56,7 @@ cmake -S ../.. -B ../../build-matterviz-gui -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DMULTIWFN_GUI_BACKEND=3dmol \
   -DMULTIWFN_WEB_FRONTEND=matterviz \
-  -DMULTIWFN_3DMOL_DEFAULT_SHELL=browser
+  -DMULTIWFN_3DMOL_DEFAULT_SHELL=webview
 cmake --build ../../build-matterviz-gui --parallel 2
 ```
 

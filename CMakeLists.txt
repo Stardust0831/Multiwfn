@@ -14,8 +14,8 @@ option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF
 option(MULTIWFN_WINDOWS_STATIC_LINK "Prefer static runtime and math libraries for Windows redistribution" ON)
 set(MULTIWFN_GUI_BACKEND "dislin" CACHE STRING "GUI backend used by the CMake build: dislin or 3dmol")
 set_property(CACHE MULTIWFN_GUI_BACKEND PROPERTY STRINGS dislin 3dmol)
-set(MULTIWFN_3DMOL_DEFAULT_SHELL "browser" CACHE STRING "Default shell for the 3Dmol backend: browser or qt")
-set_property(CACHE MULTIWFN_3DMOL_DEFAULT_SHELL PROPERTY STRINGS browser qt)
+set(MULTIWFN_3DMOL_DEFAULT_SHELL "browser" CACHE STRING "Default web GUI shell: browser, qt, or webview")
+set_property(CACHE MULTIWFN_3DMOL_DEFAULT_SHELL PROPERTY STRINGS browser qt webview)
 set(MULTIWFN_WEB_FRONTEND "3dmol" CACHE STRING "Web visualization frontend: 3dmol or matterviz")
 set_property(CACHE MULTIWFN_WEB_FRONTEND PROPERTY STRINGS 3dmol matterviz)
 set(MULTIWFN_GNU_OPT_LEVEL "O2" CACHE STRING "GNU Fortran optimization level for Release builds")
@@ -52,8 +52,8 @@ endif()
 if(NOT MULTIWFN_GUI_BACKEND MATCHES "^(dislin|3dmol)$")
   message(FATAL_ERROR "MULTIWFN_GUI_BACKEND must be dislin or 3dmol")
 endif()
-if(NOT MULTIWFN_3DMOL_DEFAULT_SHELL MATCHES "^(browser|qt)$")
-  message(FATAL_ERROR "MULTIWFN_3DMOL_DEFAULT_SHELL must be browser or qt")
+if(NOT MULTIWFN_3DMOL_DEFAULT_SHELL MATCHES "^(browser|qt|webview)$")
+  message(FATAL_ERROR "MULTIWFN_3DMOL_DEFAULT_SHELL must be browser, qt, or webview")
 endif()
 if(NOT MULTIWFN_WEB_FRONTEND MATCHES "^(3dmol|matterviz)$")
   message(FATAL_ERROR "MULTIWFN_WEB_FRONTEND must be 3dmol or matterviz")
@@ -213,6 +213,9 @@ add_executable(${MULTIWFN_EXECUTABLE_NAME} ${MULTIWFN_CORE_SOURCES})
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "qt")
   target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_3DMOL_DEFAULT_SHELL_QT)
 endif()
+if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "webview")
+  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_3DMOL_DEFAULT_SHELL_WEBVIEW)
+endif()
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_WEB_FRONTEND STREQUAL "matterviz")
   target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_WEB_FRONTEND_MATTERVIZ)
 endif()
@@ -255,6 +258,7 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_server.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_file_dialog.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_webview.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_qt_gui.py"
       "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools"
     COMMAND ${CMAKE_COMMAND} -E copy_directory

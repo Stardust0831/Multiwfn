@@ -10,7 +10,10 @@ on:
     paths:
       - CMakeLists.txt
       - noGUI/GUI_3dmol.f90
+      - tools/multiwfn_matterviz_webview.py
       - frontend/matterviz-viewer/**
+      - frontend/matterviz-desktop/**
+      - docs/matterviz-webview.md
       - .github/workflows/matterviz-gui.yml
   workflow_dispatch:
 
@@ -48,14 +51,27 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
+          pnpm test
           pnpm check
           pnpm build
+
+      - name: Validate MatterViz WebView configuration
+        run: python3 frontend/matterviz-desktop/scripts/validate-config.py
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install Multiwfn build dependencies
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev
+          sudo apt-get install -y \
+            gfortran cmake ninja-build libblas-dev liblapack-dev \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Check MatterViz WebView shell
+        working-directory: frontend/matterviz-desktop
+        run: cargo check
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
