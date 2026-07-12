@@ -33,8 +33,8 @@ Updated: 2026-07-13
 - [ ] P1: verify remaining representation presets, axes behavior and PNG export through MatterViz native controls.
 - [x] P1: expose per-layer negative phase, phase colors, cross-color colormap and editable color range using the existing state-covered fields.
 - [ ] P1: verify and expose remaining global surface material/mesh/quality controls not already available through MatterViz native controls.
-- [ ] P1: verify periodic oblique cells, negative/noninteger surface ranges, independent atom supercells and cross-boundary bonds end to end.
-- [ ] P2: add wrapper-level measurement tests for distance, angle and dihedral selection ordering.
+- [ ] P1: verify periodic oblique cells, negative/noninteger surface ranges, independent atom supercells and cross-boundary bonds end to end. In progress on `agent/periodic-parity-tests`.
+- [ ] P2: add wrapper-level measurement tests for distance, angle and dihedral selection ordering. In progress on `agent/measurement-parity-tests`.
 - [ ] P2: persist or explicitly scope slice, legend and remaining native structure control state.
 - [x] P2: cover WebView startup/bind/launch/interruption and normal child-close signaling with adapter unit tests and CI.
 - [ ] P2: complete an installed-shell browser/WebView Return and shutdown smoke test.
@@ -52,3 +52,9 @@ Updated: 2026-07-13
 - [ ] Installed-resource/native-shell packaging smoke test.
 - [ ] Cross-platform locked WebView build and bundle-size evidence.
 - [x] Label frontend-sampled ESP extrema as approximate visual estimates rather than authoritative Multiwfn results.
+
+## Parallel integration policy
+
+- Bounded parity tasks may use independent worktrees and `agent/*` branches based on the latest reviewed development commit.
+- Each branch must have disjoint write scope, objective verification and its own commit; it must not edit the shared TODO/log documents.
+- The primary development branch owns documentation updates, reviews every agent commit, merges or cherry-picks it, resolves conflicts and reruns proportionate verification before pushing PR #26.

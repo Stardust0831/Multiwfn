@@ -24,6 +24,7 @@
 - Reconfirmed that generic CSV/JSON curve and heatmap import is not required for the current original-GUI replacement target; no such importer or capability is present in PR #26.
 - Verification for this increment: 37 frontend unit tests passed; Svelte check reported zero diagnostics; the production build passed; seven WebView adapter tests, Python compilation, desktop configuration validation and `git diff --check` passed; Playwright structure-state round trips passed at 1440x900 and 800x700 with no page errors.
 - Final read-only review found no blocking correctness or scope issue and explicitly confirmed strict `origin/main` scope, whole-molecule visibility semantics, optional state compatibility and normal/failure WebView signaling. Real installed-shell concurrent shutdown remains a documented smoke-test gap.
+- Adopted independent `agent/*` worktree branches for bounded, non-overlapping parity tasks while long PR CI runs. Measurement ordering tests and periodic workflow tests were started in separate branches; the development branch remains the sole owner of TODO/log integration and final conflict resolution.
 
 ## Earlier work, superseded
 
