@@ -42,7 +42,7 @@ def _safe_dataset_id(value: str) -> bool:
     return re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(value or "")) is not None
 
 
-def _read_text(path: Path, limit: int = 96 * 1024 * 1024) -> str:
+def _read_text(path: Path, limit: int = MAX_ANALYSIS_FILE_BYTES) -> str:
     size = path.stat().st_size
     with path.open("rb") as handle:
         if size <= limit:
@@ -690,7 +690,9 @@ def _vasp_kpoint_ticks(text: str, kcoords: list[list[float]], xpos: list[float])
     ticks: list[dict] = []
     for coordinate, label in endpoints:
         index = min(range(len(kcoords)), key=lambda idx: sum((kcoords[idx][axis] - coordinate[axis]) ** 2 for axis in range(3)))
-        normalized_label = label.replace("GAMMA", "Γ").replace("Gamma", "Γ").replace("G", "G")
+        normalized_label = label.replace("GAMMA", "Γ").replace("Gamma", "Γ")
+        if normalized_label == "G":
+            normalized_label = "Γ"
         if ticks and abs(ticks[-1]["x"] - xpos[index]) < 1e-10:
             if normalized_label and normalized_label not in ticks[-1]["label"].split("|"):
                 ticks[-1]["label"] = f"{ticks[-1]['label']}|{normalized_label}".strip("|")

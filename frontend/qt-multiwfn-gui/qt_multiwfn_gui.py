@@ -506,7 +506,7 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, analysis
                     with BACKEND_REQUEST_LOCK:
                         payload = analysis_store.extract(dataset_id, kind)
                     send_json(self, payload)
-                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                except Exception as exc:
                     self._analysis_error(exc)
                 return
             if request_path == "/api/return":

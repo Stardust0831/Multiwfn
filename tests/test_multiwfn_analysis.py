@@ -12,6 +12,9 @@ sys.path.insert(0, str(ROOT / "tools"))
 import multiwfn_analysis as analysis_module  # noqa: E402
 from multiwfn_analysis import (  # noqa: E402
     AnalysisStore,
+    MAX_ANALYSIS_FILE_BYTES,
+    _read_text,
+    _vasp_kpoint_ticks,
     detect_output_capabilities,
     parse_cp2k_bs,
     parse_cp2k_kpoint_dos,
@@ -30,6 +33,18 @@ GAUSSIAN_IR = """Entering Gaussian System
 
 
 class AnalysisDetectionTests(unittest.TestCase):
+    def test_parser_default_read_limit_matches_the_upload_cap(self):
+        self.assertEqual(_read_text.__defaults__, (MAX_ANALYSIS_FILE_BYTES,))
+
+    def test_vasp_bare_g_is_gamma_without_rewriting_embedded_labels(self):
+        ticks = _vasp_kpoint_ticks(
+            "path\n2\nLine-mode\nreciprocal\n"
+            "0.0 0.0 0.0 ! G\n0.5 0.0 0.0 ! G1\n",
+            [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            [0.0, 0.5],
+        )
+        self.assertEqual([tick["label"] for tick in ticks], ["Γ", "G1"])
+
     def test_gaussian_ir_is_detected_and_parsed(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "calculation.out"

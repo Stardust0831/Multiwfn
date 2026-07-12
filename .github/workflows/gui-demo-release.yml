@@ -152,6 +152,8 @@ jobs:
             --noconfirm \
             --onefile \
             --name multiwfn_qt_gui \
+            --paths tools \
+            --hidden-import multiwfn_analysis \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --distpath qt-launcher-dist \
@@ -197,6 +199,7 @@ jobs:
           cp LICENSE.txt "package/${pkg}/LICENSE.txt"
           cp settings.ini "package/${pkg}/settings.ini"
           cp tools/multiwfn_3dmol_server.py "package/${pkg}/resources/tools/"
+          cp tools/multiwfn_analysis.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_3dmol_file_dialog.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_qt_gui.py "package/${pkg}/resources/tools/"
           cp -R frontend/3dmol-viewer "package/${pkg}/resources/frontend/"
