@@ -23,7 +23,7 @@ deployments where the visualization service is hosted elsewhere.
 
 ## Prerequisites
 
-- Node.js 24.11 or newer and pnpm 11 for the MatterViz frontend (see its README).
+- Node.js 22.23 and pnpm 11 for the MatterViz frontend (see its README).
 - Python 3.11 or newer for the existing local HTTP service.
 - Rust 1.77 or newer and the Tauri CLI 2.x for desktop development/builds.
 - Platform WebView dependencies:

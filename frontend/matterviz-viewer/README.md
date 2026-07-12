@@ -11,7 +11,8 @@ fix from [`janosh/matterviz#377`](https://github.com/janosh/matterviz/pull/377).
 
 ## Build
 
-Node.js 24.11 or newer and pnpm 11 are recommended.
+Node.js 22.23 and pnpm 11 are recommended. Node 24 currently conflicts with the pinned MatterViz
+Git package's TypeScript configuration during a clean dependency install.
 
 ```bash
 pnpm install
