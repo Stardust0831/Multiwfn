@@ -203,6 +203,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .layer-controls input[type="number"],
 .layer-controls select { width: 100%; }
 .layer-controls input[type="range"] { width: 100%; }
+.layer-controls input[type="color"] { width: 100%; min-width: 42px; padding: 2px; }
+.layer-controls .check-control { display: flex; align-items: center; gap: 5px; padding-top: 16px; }
+.layer-controls .check-control input { width: 16px; height: 16px; }
 .panel-empty { padding: 14px; color: #667085; }
 
 @media (max-width: 900px) {

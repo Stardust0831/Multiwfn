@@ -128,3 +128,27 @@ test('rejects unsupported state versions and ignores malformed optional fields',
   assert.equal(parsed.camera, undefined)
   assert.equal(parsed.periodic?.displayRange, undefined)
 })
+
+test('preserves every colormap exposed by the layer controls', () => {
+  for (const colormap of ['interpolateRdBu', 'interpolateViridis', 'interpolateTurbo', 'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys']) {
+    const parsed = parse_workbench_state({
+      format: 'multiwfn-matterviz-workbench',
+      version: 1,
+      activeVolume: 0,
+      volumes: [{ path: 'density.cube', volumeIndex: 0, colormap }],
+      session: {},
+    })
+    assert.equal(parsed.volumes[0].colormap, colormap)
+  }
+})
+
+test('normalizes reversed persisted color ranges', () => {
+  const parsed = parse_workbench_state({
+    format: 'multiwfn-matterviz-workbench',
+    version: 1,
+    activeVolume: 0,
+    volumes: [{ path: 'density.cube', volumeIndex: 0, colorRange: [0.2, -0.1] }],
+    session: {},
+  })
+  assert.deepEqual(parsed.volumes[0].colorRange, [-0.1, 0.2])
+})

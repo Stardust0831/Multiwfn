@@ -18,6 +18,7 @@
 - Identified ESP extrema provenance as the only current frontend-derived scientific result: it is a bounded visual estimate, not a Multiwfn-native extrema calculation. Updated UI labels accordingly and kept deeper ESP work outside the first native-parity phase.
 - Improved the native orbital workflow using existing manifest metadata only: added previous/next navigation, an orbital selector, energy/occupation display and HOMO/LUMO context. No calculation or protocol changes were required.
 - Final orbital review tightened edge cases: metadata selection is used only when the manifest item list covers the full orbital count, larger spaces retain numeric navigation, and HOMO/LUMO labels appear only for explicitly closed-shell sessions. Desktop and 800px Playwright navigation passed without page errors.
+- Expanded the native volume-layer workflow without changing data production: each layer now exposes positive/negative phase colors and visibility; compatible cross-volume coloring exposes colormap and numeric range controls. Existing workbench state fields already preserve these values.
 
 ## Earlier work, superseded
 

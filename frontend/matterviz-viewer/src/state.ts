@@ -131,6 +131,7 @@ const ISO_COLORMAPS = new Set([
   'interpolateViridis', 'interpolatePlasma', 'interpolateInferno', 'interpolateMagma',
   'interpolateCividis', 'interpolateTurbo', 'interpolateRdBu', 'interpolateRdYlBu',
   'interpolateSpectral', 'interpolatePiYG', 'interpolateBrBG', 'interpolatePuOr',
+  'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys',
 ])
 
 const normalize_layer_snapshot = (value: unknown): MatterVizWorkbenchState['volumes'][number] | undefined => {
@@ -157,7 +158,7 @@ const normalize_layer_snapshot = (value: unknown): MatterVizWorkbenchState['volu
   const colormap = normalize_color(row.colormap)
   if (colormap !== undefined && ISO_COLORMAPS.has(colormap)) entry.colormap = colormap
   const colorRange = finite_pair(row.colorRange)
-  if (colorRange) entry.colorRange = colorRange
+  if (colorRange) entry.colorRange = colorRange[0] <= colorRange[1] ? colorRange : [colorRange[1], colorRange[0]]
   return entry
 }
 
@@ -193,7 +194,7 @@ export const create_workbench_state = (input: WorkbenchStateInput): MatterVizWor
         showNegative: layer?.show_negative,
         colorVolumeIndex: layer?.color_volume_idx,
         colormap: typeof layer?.colormap === 'string' ? layer.colormap : undefined,
-        colorRange: range,
+      colorRange: range && range[0] <= range[1] ? range : range ? [range[1], range[0]] : undefined,
       }
     }),
     periodic: input.manifest.periodic?.enabled ? {

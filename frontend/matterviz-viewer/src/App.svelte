@@ -110,14 +110,27 @@
     return [`MO ${item.index}`, frontier, energy, occupation].filter(Boolean).join(' | ')
   }
 
+  const orbital_count = (): number => {
+    const items = manifest.orbitals?.items ?? []
+    return Math.max(
+      0,
+      Number(manifest.orbitals?.count ?? 0),
+      Number(manifest.multiwfnGui?.state?.orbitalCount ?? 0),
+      ...items.map((item) => Number(item.index) || 0),
+    )
+  }
+
+  const orbital_index_valid = (): boolean =>
+    Number.isInteger(orbitalIndex) && orbitalIndex >= 1 && orbitalIndex <= orbital_count()
+
   const move_orbital = (offset: number): void => {
     const items = manifest.orbitals?.items ?? []
-    if (items.length && items.length >= Number(manifest.orbitals?.count ?? items.length)) {
+    if (items.length && items.length >= orbital_count()) {
       const current = items.findIndex((item) => item.index === orbitalIndex)
       orbitalIndex = items[Math.max(0, Math.min(items.length - 1, (current < 0 ? 0 : current) + offset))].index
       return
     }
-    orbitalIndex = Math.max(1, Math.min(Number(manifest.orbitals?.count ?? orbitalIndex + offset), orbitalIndex + offset))
+    orbitalIndex = Math.max(1, Math.min(orbital_count() || orbitalIndex + offset, orbitalIndex + offset))
   }
 
   const report_error = (error: unknown): void => {
@@ -252,6 +265,17 @@
       ...isosurfaceSettings,
       layers: layers.map((layer) => layer.volume_idx === volumeIdx ? { ...layer, ...patch } : layer),
     }
+  }
+
+  const set_color_range = (volumeIdx: number, bound: 0 | 1, value: number): void => {
+    if (!Number.isFinite(value)) return
+    const layer = (isosurfaceSettings.layers ?? []).find((item) => item.volume_idx === volumeIdx)
+    const [lower, upper] = layer?.color_range ?? [-0.05, 0.05]
+    update_layer(volumeIdx, {
+      color_range: bound === 0
+        ? [Math.min(value, upper), upper]
+        : [lower, Math.max(value, lower)],
+    })
   }
 
   const set_color_volume = (volumeIdx: number, colorVolumeIdx: number): void => {
@@ -409,7 +433,10 @@
   }
 
   const request_orbital = async (): Promise<void> => {
-    if (orbitalIndex <= 0) return
+    if (!orbital_index_valid()) {
+      report_error(new Error(`Orbital index must be an integer from 1 to ${orbital_count()}`))
+      return
+    }
     loading = true
     errorMessage = undefined
     add_log(`Requesting orbital ${orbitalIndex} at grid quality ${quality}`)
@@ -612,16 +639,16 @@
     <button type="button" title="Previous orbital" aria-label="Previous orbital" onclick={() => move_orbital(-1)} disabled={loading || orbitalIndex <= 1}>&lt;</button>
     <label>
       <span>Orbital</span>
-      {#if manifest.orbitals?.items?.length && manifest.orbitals.items.length >= Number(manifest.orbitals?.count ?? manifest.orbitals.items.length)}
+      {#if manifest.orbitals?.items?.length && manifest.orbitals.items.length >= orbital_count()}
         <select bind:value={orbitalIndex} aria-label="Orbital">
           {#each manifest.orbitals.items as item}<option value={item.index}>{orbital_label(item)}</option>{/each}
         </select>
       {:else}
-        <input aria-label="Orbital" type="number" min="1" max={manifest.orbitals?.count || undefined} bind:value={orbitalIndex} />
+        <input aria-label="Orbital" type="number" min="1" max={orbital_count() || undefined} bind:value={orbitalIndex} />
       {/if}
     </label>
-    <button type="button" title="Next orbital" aria-label="Next orbital" onclick={() => move_orbital(1)} disabled={loading || orbitalIndex >= Number(manifest.orbitals?.count ?? 0)}>&gt;</button>
-    <button type="button" onclick={request_orbital} disabled={loading || orbitalIndex <= 0}>Show orbital</button>
+    <button type="button" title="Next orbital" aria-label="Next orbital" onclick={() => move_orbital(1)} disabled={loading || orbitalIndex >= orbital_count()}>&gt;</button>
+    <button type="button" onclick={request_orbital} disabled={loading || !orbital_index_valid()}>Show orbital</button>
     <label>
       <span>Grid</span>
       <select bind:value={quality}>
@@ -815,6 +842,67 @@
                   {/each}
                 </select>
               </label>
+              <label>
+                <span>Positive color</span>
+                <input
+                  type="color"
+                  value={layer?.color || '#2563eb'}
+                  oninput={(event) => update_layer(volumeIdx, { color: event.currentTarget.value })}
+                />
+              </label>
+              <label class="check-control">
+                <input
+                  type="checkbox"
+                  checked={layer?.show_negative === true}
+                  onchange={(event) => update_layer(volumeIdx, { show_negative: event.currentTarget.checked })}
+                />
+                <span>Negative phase</span>
+              </label>
+              {#if layer?.show_negative}
+                <label>
+                  <span>Negative color</span>
+                  <input
+                    type="color"
+                    value={layer.negative_color || '#dc2626'}
+                    oninput={(event) => update_layer(volumeIdx, { negative_color: event.currentTarget.value })}
+                  />
+                </label>
+              {/if}
+              {#if layer?.color_volume_idx !== undefined}
+                <label>
+                  <span>Colormap</span>
+                  <select
+                    value={layer.colormap || 'interpolateRdBu'}
+                    onchange={(event) => update_layer(volumeIdx, { colormap: event.currentTarget.value as IsosurfaceLayer['colormap'] })}
+                  >
+                    <option value="interpolateRdBu">Red / blue</option>
+                    <option value="interpolateViridis">Viridis</option>
+                    <option value="interpolateTurbo">Turbo</option>
+                    <option value="interpolateCool">Cool</option>
+                    <option value="interpolateWarm">Warm</option>
+                    <option value="interpolateRdYlGn">Red / yellow / green</option>
+                    <option value="interpolateGreys">Greys</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Range min</span>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={layer.color_range?.[0] ?? -0.05}
+                    onchange={(event) => set_color_range(volumeIdx, 0, event.currentTarget.valueAsNumber)}
+                  />
+                </label>
+                <label>
+                  <span>Range max</span>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={layer.color_range?.[1] ?? 0.05}
+                    onchange={(event) => set_color_range(volumeIdx, 1, event.currentTarget.valueAsNumber)}
+                  />
+                </label>
+              {/if}
             </div>
           </section>
         {:else}
