@@ -80,8 +80,7 @@ integer :: iMDformat=1,nMDsavefreq=1,ioutcube=0,idiagOT=1,imixing=2,ismear=0,iat
 integer :: natmcons=0,nthermoatm=0,ikpoint1=1,ikpoint2=1,ikpoint3=1,nrep1=1,nrep2=1,nrep3=1,ikeepcell=0
 integer,allocatable :: atmcons(:),thermoatm(:)
 real*8 :: efieldvec(3)=0,vacsizex=5/b2a,vacsizey=5/b2a,vacsizez=5/b2a
-real*8 :: frag1chg,frag2chg
-integer :: frag1multi,frag2multi,totalmulti
+integer :: frag1chg,frag2chg,frag1multi,frag2multi,totalmulti
 integer :: iprestype=1,ioutSbas=0,ioutKSbas=0,ioutorbene=0,istate_force=1,idiaglib=1,iGAPW=0,iLSSCF=0,iLRIGPW=0,iPSOLVER=1,niter_evGW=1,niter_scGW0=1,istructfile=0
 real*8 :: Piso=1.01325D0,Ptens(3,3)=reshape( [1.01325D0,0D0,0D0, 0D0,1.01325D0,0D0, 0D0,0D0,1.01325D0], shape=shape(Ptens))
 real*8 :: PBEh_HFX=45
