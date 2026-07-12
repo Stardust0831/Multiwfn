@@ -206,7 +206,6 @@ const espExtremaMarkerRadii = {
   global: 0.24
 };
 const espExtremaMarkerVisualScale = 0.45;
-const espExtremaMarkerInsetScale = 2;
 const ESP_EXTREMA_WORKER_TIMEOUT = 60000;
 const bondPropertyDefinitions = [
   { id: 'length', label: 'Bond length', backend: false },
@@ -3075,34 +3074,29 @@ function handleEspExtremaMarkerClick(point, callbackArguments) {
   state.viewer.render();
 }
 
-function extremaStructureCenter() {
-  const atoms = state.atomSelection.atoms || [];
-  if (!atoms.length) return null;
-  const total = atoms.reduce((sum, atom) => ({
-    x: sum.x + Number(atom.x || 0),
-    y: sum.y + Number(atom.y || 0),
-    z: sum.z + Number(atom.z || 0)
-  }), { x: 0, y: 0, z: 0 });
-  return {
-    x: total.x / atoms.length,
-    y: total.y / atoms.length,
-    z: total.z / atoms.length
+function keepEspExtremaMarkerOpaque(shape) {
+  if (!shape || typeof shape.globj !== 'function') return shape;
+  const renderShape = shape.globj;
+  shape.globj = function renderOpaqueEspExtremaMarker(...args) {
+    const result = renderShape.apply(this, args);
+    const objects = [this.renderedShapeObj];
+    while (objects.length) {
+      const object = objects.pop();
+      if (!object) continue;
+      if (object.material) {
+        // 3Dmol rebuilds GLShape materials on every render. Keep markers in the
+        // transparent pass after the ESP surface without lowering their alpha.
+        object.material.transparent = true;
+        object.material.opacity = 1;
+        object.material.depthTest = true;
+        object.material.depthWrite = true;
+        object.material.needsUpdate = true;
+      }
+      if (Array.isArray(object.children)) objects.push(...object.children);
+    }
+    return result;
   };
-}
-
-function insetEspExtremaMarker(point, radius, structureCenter) {
-  if (!structureCenter) return { x: point.x, y: point.y, z: point.z };
-  const dx = structureCenter.x - point.x;
-  const dy = structureCenter.y - point.y;
-  const dz = structureCenter.z - point.z;
-  const length = Math.hypot(dx, dy, dz);
-  if (length < 1e-9) return { x: point.x, y: point.y, z: point.z };
-  const inset = radius * espExtremaMarkerInsetScale;
-  return {
-    x: point.x + dx * inset / length,
-    y: point.y + dy * inset / length,
-    z: point.z + dz * inset / length
-  };
+  return shape;
 }
 
 function renderEspExtremaMarkers(options = {}) {
@@ -3115,27 +3109,20 @@ function renderEspExtremaMarkers(options = {}) {
   }
 
   const points = espExtremaPoints();
-  const structureCenter = extremaStructureCenter();
   points.forEach((point) => {
     const radius = point.global ? espExtremaMarkerRadii.global : espExtremaMarkerRadii.local;
     const callback = (...args) => handleEspExtremaMarkerClick(point, args);
-    const visibleShape = state.viewer.addSphere({
-      center: insetEspExtremaMarker(point, radius, structureCenter),
+    const visibleShape = keepEspExtremaMarkerOpaque(state.viewer.addSphere({
+      center: { x: point.x, y: point.y, z: point.z },
       radius: radius * espExtremaMarkerVisualScale,
       color: espExtremaPointColor(point),
       opacity: 1,
       clickable: true,
       callback
-    });
-    const pickShape = state.viewer.addSphere({
-      center: { x: point.x, y: point.y, z: point.z },
-      radius,
-      color: espExtremaPointColor(point),
-      opacity: 0,
-      clickable: true,
-      callback
-    });
-    extrema.markerShapes.push(visibleShape, pickShape);
+    }));
+    const hitSphere = visibleShape?.intersectionShape?.sphere?.[0];
+    if (hitSphere) hitSphere.radius = radius;
+    extrema.markerShapes.push(visibleShape);
   });
   const selected = points.find((point) => point.id === extrema.selectedPointId);
   if (selected) showEspExtremaLabel(selected);
