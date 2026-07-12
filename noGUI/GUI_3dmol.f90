@@ -601,8 +601,12 @@ character(len=*),intent(in) :: session,respfile
 integer,intent(in) :: quality
 real*8,intent(in) :: isoval
 character(len=512) :: densityfile,densityrel,espfile,esprel
-integer :: iu
-real*8 :: esprhoiso_org
+integer :: iu,nprevorbgrid_org,nx_org,ny_org,nz_org,iorbsel_org
+real*8 :: esprhoiso_org,orgx_org,orgy_org,orgz_org,endx_org,endy_org,endz_org
+real*8 :: dx_org,dy_org,dz_org,gridv1_org(3),gridv2_org(3),gridv3_org(3)
+real*8 :: nelec_org,naelec_org,nbelec_org
+real*8,allocatable :: cubmat_org(:,:,:)
+logical :: cubmat_was_allocated
 
 if (ifPBC>0) then
     call write_gui_json_error(respfile,"ESP visualization is not supported for periodic systems")
@@ -622,9 +626,32 @@ if (isoval<=0D0.or.isoval>0.1D0) then
     return
 end if
 
+nprevorbgrid_org=nprevorbgrid
+nx_org=nx
+ny_org=ny
+nz_org=nz
+iorbsel_org=iorbsel
+orgx_org=orgx
+orgy_org=orgy
+orgz_org=orgz
+endx_org=endx
+endy_org=endy
+endz_org=endz
+dx_org=dx
+dy_org=dy
+dz_org=dz
+gridv1_org=gridv1
+gridv2_org=gridv2
+gridv3_org=gridv3
+esprhoiso_org=ESPrhoiso
+nelec_org=nelec
+naelec_org=naelec
+nbelec_org=nbelec
+cubmat_was_allocated=allocated(cubmat)
+if (cubmat_was_allocated) call move_alloc(cubmat,cubmat_org)
+
 nprevorbgrid=quality
 call setup_orbital_grid()
-if (allocated(cubmat)) deallocate(cubmat)
 allocate(cubmat(nx,ny,nz))
 call savecubmat(1,1,0)
 
@@ -632,14 +659,36 @@ write(densityrel,"('esp_density_',i0,'.cube')") quality
 densityfile=trim(session)//"/"//trim(densityrel)
 call write_cube(trim(densityfile),cubmat)
 
-esprhoiso_org=ESPrhoiso
 ESPrhoiso=isoval
 call savecubmat(12,1,0)
-ESPrhoiso=esprhoiso_org
 
 write(esprel,"('esp_potential_',i0,'.cube')") quality
 espfile=trim(session)//"/"//trim(esprel)
 call write_cube(trim(espfile),cubmat)
+
+if (allocated(cubmat)) deallocate(cubmat)
+if (cubmat_was_allocated) call move_alloc(cubmat_org,cubmat)
+nprevorbgrid=nprevorbgrid_org
+nx=nx_org
+ny=ny_org
+nz=nz_org
+iorbsel=iorbsel_org
+orgx=orgx_org
+orgy=orgy_org
+orgz=orgz_org
+endx=endx_org
+endy=endy_org
+endz=endz_org
+dx=dx_org
+dy=dy_org
+dz=dz_org
+gridv1=gridv1_org
+gridv2=gridv2_org
+gridv3=gridv3_org
+ESPrhoiso=esprhoiso_org
+nelec=nelec_org
+naelec=naelec_org
+nbelec=nbelec_org
 
 open(newunit=iu,file=trim(respfile),status="replace",action="write")
 write(iu,"(a)") "{"
@@ -669,7 +718,6 @@ write(iu,"(a)") '    "visible": false'
 write(iu,"(a)") '  }'
 write(iu,"(a)") "}"
 close(iu)
-if (allocated(cubmat)) deallocate(cubmat)
 end subroutine
 
 subroutine handle_bond_request(respfile,iatm1,iatm2,method)

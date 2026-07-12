@@ -569,7 +569,12 @@ function syncPeriodicFromControls() {
   if (previousStructureKey !== nextStructureKey) {
     clearAtomSelectionState();
     clearBondAnalysisState();
-    resetEspExtremaState({ render: false });
+    const espBase = state.espAnalysis.baseCapabilities || defaultEspAnalysisCapabilities();
+    if (state.periodic.enabled && !espBase.periodicSupported) {
+      removeEspAnalysisLayers({ render: false });
+    } else {
+      resetEspExtremaState({ render: false });
+    }
     refreshBondAnalysisCapabilities();
     refreshEspAnalysisCapabilities();
   }
@@ -2921,6 +2926,31 @@ function espLayerByKind(kind) {
   return state.layers.find((layer) => layer.analysisKind === kind) || null;
 }
 
+function removeEspAnalysisLayers(options = {}) {
+  const removedIds = new Set(
+    state.layers
+      .filter((layer) => layer.analysisKind === 'esp-density' || layer.analysisKind === 'esp-potential')
+      .map((layer) => String(layer.id))
+  );
+  [state.espAnalysis.densityLayerId, state.espAnalysis.potentialLayerId]
+    .filter(Boolean)
+    .forEach((id) => removedIds.add(String(id)));
+  state.layers = state.layers.filter((layer) => !removedIds.has(String(layer.id)));
+  if (removedIds.has(String(state.gui.activeLayerId))) state.gui.activeLayerId = '';
+  state.espAnalysis.densityLayerId = '';
+  state.espAnalysis.potentialLayerId = '';
+  state.espAnalysis.quality = 0;
+  if (state.espAnalysis.opacityFrame) {
+    cancelAnimationFrame(state.espAnalysis.opacityFrame);
+    state.espAnalysis.opacityFrame = 0;
+  }
+  resetEspExtremaState({ render: options.render, clearCache: true });
+  renderLayerList();
+  updateLayerSelectors();
+  syncEspOpacityControls();
+  return removedIds.size > 0;
+}
+
 function isEspVisualizationActive() {
   const density = espLayerByKind('esp-density');
   return Boolean(density?.visible && String(state.gui.activeLayerId) === String(density.id));
@@ -3394,6 +3424,10 @@ async function requestGuiEsp(options = {}) {
     setStatus('Multiwfn backend is busy', false);
     return false;
   }
+  const sessionGeneration = state.espAnalysis.extrema.sessionGeneration;
+  const sessionIsCurrent = () => (
+    sessionGeneration === state.espAnalysis.extrema.sessionGeneration
+  );
 
   const existingDensity = espLayerByKind('esp-density');
   const existingPotential = espLayerByKind('esp-potential');
@@ -3428,6 +3462,7 @@ async function requestGuiEsp(options = {}) {
     } catch (error) {
       throw new Error('ESP API returned invalid JSON');
     }
+    if (!sessionIsCurrent()) return false;
     if (!payload.ok) throw new Error(payload.message || 'ESP calculation failed');
     const densitySpec = payload.densityLayer;
     const potentialSpec = payload.espLayer;
@@ -3439,6 +3474,7 @@ async function requestGuiEsp(options = {}) {
       loadTextFromManifestEntry(densitySpec, sessionUrl),
       loadTextFromManifestEntry(potentialSpec, sessionUrl)
     ]);
+    if (!sessionIsCurrent()) return false;
     const resolvedIsovalue = Number(payload.isovalue || isovalue);
     const resolvedQuality = Number(payload.quality || quality);
     const colorLimit = estimateEspColorLimit(densityText, potentialText, resolvedIsovalue);
@@ -3478,6 +3514,7 @@ async function requestGuiEsp(options = {}) {
     setStatus(`ESP mapped at ${formatGridQuality(resolvedQuality)} (±${colorLimit.toPrecision(3)} a.u.)`);
     return true;
   } catch (error) {
+    if (!sessionIsCurrent()) return false;
     console.error(error);
     const message = error?.message || 'ESP API unavailable';
     setStatus(message, false);
