@@ -1,0 +1,11 @@
+# Keep the ownership policy itself under maintainer review.
+/.github/CODEOWNERS @Stardust0831
+/.github/workflows/core-source-guard.yml @Stardust0831
+
+# Official Multiwfn computational sources. GUI, build, packaging, test, and
+# documentation paths remain open to the normal contribution workflow.
+/*.f @Stardust0831
+/*.F @Stardust0831
+/*.f90 @Stardust0831
+/ext/** @Stardust0831
+/libreta_hybrid/** @Stardust0831

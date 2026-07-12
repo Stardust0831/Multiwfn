@@ -47,6 +47,12 @@ For changes touching Multiwfn behavior, please describe:
 - Whether numerical output should change.
 - What official Multiwfn output or release package was used for comparison.
 
+Root-level Fortran sources and the `ext/` and `libreta_hybrid/` directories are
+treated as the official Multiwfn computational core. Pull requests that change
+these paths are blocked by the core-source guard until a maintainer has reviewed
+the reason and applied the `core-change-approved` label. This explicit approval
+also applies to official-source synchronization pull requests.
+
 For GUI work, prefer an adapter-style design. The long-term goal is frontend and
 backend separation: replace the legacy DISLIN GUI backend without rewriting
 computational modules. GUI changes should normally live in `frontend/`, `tools/`,

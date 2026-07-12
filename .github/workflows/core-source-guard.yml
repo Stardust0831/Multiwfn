@@ -1,0 +1,58 @@
+name: Protect Multiwfn core source
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  core-source-guard:
+    name: Core source guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      CORE_CHANGE_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'core-change-approved') }}
+
+    steps:
+      - name: Checkout pull request history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require explicit approval for computational core changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t protected_files < <(
+            git diff --name-only "$BASE_SHA" "$HEAD_SHA" |
+              awk '
+                /^[^/]+\.(f|F|f90)$/ { print; next }
+                /^(ext|libreta_hybrid)\// { print }
+              '
+          )
+
+          if [ "${#protected_files[@]}" -eq 0 ]; then
+            echo "No protected Multiwfn computational source files changed."
+            exit 0
+          fi
+
+          printf 'Protected Multiwfn source files changed:\n'
+          printf '  - %s\n' "${protected_files[@]}"
+
+          if [ "$CORE_CHANGE_APPROVED" = "true" ]; then
+            echo "Maintainer override label core-change-approved is present."
+            exit 0
+          fi
+
+          {
+            echo "::error title=Multiwfn computational core change requires approval::This PR changes protected official Multiwfn source. A maintainer must inspect the changes and add the core-change-approved label."
+            echo "Add the core-change-approved label only after checking numerical behavior and the reason the GUI/build adapter boundary cannot be preserved."
+          } >&2
+          exit 1
