@@ -417,6 +417,14 @@
                   <span>Show ESP surface</span>
                 </button>
                 <button
+                  id="gui-tool-esp-legend"
+                  class="gui-style-menu-item"
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked="true"
+                  aria-disabled="true"
+                ><span>Show ESP legend</span><span class="gui-menu-check" aria-hidden="true"></span></button>
+                <button
                   id="gui-tool-esp-extrema"
                   class="gui-style-menu-item"
                   type="button"
@@ -791,6 +799,19 @@
       <section class="viewport-wrap" aria-label="3D viewer">
         <div id="viewer"></div>
         <div id="bond-annotation-layer" class="bond-annotation-layer" aria-live="polite"></div>
+        <aside id="esp-legend" class="esp-legend" aria-labelledby="esp-legend-title" hidden>
+          <div id="esp-legend-header" class="esp-legend-header">
+            <div>
+              <strong id="esp-legend-title">Electrostatic Potential</strong>
+              <span id="esp-legend-unit">(kcal/mol/e)</span>
+            </div>
+            <button id="esp-legend-close" type="button" aria-label="Hide ESP legend" title="Hide ESP legend">&times;</button>
+          </div>
+          <div class="esp-legend-scale">
+            <canvas id="esp-legend-gradient" width="48" height="336" aria-hidden="true"></canvas>
+            <div id="esp-legend-ticks" class="esp-legend-ticks"></div>
+          </div>
+        </aside>
         <div id="bond-context-menu" class="bond-context-menu" role="menu" aria-label="Selected bonds" hidden></div>
         <div id="bond-context-submenu" class="bond-context-menu bond-context-submenu" role="menu" aria-label="Bond properties" hidden></div>
         <div id="orientation-widget" class="orientation-widget" aria-label="Orientation axes"></div>

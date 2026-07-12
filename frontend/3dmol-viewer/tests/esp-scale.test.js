@@ -1,7 +1,12 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { estimateSymmetricRange, transFlagColorHex } = require('../esp-scale.js');
+const {
+  KCAL_PER_HARTREE,
+  espLegendTicks,
+  estimateSymmetricRange,
+  transFlagColorHex
+} = require('../esp-scale.js');
 
 function volume(size, data) {
   return { size, data: Float32Array.from(data) };
@@ -39,4 +44,19 @@ test('maps negative, zero, and positive ESP to exact trans flag colors', () => {
   assert.equal(transFlagColorHex(-0.05, -0.05, 0.05), 0xf5a9b8);
   assert.equal(transFlagColorHex(0, -0.05, 0.05), 0xffffff);
   assert.equal(transFlagColorHex(0.05, -0.05, 0.05), 0x5bcefa);
+});
+
+test('builds signed kcal/mol/e legend ticks from the active ESP range', () => {
+  const ticks = espLegendTicks(-0.0533, 0.0533);
+  assert.equal(ticks.length, 5);
+  assert.deepEqual(ticks.map((tick) => tick.label), ['+33.4', '+16.7', '0', '-16.7', '-33.4']);
+  assert.ok(Math.abs(ticks[0].kcalMolPerElectron - 0.0533 * KCAL_PER_HARTREE) < 1e-10);
+  assert.equal(ticks[0].fraction, 0);
+  assert.equal(ticks[4].fraction, 1);
+});
+
+test('formats small and asymmetric ESP legend ranges without forcing symmetry', () => {
+  const ticks = espLegendTicks(-0.0002, 0.0004, 3);
+  assert.deepEqual(ticks.map((tick) => tick.label), ['+0.251', '+0.063', '-0.126']);
+  assert.deepEqual(espLegendTicks(1, 1), []);
 });

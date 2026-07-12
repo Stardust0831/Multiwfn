@@ -7,6 +7,7 @@
 
   const DEFAULT_LIMIT = 0.05;
   const MINIMUM_LIMIT = 0.005;
+  const KCAL_PER_HARTREE = 627.509474;
   const TRANS_COLORS = Object.freeze({
     negative: '#f5a9b8',
     zero: '#ffffff',
@@ -103,11 +104,43 @@
       : fallback;
   }
 
+  function espLegendTicks(min, max, count = 5) {
+    let lower = Number(min);
+    let upper = Number(max);
+    const tickCount = Math.max(2, Math.floor(Number(count) || 5));
+    if (![lower, upper].every(Number.isFinite) || lower === upper) return [];
+    if (lower > upper) [lower, upper] = [upper, lower];
+
+    const values = Array.from({ length: tickCount }, (_, index) => {
+      const fraction = index / (tickCount - 1);
+      const atomicUnits = upper + fraction * (lower - upper);
+      return {
+        fraction,
+        atomicUnits,
+        kcalMolPerElectron: atomicUnits * KCAL_PER_HARTREE
+      };
+    });
+    const largest = Math.max(...values.map((tick) => Math.abs(tick.kcalMolPerElectron)));
+    const decimals = largest >= 10 ? 1 : largest >= 1 ? 2 : largest >= 0.1 ? 3 : 4;
+    const zeroThreshold = 0.5 * (10 ** -decimals);
+
+    return values.map((tick) => {
+      const value = Math.abs(tick.kcalMolPerElectron) < zeroThreshold ? 0 : tick.kcalMolPerElectron;
+      return {
+        ...tick,
+        kcalMolPerElectron: value,
+        label: value === 0 ? '0' : `${value > 0 ? '+' : ''}${value.toFixed(decimals)}`
+      };
+    });
+  }
+
   return Object.freeze({
     DEFAULT_LIMIT,
     MINIMUM_LIMIT,
+    KCAL_PER_HARTREE,
     TRANS_COLORS,
     transFlagColorHex,
-    estimateSymmetricRange
+    estimateSymmetricRange,
+    espLegendTicks
   });
 }));

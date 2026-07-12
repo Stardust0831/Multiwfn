@@ -361,6 +361,11 @@ const state = {
     isovalue: 0.001,
     opacity: 0.88,
     opacityFrame: 0,
+    legend: {
+      enabled: true,
+      position: null,
+      drag: null
+    },
     extrema: {
       enabled: false,
       busy: false,
@@ -2152,6 +2157,7 @@ function renderScene(zoom = false) {
   updateLabels();
   updateStats();
   syncMultiwfnGuiControls();
+  syncEspLegendVisibility();
 }
 
 function updateLabels() {
@@ -2724,7 +2730,12 @@ function toolsMenuButtons() {
 }
 
 function espToolsMenuControls() {
-  return [els.guiToolEspShow, els.guiToolEspExtrema, els.guiEspOpacity].filter(Boolean);
+  return [
+    els.guiToolEspShow,
+    els.guiToolEspLegend,
+    els.guiToolEspExtrema,
+    els.guiEspOpacity
+  ].filter(Boolean);
 }
 
 function closeEspToolsMenu(options = {}) {
@@ -2741,6 +2752,7 @@ function setEspToolsMenuOpen(open, options = {}) {
   els.guiToolEsp.setAttribute('aria-expanded', String(isOpen));
   if (!isOpen) return;
   syncEspOpacityControls();
+  syncEspLegendVisibility();
   positionStyleSubmenu(els.guiToolEsp, els.guiEspMenu);
   if (options.focus) requestAnimationFrame(() => espToolsMenuControls()[0]?.focus());
 }
@@ -2948,6 +2960,7 @@ function removeEspAnalysisLayers(options = {}) {
   renderLayerList();
   updateLayerSelectors();
   syncEspOpacityControls();
+  syncEspLegendVisibility();
   return removedIds.size > 0;
 }
 
@@ -2962,6 +2975,203 @@ function espExtremaPoints(result = state.espAnalysis.extrema.result) {
 
 function isPlotPanelVisible() {
   return Boolean(els.plotPanel && !els.plotPanel.classList.contains('is-hidden'));
+}
+
+function currentEspLegendModel() {
+  const density = espLayerByKind('esp-density');
+  if (!density) return null;
+  const min = Number(density.colorMin);
+  const max = Number(density.colorMax);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return null;
+  const gradient = makeGradient(density.gradient || 'trans', min, max);
+  const ticks = espScale?.espLegendTicks(min, max, 5) || [];
+  if (!ticks.length) return null;
+  return {
+    layerId: String(density.id),
+    min,
+    max,
+    gradient,
+    ticks
+  };
+}
+
+function espLegendColorHex(model, value) {
+  let color = 0xffffff;
+  try {
+    color = model.gradient.valueToHex(value, [model.min, model.max]);
+  } catch (error) {
+    console.error(error);
+  }
+  if (typeof color === 'string') {
+    const normalized = color.trim();
+    if (/^#[0-9a-f]{6}$/i.test(normalized)) return normalized;
+    if (/^[0-9a-f]{6}$/i.test(normalized)) return `#${normalized}`;
+  }
+  const numeric = Number(color);
+  return Number.isFinite(numeric)
+    ? `#${(numeric & 0xffffff).toString(16).padStart(6, '0')}`
+    : '#ffffff';
+}
+
+function paintEspLegendGradient(context, model, x, y, width, height) {
+  const rows = Math.max(1, Math.ceil(height));
+  for (let row = 0; row < rows; row += 1) {
+    const fraction = rows === 1 ? 0 : row / (rows - 1);
+    const value = model.max + fraction * (model.min - model.max);
+    context.fillStyle = espLegendColorHex(model, value);
+    context.fillRect(x, y + row * height / rows, width, Math.max(1, height / rows + 0.5));
+  }
+}
+
+function renderEspLegend(model) {
+  if (!els.espLegendGradient || !els.espLegendTicks) return;
+  const rect = els.espLegendGradient.getBoundingClientRect();
+  const pixelRatio = Math.max(1, Number(window.devicePixelRatio) || 1);
+  const width = Math.max(1, Math.round(rect.width * pixelRatio));
+  const height = Math.max(1, Math.round(rect.height * pixelRatio));
+  if (els.espLegendGradient.width !== width) els.espLegendGradient.width = width;
+  if (els.espLegendGradient.height !== height) els.espLegendGradient.height = height;
+  const context = els.espLegendGradient.getContext('2d');
+  context.clearRect(0, 0, width, height);
+  paintEspLegendGradient(context, model, 0, 0, width, height);
+
+  const fragment = document.createDocumentFragment();
+  model.ticks.forEach((tick) => {
+    const label = document.createElement('span');
+    label.textContent = tick.label;
+    label.dataset.atomicUnits = String(tick.atomicUnits);
+    fragment.append(label);
+  });
+  els.espLegendTicks.replaceChildren(fragment);
+}
+
+function syncEspLegendMenuState() {
+  if (!els.guiToolEspLegend) return;
+  const available = Boolean(espLayerByKind('esp-density') && espLayerByKind('esp-potential'));
+  els.guiToolEspLegend.setAttribute('aria-checked', String(state.espAnalysis.legend.enabled));
+  els.guiToolEspLegend.setAttribute('aria-disabled', String(!available));
+  els.guiToolEspLegend.title = available ? '' : 'Generate an ESP surface before showing its legend';
+}
+
+function shouldDisplayEspLegend() {
+  return Boolean(
+    state.espAnalysis.legend.enabled
+    && isEspVisualizationActive()
+    && !isPlotPanelVisible()
+  );
+}
+
+function syncEspLegendVisibility() {
+  syncEspLegendMenuState();
+  if (!els.espLegend) return;
+  const model = currentEspLegendModel();
+  const visible = Boolean(model && shouldDisplayEspLegend());
+  els.espLegend.hidden = !visible;
+  if (!visible) {
+    finishEspLegendDrag();
+    return;
+  }
+  applyEspLegendPosition();
+  renderEspLegend(model);
+}
+
+function setEspLegendEnabled(enabled, options = {}) {
+  state.espAnalysis.legend.enabled = Boolean(enabled);
+  syncEspLegendVisibility();
+  if (options.announce !== false) {
+    setStatus(state.espAnalysis.legend.enabled ? 'ESP legend shown' : 'ESP legend hidden');
+  }
+}
+
+function clampedEspLegendPosition(left, top) {
+  const viewportRect = els.viewerWrap.getBoundingClientRect();
+  const legendRect = els.espLegend.getBoundingClientRect();
+  return {
+    left: clamp(Number(left) || 0, 0, Math.max(0, viewportRect.width - legendRect.width)),
+    top: clamp(Number(top) || 0, 0, Math.max(0, viewportRect.height - legendRect.height))
+  };
+}
+
+function applyEspLegendPosition() {
+  const position = state.espAnalysis.legend.position;
+  if (!position || els.espLegend.hidden) return;
+  const clamped = clampedEspLegendPosition(position.left, position.top);
+  state.espAnalysis.legend.position = clamped;
+  els.espLegend.style.left = `${clamped.left}px`;
+  els.espLegend.style.top = `${clamped.top}px`;
+}
+
+function finishEspLegendDrag(event = null) {
+  const legend = state.espAnalysis.legend;
+  const drag = legend.drag;
+  if (!drag) return;
+  if (drag.source === 'pointer' && event && event.pointerId !== drag.pointerId) return;
+  if (drag.source === 'pointer' && els.espLegendHeader?.hasPointerCapture?.(drag.pointerId)) {
+    els.espLegendHeader.releasePointerCapture(drag.pointerId);
+  }
+  legend.drag = null;
+  els.espLegend.classList.remove('is-dragging');
+}
+
+function beginEspLegendDrag(event, source) {
+  if (
+    state.espAnalysis.legend.drag
+    || event.button !== 0
+    || event.isPrimary === false
+    || event.target.closest('button')
+  ) return false;
+  const legendRect = els.espLegend.getBoundingClientRect();
+  const viewportRect = els.viewerWrap.getBoundingClientRect();
+  state.espAnalysis.legend.position = {
+    left: legendRect.left - viewportRect.left,
+    top: legendRect.top - viewportRect.top
+  };
+  state.espAnalysis.legend.drag = {
+    source,
+    pointerId: event.pointerId,
+    offsetX: event.clientX - legendRect.left,
+    offsetY: event.clientY - legendRect.top
+  };
+  els.espLegend.classList.add('is-dragging');
+  event.preventDefault();
+  return true;
+}
+
+function updateEspLegendDrag(clientX, clientY) {
+  const drag = state.espAnalysis.legend.drag;
+  if (!drag) return;
+  const viewportRect = els.viewerWrap.getBoundingClientRect();
+  state.espAnalysis.legend.position = clampedEspLegendPosition(
+    clientX - viewportRect.left - drag.offsetX,
+    clientY - viewportRect.top - drag.offsetY
+  );
+  applyEspLegendPosition();
+}
+
+function startEspLegendDrag(event) {
+  if (!beginEspLegendDrag(event, 'pointer')) return;
+  els.espLegendHeader.setPointerCapture?.(event.pointerId);
+}
+
+function moveEspLegend(event) {
+  const drag = state.espAnalysis.legend.drag;
+  if (!drag || drag.source !== 'pointer' || event.pointerId !== drag.pointerId) return;
+  updateEspLegendDrag(event.clientX, event.clientY);
+  event.preventDefault();
+}
+
+function startEspLegendMouseDrag(event) {
+  beginEspLegendDrag(event, 'mouse');
+}
+
+function moveEspLegendMouse(event) {
+  if (state.espAnalysis.legend.drag?.source !== 'mouse') return;
+  updateEspLegendDrag(event.clientX, event.clientY);
+  event.preventDefault();
+}
+
+function finishEspLegendMouseDrag() {
+  if (state.espAnalysis.legend.drag?.source === 'mouse') finishEspLegendDrag();
 }
 
 function currentEspExtremaPair() {
@@ -3921,6 +4131,7 @@ function refreshEspAnalysisCapabilities() {
   if (els.guiToolEsp) els.guiToolEsp.title = state.espAnalysis.capabilities.reason || '';
   syncEspExtremaMenuState();
   syncEspOpacityControls();
+  syncEspLegendVisibility();
 }
 
 async function loadManifestObject(manifest, baseUrl = '') {
@@ -4051,17 +4262,114 @@ function saveManifest() {
   downloadBlob('multiwfn-3dmol-manifest.json', 'application/json', `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-function savePng() {
+function downloadPngDataUri(dataUri) {
+  const link = document.createElement('a');
+  link.href = dataUri;
+  link.download = 'multiwfn-3dmol-view.png';
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+function loadPngImage(dataUri) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener('load', () => resolve(image), { once: true });
+    image.addEventListener('error', () => reject(new Error('Could not decode the rendered PNG')), { once: true });
+    image.src = dataUri;
+  });
+}
+
+function roundedRectanglePath(context, x, y, width, height, radius) {
+  const corner = Math.max(0, Math.min(radius, width / 2, height / 2));
+  context.beginPath();
+  context.moveTo(x + corner, y);
+  context.lineTo(x + width - corner, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + corner);
+  context.lineTo(x + width, y + height - corner);
+  context.quadraticCurveTo(x + width, y + height, x + width - corner, y + height);
+  context.lineTo(x + corner, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - corner);
+  context.lineTo(x, y + corner);
+  context.quadraticCurveTo(x, y, x + corner, y);
+  context.closePath();
+}
+
+function drawEspLegendForExport(context, model, image) {
+  const viewportRect = els.viewerWrap.getBoundingClientRect();
+  const legendRect = els.espLegend.getBoundingClientRect();
+  const gradientRect = els.espLegendGradient.getBoundingClientRect();
+  if (!viewportRect.width || !viewportRect.height || !legendRect.width || !legendRect.height) return;
+
+  const scaleX = image.naturalWidth / viewportRect.width;
+  const scaleY = image.naturalHeight / viewportRect.height;
+  const scale = Math.min(scaleX, scaleY);
+  const projectRect = (rect) => ({
+    x: (rect.left - viewportRect.left) * scaleX,
+    y: (rect.top - viewportRect.top) * scaleY,
+    width: rect.width * scaleX,
+    height: rect.height * scaleY
+  });
+  const card = projectRect(legendRect);
+  const bar = projectRect(gradientRect);
+  const padding = (legendRect.width <= 160 ? 10 : 12) * scale;
+
+  context.save();
+  context.shadowColor = 'rgba(28, 36, 48, 0.14)';
+  context.shadowBlur = 12 * scale;
+  context.shadowOffsetY = 3 * scale;
+  roundedRectanglePath(context, card.x, card.y, card.width, card.height, 8 * scale);
+  context.fillStyle = 'rgba(247, 248, 250, 0.96)';
+  context.fill();
+  context.shadowColor = 'transparent';
+  context.strokeStyle = '#d7dde5';
+  context.lineWidth = Math.max(1, scale);
+  context.stroke();
+
+  const compact = legendRect.width <= 160;
+  context.fillStyle = '#1c2430';
+  context.font = `600 ${(compact ? 10 : 12) * scale}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  context.textBaseline = 'top';
+  context.fillText(els.espLegendTitle.textContent, card.x + padding, card.y + padding);
+  context.fillStyle = '#667085';
+  context.font = `400 ${(compact ? 10 : 11) * scale}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  context.fillText(els.espLegendUnit.textContent, card.x + padding, card.y + padding + 17 * scale);
+
+  paintEspLegendGradient(context, model, bar.x, bar.y, bar.width, bar.height);
+  context.strokeStyle = '#c8d0dc';
+  context.lineWidth = Math.max(1, scale);
+  context.strokeRect(bar.x, bar.y, bar.width, bar.height);
+
+  context.fillStyle = '#1c2430';
+  context.font = `400 ${11 * scale}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+  model.ticks.forEach((tick) => {
+    const y = bar.y + tick.fraction * bar.height;
+    context.textBaseline = tick.fraction === 0 ? 'top' : tick.fraction === 1 ? 'bottom' : 'middle';
+    context.fillText(tick.label, bar.x + bar.width + 10 * scale, y);
+  });
+  context.restore();
+}
+
+async function savePng() {
   try {
     const dataUri = typeof state.viewer.pngURI === 'function'
       ? state.viewer.pngURI()
       : els.viewer.querySelector('canvas').toDataURL('image/png');
-    const link = document.createElement('a');
-    link.href = dataUri;
-    link.download = 'multiwfn-3dmol-view.png';
-    document.body.append(link);
-    link.click();
-    link.remove();
+    const legendModel = currentEspLegendModel();
+    if (!legendModel || !shouldDisplayEspLegend() || els.espLegend.hidden) {
+      downloadPngDataUri(dataUri);
+      setStatus('PNG saved');
+      return;
+    }
+
+    const image = await loadPngImage(dataUri);
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    drawEspLegendForExport(context, legendModel, image);
+    downloadPngDataUri(canvas.toDataURL('image/png'));
     setStatus('PNG saved');
   } catch (error) {
     console.error(error);
@@ -4073,6 +4381,7 @@ function showPlotPanel(show = true) {
   els.plotPanel.classList.toggle('is-hidden', !show);
   updateOrientationVisibility();
   syncEspExtremaVisibility();
+  syncEspLegendVisibility();
   syncSceneOverlays();
 }
 
@@ -4822,6 +5131,14 @@ function bindEvents() {
       if (loaded && state.espAnalysis.extrema.enabled) void ensureEspExtremaForCurrentEsp();
     });
   });
+  els.guiToolEspLegend.addEventListener('click', () => {
+    setToolsMenuOpen(false);
+    if (els.guiToolEspLegend.getAttribute('aria-disabled') === 'true') {
+      setStatus('Generate an ESP surface before showing its legend', false);
+      return;
+    }
+    setEspLegendEnabled(!state.espAnalysis.legend.enabled);
+  });
   els.guiToolEspExtrema.addEventListener('click', () => {
     setToolsMenuOpen(false);
     const capability = state.espAnalysis.capabilities || defaultEspAnalysisCapabilities();
@@ -4834,6 +5151,17 @@ function bindEvents() {
   els.guiEspOpacity.addEventListener('input', () => {
     setEspSurfaceOpacity(Number(els.guiEspOpacity.value) / 100, { announce: true });
   });
+  els.espLegendClose.addEventListener('click', () => {
+    setEspLegendEnabled(false);
+  });
+  els.espLegendHeader.addEventListener('pointerdown', startEspLegendDrag);
+  els.espLegendHeader.addEventListener('pointermove', moveEspLegend);
+  els.espLegendHeader.addEventListener('pointerup', finishEspLegendDrag);
+  els.espLegendHeader.addEventListener('pointercancel', finishEspLegendDrag);
+  els.espLegendHeader.addEventListener('lostpointercapture', finishEspLegendDrag);
+  els.espLegendHeader.addEventListener('mousedown', startEspLegendMouseDrag);
+  document.addEventListener('mousemove', moveEspLegendMouse);
+  document.addEventListener('mouseup', finishEspLegendMouseDrag);
   document.addEventListener('click', (event) => {
     const toolsOpen = !els.guiToolsMenu.hidden || !els.guiEspMenu.hidden;
     if (toolsOpen && !els.guiToolsMenuControl.contains(event.target)) {
@@ -5232,9 +5560,17 @@ function cacheElements() {
     guiToolEsp: byId('gui-tool-esp'),
     guiEspMenu: byId('gui-esp-menu'),
     guiToolEspShow: byId('gui-tool-esp-show'),
+    guiToolEspLegend: byId('gui-tool-esp-legend'),
     guiToolEspExtrema: byId('gui-tool-esp-extrema'),
     guiEspOpacity: byId('gui-esp-opacity'),
     guiEspOpacityValue: byId('gui-esp-opacity-value'),
+    espLegend: byId('esp-legend'),
+    espLegendHeader: byId('esp-legend-header'),
+    espLegendTitle: byId('esp-legend-title'),
+    espLegendUnit: byId('esp-legend-unit'),
+    espLegendClose: byId('esp-legend-close'),
+    espLegendGradient: byId('esp-legend-gradient'),
+    espLegendTicks: byId('esp-legend-ticks'),
     modelLabel: byId('model-label'),
     cubeLabel: byId('cube-label'),
     structureFile: byId('structure-file'),
@@ -5371,4 +5707,5 @@ window.addEventListener('resize', () => {
   closeBondContextMenu();
   repositionOpenStyleSubmenu();
   repositionOpenEspToolsMenu();
+  syncEspLegendVisibility();
 });
