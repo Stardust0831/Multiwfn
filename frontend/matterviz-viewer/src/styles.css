@@ -45,7 +45,7 @@ button, input, select { font: inherit; }
 }
 
 .brand { display: flex; align-items: baseline; gap: 7px; margin-right: 8px; }
-.brand strong { font-size: 15px; }
+.brand strong { color: #18202a; font-size: 15px; }
 .brand span { color: #667085; font-size: 11px; }
 .toolbar label, .periodic-bar label { display: flex; align-items: center; gap: 5px; }
 .toolbar label > span, .periodic-bar label > span { color: #5c6675; font-size: 11px; }
@@ -100,7 +100,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .statusbar.error { color: #b42318; }
 
 .log-panel,
-.layer-panel {
+.layer-panel,
+.esp-extrema-panel {
   position: absolute;
   right: 10px;
   bottom: 38px;
@@ -116,7 +117,8 @@ button:disabled { opacity: 0.45; cursor: default; }
   box-shadow: 0 10px 30px rgba(23, 32, 42, 0.2);
 }
 .log-panel header,
-.layer-panel > header {
+.layer-panel > header,
+.esp-extrema-panel > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -149,6 +151,15 @@ button:disabled { opacity: 0.45; cursor: default; }
   right: auto;
   width: min(460px, calc(100% - 20px));
 }
+
+.esp-extrema-panel { right: 10px; bottom: 38px; width: min(390px, calc(100% - 20px)); }
+.esp-extrema-list { min-height: 80px; overflow: auto; padding: 6px; }
+.esp-extrema-list > div { display: grid; grid-template-columns: 55px 1fr; gap: 3px 8px; padding: 6px; border-bottom: 1px solid #e2e6eb; }
+.esp-extrema-panel > header strong { color: #18202a; }
+.esp-extrema-list > .panel-empty { display: block; color: #667085; }
+.esp-extrema-list > div.minimum strong { color: #b4235a; }
+.esp-extrema-list > div:not(.minimum) strong { color: #08769a; }
+.esp-extrema-list small { grid-column: 2; color: #667085; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 @media (min-width: 901px) and (max-width: 1100px) {
   .log-panel,
@@ -193,6 +204,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .panel-empty { padding: 14px; color: #667085; }
 
 @media (max-width: 900px) {
+  .toolbar { flex-wrap: wrap; overflow-x: hidden; }
   .brand span { display: none; }
   .toolbar { gap: 5px; }
   .toolbar button { padding-inline: 7px; }

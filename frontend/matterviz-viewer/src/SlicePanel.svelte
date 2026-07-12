@@ -176,7 +176,7 @@
 </aside>
 
 <style>
-  .slice-panel { position: absolute; inset: 10px; z-index: 1000; display: grid; grid-template-rows: auto auto minmax(220px, 1fr) auto; grid-template-columns: minmax(0, 1fr); width: calc(100% - 20px); min-width: 0; overflow: hidden; background: #fff; border: 1px solid #aeb8c5; border-radius: 7px; box-shadow: 0 12px 36px rgba(23, 32, 42, 0.24); }
+  .slice-panel { position: absolute; inset: 10px; z-index: 200000000; display: grid; grid-template-rows: auto auto minmax(220px, 1fr) auto; grid-template-columns: minmax(0, 1fr); width: calc(100% - 20px); min-width: 0; overflow: hidden; background: #fff; border: 1px solid #aeb8c5; border-radius: 7px; box-shadow: 0 12px 36px rgba(23, 32, 42, 0.24); }
   .slice-panel.closed { display: none; }
   header { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px 7px 13px; background: #f5f7f9; border-bottom: 1px solid #d6dce4; }
   header button { height: 27px; }

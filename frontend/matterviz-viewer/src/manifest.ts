@@ -39,9 +39,30 @@ export type BondAnalysis = {
   methods?: Record<string, BondMethodCapability>
 }
 
+export type AnalysisCapability = {
+  available?: boolean
+  format?: string
+  reason?: string
+  features?: Record<string, boolean>
+}
+
+export type AnalysisDataset = {
+  path?: string
+  dataset?: string
+  kind?: string
+  pdos?: boolean
+}
+
+export type AnalysisManifest = {
+  capabilities?: Record<string, AnalysisCapability>
+  primaryDos?: AnalysisDataset
+  datasets?: AnalysisDataset[]
+}
+
 export type MultiwfnManifest = {
   multiwfnGui?: MultiwfnGui
   bondAnalysis?: BondAnalysis
+  analysis?: AnalysisManifest
   structure?: ManifestEntry | null
   cubes?: ManifestEntry[]
   layers?: ManifestEntry[]

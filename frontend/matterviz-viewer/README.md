@@ -47,6 +47,14 @@ strict-grid cross-coloring by another loaded volume. When the manifest exposes b
 capabilities, select two atoms with MatterViz's measurement tool and use the bond controls to run
 the corresponding Multiwfn calculation.
 
+When a session exposes `analysis.primaryDos.path`, the workbench loads the versioned Multiwfn DOS
+artifact and renders responsive TDOS/PDOS curves with bounded Gaussian broadening. ESP-colored
+density surfaces receive a robust symmetric color range, a draggable kcal/mol/e legend, and an
+on-demand bounded extrema table. The current MatterViz renderer does not expose a stable API for
+arbitrary 3D extrema markers, so extrema coordinates are listed rather than drawn in the scene.
+The Export command writes a versioned JSON snapshot of layer and periodic display state; camera
+state is intentionally omitted until MatterViz exposes a supported camera serialization API.
+
 For periodic sessions, manifest cell vectors are injected into structures that would otherwise be
 plain molecules (for example XYZ files), so MatterViz can render the cell, boundary atoms, periodic
 bonds, and atom supercells. Fractional surface ranges remain independent from the integer atom

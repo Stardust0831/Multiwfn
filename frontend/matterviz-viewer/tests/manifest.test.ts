@@ -145,3 +145,19 @@ test('allows optional sections to be absent without changing helper defaults', (
   assert.deepEqual(cube_entries(manifest), [])
   assert.equal(display_range(manifest), undefined)
 })
+
+test('accepts direct and future API-backed analysis dataset descriptors', () => {
+  const manifest: MultiwfnManifest = {
+    analysis: {
+      capabilities: {
+        dos: { available: true, format: 'multiwfn-orbitals', features: { tdos: true, pdos: true } },
+        band: { available: false, reason: 'Not generated' },
+      },
+      primaryDos: { path: 'analysis_primary_dos.json', kind: 'dos', pdos: true },
+      datasets: [{ dataset: 'external-1', kind: 'dos' }],
+    },
+  }
+  assert.equal(manifest.analysis?.primaryDos?.path, 'analysis_primary_dos.json')
+  assert.equal(manifest.analysis?.capabilities?.dos?.features?.pdos, true)
+  assert.equal(manifest.analysis?.datasets?.[0]?.dataset, 'external-1')
+})

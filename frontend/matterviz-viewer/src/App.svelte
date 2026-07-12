@@ -12,7 +12,15 @@
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
   import { onMount } from 'svelte'
+  import AnalysisPanel from './AnalysisPanel.svelte'
+  import EspLegend from './EspLegend.svelte'
   import SlicePanel from './SlicePanel.svelte'
+  import {
+    estimate_esp_range,
+    extract_esp_extrema_async,
+    type EspExtremaResult,
+    type LegendPosition,
+  } from './esp'
   import {
     cube_entries,
     display_range,
@@ -22,6 +30,7 @@
     type MultiwfnManifest,
   } from './manifest'
   import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
+  import { create_workbench_state, download_workbench_state } from './state'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -49,6 +58,14 @@
   let logOpen = $state(false)
   let layerOpen = $state(false)
   let sliceOpen = $state(false)
+  let analysisOpen = $state(false)
+  let analysisData = $state<unknown>()
+  let espLegendOpen = $state(false)
+  let espExtremaOpen = $state(false)
+  let espExtremaLoading = $state(false)
+  let espExtrema = $state<EspExtremaResult | undefined>()
+  let espRange = $state<[number, number]>([-0.05, 0.05])
+  let espLegendPosition = $state<LegendPosition>({ left: 16, top: 16 })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
 
   type ApiPayload = {
@@ -232,6 +249,45 @@
     return Boolean(left && right && compare_volume_grids(left, right).ok)
   }
 
+  const esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined => {
+    const layers = isosurfaceSettings.layers ?? []
+    const densityIdx = volumeEntries.findIndex((entry) => entry.analysisKind === 'esp-density')
+    if (densityIdx >= 0) {
+      const linked = layers.find((layer) => layer.volume_idx === densityIdx)?.color_volume_idx
+      const potentialIdx = linked ?? volumeEntries.findIndex((entry) => entry.analysisKind === 'esp-potential')
+      if (potentialIdx >= 0 && grids_compatible(densityIdx, potentialIdx)) return { densityIdx, potentialIdx }
+    }
+    const linkedLayer = layers.find((layer) => layer.color_volume_idx !== undefined)
+    if (linkedLayer?.volume_idx !== undefined && linkedLayer.color_volume_idx !== undefined
+      && grids_compatible(linkedLayer.volume_idx, linkedLayer.color_volume_idx)) {
+      return { densityIdx: linkedLayer.volume_idx, potentialIdx: linkedLayer.color_volume_idx }
+    }
+    return undefined
+  }
+
+  const refresh_esp_range = (densityIdx: number, potentialIdx: number): void => {
+    const density = volumetricData?.[densityIdx]
+    const potential = volumetricData?.[potentialIdx]
+    if (!density || !potential) return
+    const range = estimate_esp_range(density, potential, espIsovalue, { maxCells: 150000, maxSamples: 50000 })
+    espRange = [range.min, range.max]
+    update_layer(densityIdx, { color_range: espRange })
+  }
+
+  const load_analysis = async (): Promise<void> => {
+    analysisData = undefined
+    const source = manifest.analysis?.primaryDos
+    if (!source?.path) return
+    try {
+      const response = await fetch(new URL(source.path, manifestBase), { cache: 'no-store' })
+      if (!response.ok) throw new Error(`DOS request returned HTTP ${response.status}`)
+      analysisData = await response.json()
+      add_log('DOS analysis data loaded')
+    } catch (error) {
+      report_error(error)
+    }
+  }
+
   const load_structure = async (): Promise<void> => {
     const entry = manifest.structure
     if (!entry?.path) return
@@ -263,6 +319,14 @@
       const entries = cube_entries(manifest)
       if (manifest.structure?.path) await load_structure()
       if (entries.length) await apply_entries(entries, manifestBase)
+      const initialEsp = esp_pair()
+      if (initialEsp) {
+        set_color_volume(initialEsp.densityIdx, initialEsp.potentialIdx)
+        update_layer(initialEsp.potentialIdx, { visible: false })
+        refresh_esp_range(initialEsp.densityIdx, initialEsp.potentialIdx)
+        espLegendOpen = true
+      }
+      await load_analysis()
       set_status(entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
     } catch (error) {
       report_error(error)
@@ -319,6 +383,9 @@
       if (volumes.length >= firstVolumeIdx + 2) {
         set_color_volume(firstVolumeIdx, firstVolumeIdx + 1)
         update_layer(firstVolumeIdx + 1, { visible: false })
+        refresh_esp_range(firstVolumeIdx, firstVolumeIdx + 1)
+        espLegendOpen = true
+        espExtrema = undefined
       }
       set_status('ESP mapped onto the electron-density surface')
     } catch (error) {
@@ -373,6 +440,57 @@
     } catch (error) {
       report_error(error)
     }
+  }
+
+  const calculate_esp_extrema = async (): Promise<void> => {
+    const pair = esp_pair()
+    if (!pair) {
+      report_error(new Error('No compatible ESP-colored density surface is available'))
+      return
+    }
+    const density = volumetricData?.[pair.densityIdx]
+    const potential = volumetricData?.[pair.potentialIdx]
+    if (!density || !potential) return
+    espExtremaLoading = true
+    espExtremaOpen = true
+    try {
+      espExtrema = await extract_esp_extrema_async(density, potential, espIsovalue, {
+        maxCells: 120000,
+        maxSamples: 50000,
+        maxExtrema: 12,
+        excludeBoundary: true,
+      })
+      set_status(`${espExtrema.minima.length} ESP minima and ${espExtrema.maxima.length} maxima found`)
+    } catch (error) {
+      report_error(error)
+    } finally {
+      espExtremaLoading = false
+    }
+  }
+
+  const export_state = (): void => {
+    download_workbench_state(create_workbench_state({
+      manifest,
+      sourceManifest: manifest_url().href,
+      entries: volumeEntries,
+      isosurfaceSettings,
+      activeVolume: activeVolumeIdx,
+      atomSupercell: supercellScaling,
+      showBoundaryAtoms: showImageAtoms,
+      showUnitCell,
+    }))
+    set_status('MatterViz workbench state exported')
+  }
+
+  const open_panel = (panel: 'layers' | 'slice' | 'analysis' | 'logs'): void => {
+    const next = panel === 'layers' ? !layerOpen
+      : panel === 'slice' ? !sliceOpen
+        : panel === 'analysis' ? !analysisOpen
+          : !logOpen
+    layerOpen = panel === 'layers' && next
+    sliceOpen = panel === 'slice' && next
+    analysisOpen = panel === 'analysis' && next
+    logOpen = panel === 'logs' && next
   }
 
   const set_range = (axis: number, bound: number, value: number): void => {
@@ -433,9 +551,17 @@
         title={manifest.bondAnalysis.methods[bondMethod]?.reason || 'Use the measurement tool to select two atoms'}
       >Calculate</button>
     {/if}
-    <button type="button" onclick={() => layerOpen = !layerOpen} aria-expanded={layerOpen}>Layers ({volumeEntries.length})</button>
-    <button type="button" onclick={() => sliceOpen = !sliceOpen} disabled={!volumetricData?.length} aria-expanded={sliceOpen}>2D Slice</button>
-    <button type="button" onclick={() => logOpen = !logOpen} aria-expanded={logOpen}>Logs ({logEntries.length})</button>
+    <button type="button" onclick={() => open_panel('layers')} aria-expanded={layerOpen}>Layers ({volumeEntries.length})</button>
+    <button type="button" onclick={() => open_panel('slice')} disabled={!volumetricData?.length} aria-expanded={sliceOpen}>2D Slice</button>
+    {#if manifest.analysis?.primaryDos?.path}
+      <button type="button" onclick={() => open_panel('analysis')} disabled={!analysisData} aria-expanded={analysisOpen}>DOS / PDOS</button>
+    {/if}
+    {#if esp_pair()}
+      <button type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>ESP legend</button>
+      <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>ESP extrema</button>
+    {/if}
+    <button type="button" onclick={export_state}>Export</button>
+    <button type="button" onclick={() => open_panel('logs')} aria-expanded={logOpen}>Logs ({logEntries.length})</button>
     <button class="return" type="button" onclick={return_to_multiwfn}>Return</button>
   </header>
 
@@ -509,6 +635,12 @@
         bind:active_volume_idx={activeVolumeIdx}
         bind:open={sliceOpen}
       />
+    {/if}
+    {#if analysisOpen}
+      <AnalysisPanel data={analysisData} bind:open={analysisOpen} />
+    {/if}
+    {#if espLegendOpen}
+      <EspLegend min={espRange[0]} max={espRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
     {/if}
   </section>
 
@@ -608,6 +740,30 @@
           <div class="log-empty">No operations recorded.</div>
         {/each}
       </div>
+    </aside>
+  {/if}
+
+  {#if espExtremaOpen}
+    <aside class="esp-extrema-panel" aria-label="ESP surface extrema">
+      <header>
+        <strong>ESP extrema</strong>
+        <button type="button" onclick={() => espExtremaOpen = false}>Close</button>
+      </header>
+      {#if espExtremaLoading}
+        <div class="panel-empty">Calculating bounded surface extrema...</div>
+      {:else if espExtrema}
+        <div class="esp-extrema-list">
+          {#each [...espExtrema.minima, ...espExtrema.maxima] as point}
+            <div class:minimum={point.type === 'minimum'}>
+              <strong>{point.type === 'minimum' ? 'Min' : 'Max'} {point.rank}</strong>
+              <span>{point.kcalMolPerElectron.toFixed(2)} kcal/mol/e</span>
+              <small>{point.x.toFixed(3)}, {point.y.toFixed(3)}, {point.z.toFixed(3)}</small>
+            </div>
+          {:else}
+            <div class="panel-empty">No finite interior extrema found.</div>
+          {/each}
+        </div>
+      {/if}
     </aside>
   {/if}
 </main>
