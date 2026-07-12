@@ -844,7 +844,11 @@ character(len=512) :: home,python,tool,frontend,shell,native
 integer :: istat
 
 call get_3dmol_home(home)
+#ifdef MULTIWFN_WEB_FRONTEND_MATTERVIZ
+call resolve_resource_path(home,"frontend/matterviz-viewer/dist",frontend)
+#else
 call resolve_resource_path(home,"frontend/3dmol-viewer",frontend)
+#endif
 #ifdef MULTIWFN_3DMOL_DEFAULT_SHELL_QT
 shell="qt"
 #else

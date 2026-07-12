@@ -16,6 +16,8 @@ set(MULTIWFN_GUI_BACKEND "dislin" CACHE STRING "GUI backend used by the CMake bu
 set_property(CACHE MULTIWFN_GUI_BACKEND PROPERTY STRINGS dislin 3dmol)
 set(MULTIWFN_3DMOL_DEFAULT_SHELL "browser" CACHE STRING "Default shell for the 3Dmol backend: browser or qt")
 set_property(CACHE MULTIWFN_3DMOL_DEFAULT_SHELL PROPERTY STRINGS browser qt)
+set(MULTIWFN_WEB_FRONTEND "3dmol" CACHE STRING "Web visualization frontend: 3dmol or matterviz")
+set_property(CACHE MULTIWFN_WEB_FRONTEND PROPERTY STRINGS 3dmol matterviz)
 set(MULTIWFN_GNU_OPT_LEVEL "O2" CACHE STRING "GNU Fortran optimization level for Release builds")
 set(MULTIWFN_GNU_HOT_OPT_LEVEL "" CACHE STRING "Optional GNU Fortran optimization level for selected hot sources")
 set(MULTIWFN_GNU_EXTRA_FLAGS "" CACHE STRING "Extra GNU Fortran compile flags, separated by spaces")
@@ -52,6 +54,9 @@ if(NOT MULTIWFN_GUI_BACKEND MATCHES "^(dislin|3dmol)$")
 endif()
 if(NOT MULTIWFN_3DMOL_DEFAULT_SHELL MATCHES "^(browser|qt)$")
   message(FATAL_ERROR "MULTIWFN_3DMOL_DEFAULT_SHELL must be browser or qt")
+endif()
+if(NOT MULTIWFN_WEB_FRONTEND MATCHES "^(3dmol|matterviz)$")
+  message(FATAL_ERROR "MULTIWFN_WEB_FRONTEND must be 3dmol or matterviz")
 endif()
 
 set(CMAKE_Fortran_PREPROCESS ON)
@@ -208,6 +213,9 @@ add_executable(${MULTIWFN_EXECUTABLE_NAME} ${MULTIWFN_CORE_SOURCES})
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "qt")
   target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_3DMOL_DEFAULT_SHELL_QT)
 endif()
+if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_WEB_FRONTEND STREQUAL "matterviz")
+  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_WEB_FRONTEND_MATTERVIZ)
+endif()
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
   find_package(Python3 QUIET COMPONENTS Interpreter)
@@ -263,6 +271,29 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
     COMMENT "Staging Multiwfn settings and 3Dmol GUI runtime resources"
     VERBATIM
   )
+
+  if(MULTIWFN_WEB_FRONTEND STREQUAL "matterviz")
+    set(MULTIWFN_MATTERVIZ_DIST
+      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/matterviz-viewer/dist"
+    )
+    if(NOT EXISTS "${MULTIWFN_MATTERVIZ_DIST}/index.html")
+      message(FATAL_ERROR
+        "The MatterViz frontend has not been built. Run pnpm install and pnpm build in "
+        "frontend/matterviz-viewer before configuring Multiwfn."
+      )
+    endif()
+
+    add_custom_target(multiwfn_matterviz_resources ALL
+      COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/matterviz-viewer"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${MULTIWFN_MATTERVIZ_DIST}"
+        "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/matterviz-viewer/dist"
+      COMMENT "Staging MatterViz GUI runtime resources"
+      VERBATIM
+    )
+    add_dependencies(multiwfn_matterviz_resources multiwfn_3dmol_resources)
+  endif()
 endif()
 
 if(WIN32)

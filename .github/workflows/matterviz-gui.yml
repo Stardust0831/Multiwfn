@@ -1,0 +1,71 @@
+name: matterviz-gui
+
+on:
+  push:
+    branches:
+      - feature/matterviz-gui
+  pull_request:
+    branches:
+      - main
+    paths:
+      - CMakeLists.txt
+      - noGUI/GUI_3dmol.f90
+      - frontend/matterviz-viewer/**
+      - .github/workflows/matterviz-gui.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: matterviz-gui-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: MatterViz frontend and Multiwfn adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.4.1
+          cache: pnpm
+          cache-dependency-path: frontend/matterviz-viewer/pnpm-lock.yaml
+
+      - name: Check and build MatterViz frontend
+        working-directory: frontend/matterviz-viewer
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm check
+          pnpm build
+
+      - name: Install Multiwfn build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gfortran cmake ninja-build libblas-dev liblapack-dev
+
+      - name: Build Multiwfn with MatterViz frontend
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-matterviz-gui -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMULTIWFN_GUI_BACKEND=3dmol \
+            -DMULTIWFN_WEB_FRONTEND=matterviz \
+            -DMULTIWFN_3DMOL_DEFAULT_SHELL=browser \
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
+          cmake --build build-matterviz-gui --parallel 2
+          test -x build-matterviz-gui/Multiwfn_3DmolGUI
+          test -f build-matterviz-gui/resources/frontend/matterviz-viewer/dist/index.html

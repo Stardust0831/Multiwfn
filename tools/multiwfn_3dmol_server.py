@@ -357,8 +357,8 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Serve the Multiwfn 3Dmol GUI demo")
-    parser.add_argument("--frontend", default="frontend/3dmol-viewer", help="Path to the 3Dmol frontend directory")
+    parser = argparse.ArgumentParser(description="Serve a Multiwfn web visualization frontend")
+    parser.add_argument("--frontend", default="frontend/3dmol-viewer", help="Path to the frontend directory")
     parser.add_argument("--session", default="multiwfn_3dmol_session", help="Path to the generated GUI session")
     parser.add_argument("--manifest", default=None, help="Path to the generated manifest")
     parser.add_argument("--host", default="127.0.0.1", help="HTTP bind address")
@@ -385,7 +385,8 @@ def main() -> int:
     server = ThreadingHTTPServer((args.host, port), handler)
     url = f"http://{args.host}:{port}/index.html?manifest=/session/manifest.json"
 
-    print(f"Multiwfn 3Dmol GUI service: {url}")
+    frontend_name = "MatterViz" if "matterviz" in str(frontend_dir).lower() else "3Dmol"
+    print(f"Multiwfn {frontend_name} GUI service: {url}")
     if args.open and not args.no_open:
         def open_or_report() -> None:
             if not try_open_url(url):
@@ -398,7 +399,7 @@ def main() -> int:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            input("Press ENTER to stop the 3Dmol GUI service...")
+            input(f"Press ENTER to stop the {frontend_name} GUI service...")
         finally:
             server.shutdown()
         return 0
@@ -406,7 +407,7 @@ def main() -> int:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping Multiwfn 3Dmol GUI service.")
+        print(f"\nStopping Multiwfn {frontend_name} GUI service.")
     finally:
         server.server_close()
     return 0
