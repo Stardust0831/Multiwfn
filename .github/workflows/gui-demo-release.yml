@@ -154,6 +154,7 @@ jobs:
             --name multiwfn_qt_gui \
             --paths tools \
             --hidden-import multiwfn_analysis \
+            --hidden-import multiwfn_progress \
             --hidden-import PyQt6.QtWebEngineCore \
             --hidden-import PyQt6.QtWebEngineWidgets \
             --distpath qt-launcher-dist \
@@ -200,27 +201,20 @@ jobs:
           cp settings.ini "package/${pkg}/settings.ini"
           cp tools/multiwfn_3dmol_server.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_analysis.py "package/${pkg}/resources/tools/"
+          cp tools/multiwfn_progress.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_3dmol_file_dialog.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_qt_gui.py "package/${pkg}/resources/tools/"
           cp -R frontend/3dmol-viewer "package/${pkg}/resources/frontend/"
           cp -R frontend/qt-multiwfn-gui "package/${pkg}/resources/frontend/"
-          if [[ -f qt-launcher-dist/multiwfn_qt_gui.exe ]]; then
-            cp qt-launcher-dist/multiwfn_qt_gui.exe "package/${pkg}/resources/tools/"
-          elif [[ -f qt-launcher-dist/multiwfn_qt_gui ]]; then
-            cp qt-launcher-dist/multiwfn_qt_gui "package/${pkg}/resources/tools/"
-            chmod +x "package/${pkg}/resources/tools/multiwfn_qt_gui"
-          fi
-          if [[ "$tag" == gui-qt-preview-* || "$tag" == v*-gui.* || "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch || "${GITHUB_REF_NAME:-}" == main ]]; then
-            test -f "package/${pkg}/resources/tools/multiwfn_qt_gui.exe" || test -x "package/${pkg}/resources/tools/multiwfn_qt_gui"
-          fi
-
       - name: Package Linux demo
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
           exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
-          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}"
+          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}.backend"
+          cp qt-launcher-dist/multiwfn_qt_gui "package/${PKG}/${exe_name}"
+          chmod +x "package/${PKG}/${exe_name}" "package/${PKG}/${exe_name}.backend"
           ldd "build-3dmol-gui/${exe_name}" > linux-runtime-libs.txt
           awk '/=> \// {print $3}' linux-runtime-libs.txt | while read -r lib; do
             base="$(basename "$lib")"
@@ -241,7 +235,9 @@ jobs:
         run: |
           set -euo pipefail
           exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
-          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}"
+          cp "build-3dmol-gui/${exe_name}" "package/${PKG}/${exe_name}.backend"
+          cp qt-launcher-dist/multiwfn_qt_gui "package/${PKG}/${exe_name}"
+          chmod +x "package/${PKG}/${exe_name}" "package/${PKG}/${exe_name}.backend"
           otool -L "build-3dmol-gui/${exe_name}" > macos-runtime-libs.txt
           awk 'NR>1 {print $1}' macos-runtime-libs.txt | while read -r lib; do
             case "$lib" in
@@ -263,12 +259,13 @@ jobs:
         run: |
           set -euo pipefail
           exe_name="${MULTIWFN_GUI_EXE:-Multiwfn_3DmolGUI}"
-          cp "build-3dmol-gui/${exe_name}.exe" "package/${PKG}/${exe_name}.exe"
+          cp "build-3dmol-gui/${exe_name}.exe" "package/${PKG}/${exe_name}.backend.exe"
+          cp qt-launcher-dist/multiwfn_qt_gui.exe "package/${PKG}/${exe_name}.exe"
           : > windows-dlls.log
           processed=""
           while :; do
             changed=0
-            for binary in "package/${PKG}/${exe_name}.exe" package/"${PKG}"/*.dll; do
+            for binary in "package/${PKG}/${exe_name}.exe" "package/${PKG}/${exe_name}.backend.exe" package/"${PKG}"/*.dll; do
               [ -e "$binary" ] || continue
               case " $processed " in
                 *" $binary "*) continue ;;

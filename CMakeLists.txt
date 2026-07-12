@@ -248,7 +248,7 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_server.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_analysis.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_file_dialog.py"
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_gui_launcher.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_progress.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_qt_gui.py"
       "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools"
     COMMAND ${CMAKE_COMMAND} -E copy_directory

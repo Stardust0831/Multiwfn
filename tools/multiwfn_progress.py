@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
-"""Run Multiwfn with an unbuffered output stream for GUI progress capture."""
+"""Translate Multiwfn's original terminal progress into GUI session JSON."""
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 from pathlib import Path
@@ -57,33 +55,26 @@ class ProgressStreamParser:
         temporary.replace(target)
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--session", default="multiwfn_3dmol_session")
-    parser.add_argument("--log", default=None)
-    parser.add_argument("--quiet", action="store_true")
-    parser.add_argument("command", nargs=argparse.REMAINDER)
-    args = parser.parse_args(argv)
-    if args.command[:1] == ["--"]:
-        args.command = args.command[1:]
-    if not args.command:
-        parser.error("a Multiwfn command is required after --")
-    return args
+def packaged_backend(executable: Path | None = None) -> Path | None:
+    current = Path(executable or sys.executable).resolve()
+    if current.stem.lower() not in {"multiwfn_qtgui", "multiwfn_3dmolgui"}:
+        return None
+    suffix = current.suffix if os.name == "nt" else ""
+    candidate = current.with_name(f"{current.stem}.backend{suffix}")
+    return candidate if candidate.is_file() else None
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    session_dir = Path(args.session).expanduser().resolve()
-    log_path = Path(args.log).expanduser().resolve() if args.log else session_dir / "runtime.log"
-    session_dir.mkdir(parents=True, exist_ok=True)
+def run_backend(backend: Path, arguments: list[str], session_dir: Path | None = None) -> int:
+    session = Path(session_dir or os.environ.get("MULTIWFN_3DMOL_SESSION", "multiwfn_3dmol_session")).resolve()
+    session.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env["MULTIWFN_3DMOL_SESSION"] = str(session_dir)
+    env["MULTIWFN_3DMOL_SESSION"] = str(session)
+    env["MULTIWFN_QT_LAUNCHER"] = str(Path(sys.executable).resolve())
     env.setdefault("GFORTRAN_UNBUFFERED_ALL", "y")
     env.setdefault("FOR_DISABLE_BUFFERING", "1")
-
-    parser = ProgressStreamParser(session_dir)
+    parser = ProgressStreamParser(session)
     process = subprocess.Popen(
-        args.command,
+        [str(backend), *arguments],
         stdin=None,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -91,24 +82,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     pending = bytearray()
     assert process.stdout is not None
-    with log_path.open("ab", buffering=0) as log:
-        while chunk := process.stdout.read1(4096):
-            log.write(chunk)
-            if not args.quiet:
+    try:
+        with (session / "runtime.log").open("ab", buffering=0) as log:
+            while chunk := process.stdout.read1(4096):
+                log.write(chunk)
                 sys.stdout.buffer.write(chunk)
                 sys.stdout.buffer.flush()
-            pending.extend(chunk)
-            while True:
-                separators = [pos for pos in (pending.find(b"\r"), pending.find(b"\n")) if pos >= 0]
-                if not separators:
-                    break
-                end = min(separators)
-                parser.feed_record(pending[:end].decode("utf-8", errors="replace"))
-                del pending[: end + 1]
-        if pending:
-            parser.feed_record(pending.decode("utf-8", errors="replace"))
+                pending.extend(chunk)
+                while True:
+                    separators = [pos for pos in (pending.find(b"\r"), pending.find(b"\n")) if pos >= 0]
+                    if not separators:
+                        break
+                    end = min(separators)
+                    parser.feed_record(pending[:end].decode("utf-8", errors="replace"))
+                    del pending[: end + 1]
+            if pending:
+                parser.feed_record(pending.decode("utf-8", errors="replace"))
+    finally:
+        process.stdout.close()
     return process.wait()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

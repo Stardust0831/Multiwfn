@@ -946,6 +946,11 @@ end subroutine
 subroutine resolve_native_qt_launcher(home,native)
 character(len=*),intent(in) :: home
 character(len=*),intent(out) :: native
+integer :: istat
+
+native=""
+call get_environment_variable("MULTIWFN_QT_LAUNCHER",native,status=istat)
+if (istat==0.and.len_trim(native)>0.and.path_exists(native)) return
 
 call resolve_resource_path(home,"tools/multiwfn_qt_gui.exe",native)
 if (path_exists(native)) return

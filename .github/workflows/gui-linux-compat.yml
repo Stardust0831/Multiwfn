@@ -113,6 +113,7 @@ jobs:
                 --name multiwfn_qt_gui \
                 --paths tools \
                 --hidden-import multiwfn_analysis \
+                --hidden-import multiwfn_progress \
                 --hidden-import PyQt6.QtWebEngineCore \
                 --hidden-import PyQt6.QtWebEngineWidgets \
                 --distpath qt-launcher-dist \
@@ -123,29 +124,23 @@ jobs:
               pkg=Multiwfn-gui-linux-glibc228
               rm -rf "package/$pkg" dist
               mkdir -p "package/$pkg/resources/lib" "package/$pkg/resources/tools" "package/$pkg/resources/frontend" dist
-              cp build-gui-linux-compat/Multiwfn_QtGUI "package/$pkg/Multiwfn_QtGUI"
+              cp build-gui-linux-compat/Multiwfn_QtGUI "package/$pkg/Multiwfn_QtGUI.backend"
+              cp qt-launcher-dist/multiwfn_qt_gui "package/$pkg/Multiwfn_QtGUI"
+              chmod +x "package/$pkg/Multiwfn_QtGUI" "package/$pkg/Multiwfn_QtGUI.backend"
               cp LICENSE.txt "package/$pkg/LICENSE.txt"
               cp settings.ini "package/$pkg/settings.ini"
               cp tools/multiwfn_3dmol_server.py "package/$pkg/resources/tools/"
               cp tools/multiwfn_analysis.py "package/$pkg/resources/tools/"
+              cp tools/multiwfn_progress.py "package/$pkg/resources/tools/"
               cp tools/multiwfn_3dmol_file_dialog.py "package/$pkg/resources/tools/"
               cp tools/multiwfn_qt_gui.py "package/$pkg/resources/tools/"
-              cp qt-launcher-dist/multiwfn_qt_gui "package/$pkg/resources/tools/multiwfn_qt_gui.bin"
-              printf "%s\n" \
-                "#!/usr/bin/env bash" \
-                "set -euo pipefail" \
-                "here=\"\$(cd -- \"\$(dirname -- \"\${BASH_SOURCE[0]}\")\" && pwd)\"" \
-                "export LD_LIBRARY_PATH=\"\$here/../lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"" \
-                "exec \"\$here/multiwfn_qt_gui.bin\" \"\$@\"" \
-                > "package/$pkg/resources/tools/multiwfn_qt_gui"
-              chmod +x "package/$pkg/resources/tools/multiwfn_qt_gui" "package/$pkg/resources/tools/multiwfn_qt_gui.bin"
               cp -R frontend/3dmol-viewer "package/$pkg/resources/frontend/"
               cp -R frontend/qt-multiwfn-gui "package/$pkg/resources/frontend/"
 
               pyqt_root="$(python3.11 -c "import pathlib, PyQt6; print(pathlib.Path(PyQt6.__file__).resolve().parent)")"
 
               shopt -s nullglob
-              scan_targets=("package/$pkg/Multiwfn_QtGUI" "package/$pkg/resources/tools/multiwfn_qt_gui.bin")
+              scan_targets=("package/$pkg/Multiwfn_QtGUI" "package/$pkg/Multiwfn_QtGUI.backend")
               while IFS= read -r elf; do
                 scan_targets+=("$elf")
               done < <(find "$pyqt_root/Qt6" -type f \( -name "*.so" -o -name "*.so.*" \) -print)
@@ -257,7 +252,7 @@ jobs:
 
               pkg=/work/clean-gui-test/Multiwfn-gui-linux-glibc228
               test -x "$pkg/Multiwfn_QtGUI"
-              test -x "$pkg/resources/tools/multiwfn_qt_gui"
+              test -x "$pkg/Multiwfn_QtGUI.backend"
 
               session=/tmp/multiwfn-gui-session
               mkdir -p "$session"

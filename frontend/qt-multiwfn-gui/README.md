@@ -23,20 +23,12 @@ python3 frontend/qt-multiwfn-gui/qt_multiwfn_gui.py \
   --frontend frontend/3dmol-viewer
 ```
 
-To expose Multiwfn's original grid progress to the embedded frontend, start
-Multiwfn through the output-capture launcher:
-
-```sh
-python3 tools/multiwfn_gui_launcher.py -- ./build-qt-gui/Multiwfn_QtGUI
-```
-
-The launcher mirrors output to the terminal, stores it in the GUI session's
-`runtime.log`, and converts the original carriage-return `Progress:` records
-to the session JSON files already consumed by the frontend. It sets the
-unbuffered-output variables used by GNU and Intel Fortran runtimes. Directly
-starting the Multiwfn executable remains supported, but live percentages are
-then unavailable because the Qt child process cannot capture its parent's
-standard output.
+The packaged top-level `Multiwfn_QtGUI` is also the backend launcher. It starts
+the internal Fortran executable, mirrors its output to the terminal and the GUI
+session's `runtime.log`, and converts the original carriage-return `Progress:`
+records to the JSON files consumed by the frontend. This uses the Python runtime
+already embedded in the native Qt executable; it does not require or package a
+second interpreter.
 
 Add `--profile-startup` to print one JSON timing record after the active
 orbital and all background preview layers are ready. The record includes Qt
