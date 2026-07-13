@@ -1,5 +1,11 @@
 <script lang="ts">
   import type { IsosurfaceSettings } from 'matterviz'
+  import {
+    apply_representation_preset,
+    detect_representation_preset,
+    REPRESENTATION_PRESETS,
+    type RepresentationPreset,
+  } from './representation'
 
   type InspectorSection = 'structure' | 'surfaces' | 'cell'
   type SceneProps = Record<string, unknown>
@@ -50,6 +56,20 @@
     if (Number.isFinite(input.valueAsNumber)) update_scene(key, input.valueAsNumber)
   }
 
+  const set_dimension = (key: 'atom_radius' | 'bond_thickness', event: Event): void => {
+    const input = event.currentTarget as HTMLInputElement
+    if (!Number.isFinite(input.valueAsNumber)) return
+    const minimum = key === 'atom_radius' ? 0.1 : 0.01
+    const maximum = key === 'atom_radius' ? 3 : 1
+    update_scene(key, Math.min(maximum, Math.max(minimum, input.valueAsNumber)))
+  }
+
+  const set_representation = (event: Event): void => {
+    const input = event.currentTarget as HTMLSelectElement
+    const preset = input.value as RepresentationPreset
+    on_scene_props_change?.(apply_representation_preset(scene_props, preset))
+  }
+
   const set_surface_number = (key: 'roughness' | 'metalness' | 'shininess' | 'specular' | 'halo', event: Event): void => {
     const input = event.currentTarget as HTMLInputElement
     if (Number.isFinite(input.valueAsNumber)) update_surface({ [key]: input.valueAsNumber })
@@ -89,6 +109,28 @@
           <label class="toggle-row">
             <input type="checkbox" checked={scene_value('show_gizmo', true)} onchange={(event) => update_scene('show_gizmo', event.currentTarget.checked)} />
             <span>Axes</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="inspector-section" aria-labelledby="representation-heading">
+        <h2 id="representation-heading">Representation</h2>
+        <label>
+          <span>Preset</span>
+          <select value={detect_representation_preset(scene_props)} onchange={set_representation}>
+            {#each REPRESENTATION_PRESETS as preset}
+              <option value={preset.value}>{preset.label}</option>
+            {/each}
+          </select>
+        </label>
+        <div class="field-grid compact-fields">
+          <label>
+            <span>Atom radius</span>
+            <input type="number" min="0.1" max="3" step="0.01" value={scene_value('atom_radius', 0.7)} oninput={(event) => set_dimension('atom_radius', event)} />
+          </label>
+          <label>
+            <span>Bond thickness</span>
+            <input type="number" min="0.01" max="1" step="0.01" value={scene_value('bond_thickness', 0.07)} oninput={(event) => set_dimension('bond_thickness', event)} />
           </label>
         </div>
       </section>
@@ -217,6 +259,7 @@
   .inspector-section h2 { margin: 0 0 10px; color: #344054; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
   .control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
   .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 8px; margin-top: 11px; }
+  .compact-fields { gap: 7px 8px; margin-top: 8px; }
   label { display: grid; min-width: 0; gap: 4px; }
   label > span { color: #5c6675; font-size: 11px; }
   .toggle-row { display: flex; align-items: center; min-height: 28px; gap: 6px; }
