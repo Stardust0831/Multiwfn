@@ -7,6 +7,26 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+Add-Type -TypeDefinition @'
+using System.Collections.Concurrent;
+using System.IO;
+using System.Threading.Tasks;
+
+public static class MatterVizAsyncLineCollector
+{
+    public static async Task DrainAsync(
+        StreamReader reader,
+        ConcurrentQueue<string> lines)
+    {
+        string line;
+        while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
+        {
+            lines.Enqueue(line);
+        }
+    }
+}
+'@
+
 $executable = [IO.Path]::GetFullPath($ExecutablePath)
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Packaged Multiwfn executable was not found: $executable"
@@ -24,8 +44,8 @@ $process = $null
 $processStarted = $false
 $stdoutLines = [Collections.Concurrent.ConcurrentQueue[string]]::new()
 $stderrLines = [Collections.Concurrent.ConcurrentQueue[string]]::new()
-$stdoutClosed = [Threading.ManualResetEventSlim]::new($false)
-$stderrClosed = [Threading.ManualResetEventSlim]::new($false)
+$stdoutDrainTask = $null
+$stderrDrainTask = $null
 $success = $false
 $hostPort = 18767
 $serviceBase = $null
@@ -161,28 +181,12 @@ H 0.920000 0.000000 -0.240000
 
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $psi
-    $process.add_OutputDataReceived({
-        param($sender, $eventArgs)
-        if ($null -ne $eventArgs.Data) {
-            $stdoutLines.Enqueue($eventArgs.Data)
-        }
-        else {
-            $stdoutClosed.Set()
-        }
-    })
-    $process.add_ErrorDataReceived({
-        param($sender, $eventArgs)
-        if ($null -ne $eventArgs.Data) {
-            $stderrLines.Enqueue($eventArgs.Data)
-        }
-        else {
-            $stderrClosed.Set()
-        }
-    })
     if (-not $process.Start()) { throw "Could not start packaged Multiwfn executable" }
     $processStarted = $true
-    $process.BeginOutputReadLine()
-    $process.BeginErrorReadLine()
+    $stdoutDrainTask = [MatterVizAsyncLineCollector]::DrainAsync(
+        $process.StandardOutput, $stdoutLines)
+    $stderrDrainTask = [MatterVizAsyncLineCollector]::DrainAsync(
+        $process.StandardError, $stderrLines)
     $process.StandardInput.WriteLine("0")
     $process.StandardInput.WriteLine("q")
     $process.StandardInput.Flush()
@@ -227,7 +231,8 @@ H 0.920000 0.000000 -0.240000
         throw "Multiwfn did not exit after the Rust host Return request"
     }
     if ($process.ExitCode -ne 0) { throw "Multiwfn exited with status $($process.ExitCode)" }
-    if (-not $stdoutClosed.Wait(10000) -or -not $stderrClosed.Wait(10000)) {
+    $drainTasks = [Threading.Tasks.Task[]]@($stdoutDrainTask, $stderrDrainTask)
+    if (-not [Threading.Tasks.Task]::WaitAll($drainTasks, 10000)) {
         throw "MatterViz desktop did not close its inherited output handles after Return"
     }
     $success = $true
@@ -247,7 +252,6 @@ finally {
                 # The process can exit between HasExited and Kill during cleanup.
             }
         }
-        $process.Dispose()
     }
     if (-not $success -and $null -ne $desktopProcess) {
         try {
@@ -259,13 +263,12 @@ finally {
         catch [InvalidOperationException] { }
     }
     if ($null -ne $desktopProcess) { $desktopProcess.Dispose() }
-    $stdoutReachedEof = $stdoutClosed.Wait(5000)
-    $stderrReachedEof = $stderrClosed.Wait(5000)
-    $outputsClosed = $stdoutReachedEof -and $stderrReachedEof
-    if ($outputsClosed) {
-        $stdoutClosed.Dispose()
-        $stderrClosed.Dispose()
+    $outputsClosed = $false
+    if ($null -ne $stdoutDrainTask -and $null -ne $stderrDrainTask) {
+        $drainTasks = [Threading.Tasks.Task[]]@($stdoutDrainTask, $stderrDrainTask)
+        $outputsClosed = [Threading.Tasks.Task]::WaitAll($drainTasks, 5000)
     }
+    if ($null -ne $process) { $process.Dispose() }
     if ($outputsClosed -and (Test-Path -LiteralPath $root)) {
         Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
     }
