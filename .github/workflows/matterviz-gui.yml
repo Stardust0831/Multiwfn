@@ -141,7 +141,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             gfortran cmake ninja-build libblas-dev liblapack-dev \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb dbus-x11
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -177,7 +177,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = "macOS" ]; then
-            rpath='@loader_path/resources/lib'
+            rpath=''
           else
             rpath='$ORIGIN/resources/lib'
           fi
@@ -299,16 +299,19 @@ jobs:
           )
           test -f matterviz-smoke/session/manifest.json
           rm -f matterviz-smoke/session/gui_startup.status matterviz-smoke/session/gui_stop.flag
-          xvfb-run -a env \
+          dbus-run-session -- xvfb-run -a env \
+            GDK_BACKEND=x11 \
+            NO_AT_BRIDGE=1 \
+            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
             MULTIWFN_MATTERVIZ_WEBVIEW="$root/resources/tools/matterviz-desktop" \
             python3 "$root/resources/tools/multiwfn_matterviz_webview.py" \
               --frontend "$root/resources/frontend/matterviz-viewer/dist" \
               --session "$PWD/matterviz-smoke/session" \
               --manifest "$PWD/matterviz-smoke/session/manifest.json" \
-              --startup-timeout 30 >matterviz-smoke/adapter.log 2>&1 &
+              --startup-timeout 60 >matterviz-smoke/adapter.log 2>&1 &
           adapter_pid=$!
           ready=0
-          for _ in $(seq 1 60); do
+          for _ in $(seq 1 140); do
             if grep -q '^ready ' matterviz-smoke/session/gui_startup.status 2>/dev/null; then
               ready=1
               break
