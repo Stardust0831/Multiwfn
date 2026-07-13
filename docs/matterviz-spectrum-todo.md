@@ -9,6 +9,7 @@ Updated: 2026-07-14
 - [x] Replace the Windows shell/Fortran async assumption with a GUI-adapter-only `CreateProcessW` C ABI; keep Linux/macOS on the existing path and do not modify calculation modules.
 - [x] Add a packaged-Windows regression that keeps a fake GUI launcher alive and requires Multiwfn to consume `gui_request.txt` and publish the matching response before shutdown. Confirm that Preview 5 fails this test for the expected unconsumed-request reason.
 - [ ] Require the new Windows build to pass the async request-loop regression, existing session-isolation tests and all package checks before publishing another preview.
+- [ ] Audit Windows non-ASCII interpreter/session paths separately after the asynchronous lifecycle blocker is closed; do not mix that compatibility expansion into the release-blocking request-loop test.
 
 ## 2026-07-13 frontend parity work pending release
 

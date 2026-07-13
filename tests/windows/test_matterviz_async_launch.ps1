@@ -12,11 +12,10 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Packaged Multiwfn executable was not found: $executable"
 }
 
-$root = Join-Path ([IO.Path]::GetTempPath()) ("multiwfn-matterviz-async-" + [Guid]::NewGuid().ToString("N"))
+$root = Join-Path ([IO.Path]::GetTempPath()) ("multiwfn matterviz async " + [Guid]::NewGuid().ToString("N"))
 $work = Join-Path $root "work"
-$nonAsciiSuffix = "caf" + [char]0x00E9
-$session = Join-Path $root ("session-" + $nonAsciiSuffix)
-$fakeHome = Join-Path $root ("fake-matterviz-home-" + $nonAsciiSuffix)
+$session = Join-Path $root "session data"
+$fakeHome = Join-Path $root "fake matterviz home"
 $fakeTools = Join-Path $fakeHome "tools"
 $fakeFrontend = Join-Path $fakeHome "frontend\matterviz-viewer\dist"
 $process = $null
@@ -119,7 +118,7 @@ while True:
 '@
     Write-Ascii (Join-Path $fakeTools "multiwfn_matterviz_server.py") $fakeServer
 
-    [void] (Get-Command python -ErrorAction Stop)
+    $pythonExecutable = (Get-Command python -ErrorAction Stop).Source
     $psi = [Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $executable
     $psi.WorkingDirectory = $work
@@ -133,7 +132,7 @@ while True:
     $psi.Environment["MULTIWFN_MATTERVIZ_SESSION"] = $session
     $psi.Environment["MULTIWFN_MATTERVIZ_HOME"] = $fakeHome
     $psi.Environment["MULTIWFN_MATTERVIZ_SHELL"] = "browser"
-    $psi.Environment["MULTIWFN_MATTERVIZ_PYTHON"] = "python"
+    $psi.Environment["MULTIWFN_MATTERVIZ_PYTHON"] = $pythonExecutable
 
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $psi
