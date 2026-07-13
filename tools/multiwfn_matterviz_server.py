@@ -53,19 +53,6 @@ class OrbitalRequest:
     isovalue: float
 
 
-def find_free_port(host: str, preferred: int) -> int:
-    if preferred > 0:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            try:
-                probe.bind((host, preferred))
-                return preferred
-            except OSError:
-                pass
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind((host, 0))
-        return int(probe.getsockname()[1])
-
-
 def send_file(handler: http.server.BaseHTTPRequestHandler, path: Path) -> None:
     if not path.is_file():
         handler.send_error(404, "File not found")
@@ -379,6 +366,26 @@ def try_open_url(url: str) -> bool:
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
+    allow_reuse_address = False
+    allow_reuse_port = False
+
+    def server_bind(self) -> None:
+        # On Windows SO_REUSEADDR permits multiple live servers to bind the
+        # same address. A later WebView can then reach an older session even
+        # though both launchers report the same URL.
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def bind_http_server(host: str, preferred_port: int, handler):
+    """Bind once, falling back to an OS-assigned port when preferred is busy."""
+    try:
+        return ThreadingHTTPServer((host, preferred_port), handler)
+    except OSError:
+        if preferred_port == 0:
+            raise
+        return ThreadingHTTPServer((host, 0), handler)
 
 
 def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, state: Path | None = None):
@@ -508,9 +515,13 @@ def main() -> int:
         print(f"Workbench state not found: {state}", file=sys.stderr)
         return 2
 
-    port = find_free_port(args.host, args.port)
     handler = make_handler(frontend_dir, session_dir, manifest, state)
-    server = ThreadingHTTPServer((args.host, port), handler)
+    try:
+        server = bind_http_server(args.host, args.port, handler)
+    except OSError as exc:
+        print(f"Could not bind MatterViz GUI service: {exc}", file=sys.stderr)
+        return 2
+    port = int(server.server_address[1])
     url = build_workbench_url(args.host, port, state=state)
 
     print(f"Multiwfn MatterViz GUI service: {url}")

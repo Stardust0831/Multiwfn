@@ -105,6 +105,28 @@ jobs:
           test -x build-matterviz-gui/Multiwfn_MatterVizGUI
           test -f build-matterviz-gui/resources/frontend/matterviz-viewer/dist/index.html
 
+  windows-port-binding:
+    name: Windows MatterViz session isolation
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Test Windows-exclusive MatterViz service binding
+        run: >-
+          python -m unittest -v
+          tests/test_matterviz_server.py
+          tests/test_matterviz_webview.py
+
   package:
     name: Package MatterViz WebView (${{ matrix.platform }})
     if: github.event_name != 'pull_request'

@@ -215,12 +215,9 @@ def main() -> int:
         web.cleanup_session_files(session, startup=True)
         handler = web.make_handler(frontend, session, manifest, state)
         try:
-            server = web.ThreadingHTTPServer((args.host, args.port), handler)
-        except OSError:
-            try:
-                server = web.ThreadingHTTPServer((args.host, 0), handler)
-            except OSError as second_error:
-                return failure(f"Could not bind MatterViz WebView service: {second_error}")
+            server = web.bind_http_server(args.host, args.port, handler)
+        except OSError as bind_error:
+            return failure(f"Could not bind MatterViz WebView service: {bind_error}")
 
         port = int(server.server_address[1])
         url = web.build_workbench_url(args.host, port, state=state)

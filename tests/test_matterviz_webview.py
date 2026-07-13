@@ -205,7 +205,7 @@ class MatterVizWebViewTests(unittest.TestCase):
         )
         self.assertEqual(result, 0)
         self.assertEqual(stderr, "")
-        self.assertEqual(received[adapter.STOP_FILE_ENV], str(self.session / "gui_stop.flag"))
+        self.assertEqual(received[adapter.STOP_FILE_ENV], str(self.session.resolve() / "gui_stop.flag"))
 
     def test_service_is_running_before_startup_handshake(self):
         server = BlockingServer()
