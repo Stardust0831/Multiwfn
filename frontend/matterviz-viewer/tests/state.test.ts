@@ -187,6 +187,9 @@ test('round-trips structure appearance and background state', () => {
     showBoundaryAtoms: true,
     showUnitCell: true,
     sceneProps: {
+      representation_preset: 'wire',
+      representation_atom_base: 0.8,
+      representation_bond_base: 0.04,
       show_atoms: false,
       show_bonds: 'molecules',
       show_gizmo: false,
@@ -202,6 +205,9 @@ test('round-trips structure appearance and background state', () => {
     backgroundOpacity: 0.65,
   })
   const expected = {
+    representationPreset: 'wire',
+    representationAtomBase: 0.8,
+    representationBondBase: 0.04,
     showAtoms: false,
     showBonds: 'molecules',
     showGizmo: false,
@@ -252,6 +258,9 @@ test('clamps bounded structure appearance values and ignores malformed fields', 
     activeVolume: 0,
     volumes: [{ path: 'structure.cif', volumeIndex: 0 }],
     structureAppearance: {
+      representationPreset: 'invalid',
+      representationAtomBase: 'bad',
+      representationBondBase: Number.POSITIVE_INFINITY,
       showAtoms: 'yes',
       showBonds: 'invalid',
       showGizmo: 'yes',

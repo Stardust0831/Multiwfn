@@ -3,6 +3,7 @@
   import {
     apply_representation_preset,
     detect_representation_preset,
+    refine_representation,
     REPRESENTATION_PRESETS,
     type RepresentationPreset,
   } from './representation'
@@ -59,9 +60,7 @@
   const set_dimension = (key: 'atom_radius' | 'bond_thickness', event: Event): void => {
     const input = event.currentTarget as HTMLInputElement
     if (!Number.isFinite(input.valueAsNumber)) return
-    const minimum = key === 'atom_radius' ? 0.1 : 0.01
-    const maximum = key === 'atom_radius' ? 3 : 1
-    update_scene(key, Math.min(maximum, Math.max(minimum, input.valueAsNumber)))
+    on_scene_props_change?.(refine_representation(scene_props, key, input.valueAsNumber))
   }
 
   const set_representation = (event: Event): void => {

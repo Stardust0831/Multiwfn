@@ -20,6 +20,9 @@ export type WorkbenchIsosurfaceAppearance = {
 }
 
 export type WorkbenchStructureAppearance = {
+  representationPreset?: 'ballstick' | 'spacefill' | 'stick' | 'wire'
+  representationAtomBase?: number
+  representationBondBase?: number
   showAtoms?: boolean
   showBonds?: 'always' | 'never' | 'crystals' | 'molecules'
   showGizmo?: boolean
@@ -122,6 +125,16 @@ const normalize_structure_appearance = (value: unknown): WorkbenchStructureAppea
   const row = as_record(value)
   const appearance: WorkbenchStructureAppearance = {}
   const read = (camel: string, snake: string): unknown => row[camel] ?? row[snake]
+
+  const representationPreset = read('representationPreset', 'representation_preset')
+  if (representationPreset === 'ballstick' || representationPreset === 'spacefill'
+    || representationPreset === 'stick' || representationPreset === 'wire') {
+    appearance.representationPreset = representationPreset
+  }
+  const representationAtomBase = clamp_positive(read('representationAtomBase', 'representation_atom_base'), 0.1, 3)
+  if (representationAtomBase !== undefined) appearance.representationAtomBase = representationAtomBase
+  const representationBondBase = clamp_positive(read('representationBondBase', 'representation_bond_base'), 0.01, 1)
+  if (representationBondBase !== undefined) appearance.representationBondBase = representationBondBase
 
   const showAtoms = read('showAtoms', 'show_atoms')
   if (typeof showAtoms === 'boolean') appearance.showAtoms = showAtoms

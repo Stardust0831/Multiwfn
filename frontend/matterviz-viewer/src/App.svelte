@@ -392,6 +392,9 @@
       const appearance = restored.structureAppearance
       sceneProps = {
         ...sceneProps,
+        ...(appearance.representationPreset !== undefined ? { representation_preset: appearance.representationPreset } : {}),
+        ...(appearance.representationAtomBase !== undefined ? { representation_atom_base: appearance.representationAtomBase } : {}),
+        ...(appearance.representationBondBase !== undefined ? { representation_bond_base: appearance.representationBondBase } : {}),
         ...(appearance.showAtoms !== undefined ? { show_atoms: appearance.showAtoms } : {}),
         ...(appearance.showBonds !== undefined ? { show_bonds: appearance.showBonds } : {}),
         ...(appearance.showGizmo !== undefined ? { show_gizmo: appearance.showGizmo } : {}),
