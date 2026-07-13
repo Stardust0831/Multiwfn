@@ -33,6 +33,7 @@ Updated: 2026-07-13
 - [ ] P1: decide whether Ball+Stick, Spacefill, Stick and Wire need named convenience presets beyond the already reachable MatterViz primitive controls; do not add Cartoon.
 - [ ] Reorganize the viewer using the VESTA screenshot as a layout reference only: keep all proven top/right Multiwfn actions, add a compact left display/material panel, and leave the central 3D viewport dominant.
 - [ ] Add fixed-step camera rotation, pan and zoom controls to the top toolbar using public MatterViz camera APIs, with explicit numeric step inputs and deterministic inverse-operation tests.
+- [ ] Redesign the rejected MatterViz `camera_up/camera_zoom` prototype before integration: rebuild controls or use a supported quaternion abstraction when up changes, synchronize zoom from control `change` events, restore initial roll on reset, share zoom clamps, and define active-pane behavior in multi-view.
 - [x] P1: add an explicit axes/orientation gizmo toggle and preserve it in optional workbench state.
 - [x] P1: verify MatterViz native PNG export at desktop and 800px; downloaded images are valid and nonblank.
 - [ ] Preserve the visible ESP legend in PNG export if a public MatterViz capture/compositing hook becomes available; native export currently captures only the WebGL canvas.
@@ -58,7 +59,7 @@ Updated: 2026-07-13
 ## Broader PR #26 risks
 
 - [x] Complete API isolation and mutation-method audit.
-- [ ] Use a unique per-process GUI session directory to prevent two Multiwfn instances in one working directory from sharing requests/artifacts.
+- [x] Use a fresh atomically created GUI session directory for each default launch so concurrent Multiwfn instances cannot share requests/artifacts; preserve explicit environment overrides.
 - [x] Bound orbital request quality and require finite, bounded isovalue in the GUI HTTP adapter, with manifest-backed orbital index checks and HTTP rejection tests.
 - [ ] Add a per-session capability and loopback/Host protections for mutation endpoints; migrate state-changing requests away from unauthenticated GET where compatibility allows.
 - [ ] Define and test Return behavior while a long backend calculation is already in flight.

@@ -34,6 +34,8 @@
 - Added an explicit Axes toggle backed by MatterViz `scene_props.show_gizmo` and optional workbench-state persistence. State import/export passed at 1440x900 and 800x700 with the checkbox disabled as requested and no page errors.
 - Hardened orbital GUI HTTP requests before they reach Multiwfn: positive grid quality is limited to the native 25k-1.5M range, index is bounded by manifest metadata when available, isovalue must be finite and within the existing GUI range, duplicate parameters are rejected, and invalid requests cannot create a backend request file. Fifteen Python tests passed.
 - PR CI for `12aaa0d` completed successfully across frontend/adapter, Linux glibc compatibility, three noGUI platforms and three GUI packaging platforms; core-source guard and CodeRabbit also passed.
+- Replaced the fixed default `multiwfn_3dmol_session` with a fresh atomically created per-launch directory, while preserving explicit `MULTIWFN_3DMOL_SESSION` paths. Creation failure now aborts instead of falling back to shared state; concurrent harness checks and 19 Python tests passed. The integration agent also passed a focused `gfortran` syntax/harness check, while the primary shell did not expose `gfortran` for a duplicate local run.
+- A first MatterViz `camera_up/camera_zoom` prototype was intentionally rejected after high-level review. Runtime `camera.up` changes conflict with OrbitControls' constructor-cached up-space, wheel zoom was not reliably synchronized, reset preserved roll, zoom bounds diverged and multi-view ownership was undefined. No vendor package or Multiwfn camera toolbar was built from that unstable commit.
 
 ## Earlier work, superseded
 
