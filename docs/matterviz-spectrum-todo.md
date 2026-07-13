@@ -97,7 +97,9 @@ Updated: 2026-07-13
 - [x] Confirm the upstream periodic proxy-loop fix and native JSON launch path in the locked Linux, macOS and Windows package jobs for commit `ce2515e`.
 - [x] Compile the Fortran GUI/session adapter and pass the Linux, macOS and Windows package workflows for the native-JSON commit.
 - [x] Complete the local adapter/build naming migration: first-class `matterviz` CMake backend, `Multiwfn_MatterVizGUI`, `MULTIWFN_MATTERVIZ_*`, MatterViz session/tool names and isolated MatterViz resources.
-- [ ] Confirm the renamed MatterViz backend and three renamed installation packages in CI before tagging the next prerelease.
+- [x] Confirm the renamed MatterViz backend and three renamed installation packages in all six branch/PR workflows for commit `d814049`.
+- [x] Publish `matterviz-preview-3` from the exact CI-verified `d814049` commit; independently download the release assets, verify all SHA256 entries, required MatterViz paths and absence of obsolete 3Dmol tools.
+- [ ] Manually validate `matterviz-preview-3` on Windows with the archived 11-atom/10-bond session, including explicit bonds, Return lifecycle and normal Multiwfn continuation.
 
 ## Parallel integration policy
 
