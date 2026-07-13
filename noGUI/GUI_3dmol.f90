@@ -12,6 +12,7 @@ integer,allocatable :: gui_bond_atom1(:),gui_bond_atom2(:)
 integer*2,allocatable :: gui_bond_order(:)
 integer :: gui_bond_count=0
 logical :: gui_has_explicit_topology=.false.
+integer*8 :: gui_session_serial=0
 
 contains
 
@@ -94,13 +95,14 @@ character(len=*),intent(in) :: entry
 integer,intent(in) :: mode,extra
 real*8,intent(in) :: init1,end1,init2,end2,init3,end3
 character(len=512) :: session,manifest,cmd
+logical :: session_ok
 
 call reset_generated_orbitals()
 call reset_bond_analysis_cache()
 gui_has_cubmat_file=.false.
 gui_has_cubmattmp_file=.false.
-call get_session_dir(session)
-call ensure_dir(session)
+call get_session_dir(session,session_ok)
+if (.not.session_ok) return
 call remove_session_file(trim(session)//"/gui_stop.flag")
 call remove_session_file(trim(session)//"/gui_request.txt")
 call prepare_gui_structure_topology()
@@ -331,22 +333,109 @@ else if (abs(value-3D0)<1D-6) then
 end if
 end function
 
-subroutine get_session_dir(session)
+subroutine get_session_dir(session,ok)
 character(len=*),intent(out) :: session
+logical,intent(out) :: ok
 integer :: istat
-session="multiwfn_3dmol_session"
-call get_environment_variable("MULTIWFN_3DMOL_SESSION",session,status=istat)
-if (istat/=0.or.len_trim(session)==0) session="multiwfn_3dmol_session"
+character(len=512) :: requested
+
+session=" "
+ok=.false.
+requested=" "
+call get_environment_variable("MULTIWFN_3DMOL_SESSION",requested,status=istat)
+if (istat==2) then
+    write(*,"(/,a)") " 3Dmol GUI backend: MULTIWFN_3DMOL_SESSION exceeds the 512-character path limit."
+    return
+else if (istat==0.and.len_trim(requested)>0) then
+    session=trim(requested)
+    call ensure_dir(trim(session),ok)
+else
+    call create_default_session_dir(session,ok)
+end if
+
+if (.not.ok) then
+    write(*,"(/,a)") " 3Dmol GUI backend: unable to create the requested session directory."
+    if (len_trim(session)>0) write(*,"(a,a)") "   ",trim(session)
+    write(*,"(a)") " GUI launch aborted; no shared fallback session will be used."
+end if
 end subroutine
 
-subroutine ensure_dir(dirname)
+subroutine create_default_session_dir(session,ok)
+character(len=*),intent(out) :: session
+logical,intent(out) :: ok
+character(len=512) :: candidate
+integer :: attempt,istat,values(8)
+integer*8 :: clock_count
+logical :: alive
+
+session=" "
+ok=.false.
+call date_and_time(values=values)
+call system_clock(clock_count)
+gui_session_serial=gui_session_serial+1
+
+! mkdir is an atomic operation on the target platforms.  If another process
+! wins a candidate name, the failed mkdir is treated as a collision and the
+! next candidate is attempted; no shared fixed-name fallback is used.
+do attempt=0,99
+    write(candidate,"('multiwfn_3dmol_session_',i4.4,2i2.2,'_',3i2.2,'.',i3.3,'_',i0,'_',i0,'_',i0)") &
+        values(1),values(2),values(3),values(5),values(6),values(7),values(8),clock_count,gui_session_serial,attempt
+    call mkdir_path(trim(candidate),istat)
+    inquire(file=trim(candidate),exist=alive)
+    if (istat==0.and.alive) then
+        session=trim(candidate)
+        ok=.true.
+        return
+    end if
+end do
+end subroutine
+
+subroutine ensure_dir(dirname,ok)
 character(len=*),intent(in) :: dirname
-character(len=1024) :: cmd
+logical,intent(out) :: ok
+character(len=512) :: clean
 logical :: alive
 integer :: istat
 
-inquire(file=trim(dirname),exist=alive)
-if (alive) return
+ok=.false.
+clean=trim(dirname)
+if (len_trim(clean)==0.or.len_trim(clean)>512) return
+if (.not.session_path_is_safe(trim(clean))) return
+inquire(file=trim(clean),exist=alive)
+if (alive) then
+    ok=.true.
+    return
+end if
+call mkdir_path(trim(clean),istat)
+inquire(file=trim(clean),exist=alive)
+ok=(istat==0.and.alive)
+end subroutine
+
+logical function session_path_is_safe(path)
+character(len=*),intent(in) :: path
+integer :: i,code
+
+session_path_is_safe=.false.
+if (len_trim(path)==0.or.len_trim(path)>512) return
+do i=1,len_trim(path)
+    code=iachar(path(i:i))
+    if (code<32.or.code==127) return
+    select case(code)
+    ! mkdir_path and the launch adapters wrap paths in double quotes.  Reject
+    ! only characters that can terminate that quote or trigger expansion in
+    ! either POSIX shells or cmd.exe; other punctuation is a valid path name.
+    case(33,34,36,37,94,96)
+        return
+    end select
+end do
+session_path_is_safe=.true.
+end function
+
+subroutine mkdir_path(dirname,istat)
+character(len=*),intent(in) :: dirname
+integer,intent(out) :: istat
+character(len=1024) :: cmd
+
 cmd='mkdir "'//trim(dirname)//'"'
 call execute_command_line(trim(cmd),exitstat=istat)
 end subroutine
@@ -926,10 +1015,11 @@ subroutine select_file_with_dialog(selected)
 character(len=*),intent(out) :: selected
 character(len=512) :: session,home,python,tool,outfile,cmd,native
 integer :: istat,iu
+logical :: session_ok
 
 selected=" "
-call get_session_dir(session)
-call ensure_dir(session)
+call get_session_dir(session,session_ok)
+if (.not.session_ok) return
 call get_3dmol_home(home)
 outfile=trim(session)//"/selected_file.txt"
 call remove_session_file(trim(outfile))

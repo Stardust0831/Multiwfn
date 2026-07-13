@@ -9,6 +9,11 @@ desktop process. The normal data path remains:
 Multiwfn -> multiwfn_3dmol_server.py -> HTTP(S) URL -> Tauri WebView
 ```
 
+Each Multiwfn GUI launch creates a fresh `multiwfn_3dmol_session_*` directory
+for its manifest, artifacts, request, and stop files. Set
+`MULTIWFN_3DMOL_SESSION` when an explicitly shared or pre-existing session path
+is required; the configured path is passed to the launcher unchanged.
+
 The shell uses this URL by default:
 
 ```text
