@@ -10,6 +10,8 @@
 - Live request verification recorded: `orbital 42 300000 0.031`. A packaged-asset-equivalent browser audit passed at 1440x900 and 800x700 with all seven grid levels, no viewer/panel overlap, correct `Cached only` fallback, disabled uncached orbitals, a retained structure canvas and no page errors. Current local frontend evidence also includes 71 passing `npm test` tests, `npm run check` with zero diagnostics and a successful `npm run build`; these are work-in-progress checks only. No preview containing this increment has been released.
 - Committed the reviewed increment as `3fb9a70` and pushed it to PR #26; CI must pass before another preview is published.
 - All six GitHub Actions runs for `3fb9a70` passed (`matterviz-gui` push/PR, build, Linux compatibility, GUI demo and core-source protection), and CodeRabbit completed successfully. The branch is cleared for the next manual-validation preview.
+- Published GitHub prerelease [`matterviz-preview-5`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-5) from the exact CI-verified `3fb9a70` code commit. Tag workflow [`29269376924`](https://github.com/Stardust0831/Multiwfn/actions/runs/29269376924) passed the adapter, Windows session isolation, Linux/macOS/Windows packaging and release jobs.
+- Independently downloaded all four assets and verified every `SHA256SUMS.txt` entry. Asset sizes are Linux 16,346,842 bytes, macOS 12,307,539 bytes, Windows 21,787,290 bytes and checksums 353 bytes; the Windows archive contains `Multiwfn_MatterVizGUI.exe`, the MatterViz server/WebView tools and the built MatterViz frontend, with no 3Dmol path. Development pauses for manual Windows confirmation.
 
 ## 2026-07-13: scope correction
 

@@ -13,7 +13,8 @@ Updated: 2026-07-13
 - [x] Record the live request check `orbital 42 300000 0.031`, browser audit and current `npm test`/`npm run check`/`npm run build` results as work-in-progress evidence only, not release completion.
 - [x] Commit and push this parity increment to PR #26.
 - [x] Require green PR #26 CI before producing another preview; all six runs for `3fb9a70` and CodeRabbit passed.
-- [ ] Publish and independently verify `matterviz-preview-5`, then pause for manual Windows confirmation.
+- [x] Publish `matterviz-preview-5` from the CI-verified `3fb9a70` commit and independently verify all release checksums and required Windows MatterViz paths.
+- [ ] Manually validate `matterviz-preview-5` on Windows: right-side orbital selection, all seven grid precision levels, cached-orbital behavior after closing/ending the Multiwfn backend, and calculation of an uncached orbital while menu 0 remains active.
 
 ## Scope correction
 
