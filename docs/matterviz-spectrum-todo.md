@@ -12,7 +12,8 @@ Updated: 2026-07-13
 - [x] Verify the right orbital panel and stale-backend fallback at 1440x900 and 800x700: all seven grid levels present, no viewer/panel overlap, uncached orbitals disabled, structure canvas retained and no page errors.
 - [x] Record the live request check `orbital 42 300000 0.031`, browser audit and current `npm test`/`npm run check`/`npm run build` results as work-in-progress evidence only, not release completion.
 - [x] Commit and push this parity increment to PR #26.
-- [ ] Require green PR #26 CI before producing another preview.
+- [x] Require green PR #26 CI before producing another preview; all six runs for `3fb9a70` and CodeRabbit passed.
+- [ ] Publish and independently verify `matterviz-preview-5`, then pause for manual Windows confirmation.
 
 ## Scope correction
 
