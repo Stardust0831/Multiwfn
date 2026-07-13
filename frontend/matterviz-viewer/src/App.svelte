@@ -32,6 +32,7 @@
     type MultiwfnManifest,
   } from './manifest'
   import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
+  import { request_return_and_close } from './return'
   import {
     create_workbench_state,
     download_workbench_state,
@@ -60,6 +61,7 @@
     show_cell_vectors: true,
   })
   let loading = $state(true)
+  let returnPending = $state(false)
   let errorMessage = $state<string | undefined>()
   let status = $state('Loading Multiwfn session...')
   let orbitalIndex = $state(0)
@@ -565,14 +567,19 @@
   }
 
   const return_to_multiwfn = async (): Promise<void> => {
-    try {
-      const response = await fetch(api_url('/api/return'), { cache: 'no-store' })
-      const payload = await read_api_payload(response)
-      if (!response.ok || !payload.ok) throw new Error(payload.message || 'Return request failed')
-      set_status('Returning to Multiwfn...')
-    } catch (error) {
-      report_error(error)
-    }
+    if (returnPending) return
+    returnPending = true
+    await request_return_and_close({
+      request: async () => {
+        const response = await fetch(api_url('/api/return'), { cache: 'no-store' })
+        const payload = await read_api_payload(response)
+        if (!response.ok || !payload.ok) throw new Error(payload.message || 'Return request failed')
+      },
+      close: () => window.close(),
+      onReturned: () => set_status('Returning to Multiwfn...'),
+      onError: report_error,
+    })
+    returnPending = false
   }
 
   const copy_log = async (): Promise<void> => {
@@ -863,7 +870,7 @@
     <button type="button" onclick={export_state}>Export</button>
     <input class="hidden-file-input" bind:this={stateInput} type="file" accept="application/json,.json" onchange={import_state_file} />
     <button type="button" onclick={() => open_panel('logs')} aria-expanded={logOpen}>Logs ({logEntries.length})</button>
-    <button class="return" type="button" onclick={return_to_multiwfn}>Return</button>
+    <button class="return" type="button" onclick={return_to_multiwfn} disabled={returnPending}>Return</button>
   </header>
 
   {#if manifest.periodic?.enabled}

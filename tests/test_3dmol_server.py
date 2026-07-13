@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -141,6 +142,108 @@ class OrbitalRequestTests(unittest.TestCase):
             httpd.shutdown()
             httpd.server_close()
             thread.join(timeout=2)
+
+    def test_consumed_backend_request_stops_waiting_after_return(self):
+        result = {}
+
+        def request():
+            result["payload"] = server.request_backend(
+                self.session,
+                "orbital 3 120000 0.02",
+                timeout=5,
+                timeout_message="timeout",
+            )
+
+        thread = threading.Thread(target=request)
+        thread.start()
+        request_path = self.session / "gui_request.txt"
+        deadline = time.monotonic() + 2
+        while not request_path.is_file() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(request_path.is_file())
+
+        request_path.unlink()
+        (self.session / "gui_stop.flag").write_text("return\n", encoding="utf-8")
+        thread.join(timeout=1)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result["payload"], {"ok": False, "message": server.BACKEND_UNAVAILABLE_MESSAGE})
+
+    def test_unconsumed_backend_request_is_removed_after_return(self):
+        result = {}
+
+        def request():
+            result["payload"] = server.request_backend(
+                self.session,
+                "orbital 3 120000 0.02",
+                timeout=5,
+                timeout_message="timeout",
+            )
+
+        thread = threading.Thread(target=request)
+        thread.start()
+        request_path = self.session / "gui_request.txt"
+        deadline = time.monotonic() + 2
+        while not request_path.is_file() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(request_path.is_file())
+
+        (self.session / "gui_stop.flag").write_text("return\n", encoding="utf-8")
+        thread.join(timeout=1)
+
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(request_path.exists())
+        self.assertEqual(result["payload"], {"ok": False, "message": server.BACKEND_UNAVAILABLE_MESSAGE})
+
+    def test_return_route_releases_consumed_http_backend_request(self):
+        frontend = Path(self.tempdir.name) / "frontend-return"
+        frontend.mkdir()
+        handler = server.make_handler(frontend, self.session, self.manifest)
+        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        service_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        service_thread.start()
+        orbital_result = {}
+
+        def request_orbital():
+            connection = http.client.HTTPConnection(*httpd.server_address, timeout=2)
+            connection.request("GET", "/api/orbital?index=3&quality=120000&isovalue=0.02")
+            response = connection.getresponse()
+            orbital_result["status"] = response.status
+            orbital_result["body"] = json.loads(response.read())
+            connection.close()
+
+        request_thread = threading.Thread(target=request_orbital)
+        request_thread.start()
+        request_path = self.session / "gui_request.txt"
+        deadline = time.monotonic() + 2
+        while not request_path.is_file() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(request_path.is_file())
+        request_path.unlink()
+
+        try:
+            connection = http.client.HTTPConnection(*httpd.server_address, timeout=2)
+            connection.request("GET", "/api/return")
+            response = connection.getresponse()
+            return_body = json.loads(response.read())
+            connection.close()
+            request_thread.join(timeout=1)
+            service_thread.join(timeout=2)
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(return_body, {"ok": True})
+            self.assertFalse(request_thread.is_alive())
+            self.assertFalse(service_thread.is_alive())
+            self.assertEqual(orbital_result["status"], 200)
+            self.assertEqual(
+                orbital_result["body"],
+                {"ok": False, "message": server.BACKEND_UNAVAILABLE_MESSAGE},
+            )
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            request_thread.join(timeout=2)
+            service_thread.join(timeout=2)
 
 
 if __name__ == "__main__":

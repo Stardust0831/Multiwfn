@@ -50,7 +50,7 @@ Updated: 2026-07-13
 - [ ] P2: persist or explicitly scope slice, legend and remaining native structure control state.
 - [x] P2: cover WebView startup/bind/launch/interruption and normal child-close signaling with adapter unit tests and CI.
 - [x] Exercise the real `/api/return` route over HTTP and verify its JSON response, `gui_stop.flag` creation and server shutdown.
-- [ ] P2: complete an installed-shell browser/WebView Return and shutdown smoke test.
+- [x] P2: complete installed Linux and Windows shell Return/shutdown smoke coverage through the real `/api/return` route; keep interactive macOS WKWebView validation in the manual prerelease checklist.
 - [x] Build locked Linux, macOS and Windows MatterViz preview archives and verify extracted package structure and Multiwfn execution; Linux and Windows additionally pass real native WebView readiness.
 - [x] Publish `matterviz-preview-1` as a GitHub prerelease for manual validation; keep interactive macOS WKWebView readiness in the manual checklist because hosted runners have no interactive WindowServer.
 - [ ] Keep ESP work separate from the first native-parity PR and review its scientific authority carefully.
@@ -66,11 +66,19 @@ Updated: 2026-07-13
 - [x] Use a fresh atomically created GUI session directory for each default launch so concurrent Multiwfn instances cannot share requests/artifacts; preserve explicit environment overrides.
 - [x] Bound orbital request quality and require finite, bounded isovalue in the GUI HTTP adapter, with manifest-backed orbital index checks and HTTP rejection tests.
 - [ ] Add a per-session capability and loopback/Host protections for mutation endpoints; migrate state-changing requests away from unauthenticated GET where compatibility allows.
-- [ ] Define and test Return behavior while a long backend calculation is already in flight.
+- [x] Define and test Return behavior while a backend request is already in flight: the UI, HTTP request and WebView close promptly, while an already-running Fortran calculation is deliberately not cancelled and finishes naturally.
 - [x] Add a finite token-scoped WebView startup handshake with server-before-shell ordering, initial-page readiness, timeout/error cleanup and CI Rust checks.
 - [x] Installed-resource/native-shell packaging smoke: Linux and Windows pass extracted adapter-to-WebView readiness; macOS passes dependency relocation, shell loading and extracted Multiwfn tests, with interactive WKWebView validation deferred to the preview tester.
 - [x] Cross-platform locked WebView build and bundle-size evidence using committed `Cargo.lock` and three CI-produced preview archives.
 - [x] Label frontend-sampled ESP extrema as approximate visual estimates rather than authoritative Multiwfn results.
+
+## Preview handoff
+
+- [x] Freeze new feature work for the manual prerelease confirmation cycle.
+- [x] Pass local frontend tests/check/build, Python tests, configuration validation, workflow lint and Return browser lifecycle validation.
+- [x] Complete a high-level read-only review of the final Return lifecycle and packaging-smoke changes with no blocker or high-severity finding.
+- [ ] Confirm the final pushed commit passes the locked Linux, macOS and Windows package jobs.
+- [ ] Publish the final Return-enabled build as a GitHub prerelease and pause for manual confirmation.
 
 ## Parallel integration policy
 

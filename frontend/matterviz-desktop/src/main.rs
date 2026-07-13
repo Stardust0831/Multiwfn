@@ -1,8 +1,10 @@
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::webview::PageLoadEvent;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -12,6 +14,8 @@ const DEFAULT_URL: &str = "http://127.0.0.1:8765/index.html?manifest=/session/ma
 const URL_ENV: &str = "MATTERVIZ_WEB_URL";
 const STARTUP_STATUS_ENV: &str = "MULTIWFN_MATTERVIZ_STARTUP_STATUS";
 const STARTUP_TOKEN_ENV: &str = "MULTIWFN_MATTERVIZ_STARTUP_TOKEN";
+const STOP_FILE_ENV: &str = "MULTIWFN_MATTERVIZ_STOP_FILE";
+const STOP_FILE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 fn is_loopback_host(host: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
@@ -127,6 +131,35 @@ impl StartupStatus {
     }
 }
 
+fn stop_file_path(managed_by_adapter: bool, configured_path: Option<OsString>) -> Option<PathBuf> {
+    if !managed_by_adapter {
+        return None;
+    }
+    configured_path
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
+fn stop_file_from_environment(managed_by_adapter: bool) -> Option<PathBuf> {
+    if !managed_by_adapter {
+        return None;
+    }
+    stop_file_path(true, env::var_os(STOP_FILE_ENV))
+}
+
+// The adapter owns this session flag. Keep the watcher out of standalone
+// desktop launches, where no session lifecycle is managed by this process.
+fn spawn_stop_file_watcher<R: tauri::Runtime>(app: &tauri::AppHandle<R>, path: PathBuf) {
+    let app_handle = app.clone();
+    std::thread::spawn(move || loop {
+        if path.is_file() {
+            app_handle.exit(0);
+            break;
+        }
+        std::thread::sleep(STOP_FILE_POLL_INTERVAL);
+    });
+}
+
 fn main() {
     let startup = StartupStatus::from_environment();
     let web_url = requested_url().unwrap_or_else(|error| {
@@ -139,6 +172,7 @@ fn main() {
 
     let setup_status = startup.clone();
     let setup_url = web_url.clone();
+    let stop_file = stop_file_from_environment(startup.managed_by_adapter());
     let result = tauri::Builder::default()
         .setup(move |app| {
             let callback_status = setup_status.clone();
@@ -158,6 +192,9 @@ fn main() {
                 setup_status.error(&message);
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, message).into());
             }
+            if let Some(path) = stop_file.clone() {
+                spawn_stop_file_watcher(app.handle(), path);
+            }
             Ok(())
         })
         .run(tauri::generate_context!());
@@ -174,7 +211,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::StartupStatus;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    use super::{stop_file_path, StartupStatus};
 
     #[test]
     fn status_line_contains_token_and_single_line_message() {
@@ -195,5 +235,21 @@ mod tests {
         let status = StartupStatus::default();
         assert_eq!(status.line("ready", None), "ready\n");
         assert_eq!(status.line("error", Some("bad URL")), "error: bad URL\n");
+    }
+
+    #[test]
+    fn stop_file_path_requires_adapter_management() {
+        let configured = Some(OsString::from("/tmp/session/gui_stop.flag"));
+        assert_eq!(stop_file_path(false, configured), None);
+    }
+
+    #[test]
+    fn stop_file_path_preserves_configured_path() {
+        let configured = Some(OsString::from("/tmp/session/gui_stop.flag"));
+        assert_eq!(
+            stop_file_path(true, configured),
+            Some(PathBuf::from("/tmp/session/gui_stop.flag"))
+        );
+        assert_eq!(stop_file_path(true, Some(OsString::new())), None);
     }
 }

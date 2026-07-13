@@ -20,9 +20,11 @@ import multiwfn_3dmol_server as web
 STARTUP_STATUS_NAME = "gui_startup.status"
 STARTUP_STATUS_ENV = "MULTIWFN_MATTERVIZ_STARTUP_STATUS"
 STARTUP_TOKEN_ENV = "MULTIWFN_MATTERVIZ_STARTUP_TOKEN"
+STOP_FILE_ENV = "MULTIWFN_MATTERVIZ_STOP_FILE"
 STARTUP_TIMEOUT_ENV = "MULTIWFN_MATTERVIZ_STARTUP_TIMEOUT"
 DEFAULT_STARTUP_TIMEOUT = 15.0
 STARTUP_POLL_INTERVAL = 0.02
+SHELL_STOP_GRACE_SECONDS = 2.0
 
 
 def signal_return(session: Path) -> None:
@@ -181,6 +183,7 @@ def main() -> int:
     service_thread_started = False
     service_errors: list[BaseException] = []
     service_started = threading.Event()
+    window_closed = threading.Event()
 
     def failure(message: str) -> int:
         print(message, file=sys.stderr)
@@ -239,6 +242,9 @@ def main() -> int:
         env = os.environ.copy()
         env[STARTUP_STATUS_ENV] = str(status_path)
         env[STARTUP_TOKEN_ENV] = token
+        # Let the packaged shell observe the same session lifecycle flag as
+        # the service/frontend, without deriving the path inside the shell.
+        env[STOP_FILE_ENV] = str(session / "gui_stop.flag")
         try:
             process = subprocess.Popen([str(shell), "--url", url], env=env)
         except OSError as exc:
@@ -271,6 +277,7 @@ def main() -> int:
                 # a wait race during normal shutdown has no useful diagnostic.
                 pass
             finally:
+                window_closed.set()
                 signal_return(session)
                 try:
                     server.shutdown()
@@ -283,6 +290,8 @@ def main() -> int:
             join = getattr(service_thread, "join", None)
             if join is not None:
                 join()
+        if (session / "gui_stop.flag").is_file() and process.poll() is None:
+            window_closed.wait(SHELL_STOP_GRACE_SECONDS)
         if service_errors:
             error = service_errors[0]
             if isinstance(error, KeyboardInterrupt):

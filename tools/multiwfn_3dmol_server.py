@@ -179,11 +179,23 @@ def request_backend(
                 except (OSError, json.JSONDecodeError):
                     pass
 
+            if stop.is_file():
+                if not consumed:
+                    try:
+                        pending = request.read_text(encoding="utf-8")
+                    except FileNotFoundError:
+                        consumed = True
+                    else:
+                        if pending.startswith(f"{reqid} "):
+                            try:
+                                request.unlink()
+                            except FileNotFoundError:
+                                pass
+                return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+
             if not consumed:
                 if not request.is_file():
                     consumed = True
-                elif stop.is_file():
-                    return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
                 elif time.monotonic() >= consume_deadline:
                     try:
                         pending = request.read_text(encoding="utf-8")

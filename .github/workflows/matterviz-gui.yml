@@ -310,6 +310,7 @@ jobs:
               --frontend "$root/resources/frontend/matterviz-viewer/dist" \
               --session "$PWD/matterviz-smoke/session" \
               --manifest "$PWD/matterviz-smoke/session/manifest.json" \
+              --port 18765 \
               --startup-timeout 60 >matterviz-smoke/adapter.log 2>&1 &
           adapter_pid=$!
           ready=0
@@ -325,7 +326,8 @@ jobs:
             cat matterviz-smoke/adapter.log >&2
             exit 1
           fi
-          pkill -TERM -f "^$root/resources/tools/matterviz-desktop( |$)" || true
+          return_payload="$(curl -fsS http://127.0.0.1:18765/api/return)"
+          test "$return_payload" = '{"ok": true}'
           wait "$adapter_pid"
           test -f matterviz-smoke/session/gui_stop.flag
 
@@ -456,7 +458,8 @@ jobs:
           $adapterErr = Join-Path $PWD "windows-webview-smoke/adapter.err"
           $adapterProcess = Start-Process -FilePath "python" -ArgumentList @(
             $adapter, "--frontend", $frontend, "--session", $session,
-            "--manifest", "$session/manifest.json", "--startup-timeout", "30"
+            "--manifest", "$session/manifest.json", "--port", "18766",
+            "--startup-timeout", "30"
           ) -RedirectStandardOutput $adapterOut -RedirectStandardError $adapterErr -PassThru
           $ready = $false
           for ($i = 0; $i -lt 60; $i++) {
@@ -472,7 +475,8 @@ jobs:
             if (Test-Path $adapterErr) { Get-Content $adapterErr }
             throw "Extracted Windows WebView did not report readiness"
           }
-          Get-Process matterviz-desktop -ErrorAction SilentlyContinue | Stop-Process -Force
+          $returnPayload = Invoke-RestMethod -Uri "http://127.0.0.1:18766/api/return"
+          if (-not $returnPayload.ok) { throw "Windows WebView Return request failed" }
           if (-not $adapterProcess.WaitForExit(30000)) {
             $adapterProcess.Kill()
             throw "Windows WebView adapter did not stop"

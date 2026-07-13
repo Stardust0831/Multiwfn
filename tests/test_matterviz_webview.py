@@ -193,6 +193,20 @@ class MatterVizWebViewTests(unittest.TestCase):
         self.assertTrue(server.server_close_called)
         self.assert_flag()
 
+    def test_shell_receives_exact_stop_file_path(self):
+        received = {}
+
+        def capture_stop_file(env):
+            received[adapter.STOP_FILE_ENV] = env[adapter.STOP_FILE_ENV]
+
+        result, stderr, _, _ = self.run_main(
+            status="ready {token}\n",
+            before_status=capture_stop_file,
+        )
+        self.assertEqual(result, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual(received[adapter.STOP_FILE_ENV], str(self.session / "gui_stop.flag"))
+
     def test_service_is_running_before_startup_handshake(self):
         server = BlockingServer()
 
