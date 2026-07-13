@@ -117,6 +117,7 @@ while True:
     time.sleep(0.25)
 '@
     Write-Ascii (Join-Path $fakeTools "multiwfn_matterviz_server.py") $fakeServer
+    Write-Ascii (Join-Path $fakeTools "multiwfn_matterviz_webview.py") $fakeServer
 
     $pythonExecutable = (Get-Command python -ErrorAction Stop).Source
     $psi = [Diagnostics.ProcessStartInfo]::new()
