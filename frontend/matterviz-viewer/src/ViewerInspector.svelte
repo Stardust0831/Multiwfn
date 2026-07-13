@@ -87,50 +87,8 @@
         <h2 id="structure-heading">Structure</h2>
         <div class="control-grid">
           <label class="toggle-row">
-            <input type="checkbox" checked={scene_value('show_atoms', true)} onchange={(event) => update_scene('show_atoms', event.currentTarget.checked)} />
-            <span>Atoms</span>
-          </label>
-          <label class="toggle-row">
             <input type="checkbox" checked={scene_value('show_gizmo', true)} onchange={(event) => update_scene('show_gizmo', event.currentTarget.checked)} />
             <span>Axes</span>
-          </label>
-          <label class="toggle-row">
-            <input type="checkbox" checked={scene_value('show_site_labels', false)} onchange={(event) => update_scene('show_site_labels', event.currentTarget.checked)} />
-            <span>Labels</span>
-          </label>
-          <label class="toggle-row">
-            <input type="checkbox" checked={scene_value('show_site_indices', false)} onchange={(event) => update_scene('show_site_indices', event.currentTarget.checked)} />
-            <span>Indices</span>
-          </label>
-          <label class="toggle-row">
-            <input type="checkbox" checked={scene_value('same_size_atoms', false)} onchange={(event) => update_scene('same_size_atoms', event.currentTarget.checked)} />
-            <span>Same-size atoms</span>
-          </label>
-        </div>
-        <div class="field-grid">
-          <label>
-            <span>Atom radius</span>
-            <input type="number" min="0.1" max="3" step="0.05" value={scene_value('atom_radius', 0.7)} oninput={(event) => set_number('atom_radius', event)} />
-          </label>
-          <label>
-            <span>Bond thickness</span>
-            <input type="number" min="0.01" max="1" step="0.01" value={scene_value('bond_thickness', 0.07)} oninput={(event) => set_number('bond_thickness', event)} />
-          </label>
-          <label>
-            <span>Bonds</span>
-            <select value={scene_value<string>('show_bonds', 'always')} onchange={(event) => update_scene('show_bonds', event.currentTarget.value)}>
-              <option value="always">Always</option>
-              <option value="never">Never</option>
-              <option value="crystals">Crystals</option>
-              <option value="molecules">Molecules</option>
-            </select>
-          </label>
-          <label>
-            <span>Bonding strategy</span>
-            <select value={scene_value('bonding_strategy', 'electroneg_ratio')} onchange={(event) => update_scene('bonding_strategy', event.currentTarget.value)}>
-              <option value="electroneg_ratio">Electronegativity ratio</option>
-              <option value="solid_angle">Solid angle</option>
-            </select>
           </label>
         </div>
       </section>

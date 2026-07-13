@@ -844,7 +844,7 @@
         on_boundary_atoms_change={(value) => showImageAtoms = value}
         on_unit_cell_change={set_inspector_unit_cell}
         on_range_change={set_range}
-        on_layers={() => { layerOpen = true; inspectorOpen = false }}
+        on_layers={() => { open_panel('layers'); inspectorOpen = false }}
         on_close={() => inspectorOpen = false}
       />
     {/if}

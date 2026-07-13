@@ -31,7 +31,8 @@ Updated: 2026-07-13
 - [x] P1: add orbital previous/next navigation plus index, energy, occupation and HOMO/LUMO context from the existing manifest.
 - [x] P1: persist molecule visibility, atom/bond sizing, bond mode/strategy, labels, sphere quality and background through workbench state.
 - [ ] P1: decide whether Ball+Stick, Spacefill, Stick and Wire need named convenience presets beyond the already reachable MatterViz primitive controls; do not add Cartoon.
-- [ ] Reorganize the viewer using the VESTA screenshot as a layout reference only: keep all proven top/right Multiwfn actions, add a compact left display/material panel, and leave the central 3D viewport dominant.
+- [x] Reorganize the viewer using the VESTA screenshot as a layout reference only: retain all proven top/right actions, add a compact left surface/cell inspector and keep the central 3D viewport dominant.
+- [ ] Move additional structure controls into the left inspector only after MatterViz exposes an authoritative outward scene-props change API; do not duplicate stale native gear state.
 - [ ] Add fixed-step camera rotation, pan and zoom controls to the top toolbar using public MatterViz camera APIs, with explicit numeric step inputs and deterministic inverse-operation tests.
 - [ ] Redesign the rejected MatterViz `camera_up/camera_zoom` prototype before integration: rebuild controls or use a supported quaternion abstraction when up changes, synchronize zoom from control `change` events, restore initial roll on reset, share zoom clamps, and define active-pane behavior in multi-view.
 - [x] P1: add an explicit axes/orientation gizmo toggle and preserve it in optional workbench state.
