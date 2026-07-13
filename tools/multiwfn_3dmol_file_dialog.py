@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native file picker helper for the Multiwfn 3Dmol GUI backend."""
+"""Native file picker helper for the Multiwfn MatterViz GUI backend."""
 
 from __future__ import annotations
 

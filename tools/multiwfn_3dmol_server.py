@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local HTTP service for the Multiwfn 3Dmol GUI demo."""
+"""Local HTTP service for the Multiwfn MatterViz GUI."""
 
 from __future__ import annotations
 
@@ -387,7 +387,7 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, state: P
             super().__init__(*args, directory=str(frontend_dir), **kwargs)
 
         def log_message(self, fmt: str, *args) -> None:
-            sys.stderr.write("[multiwfn-3dmol] " + fmt % args + "\n")
+            sys.stderr.write("[multiwfn-matterviz] " + fmt % args + "\n")
 
         def do_HEAD(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
@@ -472,7 +472,7 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, state: P
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Serve a Multiwfn web visualization frontend")
+    parser = argparse.ArgumentParser(description="Serve the Multiwfn MatterViz visualization frontend")
     parser.add_argument("--frontend", default="frontend/3dmol-viewer", help="Path to the frontend directory")
     parser.add_argument("--session", default="multiwfn_3dmol_session", help="Path to the generated GUI session")
     parser.add_argument("--manifest", default=None, help="Path to the generated manifest")

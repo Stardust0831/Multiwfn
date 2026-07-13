@@ -15,6 +15,7 @@ on:
       - tools/multiwfn_3dmol_server.py
       - tools/multiwfn_matterviz_webview.py
       - tests/test_matterviz_webview.py
+      - tests/test_gui_session_paths.py
       - frontend/matterviz-viewer/**
       - frontend/matterviz-desktop/**
       - docs/matterviz-webview.md
@@ -65,7 +66,7 @@ jobs:
         run: python3 frontend/matterviz-desktop/scripts/validate-config.py
 
       - name: Test MatterViz WebView adapter
-        run: python3 -m unittest -v tests/test_matterviz_webview.py
+        run: python3 -m unittest -v tests/test_matterviz_webview.py tests/test_gui_session_paths.py
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -300,6 +301,18 @@ jobs:
           EOF
           )
           test -f matterviz-smoke/session/manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          session = Path("matterviz-smoke/session")
+          manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+          assert manifest["structure"] == {"path": "structure.json", "format": "json"}
+          structure = json.loads((session / "structure.json").read_text(encoding="utf-8"))
+          assert len(structure["sites"]) == 1
+          assert structure["sites"][0]["species"][0]["element"] == "O"
+          assert structure["properties"]["bonds"] == []
+          PY
           rm -f matterviz-smoke/session/gui_startup.status matterviz-smoke/session/gui_stop.flag
           dbus-run-session -- xvfb-run -a env \
             GDK_BACKEND=x11 \
@@ -450,8 +463,8 @@ jobs:
           Select-String -Path "$work/geometry.out" -SimpleMatch "Formula: H2 O1" | Out-Null
           $session = Join-Path $PWD "windows-webview-smoke/session"
           New-Item -ItemType Directory -Force $session | Out-Null
-          "1`nMatterViz smoke`nH 0 0 0`n" | Set-Content -Path "$session/structure.xyz" -Encoding ascii
-          '{"structure":{"path":"structure.xyz","format":"xyz"},"cubes":[]}' | Set-Content -Path "$session/manifest.json" -Encoding ascii
+          '{"sites":[{"species":[{"element":"H","occu":1,"oxidation_state":0}],"abc":[0,0,0],"xyz":[0,0,0],"label":"H1","properties":{}}],"charge":0,"properties":{"bonds":[]}}' | Set-Content -Path "$session/structure.json" -Encoding ascii
+          '{"structure":{"path":"structure.json","format":"json"},"cubes":[]}' | Set-Content -Path "$session/manifest.json" -Encoding ascii
           $adapter = Join-Path $PWD "clean-test/resources/tools/multiwfn_matterviz_webview.py"
           $frontend = Join-Path $PWD "clean-test/resources/frontend/matterviz-viewer/dist"
           $adapterOut = Join-Path $PWD "windows-webview-smoke/adapter.out"

@@ -7,6 +7,7 @@ export type ManifestEntry = {
   isovalue?: number
   opacity?: number
   orbitalIndex?: number
+  gridQuality?: number
   visible?: boolean
   analysisKind?: string
 }

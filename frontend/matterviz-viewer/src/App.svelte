@@ -31,6 +31,11 @@
     type ManifestEntry,
     type MultiwfnManifest,
   } from './manifest'
+  import {
+    exclusive_volume_visibility,
+    initial_orbital_volume_index,
+    loaded_orbital_volume_index,
+  } from './orbital'
   import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
   import { request_return_and_close } from './return'
   import {
@@ -103,6 +108,8 @@
     espLayer?: ManifestEntry
     method?: string
     value?: number
+    quality?: number
+    isovalue?: number
     components?: Record<string, number>
   }
 
@@ -138,11 +145,18 @@
   const orbital_index_valid = (): boolean =>
     Number.isInteger(orbitalIndex) && orbitalIndex >= 1 && orbitalIndex <= orbital_count()
 
+  const orbital_selection_available = (): boolean => orbital_count() > 0 || volumeEntries.some((entry) =>
+    entry.role?.toLowerCase() === 'orbital' || Number(entry.orbitalIndex) > 0)
+
+  const orbital_selection_valid = (): boolean =>
+    orbital_selection_available() && (orbitalIndex === 0 || orbital_index_valid())
+
   const move_orbital = (offset: number): void => {
     const items = manifest.orbitals?.items ?? []
     if (items.length && items.length >= orbital_count()) {
       const current = items.findIndex((item) => item.index === orbitalIndex)
-      orbitalIndex = items[Math.max(0, Math.min(items.length - 1, (current < 0 ? 0 : current) + offset))].index
+      const position = current < 0 ? (offset > 0 ? -1 : 0) : current
+      orbitalIndex = items[Math.max(0, Math.min(items.length - 1, position + offset))].index
       return
     }
     orbitalIndex = Math.max(1, Math.min(orbital_count() || orbitalIndex + offset, orbitalIndex + offset))
@@ -274,6 +288,39 @@
     set_status(`${target.name || target.role || 'Volume'} removed`)
   }
 
+  const activate_only_volume = (volumeIdx: number | undefined): void => {
+    isosurfaceSettings = {
+      ...isosurfaceSettings,
+      layers: exclusive_volume_visibility(isosurfaceSettings.layers ?? [], volumeIdx),
+    }
+    if (volumeIdx !== undefined) activeVolumeIdx = volumeIdx
+  }
+
+  const replace_volume_entry = async (
+    volumeIdx: number,
+    entry: ManifestEntry,
+    base: URL,
+  ): Promise<number> => {
+    const parsed = await parse_cube_entry(entry, base)
+    if (parsed.volumes.length !== 1) {
+      remove_volumes((_entry, index) => index === volumeIdx)
+      return apply_entries([entry], base, 'append')
+    }
+    if (!structure && parsed.structure) {
+      structure = inject_manifest_lattice(parsed.structure, manifest, { override: true })
+    }
+    const volumes = [...(volumetricData ?? [])]
+    volumes[volumeIdx] = parsed.volumes[0]
+    volumetricData = volumes
+    volumeEntries = volumeEntries.map((current, index) => index === volumeIdx ? entry : current)
+    isosurfaceSettings = {
+      ...isosurfaceSettings,
+      layers: (isosurfaceSettings.layers ?? []).map((layer) =>
+        layer.volume_idx === volumeIdx ? layer_for_entry(entry, volumeIdx) : layer),
+    }
+    return volumeIdx
+  }
+
   const update_layer = (volumeIdx: number, patch: Partial<IsosurfaceLayer>): void => {
     const layers = isosurfaceSettings.layers ?? []
     isosurfaceSettings = {
@@ -367,6 +414,11 @@
     })
     isosurfaceSettings = { ...restored.isosurfaceSettings, layers }
     activeVolumeIdx = restored.activeVolume
+    const activeLayer = layers.find((layer) => (layer.volume_idx ?? 0) === activeVolumeIdx)
+    const activeOrbitalIndex = Number(volumeEntries[activeVolumeIdx]?.orbitalIndex)
+    orbitalIndex = activeLayer?.visible !== false && Number.isInteger(activeOrbitalIndex) && activeOrbitalIndex > 0
+      ? activeOrbitalIndex
+      : 0
     if (restored.periodic) {
       if (restored.periodic.displayRange) {
         isosurfaceSettings = { ...isosurfaceSettings, display_range: restored.periodic.displayRange }
@@ -461,6 +513,19 @@
       const entries = cube_entries(manifest)
       if (manifest.structure?.path) await load_structure()
       if (entries.length) await apply_entries(entries, manifestBase)
+      if (String(manifest.multiwfnGui?.entry || '').toLowerCase().includes('drawmol')) {
+        const initialVolumeIdx = initial_orbital_volume_index(
+          volumeEntries,
+          manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex,
+        )
+        activate_only_volume(initialVolumeIdx)
+        const activeOrbitalIndex = initialVolumeIdx === undefined
+          ? undefined
+          : Number(volumeEntries[initialVolumeIdx]?.orbitalIndex)
+        if (Number.isInteger(activeOrbitalIndex) && Number(activeOrbitalIndex) > 0) {
+          orbitalIndex = Number(activeOrbitalIndex)
+        }
+      }
       const initialEsp = esp_pair()
       if (initialEsp) {
         set_color_volume(initialEsp.densityIdx, initialEsp.potentialIdx)
@@ -478,18 +543,33 @@
     }
   }
 
-  const request_orbital = async (): Promise<void> => {
-    if (!orbital_index_valid()) {
+  const request_orbital = async (options: { forceRecompute?: boolean } = {}): Promise<void> => {
+    if (loading) return
+    const requestedIndex = orbitalIndex
+    if (requestedIndex === 0) {
+      errorMessage = undefined
+      activate_only_volume(undefined)
+      set_status('No orbital selected')
+      return
+    }
+    if (!Number.isInteger(requestedIndex) || requestedIndex < 1 || requestedIndex > orbital_count()) {
       report_error(new Error(`Orbital index must be an integer from 1 to ${orbital_count()}`))
       return
     }
-    loading = true
     errorMessage = undefined
-    add_log(`Requesting orbital ${orbitalIndex} at grid quality ${quality}`)
+    const cachedVolumeIdx = loaded_orbital_volume_index(volumeEntries, requestedIndex)
+    if (cachedVolumeIdx !== undefined && !options.forceRecompute) {
+      activate_only_volume(cachedVolumeIdx)
+      set_status(`Orbital ${requestedIndex} loaded from session cache`)
+      return
+    }
+    const requestedQuality = quality
+    loading = true
+    add_log(`Requesting orbital ${requestedIndex} at grid quality ${requestedQuality}`)
     try {
       const params = new URLSearchParams({
-        index: String(orbitalIndex),
-        quality: String(quality),
+        index: String(requestedIndex),
+        quality: String(requestedQuality),
         isovalue: '0.02',
       })
       const response = await fetch(api_url('/api/orbital', params), { cache: 'no-store' })
@@ -497,14 +577,31 @@
       if (!response.ok || !payload.ok || !payload.layer) {
         throw new Error(payload.message || 'Orbital calculation failed')
       }
-      remove_volumes((entry) => entry.role === 'orbital' && entry.orbitalIndex === orbitalIndex)
-      await apply_entries([payload.layer], manifestBase, 'append')
-      set_status(`Orbital ${orbitalIndex} loaded`)
+      const layer = {
+        ...payload.layer,
+        role: 'orbital',
+        orbitalIndex: requestedIndex,
+        gridQuality: Number(payload.quality ?? requestedQuality),
+        isovalue: Number(payload.isovalue ?? payload.layer.isovalue ?? 0.02),
+      }
+      const activeIdx = cachedVolumeIdx === undefined
+        ? await apply_entries([layer], manifestBase, 'append')
+        : await replace_volume_entry(cachedVolumeIdx, layer, manifestBase)
+      orbitalIndex = requestedIndex
+      activate_only_volume(activeIdx)
+      set_status(`Orbital ${requestedIndex} loaded`)
     } catch (error) {
       report_error(error)
     } finally {
       loading = false
     }
+  }
+
+  const change_orbital_quality = async (event: Event): Promise<void> => {
+    const nextQuality = Number((event.currentTarget as HTMLSelectElement).value)
+    if (!Number.isFinite(nextQuality)) return
+    quality = nextQuality
+    if (orbital_index_valid()) await request_orbital({ forceRecompute: true })
   }
 
   const request_esp = async (): Promise<void> => {
@@ -809,18 +906,19 @@
     <label>
       <span>Orbital</span>
       {#if manifest.orbitals?.items?.length && manifest.orbitals.items.length >= orbital_count()}
-        <select bind:value={orbitalIndex} aria-label="Orbital">
+        <select bind:value={orbitalIndex} aria-label="Orbital" disabled={loading}>
+          <option value={0}>None</option>
           {#each manifest.orbitals.items as item}<option value={item.index}>{orbital_label(item)}</option>{/each}
         </select>
       {:else}
-        <input aria-label="Orbital" type="number" min="1" max={orbital_count() || undefined} bind:value={orbitalIndex} />
+        <input aria-label="Orbital" type="number" min="0" max={orbital_count() || undefined} bind:value={orbitalIndex} disabled={loading} />
       {/if}
     </label>
     <button type="button" title="Next orbital" aria-label="Next orbital" onclick={() => move_orbital(1)} disabled={loading || orbitalIndex >= orbital_count()}>&gt;</button>
-    <button type="button" onclick={request_orbital} disabled={loading || !orbital_index_valid()}>Show orbital</button>
+    <button type="button" onclick={() => request_orbital()} disabled={loading || !orbital_selection_valid()}>{orbitalIndex === 0 ? 'Hide orbitals' : 'Show orbital'}</button>
     <label>
       <span>Grid</span>
-      <select bind:value={quality}>
+      <select value={quality} onchange={change_orbital_quality} disabled={loading}>
         {#each manifest.espAnalysis?.qualityLevels ?? [25000, 50000, 120000, 300000, 500000] as level}
           <option value={level}>{level.toLocaleString()}</option>
         {/each}

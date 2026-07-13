@@ -29,6 +29,7 @@ Updated: 2026-07-13
 - [ ] Reconsider generic local CSV/JSON curve or heatmap import only if it becomes necessary for a concrete original-GUI workflow; it is not part of the current parity target.
 - [x] Compare core original 3Dmol controls/workflows against MatterViz and update priorities.
 - [x] P1: add orbital previous/next navigation plus index, energy, occupation and HOMO/LUMO context from the existing manifest.
+- [x] P1: restore original drawmol orbital activation semantics: select HOMO/first orbital on startup, keep exactly one selected volume visible, reuse loaded manifest/dynamic orbital layers without another backend request, and support the original None selection.
 - [x] P1: persist molecule visibility, atom/bond sizing, bond mode/strategy, labels, sphere quality and background through workbench state.
 - [x] P1: provide named Ball+Stick, Spacefill, Stick and Wire convenience presets using the original GUI ratios; preserve unclamped base values and workbench state, and do not add Cartoon.
 - [x] Reorganize the viewer using the VESTA screenshot as a layout reference only: retain all proven top/right actions, add a compact left surface/cell inspector and keep the central 3D viewport dominant.
@@ -79,6 +80,23 @@ Updated: 2026-07-13
 - [x] Complete a high-level read-only review of the final Return lifecycle and packaging-smoke changes with no blocker or high-severity finding.
 - [x] Confirm the final pushed commit passes the locked Linux, macOS and Windows package jobs.
 - [x] Publish the final Return-enabled build as a GitHub prerelease and pause for manual confirmation.
+
+## Preview 2 feedback and native structure follow-up
+
+- [x] Diagnose the Windows preview blocker: the archived 11-atom/10-bond session served `structure.mol2` successfully, but the vendored MatterViz package advertised the extension without a MOL2 parser or dispatch branch.
+- [x] Emit one MatterViz-native `structure.json` for every periodic or nonperiodic structure-bearing session; the manifest points to that JSON entry.
+- [x] Serialize explicit connectivity in root `properties.bonds` with zero-based `site_idx_1`/`site_idx_2` endpoints, including aromatic bond order mapping.
+- [x] Remove the obsolete alternate-structure path from the GUI session protocol: no MOL2 or XYZ structure entries are emitted or required for the MatterViz replacement viewer.
+- [x] Repackage the periodic rendering fix from `13a8149a` together with explicit Multiwfn `Bq` ghost-center support from `d8719d12` as `0.4.2-multiwfn.d8719d12.r4`.
+- [x] Add parser coverage for native nonperiodic/periodic JSON, lattice data, labeled `Bq` ghost centers and zero-based single/double/aromatic `properties.bonds`.
+- [x] Validate native nonperiodic and periodic JSON at 1440x900 and 800x700: nonblank canvas, no page errors or overflow, and a functional boundary-atom toggle with changed pixels.
+- [x] Validate a native `Bq` ghost-center artifact containing an explicit bond at 1440x900 and 800x700 without mapping the center to a real element; canvas rendering, legend and layout complete without page errors.
+- [x] Fix the review-found partial-FCHK-topology failure: candidate bond counts are not published until all connectivity is validated, so an unsupported later bond cannot leave a nonzero count with unallocated arrays.
+- [x] Run the GUI/session source guards in the MatterViz CI workflow, including unified JSON, zero-based/aromatic bonds, ghost metadata and invalid-topology count publication.
+- [ ] Run the archived 11-atom/10-bond session and installed-package explicit-connectivity smoke after CI produces the next package.
+- [ ] Confirm the upstream periodic proxy-loop fix and native JSON launch path in the locked Linux, macOS and Windows package jobs.
+- [ ] Unverified until CI: compile the Fortran GUI/session adapter and run the packaged periodic and nonperiodic launch checks; local documentation work does not establish Fortran compilation.
+- [ ] Complete the remaining adapter/build naming migration from 3Dmol to MatterViz. Do not preserve obsolete 3Dmol identifiers solely for compatibility; perform the rename as a bounded packaging change with tests and documentation updates.
 
 ## Parallel integration policy
 
