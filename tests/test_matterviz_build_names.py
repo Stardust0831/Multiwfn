@@ -47,6 +47,11 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertNotIn("CP_ACP", SPAWN)
         self.assertIn("CloseHandle(process.hThread)", SPAWN)
         self.assertIn("CloseHandle(process.hProcess)", SPAWN)
+        self.assertIn("STARTF_USESTDHANDLES", SPAWN)
+        self.assertIn("PROC_THREAD_ATTRIBUTE_HANDLE_LIST", SPAWN)
+        self.assertIn("EXTENDED_STARTUPINFO_PRESENT", SPAWN)
+        self.assertIn("DuplicateHandle", SPAWN)
+        self.assertIn('CreateFileW(\n        L"NUL"', SPAWN)
         self.assertIn("launch_status=launch_matterviz_process(trim(cmd))", FORTRAN)
         self.assertIn("launchcmd='\"'//trim(python)//'\" \"'//trim(tool)", FORTRAN)
         windows_launch = FORTRAN.split("#ifdef _WIN32", 1)[1].split("#else", 1)[0]
