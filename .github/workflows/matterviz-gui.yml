@@ -261,6 +261,8 @@ jobs:
           test "$status" -eq 2
           grep -q "plain HTTP MatterViz URLs must use" /tmp/matterviz-smoke.log
           python3 "package/$PKG/resources/tools/multiwfn_matterviz_webview.py" --help >/dev/null
+          find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
 
@@ -364,6 +366,8 @@ jobs:
           test "$status" -eq 2
           grep -q "plain HTTP MatterViz URLs must use" /tmp/matterviz-smoke.log
           python3 "package/$PKG/resources/tools/multiwfn_matterviz_webview.py" --help >/dev/null
+          find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
 
@@ -417,6 +421,7 @@ jobs:
         shell: pwsh
         run: |
           python "package/$env:PKG/resources/tools/multiwfn_matterviz_webview.py" --help | Out-Null
+          Get-ChildItem "package/$env:PKG" -Directory -Recurse -Filter __pycache__ | Remove-Item -Recurse -Force
           $output = & "package/$env:PKG/resources/tools/matterviz-desktop.exe" --url http://example.com/ 2>&1
           if ($LASTEXITCODE -ne 2) { throw "MatterViz shell smoke returned $LASTEXITCODE" }
           if (($output -join "`n") -notmatch "plain HTTP MatterViz URLs must use") { throw "MatterViz shell smoke message missing" }
