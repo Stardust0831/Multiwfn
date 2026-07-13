@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import http.server
 import json
 import math
@@ -29,12 +30,27 @@ FBO_REQUEST_TIMEOUT = 900.0
 ESP_REQUEST_TIMEOUT = 900.0
 BACKEND_REQUEST_POLL_INTERVAL = 0.2
 MAX_DYNAMIC_ORBITAL_CUBES = 12
+ORBITAL_GRID_MIN = 25000
+ORBITAL_GRID_MAX = 1500000
+ORBITAL_ISOVALUE_MIN = 0.0
+ORBITAL_ISOVALUE_MAX = 1.0
 BOND_METHODS = frozenset(("mayer", "gwbo", "wiberg_lowdin", "mulliken", "fbo"))
 ESP_QUALITY_LEVELS = frozenset((25000, 50000, 120000, 300000, 500000, 1000000, 1500000))
 LAST_REQUEST_ID = 0
 BACKEND_UNAVAILABLE_MESSAGE = (
     "Multiwfn backend unavailable; restart visualization from menu 0 and keep the terminal open"
 )
+
+
+class OrbitalRequestError(ValueError):
+    """A client supplied an invalid orbital request."""
+
+
+@dataclass(frozen=True)
+class OrbitalRequest:
+    index: int
+    quality: int
+    isovalue: float
 
 
 def find_free_port(host: str, preferred: int) -> int:
@@ -187,13 +203,76 @@ def request_backend(
         return {"ok": False, "message": timeout_message}
 
 
-def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
-    index = int(query.get("index", ["0"])[0] or 0)
-    quality = int(query.get("quality", ["0"])[0] or 0)
-    isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
+def manifest_orbital_count(manifest: Path | None) -> int | None:
+    """Read a trustworthy orbital count without making manifest failures fatal."""
+    if manifest is None:
+        return None
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    orbitals = payload.get("orbitals") if isinstance(payload, dict) else None
+    multiwfn_gui = payload.get("multiwfnGui") if isinstance(payload, dict) else None
+    gui_state = multiwfn_gui.get("state") if isinstance(multiwfn_gui, dict) else None
+    candidates = (
+        orbitals.get("count") if isinstance(orbitals, dict) else None,
+        gui_state.get("orbitalCount") if isinstance(gui_state, dict) else None,
+    )
+    for candidate in candidates:
+        if isinstance(candidate, bool):
+            continue
+        if isinstance(candidate, int) and candidate >= 0:
+            return candidate
+        if isinstance(candidate, float) and math.isfinite(candidate) and candidate.is_integer() and candidate >= 0:
+            return int(candidate)
+    return None
+
+
+def _query_scalar(query: dict[str, list[str]], name: str, default: str) -> str:
+    values = query.get(name)
+    if values is None:
+        return default
+    if not isinstance(values, list) or not values:
+        raise OrbitalRequestError(f"Orbital {name} must be provided once")
+    value = values[0]
+    if not isinstance(value, str):
+        raise OrbitalRequestError(f"Orbital {name} must be text")
+    return value.strip() or default
+
+
+def parse_orbital_request(
+    query: dict[str, list[str]], *, orbital_count: int | None = None
+) -> OrbitalRequest:
+    """Parse and bound an orbital request before touching the backend request file."""
+    try:
+        index = int(_query_scalar(query, "index", "0"), 10)
+        quality = int(_query_scalar(query, "quality", "0"), 10)
+        isovalue = float(_query_scalar(query, "isovalue", "0.0"))
+    except (TypeError, ValueError):
+        raise OrbitalRequestError("Orbital index and quality must be integers; isovalue must be numeric") from None
+
+    if index < 0 or (orbital_count is not None and index > orbital_count):
+        if orbital_count is None:
+            raise OrbitalRequestError("Orbital index must be a non-negative integer")
+        raise OrbitalRequestError(f"Orbital index must be between 0 and {orbital_count}")
+    if quality != 0 and not ORBITAL_GRID_MIN <= quality <= ORBITAL_GRID_MAX:
+        raise OrbitalRequestError(
+            f"Orbital quality must be 0 or between {ORBITAL_GRID_MIN} and {ORBITAL_GRID_MAX} grid points"
+        )
+    if not math.isfinite(isovalue) or not ORBITAL_ISOVALUE_MIN <= isovalue <= ORBITAL_ISOVALUE_MAX:
+        raise OrbitalRequestError(
+            f"Orbital isovalue must be finite and between {ORBITAL_ISOVALUE_MIN:g} and {ORBITAL_ISOVALUE_MAX:g}"
+        )
+    return OrbitalRequest(index=index, quality=quality, isovalue=isovalue)
+
+
+def request_orbital(
+    session_dir: Path, query: dict[str, list[str]], *, manifest: Path | None = None
+) -> dict:
+    request = parse_orbital_request(query, orbital_count=manifest_orbital_count(manifest))
     payload = request_backend(
         session_dir,
-        f"orbital {index} {quality} {isovalue:.10g}",
+        f"orbital {request.index} {request.quality} {request.isovalue:.10g}",
         timeout=ORBITAL_REQUEST_TIMEOUT,
         timeout_message="Timed out waiting for Multiwfn orbital grid",
     )
@@ -324,7 +403,9 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, state: P
 
             if request_path == "/api/orbital":
                 try:
-                    send_json(self, request_orbital(session_dir, query))
+                    send_json(self, request_orbital(session_dir, query, manifest=manifest))
+                except OrbitalRequestError as exc:
+                    send_json(self, {"ok": False, "message": str(exc)}, status=400)
                 except Exception as exc:
                     send_json(self, {"ok": False, "message": str(exc)}, status=500)
                 return
