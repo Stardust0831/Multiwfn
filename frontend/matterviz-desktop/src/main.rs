@@ -1,15 +1,14 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri::webview::PageLoadEvent;
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 use url::Url;
 
-const DEFAULT_URL: &str =
-    "http://127.0.0.1:8765/index.html?manifest=/session/manifest.json";
+const DEFAULT_URL: &str = "http://127.0.0.1:8765/index.html?manifest=/session/manifest.json";
 const URL_ENV: &str = "MATTERVIZ_WEB_URL";
 const STARTUP_STATUS_ENV: &str = "MULTIWFN_MATTERVIZ_STARTUP_STATUS";
 const STARTUP_TOKEN_ENV: &str = "MULTIWFN_MATTERVIZ_STARTUP_TOKEN";
@@ -84,13 +83,7 @@ impl StartupStatus {
 
     fn line(&self, state: &str, message: Option<&str>) -> String {
         let token = self.token.as_deref().unwrap_or("");
-        let clean_message = message
-            .unwrap_or("")
-            .lines()
-            .next()
-            .unwrap_or("")
-            .replace('\r', " ")
-            .replace('\n', " ");
+        let clean_message = message.unwrap_or("").replace('\r', " ").replace('\n', " ");
         if clean_message.is_empty() {
             if token.is_empty() {
                 format!("{state}\n")
@@ -149,20 +142,17 @@ fn main() {
     let result = tauri::Builder::default()
         .setup(move |app| {
             let callback_status = setup_status.clone();
-            let window_result = WebviewWindowBuilder::new(
-                app,
-                "main",
-                WebviewUrl::External(setup_url.clone()),
-            )
-            .title("MatterViz")
-            .inner_size(1400.0, 900.0)
-            .resizable(true)
-            .on_page_load(move |_window, payload| {
-                if matches!(payload.event(), PageLoadEvent::Finished) {
-                    callback_status.ready();
-                }
-            })
-            .build();
+            let window_result =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::External(setup_url.clone()))
+                    .title("MatterViz")
+                    .inner_size(1400.0, 900.0)
+                    .resizable(true)
+                    .on_page_load(move |_window, payload| {
+                        if matches!(payload.event(), PageLoadEvent::Finished) {
+                            callback_status.ready();
+                        }
+                    })
+                    .build();
             if let Err(error) = window_result {
                 let message = format!("could not create MatterViz window: {error}");
                 setup_status.error(&message);
