@@ -134,6 +134,7 @@ impl HttpService {
     }
     pub fn shutdown(&self) {
         self.stop.store(true, Ordering::Release);
+        wake_listener(&self.listener);
     }
     pub fn join(&self) {
         if let Some(worker) = self.worker.lock().expect("service worker lock").take() {
@@ -158,6 +159,9 @@ impl ServiceRunner {
         while !self.stop.load(Ordering::Acquire) {
             match self.listener.accept() {
                 Ok((stream, _)) => {
+                    if self.stop.load(Ordering::Acquire) {
+                        break;
+                    }
                     let runner = self.clone_for_request();
                     thread::spawn(move || runner.handle(stream));
                 }
@@ -272,6 +276,7 @@ impl ServiceRunner {
             }
             respond_json(&mut stream, &json!({"ok": true}), 200, false);
             self.stop.store(true, Ordering::Release);
+            wake_listener(&self.listener);
             return;
         }
         let value = match path.as_str() {
@@ -418,6 +423,12 @@ fn bind(host: &str, port: u16) -> Result<TcpListener, String> {
     }
     socket.listen(128).map_err(|error| error.to_string())?;
     Ok(socket.into())
+}
+
+fn wake_listener(listener: &TcpListener) {
+    if let Ok(address) = listener.local_addr() {
+        let _ = TcpStream::connect_timeout(&address, Duration::from_millis(100));
+    }
 }
 
 fn new_socket(address: IpAddr) -> Result<Socket, String> {
@@ -722,7 +733,7 @@ mod tests {
         assert!(returned.starts_with("HTTP/1.1 200 OK"));
         assert!(returned.ends_with(r#"{"ok":true}"#));
         assert_eq!(fs::read_to_string(stop_path).unwrap(), "return\n");
-        service.join();
+        join_service(service);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -750,7 +761,7 @@ mod tests {
         let actual = Url::parse(service.url()).unwrap().port().unwrap();
         assert_ne!(actual, preferred);
         service.shutdown();
-        service.join();
+        join_service(service);
         drop(occupied);
         let _ = fs::remove_dir_all(root);
     }
@@ -762,8 +773,7 @@ mod tests {
 
     fn request_with_host(base: &str, method: &str, path: &str, host: &str) -> String {
         let url = Url::parse(base).unwrap();
-        let mut stream =
-            TcpStream::connect((url.host_str().unwrap(), url.port().unwrap())).unwrap();
+        let mut stream = connect_client(&url);
         write!(
             stream,
             "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
@@ -777,8 +787,7 @@ mod tests {
     fn request_with_duplicate_host(base: &str, method: &str, path: &str) -> String {
         let url = Url::parse(base).unwrap();
         let host = authority(&url);
-        let mut stream =
-            TcpStream::connect((url.host_str().unwrap(), url.port().unwrap())).unwrap();
+        let mut stream = connect_client(&url);
         write!(
             stream,
             "{method} {path} HTTP/1.1\r\nHost: {host}\r\nHost: {host}\r\n\r\n"
@@ -791,8 +800,7 @@ mod tests {
 
     fn fragmented_request(base: &str, path: &str) -> String {
         let url = Url::parse(base).unwrap();
-        let mut stream =
-            TcpStream::connect((url.host_str().unwrap(), url.port().unwrap())).unwrap();
+        let mut stream = connect_client(&url);
         write!(stream, "GET {path}").unwrap();
         stream.flush().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -805,6 +813,25 @@ mod tests {
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
         response
+    }
+
+    fn connect_client(url: &Url) -> TcpStream {
+        let stream = TcpStream::connect((url.host_str().unwrap(), url.port().unwrap())).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        stream
+    }
+
+    fn join_service(service: HttpService) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            service.join();
+            let _ = sender.send(());
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("HTTP service did not stop within five seconds");
     }
 
     fn authorized_path(base: &str, path: &str) -> String {

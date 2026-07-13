@@ -149,6 +149,7 @@
 - Corrected the dependency contract by explicitly enabling `rfd`'s `async-std` feature alongside `xdg-portal`. This does not change the HTTP URLs, session files, Fortran request loop, orbital calculation path or packaged runtime architecture.
 - The failed run's macOS desktop-shell build passed, while Linux Rust test/package jobs failed before Multiwfn packaging and Windows remained incomplete. No prerelease is eligible until the corrected locked builds and package/runtime regressions pass on all three platforms.
 - Local Rust 1.88 verification passed locked Cargo metadata, formatting and the feature graph showing all required `zbus` async dependencies enabled. Configuration validation, `git diff --check` and 16 GUI/session build-contract tests passed. Full Linux Tauri compilation remains CI-gated because this WSL image lacks `pkg-config` and the Wayland/WebKit development stack installed by the workflow.
+- The corrected Linux Rust host and Linux/macOS packages passed in both push and PR runs. Windows compiled the desktop shell and passed 12 of 13 tests in about two minutes, then the final HTTP Return test blocked until the 60-minute job timeout. The stop path now wakes the loopback listener before joining so a Windows `accept()` cannot strand shutdown; test clients and service join both use five-second deadlines so a recurrence fails promptly.
 
 ## Earlier work, superseded
 
