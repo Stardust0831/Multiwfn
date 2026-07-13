@@ -292,7 +292,7 @@ def main() -> int:
                 return failure(f"MatterViz WebView service failed: {error}")
             return failure(f"MatterViz WebView service failed: {error}")
         return 0
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         return failure(f"MatterViz WebView startup failed: {exc}")
     except KeyboardInterrupt:
         return failure("MatterViz WebView interrupted.")
