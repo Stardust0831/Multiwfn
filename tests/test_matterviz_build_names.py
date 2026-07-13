@@ -64,8 +64,9 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn('CreateFileW(\n        L"NUL"', SPAWN)
         self.assertIn("launch_status=launch_matterviz_process(trim(cmd))", FORTRAN)
         self.assertIn("launchcmd='\"'//trim(native)//'\" --frontend", FORTRAN)
-        windows_launch = FORTRAN.split("#ifdef _WIN32", 1)[1].split("#else", 1)[0]
+        windows_launch = FORTRAN.split("#ifdef MULTIWFN_WINDOWS", 1)[1].split("#else", 1)[0]
         self.assertNotIn("call execute_command_line", windows_launch)
+        self.assertNotIn("#ifdef _WIN32", FORTRAN)
 
     def test_matterviz_runtime_launches_rust_host_directly(self):
         block = FORTRAN.split("subroutine build_launch_command", 1)[1].split(

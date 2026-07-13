@@ -127,7 +127,7 @@ call build_launch_command(trim(manifest),trim(session),cmd)
 write(*,"(/,a)") " MatterViz GUI backend wrote a visualization session:"
 write(*,"(a,a)") "   ",trim(manifest)
 write(*,"(a)") " Launching visualization GUI..."
-#ifdef _WIN32
+#ifdef MULTIWFN_WINDOWS
 ! MinGW execute_command_line(wait=.false.) may still block until the child
 ! exits.  Use the native Windows process adapter so the request loop starts
 ! while the visualization host remains alive.
@@ -992,14 +992,14 @@ else
     call resolve_resource_path(home,"tools/multiwfn_matterviz_server.py",tool)
 end if
 
-#ifdef _WIN32
+#ifdef MULTIWFN_WINDOWS
 python="python"
 #else
 python="python3"
 #endif
 call get_environment_variable("MULTIWFN_MATTERVIZ_PYTHON",python,status=istat)
 if (istat/=0.or.len_trim(python)==0) then
-#ifdef _WIN32
+#ifdef MULTIWFN_WINDOWS
     python="python"
 #else
     python="python3"
@@ -1112,14 +1112,14 @@ if (path_exists(native)) then
     end if
 end if
 
-#ifdef _WIN32
+#ifdef MULTIWFN_WINDOWS
 python="python"
 #else
 python="python3"
 #endif
 call get_environment_variable("MULTIWFN_MATTERVIZ_PYTHON",python,status=istat)
 if (istat/=0.or.len_trim(python)==0) then
-#ifdef _WIN32
+#ifdef MULTIWFN_WINDOWS
     python="python"
 #else
     python="python3"
