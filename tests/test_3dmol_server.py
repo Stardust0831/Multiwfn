@@ -118,6 +118,30 @@ class OrbitalRequestTests(unittest.TestCase):
             httpd.server_close()
             thread.join(timeout=2)
 
+    def test_return_route_writes_stop_flag_and_shuts_down_server(self):
+        frontend = Path(self.tempdir.name) / "frontend"
+        frontend.mkdir()
+        handler = server.make_handler(frontend, self.session, self.manifest)
+        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection(*httpd.server_address, timeout=2)
+            connection.request("GET", "/api/return")
+            response = connection.getresponse()
+            body = json.loads(response.read())
+            connection.close()
+            thread.join(timeout=2)
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(body, {"ok": True})
+            self.assertEqual((self.session / "gui_stop.flag").read_text(encoding="utf-8"), "return\n")
+            self.assertFalse(thread.is_alive())
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=2)
+
 
 if __name__ == "__main__":
     unittest.main()
