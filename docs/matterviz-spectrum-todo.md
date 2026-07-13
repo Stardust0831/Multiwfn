@@ -56,7 +56,7 @@ Updated: 2026-07-13
 - [x] Publish `matterviz-preview-1` as a GitHub prerelease for manual validation; keep interactive macOS WKWebView readiness in the manual checklist because hosted runners have no interactive WindowServer.
 - [ ] Keep ESP work separate from the first native-parity PR and review its scientific authority carefully.
 - [x] Run frontend unit tests, `npm run check`, `npm run build` and browser validation after cleanup.
-- [ ] Run Multiwfn/CMake build when a CMake toolchain is available.
+- [x] Run Multiwfn/CMake builds in the locked Linux, macOS and Windows CI toolchains, including the first-class MatterViz backend and extracted packages.
 - [x] Complete a high-level read-only review confirming strict origin/main scope.
 - [x] Complete a read-only review of structure state and WebView lifecycle changes before commit.
 - [x] Commit and push only after the scope review passes.
@@ -93,13 +93,16 @@ Updated: 2026-07-13
 - [x] Validate a native `Bq` ghost-center artifact containing an explicit bond at 1440x900 and 800x700 without mapping the center to a real element; canvas rendering, legend and layout complete without page errors.
 - [x] Fix the review-found partial-FCHK-topology failure: candidate bond counts are not published until all connectivity is validated, so an unsupported later bond cannot leave a nonzero count with unallocated arrays.
 - [x] Run the GUI/session source guards in the MatterViz CI workflow, including unified JSON, zero-based/aromatic bonds, ghost metadata and invalid-topology count publication.
-- [ ] Run the archived 11-atom/10-bond session and installed-package explicit-connectivity smoke after CI produces the next package.
+- [ ] Run the archived 11-atom/10-bond session and installed-package explicit-connectivity smoke with `matterviz-preview-4`.
 - [x] Confirm the upstream periodic proxy-loop fix and native JSON launch path in the locked Linux, macOS and Windows package jobs for commit `ce2515e`.
 - [x] Compile the Fortran GUI/session adapter and pass the Linux, macOS and Windows package workflows for the native-JSON commit.
 - [x] Complete the local adapter/build naming migration: first-class `matterviz` CMake backend, `Multiwfn_MatterVizGUI`, `MULTIWFN_MATTERVIZ_*`, MatterViz session/tool names and isolated MatterViz resources.
 - [x] Confirm the renamed MatterViz backend and three renamed installation packages in all six branch/PR workflows for commit `d814049`.
 - [x] Publish `matterviz-preview-3` from the exact CI-verified `d814049` commit; independently download the release assets, verify all SHA256 entries, required MatterViz paths and absence of obsolete 3Dmol tools.
-- [ ] Manually validate `matterviz-preview-3` on Windows with the archived 11-atom/10-bond session, including explicit bonds, Return lifecycle and normal Multiwfn continuation.
+- [x] Diagnose the Preview 3 repeat failure: Preview 3 generated a valid native `structure.json` with 11 atoms and 10 bonds, but an older Preview 2 Python/WebView process still owned `127.0.0.1:8765`; Windows address reuse let the new service report the same URL, so the new window loaded Preview 2's `structure.mol2` manifest.
+- [x] Disable live address/port reuse, set Windows `SO_EXCLUSIVEADDRUSE`, atomically fall back to an OS-assigned port and test that concurrent services return their own manifests. Native Windows and CI tests pass.
+- [x] Publish `matterviz-preview-4` from the exact CI-verified port-isolation merge commit `fbf7f0d`; independently verify all release SHA256 entries and the packaged Windows binding implementation.
+- [ ] Manually validate `matterviz-preview-4` on Windows while Preview 2 remains open, then with the archived 11-atom/10-bond session verify the native structure, 10 explicit bonds, Return lifecycle and normal Multiwfn continuation.
 
 ## Parallel integration policy
 

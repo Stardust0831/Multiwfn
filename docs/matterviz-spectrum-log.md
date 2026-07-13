@@ -95,6 +95,15 @@
 - Published GitHub prerelease [`matterviz-preview-3`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-3) from that exact commit. Tag workflow [`29252215944`](https://github.com/Stardust0831/Multiwfn/actions/runs/29252215944) rebuilt and passed the adapter plus all three platform packages and release job. Assets are Linux 16,342,968 bytes, macOS 12,301,933 bytes, Windows 21,781,242 bytes and `SHA256SUMS.txt` 353 bytes.
 - Independently downloaded all four published assets. Every SHA256 entry matches; each archive contains `Multiwfn_MatterVizGUI`, the three MatterViz Python tools and `frontend/matterviz-viewer/dist/index.html`, with no obsolete 3Dmol server/file-dialog tools or executable. The remaining gate is manual Windows validation with the archived 11-atom/10-bond session.
 
+## 2026-07-13: Preview 3 concurrent-session failure and Preview 4
+
+- Windows validation initially appeared to reproduce the old MOL2 parsing failure in Preview 3. Direct inspection disproved a native-JSON regression: Preview 3 generated `structure.json` and a manifest referencing it, containing all 11 atoms and 10 formatted-checkpoint bonds.
+- Process inspection found Preview 2 and Preview 3 Python services plus WebView shells alive concurrently, both reporting `127.0.0.1:8765`. Forty direct requests to that endpoint all returned Preview 2's `structure.mol2` manifest. Windows `SO_REUSEADDR` semantics allowed the newer server to bind the same address without receiving the requests.
+- Port-isolation PR [`#29`](https://github.com/Stardust0831/Multiwfn/pull/29) disables address/port reuse, sets `SO_EXCLUSIVEADDRUSE` on Windows and binds the preferred port atomically before falling back to an OS-assigned port. Browser and WebView launch paths share the same helper.
+- Added tests proving a busy preferred port falls back, concurrent services receive different ports and each serves its own manifest, plus a Windows-only exclusive-socket assertion. A standalone Windows PR job prevents this behavior from being Linux-only evidence. Linux ran 43 tests with the Windows assertion skipped; native Windows and GitHub Windows both ran all 31 server/WebView tests successfully.
+- Merge commit `fbf7f0d48d643e2afaee638538904bb1df906784` passed all six PR/push workflows, including Windows session isolation and three-platform packages. Tag workflow [`29263108804`](https://github.com/Stardust0831/Multiwfn/actions/runs/29263108804) published [`matterviz-preview-4`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-4).
+- Preview 4 assets are Linux 16,342,317 bytes, macOS 12,301,987 bytes, Windows 21,781,452 bytes and `SHA256SUMS.txt` 353 bytes. Independent downloads match every checksum; the Windows archive contains the exclusive binding and atomic fallback implementation and no obsolete 3Dmol tools. Manual concurrent-preview and archived-session validation remains open.
+
 ## Earlier work, superseded
 
 - A generic five-kind spectrum protocol, broadening engine, frontend panel and PR #25-derived backend parser path were implemented and locally tested.
