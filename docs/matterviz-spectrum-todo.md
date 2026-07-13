@@ -11,7 +11,8 @@ Updated: 2026-07-13
 - [x] Add a periodic cross-boundary artifact and parser coverage preserving MatterViz-compatible bond `cell_shift` metadata, and verify shifted/unshifted rendering at desktop and 800px without page errors; validation with a real Multiwfn-generated cross-boundary workflow remains open.
 - [x] Verify the right orbital panel and stale-backend fallback at 1440x900 and 800x700: all seven grid levels present, no viewer/panel overlap, uncached orbitals disabled, structure canvas retained and no page errors.
 - [x] Record the live request check `orbital 42 300000 0.031`, browser audit and current `npm test`/`npm run check`/`npm run build` results as work-in-progress evidence only, not release completion.
-- [ ] Commit and push this parity increment, then require green PR #26 CI before producing another preview.
+- [x] Commit and push this parity increment to PR #26.
+- [ ] Require green PR #26 CI before producing another preview.
 
 ## Scope correction
 

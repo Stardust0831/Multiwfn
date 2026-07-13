@@ -8,6 +8,7 @@
 - Extended workbench state round-tripping for slice plane/Miller indices, position, resolution, colormap, range mode and manual bounds, plus ESP legend visibility/position and the linked ESP range.
 - Added a periodic cross-boundary structure artifact and parser test preserving MatterViz-compatible bond `cell_shift` metadata. The artifact rendered differently with and without the shift at desktop and 800px without page errors; a real Multiwfn-generated cross-boundary workflow remains a parity gap.
 - Live request verification recorded: `orbital 42 300000 0.031`. A packaged-asset-equivalent browser audit passed at 1440x900 and 800x700 with all seven grid levels, no viewer/panel overlap, correct `Cached only` fallback, disabled uncached orbitals, a retained structure canvas and no page errors. Current local frontend evidence also includes 71 passing `npm test` tests, `npm run check` with zero diagnostics and a successful `npm run build`; these are work-in-progress checks only. No preview containing this increment has been released.
+- Committed the reviewed increment as `3fb9a70` and pushed it to PR #26; CI must pass before another preview is published.
 
 ## 2026-07-13: scope correction
 
