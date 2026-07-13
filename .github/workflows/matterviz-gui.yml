@@ -367,7 +367,7 @@ jobs:
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
 
-      - name: Test extracted macOS Multiwfn package
+      - name: Test extracted macOS package
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -377,37 +377,6 @@ jobs:
           tar -xzf "dist/$PKG.tar.gz" -C clean-test
           root="$PWD/clean-test/$PKG"
           bash tests/functional/run_nogui_tests.sh "$root/Multiwfn_3DmolGUI"
-          mkdir -p macos-webview-smoke/session
-          cat > macos-webview-smoke/session/structure.xyz <<'EOF'
-          1
-          MatterViz smoke
-          H 0 0 0
-          EOF
-          cat > macos-webview-smoke/session/manifest.json <<'EOF'
-          {"structure":{"path":"structure.xyz","format":"xyz"},"cubes":[]}
-          EOF
-          python3 "$root/resources/tools/multiwfn_matterviz_webview.py" \
-            --frontend "$root/resources/frontend/matterviz-viewer/dist" \
-            --session "$PWD/macos-webview-smoke/session" \
-            --manifest "$PWD/macos-webview-smoke/session/manifest.json" \
-            --startup-timeout 30 >macos-webview-smoke/adapter.log 2>&1 &
-          adapter_pid=$!
-          ready=0
-          for _ in $(seq 1 60); do
-            if grep -q '^ready ' macos-webview-smoke/session/gui_startup.status 2>/dev/null; then
-              ready=1
-              break
-            fi
-            kill -0 "$adapter_pid" 2>/dev/null || break
-            sleep 0.5
-          done
-          if [ "$ready" -ne 1 ]; then
-            cat macos-webview-smoke/adapter.log >&2
-            exit 1
-          fi
-          pkill -TERM -f "^$root/resources/tools/matterviz-desktop( |$)" || true
-          wait "$adapter_pid"
-          test -f macos-webview-smoke/session/gui_stop.flag
 
       - name: Package Windows preview
         if: runner.os == 'Windows'
@@ -557,4 +526,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "MatterViz WebView preview $preview" \
             --prerelease \
-            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native WebView shell, session adapter, and Multiwfn executable. Python 3 remains required by the session adapter. Linux requires a WebKitGTK-capable desktop environment."
+            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native WebView shell, session adapter, and Multiwfn executable. Python 3 remains required by the session adapter. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment. CI verifies extracted Linux and Windows WebView readiness; macOS dependency relocation and extracted Multiwfn execution pass, while WKWebView readiness requires an interactive macOS desktop and remains part of manual preview validation."
