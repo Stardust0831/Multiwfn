@@ -30,9 +30,9 @@ Updated: 2026-07-13
 - [x] Compare core original 3Dmol controls/workflows against MatterViz and update priorities.
 - [x] P1: add orbital previous/next navigation plus index, energy, occupation and HOMO/LUMO context from the existing manifest.
 - [x] P1: persist molecule visibility, atom/bond sizing, bond mode/strategy, labels, sphere quality and background through workbench state.
-- [ ] P1: decide whether Ball+Stick, Spacefill, Stick and Wire need named convenience presets beyond the already reachable MatterViz primitive controls; do not add Cartoon.
+- [x] P1: provide named Ball+Stick, Spacefill, Stick and Wire convenience presets using the original GUI ratios; preserve unclamped base values and workbench state, and do not add Cartoon.
 - [x] Reorganize the viewer using the VESTA screenshot as a layout reference only: retain all proven top/right actions, add a compact left surface/cell inspector and keep the central 3D viewport dominant.
-- [ ] Move additional structure controls into the left inspector only after MatterViz exposes an authoritative outward scene-props change API; do not duplicate stale native gear state.
+- [x] Move the original-GUI representation presets and stable structure dimensions into the left inspector while retaining MatterViz native right-side controls; native topology edits invalidate stale preset markers.
 - [x] Add fixed-step camera rotation, pan and zoom controls to the top toolbar using public MatterViz camera APIs, with explicit numeric step inputs and deterministic inverse-operation tests.
 - [x] Redesign the rejected MatterViz `camera_up/camera_zoom` prototype before integration: construct controls with canonical up, rebuild the keyed camera subtree for roll changes, synchronize zoom from control `change` events, restore initial roll/zoom on reset, share zoom clamps, and keep side panes independent.
 - [x] P1: add an explicit axes/orientation gizmo toggle and preserve it in optional workbench state.
@@ -49,6 +49,7 @@ Updated: 2026-07-13
 - [ ] Consider ordered angle/dihedral measurement only as a separately approved post-parity extension; do not add an unused frontend helper.
 - [ ] P2: persist or explicitly scope slice, legend and remaining native structure control state.
 - [x] P2: cover WebView startup/bind/launch/interruption and normal child-close signaling with adapter unit tests and CI.
+- [x] Exercise the real `/api/return` route over HTTP and verify its JSON response, `gui_stop.flag` creation and server shutdown.
 - [ ] P2: complete an installed-shell browser/WebView Return and shutdown smoke test.
 - [ ] Keep ESP work separate from the first native-parity PR and review its scientific authority carefully.
 - [x] Run frontend unit tests, `npm run check`, `npm run build` and browser validation after cleanup.
@@ -64,7 +65,7 @@ Updated: 2026-07-13
 - [x] Bound orbital request quality and require finite, bounded isovalue in the GUI HTTP adapter, with manifest-backed orbital index checks and HTTP rejection tests.
 - [ ] Add a per-session capability and loopback/Host protections for mutation endpoints; migrate state-changing requests away from unauthenticated GET where compatibility allows.
 - [ ] Define and test Return behavior while a long backend calculation is already in flight.
-- [ ] Finite WebView startup handshake and failure reporting.
+- [x] Add a finite token-scoped WebView startup handshake with server-before-shell ordering, initial-page readiness, timeout/error cleanup and CI Rust checks.
 - [ ] Installed-resource/native-shell packaging smoke test.
 - [ ] Cross-platform locked WebView build and bundle-size evidence.
 - [x] Label frontend-sampled ESP extrema as approximate visual estimates rather than authoritative Multiwfn results.
