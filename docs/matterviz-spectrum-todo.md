@@ -15,6 +15,7 @@ Updated: 2026-07-14
 - [ ] Run Rust tests/check/clippy, frontend test/check/build, CMake/source guards and locked Linux/macOS/Windows package jobs before publishing another preview.
 - [x] Diagnose the first Rust-host CI failure: Linux `rfd` enabled `xdg-portal` without an async runtime, leaving `zbus` runtime dependencies unresolved; explicitly select the `async-std` backend and refresh the lockfile.
 - [x] Diagnose the first Windows Rust-host run: 12 tests passed, then Return shutdown blocked in the HTTP integration test until the 60-minute job timeout; wake a potentially blocked listener during stop and bound test-client reads.
+- [x] Correct the packaged Windows async regression to consume the Rust host's advertised service URL instead of assuming the preferred port; capture inherited stdout/stderr incrementally so a live Multiwfn process no longer hides launch diagnostics.
 - [ ] Require the corrected Linux Rust test/release build plus Linux, macOS and Windows package jobs to pass; the earlier macOS shell build succeeded, but that incomplete run is not release evidence.
 - [x] Draft a versioned binary volume protocol with explicit dimensions, lattice/origin, scalar type, byte order, units and integrity/size bounds in `docs/matterviz-volume-protocol.md`; production traffic remains on Cube until codecs and transport tests pass.
 - [ ] Replace dynamic orbital/ESP Cube staging with a bounded shared-memory or pipe transport on Windows, Linux and macOS, retaining a deliberate compatibility/debug fallback until native transport is proven.

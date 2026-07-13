@@ -58,6 +58,7 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("CloseHandle(process.hProcess)", SPAWN)
         self.assertIn("STARTF_USESTDHANDLES", SPAWN)
         self.assertIn("PROC_THREAD_ATTRIBUTE_HANDLE_LIST", SPAWN)
+        self.assertIn("startup.lpAttributeList = attributes", SPAWN)
         self.assertIn("EXTENDED_STARTUPINFO_PRESENT", SPAWN)
         self.assertIn("DuplicateHandle", SPAWN)
         self.assertIn('CreateFileW(\n        L"NUL"', SPAWN)

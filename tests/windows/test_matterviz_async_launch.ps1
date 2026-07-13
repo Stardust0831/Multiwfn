@@ -22,10 +22,15 @@ $packageHome = Split-Path -Parent $executable
 $packagedTools = Join-Path $packageHome "resources\tools"
 $process = $null
 $processStarted = $false
-$stdoutTask = $null
-$stderrTask = $null
+$stdoutLines = [Collections.Concurrent.ConcurrentQueue[string]]::new()
+$stderrLines = [Collections.Concurrent.ConcurrentQueue[string]]::new()
+$stdoutClosed = [Threading.ManualResetEventSlim]::new($false)
+$stderrClosed = [Threading.ManualResetEventSlim]::new($false)
 $success = $false
 $hostPort = 18767
+$serviceBase = $null
+$capability = $null
+$desktopProcess = $null
 
 function Write-Ascii([string] $Path, [string] $Text) {
     [IO.File]::WriteAllText($Path, $Text, [Text.Encoding]::ASCII)
@@ -37,6 +42,9 @@ function Show-Diagnostics {
     if ($null -ne $process -and $processStarted) {
         Write-Host "  Multiwfn process exited: $($process.HasExited)"
         if ($process.HasExited) { Write-Host "  Multiwfn exit code: $($process.ExitCode)" }
+    }
+    if ($null -ne $desktopProcess) {
+        Write-Host "  MatterViz desktop process ID: $($desktopProcess.Id)"
     }
     foreach ($path in @(
         (Join-Path $session "manifest.json"),
@@ -51,13 +59,13 @@ function Show-Diagnostics {
     if (Test-Path -LiteralPath $session) {
         Get-ChildItem -LiteralPath $session -Force | Select-Object Name, Length | Format-Table | Out-String | Write-Host
     }
-    if ($null -ne $stdoutTask -and $stdoutTask.IsCompleted) {
+    if ($stdoutLines.Count -gt 0) {
         Write-Host "--- Multiwfn stdout ---"
-        $stdoutTask.GetAwaiter().GetResult() | Write-Host
+        [string]::Join([Environment]::NewLine, $stdoutLines.ToArray()) | Write-Host
     }
-    if ($null -ne $stderrTask -and $stderrTask.IsCompleted) {
+    if ($stderrLines.Count -gt 0) {
         Write-Host "--- Multiwfn stderr ---"
-        $stderrTask.GetAwaiter().GetResult() | Write-Host
+        [string]::Join([Environment]::NewLine, $stderrLines.ToArray()) | Write-Host
     }
 }
 
@@ -70,12 +78,29 @@ function Wait-ForCondition([scriptblock] $Condition, [int] $TimeoutSeconds, [str
     throw $FailureMessage
 }
 
-function Get-SessionCapability([int] $Port) {
+function Get-ServiceBaseUrl {
+    foreach ($line in @($stderrLines.ToArray()) + @($stdoutLines.ToArray())) {
+        $match = [regex]::Match($line, 'Multiwfn MatterViz GUI service: (http://\S+)')
+        if ($match.Success) {
+            $uri = [Uri]$match.Groups[1].Value
+            $hasExplicitPort = $uri.Authority -match ':\d+$'
+            if (-not $uri.IsAbsoluteUri -or $uri.Scheme -ne 'http' -or
+                -not $uri.IsLoopback -or -not [string]::IsNullOrEmpty($uri.UserInfo) -or
+                -not $hasExplicitPort -or $uri.Port -le 0) {
+                throw "Rust MatterViz host advertised an invalid service URL: $uri"
+            }
+            return $uri.GetLeftPart([UriPartial]::Authority)
+        }
+    }
+    return $null
+}
+
+function Get-SessionCapability([string] $BaseUrl) {
     $handler = [Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
     $client = [Net.Http.HttpClient]::new($handler)
     try {
-        $result = $client.GetAsync("http://127.0.0.1:$Port/").GetAwaiter().GetResult()
+        $result = $client.GetAsync("$BaseUrl/").GetAwaiter().GetResult()
         $location = [string]$result.Headers.Location
         $match = [regex]::Match($location, '[?&]cap=([0-9a-f]{64})')
         if (-not $match.Success) { throw "Rust MatterViz host capability was not advertised" }
@@ -85,6 +110,23 @@ function Get-SessionCapability([int] $Port) {
         $client.Dispose()
         $handler.Dispose()
     }
+}
+
+function Get-ServiceProcess([string] $BaseUrl, [string] $ExpectedPath) {
+    $uri = [Uri]$BaseUrl
+    $address = [Net.IPAddress]::Parse($uri.Host)
+    $connection = Get-NetTCPConnection -State Listen -LocalPort $uri.Port `
+        -ErrorAction SilentlyContinue | Where-Object {
+            try { return [Net.IPAddress]::Parse($_.LocalAddress).Equals($address) }
+            catch { return $false }
+        } | Select-Object -First 1
+    if ($null -eq $connection) { return $null }
+    $candidate = Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
+    if ($null -eq $candidate) { return $null }
+    $actual = [IO.Path]::GetFullPath($candidate.Path)
+    $expected = [IO.Path]::GetFullPath($ExpectedPath)
+    if (-not $actual.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) { return $null }
+    return $candidate
 }
 
 try {
@@ -119,10 +161,28 @@ H 0.920000 0.000000 -0.240000
 
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $psi
+    $process.add_OutputDataReceived({
+        param($sender, $eventArgs)
+        if ($null -ne $eventArgs.Data) {
+            $stdoutLines.Enqueue($eventArgs.Data)
+        }
+        else {
+            $stdoutClosed.Set()
+        }
+    })
+    $process.add_ErrorDataReceived({
+        param($sender, $eventArgs)
+        if ($null -ne $eventArgs.Data) {
+            $stderrLines.Enqueue($eventArgs.Data)
+        }
+        else {
+            $stderrClosed.Set()
+        }
+    })
     if (-not $process.Start()) { throw "Could not start packaged Multiwfn executable" }
     $processStarted = $true
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.BeginOutputReadLine()
+    $process.BeginErrorReadLine()
     $process.StandardInput.WriteLine("0")
     $process.StandardInput.WriteLine("q")
     $process.StandardInput.Flush()
@@ -133,17 +193,24 @@ H 0.920000 0.000000 -0.240000
     } 30 "Multiwfn did not publish a MatterViz manifest while processing menu 0"
 
     Wait-ForCondition {
+        $candidate = Get-ServiceBaseUrl
+        if ([string]::IsNullOrWhiteSpace($candidate)) { return $false }
         try {
             $null = Invoke-WebRequest -UseBasicParsing `
-                -Uri "http://127.0.0.1:$hostPort/session/manifest.json" -TimeoutSec 2
+                -Uri "$candidate/session/manifest.json" -TimeoutSec 2
+            $script:serviceBase = $candidate
             return (-not $process.HasExited)
         }
         catch { return $false }
     } 30 "Rust MatterViz host did not expose the generated session"
-    $capability = Get-SessionCapability $hostPort
+    Wait-ForCondition {
+        $script:desktopProcess = Get-ServiceProcess $serviceBase (Join-Path $fakeTools "matterviz-desktop.exe")
+        return ($null -ne $desktopProcess)
+    } 5 "Could not identify the Rust MatterViz host process"
+    $capability = Get-SessionCapability $serviceBase
 
     $orbitalPayload = Invoke-RestMethod -Uri (
-        "http://127.0.0.1:$hostPort/api/orbital" +
+        "$serviceBase/api/orbital" +
         "?index=0&quality=25000&isovalue=0.05&cap=$capability"
     )
     if (-not $orbitalPayload.ok -or -not $orbitalPayload.clear) {
@@ -154,12 +221,15 @@ H 0.920000 0.000000 -0.240000
     }
     if ($process.HasExited) { throw "Multiwfn exited before the orbital API response" }
 
-    $returnPayload = Invoke-RestMethod -Uri "http://127.0.0.1:$hostPort/api/return?cap=$capability"
+    $returnPayload = Invoke-RestMethod -Uri "$serviceBase/api/return?cap=$capability"
     if (-not $returnPayload.ok) { throw "Rust MatterViz host Return request failed" }
     if (-not $process.WaitForExit(20000)) {
         throw "Multiwfn did not exit after the Rust host Return request"
     }
     if ($process.ExitCode -ne 0) { throw "Multiwfn exited with status $($process.ExitCode)" }
+    if (-not $stdoutClosed.Wait(10000) -or -not $stderrClosed.Wait(10000)) {
+        throw "MatterViz desktop did not close its inherited output handles after Return"
+    }
     $success = $true
 }
 catch {
@@ -170,7 +240,7 @@ finally {
     if ($null -ne $process -and $processStarted) {
         if (-not $process.HasExited) {
             try {
-                $process.Kill()
+                & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F | Out-Null
                 [void] $process.WaitForExit(5000)
             }
             catch [InvalidOperationException] {
@@ -179,8 +249,28 @@ finally {
         }
         $process.Dispose()
     }
-    if (Test-Path -LiteralPath $root) {
+    if (-not $success -and $null -ne $desktopProcess) {
+        try {
+            if (-not $desktopProcess.HasExited) {
+                $desktopProcess.Kill()
+                [void] $desktopProcess.WaitForExit(5000)
+            }
+        }
+        catch [InvalidOperationException] { }
+    }
+    if ($null -ne $desktopProcess) { $desktopProcess.Dispose() }
+    $stdoutReachedEof = $stdoutClosed.Wait(5000)
+    $stderrReachedEof = $stderrClosed.Wait(5000)
+    $outputsClosed = $stdoutReachedEof -and $stderrReachedEof
+    if ($outputsClosed) {
+        $stdoutClosed.Dispose()
+        $stderrClosed.Dispose()
+    }
+    if ($outputsClosed -and (Test-Path -LiteralPath $root)) {
         Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    elseif (Test-Path -LiteralPath $root) {
+        Write-Warning "Retained MatterViz async diagnostics because descendant output handles remain open: $root"
     }
 }
 

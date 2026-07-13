@@ -118,6 +118,7 @@ int multiwfn_spawn_async(const char *command) {
     startup.StartupInfo.hStdInput = inherited_handles[0];
     startup.StartupInfo.hStdOutput = inherited_handles[1];
     startup.StartupInfo.hStdError = inherited_handles[2];
+    startup.lpAttributeList = attributes;
     if (!CreateProcessW(
             NULL, wide, NULL, NULL, TRUE, EXTENDED_STARTUPINFO_PRESENT,
             NULL, NULL, &startup.StartupInfo, &process)) {
