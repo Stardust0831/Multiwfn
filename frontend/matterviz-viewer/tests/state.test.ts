@@ -86,7 +86,7 @@ test('round-trips camera state and restores appearance by volume index', () => {
     atomSupercell: '2x1x1',
     showBoundaryAtoms: true,
     showUnitCell: false,
-    camera: { position: [1, 2, 3], target: [0, 0, 0], projection: 'orthographic' },
+    camera: { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1], zoom: 2.5, projection: 'orthographic' },
   })
   const parsed = parse_workbench_state(JSON.parse(JSON.stringify(exported)))
   assert.deepEqual(parsed.camera, exported.camera)
@@ -127,6 +127,30 @@ test('rejects unsupported state versions and ignores malformed optional fields',
   assert.equal(parsed.volumes[0].colormap, undefined)
   assert.equal(parsed.camera, undefined)
   assert.equal(parsed.periodic?.displayRange, undefined)
+})
+
+test('ignores malformed camera up and zoom while preserving valid camera fields', () => {
+  const parsed = parse_workbench_state({
+    format: 'multiwfn-matterviz-workbench',
+    version: 1,
+    activeVolume: 0,
+    volumes: [],
+    camera: {
+      position: [1, 2, 3],
+      target: [0, 0, 0],
+      up: [0, Number.NaN, 1],
+      zoom: -2,
+      projection: 'orthographic',
+    },
+    session: {},
+  })
+  assert.deepEqual(parsed.camera, {
+    position: [1, 2, 3],
+    target: [0, 0, 0],
+    up: undefined,
+    zoom: undefined,
+    projection: 'orthographic',
+  })
 })
 
 test('preserves every colormap exposed by the layer controls', () => {

@@ -4,6 +4,8 @@ import type { ManifestEntry, MultiwfnManifest } from './manifest'
 export type WorkbenchCameraState = {
   position?: Vec3
   target?: Vec3
+  up?: Vec3
+  zoom?: number
   projection?: CameraProjection
 }
 
@@ -170,11 +172,14 @@ const normalize_camera = (value: unknown): WorkbenchCameraState | undefined => {
   const row = as_record(value)
   const position = finite_vec3(row.position)
   const target = finite_vec3(row.target)
+  const up = finite_vec3(row.up)
+  const zoomValue = finite_number(row.zoom)
+  const zoom = zoomValue !== undefined && zoomValue > 0 ? zoomValue : undefined
   const projection = row.projection === 'perspective' || row.projection === 'orthographic'
     ? row.projection
     : undefined
-  if (!position && !target && !projection) return undefined
-  return { position, target, projection }
+  if (!position && !target && !up && zoom === undefined && !projection) return undefined
+  return { position, target, up, zoom, projection }
 }
 
 const normalize_appearance = (value: unknown): WorkbenchIsosurfaceAppearance | undefined => {

@@ -13,7 +13,7 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
-    "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.c8ca120a.tgz",
+    "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.2f2dc280.r2.tgz",
     "svelte": "^5.56.4"
   },
   "devDependencies": {

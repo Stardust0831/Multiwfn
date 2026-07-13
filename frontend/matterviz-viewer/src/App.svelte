@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     DEFAULT_ISOSURFACE_SETTINGS,
+    Icon,
     Structure,
     auto_color_config,
     compare_volume_grids,
@@ -12,6 +13,7 @@
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
   import { onMount } from 'svelte'
+  import { normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraAxis, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
@@ -73,6 +75,9 @@
   let espExtrema = $state<EspExtremaResult | undefined>()
   let inspectorOpen = $state(true)
   let inspectorSection = $state<'structure' | 'surfaces' | 'cell'>('structure')
+  let rotationStep = $state(15)
+  let panStep = $state(0.25)
+  let zoomStep = $state(10)
   let espRange = $state<[number, number]>([-0.05, 0.05])
   let espLegendPosition = $state<LegendPosition>({ left: 16, top: 16 })
   let stateInput = $state<HTMLInputElement | undefined>()
@@ -81,9 +86,11 @@
   let sceneProps = $state<{
     camera_position?: [number, number, number]
     camera_target?: [number, number, number]
+    camera_up?: [number, number, number]
+    camera_zoom?: number
     camera_projection?: 'perspective' | 'orthographic'
     [key: string]: unknown
-  }>({})
+  }>({ auto_rotate: 0 })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
 
   type ApiPayload = {
@@ -376,6 +383,8 @@
         ...sceneProps,
         ...(restored.camera.position ? { camera_position: [...restored.camera.position] as [number, number, number] } : {}),
         ...(restored.camera.target ? { camera_target: [...restored.camera.target] as [number, number, number] } : {}),
+        ...(restored.camera.up ? { camera_up: [...restored.camera.up] as [number, number, number] } : {}),
+        ...(restored.camera.zoom !== undefined ? { camera_zoom: restored.camera.zoom } : {}),
         ...(restored.camera.projection ? { camera_projection: restored.camera.projection } : {}),
       }
     }
@@ -603,6 +612,8 @@
     const camera: WorkbenchCameraState = {
       position: sceneProps.camera_position,
       target: sceneProps.camera_target,
+      up: sceneProps.camera_up,
+      zoom: sceneProps.camera_zoom,
       projection: sceneProps.camera_projection,
     }
     download_workbench_state(create_workbench_state({
@@ -635,11 +646,68 @@
     }
   }
 
-  const track_camera = (data: { camera_position?: [number, number, number]; camera_target?: [number, number, number] }): void => {
+  const track_camera = (data: {
+    camera_position?: [number, number, number]
+    camera_target?: [number, number, number]
+    camera_up?: [number, number, number]
+    camera_zoom?: number
+  }): void => {
     sceneProps = {
       ...sceneProps,
       ...(data.camera_position ? { camera_position: [...data.camera_position] as [number, number, number] } : {}),
       ...(data.camera_target ? { camera_target: [...data.camera_target] as [number, number, number] } : {}),
+      ...(data.camera_up ? { camera_up: [...data.camera_up] as [number, number, number] } : {}),
+      ...(data.camera_zoom !== undefined ? { camera_zoom: data.camera_zoom, camera_projection: 'orthographic' as const } : {
+        camera_zoom: undefined,
+        camera_projection: 'perspective' as const,
+      }),
+    }
+  }
+
+  const current_camera_pose = (): CameraPose | undefined => normalize_camera_pose({
+    position: sceneProps.camera_position,
+    target: sceneProps.camera_target,
+    up: sceneProps.camera_up ?? [0, 1, 0],
+    projection: sceneProps.camera_projection ?? (sceneProps.camera_zoom !== undefined ? 'orthographic' : 'perspective'),
+    zoom: sceneProps.camera_zoom,
+  })
+
+  const apply_camera_pose = (pose: CameraPose): void => {
+    sceneProps = {
+      ...sceneProps,
+      camera_position: [...pose.position] as [number, number, number],
+      camera_target: [...pose.target] as [number, number, number],
+      camera_up: [...pose.up] as [number, number, number],
+      camera_projection: pose.projection,
+      auto_rotate: 0,
+      ...(pose.zoom !== undefined ? { camera_zoom: pose.zoom } : { camera_zoom: undefined }),
+    }
+  }
+
+  const step_rotate = (axis: CameraAxis, direction: -1 | 1): void => {
+    const pose = current_camera_pose()
+    const step = normalize_camera_step(rotationStep, 'rotation')
+    if (pose && step !== undefined) {
+      rotationStep = step
+      apply_camera_pose(rotate_camera(pose, axis, direction * step))
+    }
+  }
+
+  const step_pan = (horizontal: number, vertical: number): void => {
+    const pose = current_camera_pose()
+    const step = normalize_camera_step(panStep, 'pan')
+    if (pose && step !== undefined) {
+      panStep = step
+      apply_camera_pose(pan_camera(pose, horizontal * step, vertical * step))
+    }
+  }
+
+  const step_zoom = (direction: 'in' | 'out'): void => {
+    const pose = current_camera_pose()
+    const step = normalize_camera_step(zoomStep, 'zoom')
+    if (pose && step !== undefined) {
+      zoomStep = step
+      apply_camera_pose(zoom_camera(pose, step, direction))
     }
   }
 
@@ -694,6 +762,38 @@
     <div class="brand">
       <strong>Multiwfn</strong>
       <span>MatterViz workbench</span>
+    </div>
+    <div class="camera-tools" aria-label="Fixed-step camera controls">
+      <label title="Rotation step in degrees">
+        <span>Step (deg)</span>
+        <input aria-label="Rotation step" type="number" min="0.1" max="180" step="0.1" bind:value={rotationStep} />
+      </label>
+      {#each ['x', 'y', 'z'] as axis}
+        <div class="axis-step" aria-label={`Rotate ${axis.toUpperCase()} axis`}>
+          <button type="button" title={`Rotate ${axis.toUpperCase()} negative`} aria-label={`Rotate ${axis.toUpperCase()} negative`} onclick={() => step_rotate(axis as CameraAxis, -1)} disabled={!current_camera_pose()}>
+            <Icon icon="ArrowLeft" width="15" height="15" /><span>{axis.toUpperCase()}</span>
+          </button>
+          <button type="button" title={`Rotate ${axis.toUpperCase()} positive`} aria-label={`Rotate ${axis.toUpperCase()} positive`} onclick={() => step_rotate(axis as CameraAxis, 1)} disabled={!current_camera_pose()}>
+            <span>{axis.toUpperCase()}</span><Icon icon="ArrowRight" width="15" height="15" />
+          </button>
+        </div>
+      {/each}
+      <label title="Camera-relative pan step in world units">
+        <span>Move</span>
+        <input aria-label="Pan step" type="number" min="0.001" max="100" step="0.01" bind:value={panStep} />
+      </label>
+      <div class="pan-step" aria-label="Pan camera">
+        <button type="button" title="Pan left" aria-label="Pan left" onclick={() => step_pan(-1, 0)} disabled={!current_camera_pose()}><Icon icon="ArrowLeft" width="15" height="15" /></button>
+        <button type="button" title="Pan up" aria-label="Pan up" onclick={() => step_pan(0, 1)} disabled={!current_camera_pose()}><Icon icon="ArrowUp" width="15" height="15" /></button>
+        <button type="button" title="Pan down" aria-label="Pan down" onclick={() => step_pan(0, -1)} disabled={!current_camera_pose()}><Icon icon="ArrowDown" width="15" height="15" /></button>
+        <button type="button" title="Pan right" aria-label="Pan right" onclick={() => step_pan(1, 0)} disabled={!current_camera_pose()}><Icon icon="ArrowRight" width="15" height="15" /></button>
+      </div>
+      <label title="Reciprocal zoom step in percent">
+        <span>Zoom (%)</span>
+        <input aria-label="Zoom step" type="number" min="0.1" max="500" step="0.1" bind:value={zoomStep} />
+      </label>
+      <button class="icon-button" type="button" title="Zoom out" aria-label="Zoom out" onclick={() => step_zoom('out')} disabled={!current_camera_pose()}><Icon icon="ZoomOut" width="16" height="16" /></button>
+      <button class="icon-button" type="button" title="Zoom in" aria-label="Zoom in" onclick={() => step_zoom('in')} disabled={!current_camera_pose()}><Icon icon="ZoomIn" width="16" height="16" /></button>
     </div>
     <button type="button" title="Previous orbital" aria-label="Previous orbital" onclick={() => move_orbital(-1)} disabled={loading || orbitalIndex <= 1}>&lt;</button>
     <label>

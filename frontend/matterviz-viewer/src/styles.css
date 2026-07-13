@@ -47,6 +47,29 @@ button, input, select { font: inherit; }
 .brand { display: flex; align-items: baseline; gap: 7px; margin-right: 8px; }
 .brand strong { color: #18202a; font-size: 15px; }
 .brand span { color: #667085; font-size: 11px; }
+.camera-tools {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: max-content;
+  padding-right: 8px;
+  border-right: 1px solid #d6dce4;
+}
+.camera-tools label { gap: 3px; }
+.camera-tools input[type="number"] { width: 62px; }
+.camera-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 31px;
+  padding: 0 3px;
+}
+.camera-tools .axis-step,
+.camera-tools .pan-step { display: inline-flex; gap: 1px; }
+.camera-tools .axis-step button { width: 36px; }
+.camera-tools .axis-step button span { font-size: 10px; font-weight: 700; }
+.camera-tools svg { flex: 0 0 auto; }
 .toolbar label, .periodic-bar label { display: flex; align-items: center; gap: 5px; }
 .toolbar label > span, .periodic-bar label > span { color: #5c6675; font-size: 11px; }
 .toolbar select[aria-label="Orbital"] { width: 210px; }

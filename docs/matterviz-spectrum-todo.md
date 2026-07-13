@@ -33,8 +33,8 @@ Updated: 2026-07-13
 - [ ] P1: decide whether Ball+Stick, Spacefill, Stick and Wire need named convenience presets beyond the already reachable MatterViz primitive controls; do not add Cartoon.
 - [x] Reorganize the viewer using the VESTA screenshot as a layout reference only: retain all proven top/right actions, add a compact left surface/cell inspector and keep the central 3D viewport dominant.
 - [ ] Move additional structure controls into the left inspector only after MatterViz exposes an authoritative outward scene-props change API; do not duplicate stale native gear state.
-- [ ] Add fixed-step camera rotation, pan and zoom controls to the top toolbar using public MatterViz camera APIs, with explicit numeric step inputs and deterministic inverse-operation tests.
-- [ ] Redesign the rejected MatterViz `camera_up/camera_zoom` prototype before integration: rebuild controls or use a supported quaternion abstraction when up changes, synchronize zoom from control `change` events, restore initial roll on reset, share zoom clamps, and define active-pane behavior in multi-view.
+- [x] Add fixed-step camera rotation, pan and zoom controls to the top toolbar using public MatterViz camera APIs, with explicit numeric step inputs and deterministic inverse-operation tests.
+- [x] Redesign the rejected MatterViz `camera_up/camera_zoom` prototype before integration: construct controls with canonical up, rebuild the keyed camera subtree for roll changes, synchronize zoom from control `change` events, restore initial roll/zoom on reset, share zoom clamps, and keep side panes independent.
 - [x] P1: add an explicit axes/orientation gizmo toggle and preserve it in optional workbench state.
 - [x] P1: verify MatterViz native PNG export at desktop and 800px; downloaded images are valid and nonblank.
 - [ ] Preserve the visible ESP legend in PNG export if a public MatterViz capture/compositing hook becomes available; native export currently captures only the WebGL canvas.
