@@ -143,6 +143,13 @@
 - Merge commit `fbf7f0d48d643e2afaee638538904bb1df906784` passed all six PR/push workflows, including Windows session isolation and three-platform packages. Tag workflow [`29263108804`](https://github.com/Stardust0831/Multiwfn/actions/runs/29263108804) published [`matterviz-preview-4`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-4).
 - Preview 4 assets are Linux 16,342,317 bytes, macOS 12,301,987 bytes, Windows 21,781,452 bytes and `SHA256SUMS.txt` 353 bytes. Independent downloads match every checksum; the Windows archive contains the exclusive binding and atomic fallback implementation and no obsolete 3Dmol tools. Manual concurrent-preview and archived-session validation remains open.
 
+## 2026-07-14: Rust host CI correction
+
+- The first Rust-host push/PR runs failed only on Linux while compiling `zbus`. The `rfd` dependency disabled default features and enabled `xdg-portal` without selecting either supported async runtime, so Linux compiled runtime-dependent code without `async-io`, `async-lock`, `async-process`, `async-executor`, `async-task` and `blocking` dependencies.
+- Corrected the dependency contract by explicitly enabling `rfd`'s `async-std` feature alongside `xdg-portal`. This does not change the HTTP URLs, session files, Fortran request loop, orbital calculation path or packaged runtime architecture.
+- The failed run's macOS desktop-shell build passed, while Linux Rust test/package jobs failed before Multiwfn packaging and Windows remained incomplete. No prerelease is eligible until the corrected locked builds and package/runtime regressions pass on all three platforms.
+- Local Rust 1.88 verification passed locked Cargo metadata, formatting and the feature graph showing all required `zbus` async dependencies enabled. Configuration validation, `git diff --check` and 16 GUI/session build-contract tests passed. Full Linux Tauri compilation remains CI-gated because this WSL image lacks `pkg-config` and the Wayland/WebKit development stack installed by the workflow.
+
 ## Earlier work, superseded
 
 - A generic five-kind spectrum protocol, broadening engine, frontend panel and PR #25-derived backend parser path were implemented and locally tested.

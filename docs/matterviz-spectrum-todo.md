@@ -13,6 +13,8 @@ Updated: 2026-07-14
 - [x] Update Linux, macOS and Windows package workflows and extracted-package smoke tests to launch the Rust host directly; assert that MatterViz archives contain no runtime Python scripts or Python requirement.
 - [ ] Prove a packaged Windows uncached orbital request is consumed while the WebView remains open, then verify Return/window-close lifecycle and concurrent-session port isolation.
 - [ ] Run Rust tests/check/clippy, frontend test/check/build, CMake/source guards and locked Linux/macOS/Windows package jobs before publishing another preview.
+- [x] Diagnose the first Rust-host CI failure: Linux `rfd` enabled `xdg-portal` without an async runtime, leaving `zbus` runtime dependencies unresolved; explicitly select the `async-std` backend and refresh the lockfile.
+- [ ] Require the corrected Linux Rust test/release build plus Linux, macOS and Windows package jobs to pass; the earlier macOS shell build succeeded, but that incomplete run is not release evidence.
 - [x] Draft a versioned binary volume protocol with explicit dimensions, lattice/origin, scalar type, byte order, units and integrity/size bounds in `docs/matterviz-volume-protocol.md`; production traffic remains on Cube until codecs and transport tests pass.
 - [ ] Replace dynamic orbital/ESP Cube staging with a bounded shared-memory or pipe transport on Windows, Linux and macOS, retaining a deliberate compatibility/debug fallback until native transport is proven.
 - [ ] Add throughput, lifecycle, cancellation/cleanup and malformed/oversized-volume tests for the native transport before removing the file fallback.
