@@ -18,13 +18,14 @@ $session = Join-Path $root "session data"
 $fakeHome = Join-Path $root "fake matterviz home"
 $fakeTools = Join-Path $fakeHome "tools"
 $fakeFrontend = Join-Path $fakeHome "frontend\matterviz-viewer\dist"
+$packageHome = Split-Path -Parent $executable
+$packagedTools = Join-Path $packageHome "resources\tools"
 $process = $null
 $processStarted = $false
-$launcherPid = $null
 $stdoutTask = $null
 $stderrTask = $null
-$response = $null
 $success = $false
+$hostPort = 18767
 
 function Write-Ascii([string] $Path, [string] $Text) {
     [IO.File]::WriteAllText($Path, $Text, [Text.Encoding]::ASCII)
@@ -39,7 +40,6 @@ function Show-Diagnostics {
     }
     foreach ($path in @(
         (Join-Path $session "manifest.json"),
-        (Join-Path $session "launcher.ready"),
         (Join-Path $session "gui_request.txt"),
         (Join-Path $session "gui_stop.flag")
     )) {
@@ -47,10 +47,6 @@ function Show-Diagnostics {
             Write-Host "--- $path ---"
             Get-Content -LiteralPath $path -Raw | Write-Host
         }
-    }
-    if ($null -ne $response -and (Test-Path -LiteralPath $response)) {
-        Write-Host "--- $response ---"
-        Get-Content -LiteralPath $response -Raw | Write-Host
     }
     if (Test-Path -LiteralPath $session) {
         Get-ChildItem -LiteralPath $session -Force | Select-Object Name, Length | Format-Table | Out-String | Write-Host
@@ -74,18 +70,21 @@ function Wait-ForCondition([scriptblock] $Condition, [int] $TimeoutSeconds, [str
     throw $FailureMessage
 }
 
-function Read-JsonWithTimeout([string] $Path, [int] $TimeoutSeconds) {
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    while ([DateTime]::UtcNow -lt $deadline) {
-        try {
-            return (Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json)
-        }
-        catch [IO.IOException] { }
-        catch [System.ArgumentException] { }
-        catch [System.Management.Automation.RuntimeException] { }
-        Start-Sleep -Milliseconds 100
+function Get-SessionCapability([int] $Port) {
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $client = [Net.Http.HttpClient]::new($handler)
+    try {
+        $result = $client.GetAsync("http://127.0.0.1:$Port/").GetAwaiter().GetResult()
+        $location = [string]$result.Headers.Location
+        $match = [regex]::Match($location, '[?&]cap=([0-9a-f]{64})')
+        if (-not $match.Success) { throw "Rust MatterViz host capability was not advertised" }
+        return $match.Groups[1].Value
     }
-    throw "Timed out reading valid JSON from $Path"
+    finally {
+        $client.Dispose()
+        $handler.Dispose()
+    }
 }
 
 try {
@@ -98,28 +97,12 @@ H 0.000000 0.000000 0.960000
 H 0.920000 0.000000 -0.240000
 "@
     Write-Ascii (Join-Path $fakeFrontend "index.html") "<!doctype html><title>fake MatterViz</title>"
-    $fakeServer = @'
-import argparse
-from pathlib import Path
-import os
-import time
+    if (-not (Test-Path -LiteralPath (Join-Path $packagedTools "matterviz-desktop.exe"))) {
+        throw "Packaged Rust MatterViz host was not found under $packagedTools"
+    }
+    Copy-Item -LiteralPath (Join-Path $packagedTools "matterviz-desktop.exe") -Destination $fakeTools
+    Get-ChildItem -LiteralPath $packagedTools -Filter *.dll -File | Copy-Item -Destination $fakeTools
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--frontend", required=True)
-parser.add_argument("--session", required=True)
-parser.add_argument("--manifest", required=True)
-parser.add_argument("--open", action="store_true")
-args = parser.parse_args()
-session = Path(args.session)
-session.mkdir(parents=True, exist_ok=True)
-(session / "launcher.ready").write_text(f"{os.getpid()}\n", encoding="ascii")
-while True:
-    time.sleep(0.25)
-'@
-    Write-Ascii (Join-Path $fakeTools "multiwfn_matterviz_server.py") $fakeServer
-    Write-Ascii (Join-Path $fakeTools "multiwfn_matterviz_webview.py") $fakeServer
-
-    $pythonExecutable = (Get-Command python -ErrorAction Stop).Source
     $psi = [Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $executable
     $psi.WorkingDirectory = $work
@@ -132,8 +115,7 @@ while True:
     $psi.Arguments = '"' + $inputPath.Replace('"', '\"') + '"'
     $psi.Environment["MULTIWFN_MATTERVIZ_SESSION"] = $session
     $psi.Environment["MULTIWFN_MATTERVIZ_HOME"] = $fakeHome
-    $psi.Environment["MULTIWFN_MATTERVIZ_SHELL"] = "browser"
-    $psi.Environment["MULTIWFN_MATTERVIZ_PYTHON"] = $pythonExecutable
+    $psi.Environment["MULTIWFN_MATTERVIZ_PORT"] = $hostPort.ToString()
 
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $psi
@@ -150,33 +132,32 @@ while True:
         -not $process.HasExited
     } 30 "Multiwfn did not publish a MatterViz manifest while processing menu 0"
 
-    $launcherReady = Join-Path $session "launcher.ready"
     Wait-ForCondition {
-        (Test-Path -LiteralPath $launcherReady) -and -not $process.HasExited
-    } 30 "Fake MatterViz launcher did not report readiness"
-    $launcherPid = [int]((Get-Content -LiteralPath $launcherReady -Raw).Trim())
-    if ($launcherPid -le 0) { throw "Fake MatterViz launcher wrote an invalid PID" }
-    if ($null -eq (Get-Process -Id $launcherPid -ErrorAction SilentlyContinue)) {
-        throw "Fake MatterViz launcher exited before the request test"
-    }
+        try {
+            $null = Invoke-WebRequest -UseBasicParsing `
+                -Uri "http://127.0.0.1:$hostPort/session/manifest.json" -TimeoutSec 2
+            return (-not $process.HasExited)
+        }
+        catch { return $false }
+    } 30 "Rust MatterViz host did not expose the generated session"
+    $capability = Get-SessionCapability $hostPort
 
-    $requestId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    $request = Join-Path $session "gui_request.txt"
-    Write-Ascii $request ("{0} unknown`n" -f $requestId)
-    $response = Join-Path $session ("response_{0}.json" -f $requestId)
-    Wait-ForCondition {
-        (Test-Path -LiteralPath $response) -and
-        -not (Test-Path -LiteralPath $request)
-    } 20 "Multiwfn did not consume the GUI request and publish its response"
-    $payload = Read-JsonWithTimeout $response 5
-    if ($payload.ok -ne $false) { throw "Unknown GUI request did not return an error response" }
-    if ($null -eq (Get-Process -Id $launcherPid -ErrorAction SilentlyContinue)) {
-        throw "Fake MatterViz launcher exited before the response was published"
+    $orbitalPayload = Invoke-RestMethod -Uri (
+        "http://127.0.0.1:$hostPort/api/orbital" +
+        "?index=0&quality=25000&isovalue=0.05&cap=$capability"
+    )
+    if (-not $orbitalPayload.ok -or -not $orbitalPayload.clear) {
+        throw "Rust orbital API did not round-trip through the live Multiwfn request loop"
     }
+    if (Test-Path -LiteralPath (Join-Path $session "gui_request.txt")) {
+        throw "Rust orbital API left an unconsumed backend request"
+    }
+    if ($process.HasExited) { throw "Multiwfn exited before the orbital API response" }
 
-    Write-Ascii (Join-Path $session "gui_stop.flag") "test-stop`n"
+    $returnPayload = Invoke-RestMethod -Uri "http://127.0.0.1:$hostPort/api/return?cap=$capability"
+    if (-not $returnPayload.ok) { throw "Rust MatterViz host Return request failed" }
     if (-not $process.WaitForExit(20000)) {
-        throw "Multiwfn did not exit after gui_stop.flag was written"
+        throw "Multiwfn did not exit after the Rust host Return request"
     }
     if ($process.ExitCode -ne 0) { throw "Multiwfn exited with status $($process.ExitCode)" }
     $success = $true
@@ -197,12 +178,6 @@ finally {
             }
         }
         $process.Dispose()
-    }
-    if ($null -ne $launcherPid) {
-        $launcher = Get-Process -Id $launcherPid -ErrorAction SilentlyContinue
-        if ($null -ne $launcher) {
-            $launcher | Stop-Process -Force -ErrorAction SilentlyContinue
-        }
     }
     if (Test-Path -LiteralPath $root) {
         Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue

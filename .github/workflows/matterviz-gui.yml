@@ -13,16 +13,11 @@ on:
       - CMakeLists.txt
       - noGUI/GUI_matterviz.f90
       - noGUI/matterviz_spawn.c
-      - tools/multiwfn_matterviz_server.py
-      - tools/multiwfn_matterviz_file_dialog.py
-      - tools/multiwfn_matterviz_webview.py
-      - tests/test_matterviz_server.py
-      - tests/test_matterviz_webview.py
+      - frontend/matterviz-desktop/**
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
       - tests/windows/test_matterviz_async_launch.ps1
       - frontend/matterviz-viewer/**
-      - frontend/matterviz-desktop/**
       - docs/matterviz-webview.md
       - .github/workflows/matterviz-gui.yml
   workflow_dispatch:
@@ -36,7 +31,7 @@ concurrency:
 
 jobs:
   build:
-    name: MatterViz frontend and Multiwfn adapter
+    name: MatterViz frontend and Rust host
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -67,33 +62,35 @@ jobs:
           pnpm check
           pnpm build
 
-      - name: Validate MatterViz WebView configuration
-        run: python3 frontend/matterviz-desktop/scripts/validate-config.py
-
-      - name: Test MatterViz WebView adapter
-        run: >-
-          python3 -m unittest -v
-          tests/test_matterviz_server.py
-          tests/test_matterviz_webview.py
-          tests/test_gui_session_paths.py
-          tests/test_matterviz_build_names.py
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88.0'
+          components: rustfmt, clippy
 
-      - name: Install Multiwfn build dependencies
+      - name: Install Multiwfn and WebView build dependencies
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y \
             gfortran cmake ninja-build libblas-dev liblapack-dev \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            libdbus-1-dev libwayland-dev patchelf
 
-      - name: Check MatterViz WebView shell
+      - name: Validate MatterViz WebView configuration
+        run: python3 frontend/matterviz-desktop/scripts/validate-config.py
+
+      - name: Test MatterViz Rust host
         working-directory: frontend/matterviz-desktop
         run: |
+          cargo fmt --all -- --check
           cargo test --locked
           cargo check --locked
+          cargo clippy --locked -- -D warnings
+          cargo build --release --locked
+
+      - name: Test MatterViz build contract
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
@@ -101,37 +98,14 @@ jobs:
           cmake -S . -B build-matterviz-gui -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DMULTIWFN_GUI_BACKEND=matterviz \
-            -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=browser \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-gui --parallel 2
           test -x build-matterviz-gui/Multiwfn_MatterVizGUI
+          test -x build-matterviz-gui/resources/tools/matterviz-desktop
           test -f build-matterviz-gui/resources/frontend/matterviz-viewer/dist/index.html
-
-  windows-port-binding:
-    name: Windows MatterViz session isolation
-    runs-on: windows-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Test Windows-exclusive MatterViz service binding
-        run: >-
-          python -m unittest -v
-          tests/test_matterviz_server.py
-          tests/test_matterviz_webview.py
 
   package:
     name: Package MatterViz WebView (${{ matrix.platform }})
-    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -165,6 +139,8 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88.0'
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -173,7 +149,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             gfortran cmake ninja-build libblas-dev liblapack-dev \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb dbus-x11
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            libdbus-1-dev libwayland-dev patchelf xvfb dbus-x11
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -202,7 +179,10 @@ jobs:
 
       - name: Build MatterViz desktop shell
         working-directory: frontend/matterviz-desktop
-        run: cargo build --release --locked
+        run: |
+          cargo test --locked
+          cargo check --locked
+          cargo build --release --locked
 
       - name: Build Multiwfn MatterViz executable
         if: runner.os != 'Windows'
@@ -217,7 +197,6 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_BUILD_RPATH="$rpath" \
             -DMULTIWFN_GUI_BACKEND=matterviz \
-            -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-package --parallel 2
 
@@ -229,7 +208,6 @@ jobs:
           cmake -S . -B build-matterviz-package -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DMULTIWFN_GUI_BACKEND=matterviz \
-            -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-package --parallel 2
 
@@ -244,19 +222,18 @@ jobs:
           mkdir -p "package/$pkg/resources/tools" "package/$pkg/resources/frontend/matterviz-viewer" "package/$pkg/resources/lib"
           cp LICENSE.txt "package/$pkg/LICENSE.txt"
           cp settings.ini "package/$pkg/settings.ini"
-          cp tools/multiwfn_matterviz_server.py tools/multiwfn_matterviz_file_dialog.py tools/multiwfn_matterviz_webview.py \
-            "package/$pkg/resources/tools/"
           cp -R frontend/matterviz-viewer/dist "package/$pkg/resources/frontend/matterviz-viewer/"
           cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
           MatterViz WebView preview
 
           Run Multiwfn_MatterVizGUI (Multiwfn_MatterVizGUI.exe on Windows). GUI entry
-          points start the bundled MatterViz WebView through Python 3.
+          points start the bundled Rust MatterViz host and WebView.
 
           Requirements:
-          - Python 3 available as python3 (Linux/macOS) or python (Windows)
           - Windows: Microsoft Edge WebView2 Runtime
           - Linux: glibc 2.35 or newer and a desktop session with WebKitGTK 4.1
+
+          The package is self-contained and does not require Python.
 
           This is a prerelease for manual parity validation, not a final release.
           EOF
@@ -287,10 +264,6 @@ jobs:
             esac
           done
           chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
-          "package/$PKG/resources/tools/matterviz-desktop" --url http://example.com/ >/tmp/matterviz-smoke.log 2>&1 && exit 1 || status=$?
-          test "$status" -eq 2
-          grep -q "plain HTTP MatterViz URLs must use" /tmp/matterviz-smoke.log
-          python3 "package/$PKG/resources/tools/multiwfn_matterviz_webview.py" --help >/dev/null
           find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
           mkdir -p dist
@@ -320,8 +293,6 @@ jobs:
           (
             cd matterviz-smoke
             MULTIWFN_MATTERVIZ_SESSION="$PWD/session" \
-            MULTIWFN_MATTERVIZ_SHELL=browser \
-            MULTIWFN_MATTERVIZ_PYTHON="$(command -v true)" \
               "$root/Multiwfn_MatterVizGUI" tiny.cube <<'EOF' > multiwfn.out
           13
           -2
@@ -342,35 +313,36 @@ jobs:
           assert structure["sites"][0]["species"][0]["element"] == "O"
           assert structure["properties"]["bonds"] == []
           PY
-          rm -f matterviz-smoke/session/gui_startup.status matterviz-smoke/session/gui_stop.flag
+          rm -f matterviz-smoke/session/gui_stop.flag
           dbus-run-session -- xvfb-run -a env \
             GDK_BACKEND=x11 \
             NO_AT_BRIDGE=1 \
             WEBKIT_DISABLE_COMPOSITING_MODE=1 \
-            MULTIWFN_MATTERVIZ_WEBVIEW="$root/resources/tools/matterviz-desktop" \
-            python3 "$root/resources/tools/multiwfn_matterviz_webview.py" \
+            "$root/resources/tools/matterviz-desktop" \
               --frontend "$root/resources/frontend/matterviz-viewer/dist" \
               --session "$PWD/matterviz-smoke/session" \
               --manifest "$PWD/matterviz-smoke/session/manifest.json" \
               --port 18765 \
-              --startup-timeout 60 >matterviz-smoke/adapter.log 2>&1 &
-          adapter_pid=$!
+              --startup-timeout 60 >matterviz-smoke/host.log 2>&1 &
+          host_pid=$!
           ready=0
           for _ in $(seq 1 140); do
-            if grep -q '^ready ' matterviz-smoke/session/gui_startup.status 2>/dev/null; then
+            if curl -fsS http://127.0.0.1:18765/session/manifest.json >/dev/null 2>&1; then
               ready=1
               break
             fi
-            kill -0 "$adapter_pid" 2>/dev/null || break
+            kill -0 "$host_pid" 2>/dev/null || break
             sleep 0.5
           done
           if [ "$ready" -ne 1 ]; then
-            cat matterviz-smoke/adapter.log >&2
+            cat matterviz-smoke/host.log >&2
             exit 1
           fi
-          return_payload="$(curl -fsS http://127.0.0.1:18765/api/return)"
-          test "$return_payload" = '{"ok": true}'
-          wait "$adapter_pid"
+          capability="$(sed -n 's/.*[?&]cap=\([0-9a-f]\{64\}\).*/\1/p' matterviz-smoke/host.log | tail -n 1)"
+          test -n "$capability"
+          return_payload="$(curl -fsS "http://127.0.0.1:18765/api/return?cap=$capability")"
+          test "$return_payload" = '{"ok":true}'
+          wait "$host_pid"
           test -f matterviz-smoke/session/gui_stop.flag
 
       - name: Package macOS preview
@@ -406,10 +378,6 @@ jobs:
               exit 1
             fi
           done
-          "package/$PKG/resources/tools/matterviz-desktop" --url http://example.com/ >/tmp/matterviz-smoke.log 2>&1 && exit 1 || status=$?
-          test "$status" -eq 2
-          grep -q "plain HTTP MatterViz URLs must use" /tmp/matterviz-smoke.log
-          python3 "package/$PKG/resources/tools/multiwfn_matterviz_webview.py" --help >/dev/null
           find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
           mkdir -p dist
@@ -464,11 +432,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          python "package/$env:PKG/resources/tools/multiwfn_matterviz_webview.py" --help | Out-Null
           Get-ChildItem "package/$env:PKG" -Directory -Recurse -Filter __pycache__ | Remove-Item -Recurse -Force
-          $output = & "package/$env:PKG/resources/tools/matterviz-desktop.exe" --url http://example.com/ 2>&1
-          if ($LASTEXITCODE -ne 2) { throw "MatterViz shell smoke returned $LASTEXITCODE" }
-          if (($output -join "`n") -notmatch "plain HTTP MatterViz URLs must use") { throw "MatterViz shell smoke message missing" }
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "package/$env:PKG/*" -DestinationPath "dist/$env:PKG.zip" -Force
           Remove-Item -Recurse -Force clean-test -ErrorAction SilentlyContinue
@@ -478,9 +442,6 @@ jobs:
             -ExecutablePath "$PWD/clean-test/Multiwfn_MatterVizGUI.exe"
           if ($LASTEXITCODE -ne 0) { throw "MatterViz asynchronous launch regression failed" }
           $cleanShell = "clean-test/resources/tools/matterviz-desktop.exe"
-          $cleanOutput = & $cleanShell --url http://example.com/ 2>&1
-          if ($LASTEXITCODE -ne 2) { throw "Extracted MatterViz shell smoke returned $LASTEXITCODE" }
-          if (($cleanOutput -join "`n") -notmatch "plain HTTP MatterViz URLs must use") { throw "Extracted shell smoke message missing" }
           $work = Join-Path $PWD "clean-test-work"
           Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force $work | Out-Null
@@ -497,37 +458,42 @@ jobs:
           New-Item -ItemType Directory -Force $session | Out-Null
           '{"sites":[{"species":[{"element":"H","occu":1,"oxidation_state":0}],"abc":[0,0,0],"xyz":[0,0,0],"label":"H1","properties":{}}],"charge":0,"properties":{"bonds":[]}}' | Set-Content -Path "$session/structure.json" -Encoding ascii
           '{"structure":{"path":"structure.json","format":"json"},"cubes":[]}' | Set-Content -Path "$session/manifest.json" -Encoding ascii
-          $adapter = Join-Path $PWD "clean-test/resources/tools/multiwfn_matterviz_webview.py"
           $frontend = Join-Path $PWD "clean-test/resources/frontend/matterviz-viewer/dist"
-          $adapterOut = Join-Path $PWD "windows-webview-smoke/adapter.out"
-          $adapterErr = Join-Path $PWD "windows-webview-smoke/adapter.err"
-          $adapterProcess = Start-Process -FilePath "python" -ArgumentList @(
-            $adapter, "--frontend", $frontend, "--session", $session,
+          $hostOut = Join-Path $PWD "windows-webview-smoke/host.out"
+          $hostErr = Join-Path $PWD "windows-webview-smoke/host.err"
+          $hostProcess = Start-Process -FilePath $cleanShell -ArgumentList @(
+            "--frontend", $frontend, "--session", $session,
             "--manifest", "$session/manifest.json", "--port", "18766",
             "--startup-timeout", "30"
-          ) -RedirectStandardOutput $adapterOut -RedirectStandardError $adapterErr -PassThru
+          ) -RedirectStandardOutput $hostOut -RedirectStandardError $hostErr -PassThru
           $ready = $false
           for ($i = 0; $i -lt 60; $i++) {
-            if (Test-Path "$session/gui_startup.status") {
-              $status = Get-Content "$session/gui_startup.status" -Raw
-              if ($status -match '^ready ') { $ready = $true; break }
+            try {
+              $null = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18766/session/manifest.json" -TimeoutSec 2
+              $ready = $true
+              break
             }
-            if ($adapterProcess.HasExited) { break }
+            catch { }
+            if ($hostProcess.HasExited) { break }
             Start-Sleep -Milliseconds 500
           }
           if (-not $ready) {
-            if (Test-Path $adapterOut) { Get-Content $adapterOut }
-            if (Test-Path $adapterErr) { Get-Content $adapterErr }
-            throw "Extracted Windows WebView did not report readiness"
+            if (Test-Path $hostOut) { Get-Content $hostOut }
+            if (Test-Path $hostErr) { Get-Content $hostErr }
+            throw "Extracted Windows Rust host did not start its session service"
           }
-          $returnPayload = Invoke-RestMethod -Uri "http://127.0.0.1:18766/api/return"
-          if (-not $returnPayload.ok) { throw "Windows WebView Return request failed" }
-          if (-not $adapterProcess.WaitForExit(30000)) {
-            $adapterProcess.Kill()
-            throw "Windows WebView adapter did not stop"
+          $hostLog = ((Get-Content $hostErr -Raw) + "`n" + (Get-Content $hostOut -Raw))
+          $capabilityMatch = [regex]::Match($hostLog, '[?&]cap=([0-9a-f]{64})')
+          if (-not $capabilityMatch.Success) { throw "Windows Rust host capability missing" }
+          $capability = $capabilityMatch.Groups[1].Value
+          $returnPayload = Invoke-RestMethod -Uri "http://127.0.0.1:18766/api/return?cap=$capability"
+          if (-not $returnPayload.ok) { throw "Windows Rust host Return request failed" }
+          if (-not $hostProcess.WaitForExit(30000)) {
+            $hostProcess.Kill()
+            throw "Windows Rust host did not stop after /api/return"
           }
-          if ($adapterProcess.ExitCode -ne 0) { throw "Windows WebView adapter returned $($adapterProcess.ExitCode)" }
-          if (-not (Test-Path "$session/gui_stop.flag")) { throw "Windows WebView stop flag missing" }
+          if ($hostProcess.ExitCode -ne 0) { throw "Windows Rust host returned $($hostProcess.ExitCode)" }
+          if (-not (Test-Path "$session/gui_stop.flag")) { throw "Windows Rust host stop flag missing" }
 
       - name: Verify package contents
         shell: bash
@@ -536,9 +502,11 @@ jobs:
           test -f "package/$PKG/LICENSE.txt"
           test -f "package/$PKG/README-MatterViz.txt"
           test -f "package/$PKG/settings.ini"
-          test -f "package/$PKG/resources/tools/multiwfn_matterviz_server.py"
-          test -f "package/$PKG/resources/tools/multiwfn_matterviz_file_dialog.py"
-          test -f "package/$PKG/resources/tools/multiwfn_matterviz_webview.py"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            test -f "package/$PKG/resources/tools/matterviz-desktop.exe"
+          else
+            test -x "package/$PKG/resources/tools/matterviz-desktop"
+          fi
           test -f "package/$PKG/resources/frontend/matterviz-viewer/dist/index.html"
           test -n "$(find "package/$PKG/resources/frontend/matterviz-viewer/dist/assets" -type f -print -quit)"
 
@@ -582,4 +550,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "MatterViz WebView preview $preview" \
             --prerelease \
-            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native WebView shell, session adapter, and Multiwfn executable. Python 3 remains required by the session adapter. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment. CI verifies extracted Linux and Windows WebView readiness; macOS dependency relocation and extracted Multiwfn execution pass, while WKWebView readiness requires an interactive macOS desktop and remains part of manual preview validation."
+            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native Rust WebView/session host, and Multiwfn executable. Python is not required by the MatterViz runtime. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment. CI verifies extracted Linux and Windows WebView readiness; macOS dependency relocation and extracted Multiwfn execution pass, while WKWebView readiness requires an interactive macOS desktop and remains part of manual preview validation."

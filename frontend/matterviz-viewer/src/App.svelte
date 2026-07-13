@@ -198,6 +198,8 @@
   const api_url = (path: string, params?: URLSearchParams): URL => {
     const url = new URL(path, manifestBase)
     if (params) url.search = params.toString()
+    const capability = new URL(window.location.href).searchParams.get('cap')
+    if (capability) url.searchParams.set('cap', capability)
     return url
   }
 

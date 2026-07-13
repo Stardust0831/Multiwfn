@@ -57,9 +57,8 @@ possible while leaving calculations in the Multiwfn backend.
 Current pieces:
 
 - `frontend/matterviz-viewer`: MatterViz visualization frontend.
-- `frontend/matterviz-desktop`: optional native WebView shell.
+- `frontend/matterviz-desktop`: native Rust session service and WebView host.
 - `noGUI/`: experimental GUI backend adapter layer.
-- `tools/multiwfn_matterviz_server.py`: local MatterViz session service.
 
 Current demo features include structure display, multiple cube layers,
 cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots,
@@ -69,16 +68,18 @@ data, not a physical Multiwfn calculation.
 Build the MatterViz GUI backend:
 
 ```sh
+cd frontend/matterviz-desktop && cargo build --release --locked && cd ../..
 cmake -S . -B build-matterviz-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=matterviz
 cmake --build build-matterviz-gui --parallel
 ```
 
-Build with the native WebView shell selected by default:
+Use `MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE` only when the native host was built
+at a non-default path:
 
 ```sh
 cmake -S . -B build-matterviz-webview -DCMAKE_BUILD_TYPE=Release \
   -DMULTIWFN_GUI_BACKEND=matterviz \
-  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
+  -DMULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE="$PWD/frontend/matterviz-desktop/target/release/matterviz-desktop"
 cmake --build build-matterviz-webview --parallel
 ```
 

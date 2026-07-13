@@ -46,9 +46,8 @@ Multiwfn 原有 `GUI.f90` 的交互模型。新的前端应接手显示层和交
 当前方向包括：
 
 - `frontend/matterviz-viewer`：MatterViz 可视化前端。
-- `frontend/matterviz-desktop`：可选的原生 WebView shell。
+- `frontend/matterviz-desktop`：原生 Rust session 服务和 WebView host。
 - `noGUI/`：实验性 GUI backend adapter 层。
-- `tools/multiwfn_matterviz_server.py`：本地 MatterViz session 服务。
 
 当前 demo 支持结构显示、多 cube 层、cube 染色、周期性显示控制、cube 切片、
 简单二维图、PNG 导出和 manifest 导出。`Periodic ESP` 例子只是 UI 测试数据，
@@ -57,16 +56,18 @@ Multiwfn 原有 `GUI.f90` 的交互模型。新的前端应接手显示层和交
 构建 MatterViz GUI backend：
 
 ```sh
+cd frontend/matterviz-desktop && cargo build --release --locked && cd ../..
 cmake -S . -B build-matterviz-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=matterviz
 cmake --build build-matterviz-gui --parallel
 ```
 
-构建默认打开原生 WebView shell 的版本：
+仅当原生 host 构建在非默认路径时才需要设置
+`MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE`：
 
 ```sh
 cmake -S . -B build-matterviz-webview -DCMAKE_BUILD_TYPE=Release \
   -DMULTIWFN_GUI_BACKEND=matterviz \
-  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
+  -DMULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE="$PWD/frontend/matterviz-desktop/target/release/matterviz-desktop"
 cmake --build build-matterviz-webview --parallel
 ```
 

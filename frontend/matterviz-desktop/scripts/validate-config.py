@@ -29,8 +29,10 @@ def main() -> int:
     package = cargo.get("package", {})
     if package.get("name") != "matterviz-desktop":
         fail("Cargo package name is not matterviz-desktop")
-    if "tauri" not in cargo.get("dependencies", {}):
-        fail("tauri dependency is missing")
+    dependencies = cargo.get("dependencies", {})
+    for dependency in ("getrandom", "tauri", "rfd", "serde_json", "socket2", "url"):
+        if dependency not in dependencies:
+            fail(f"{dependency} dependency is missing")
     if "tauri-build" not in cargo.get("build-dependencies", {}):
         fail("tauri-build build dependency is missing")
 
@@ -47,18 +49,27 @@ def main() -> int:
     if capabilities.get("permissions") != []:
         fail("the default capability set must remain empty")
 
-    source = (ROOT / "src" / "main.rs").read_text(encoding="utf-8")
-    for required in (
-        "DEFAULT_URL",
-        "MATTERVIZ_WEB_URL",
-        "WebviewUrl::External",
-        "is_loopback_host",
-        "parsed.scheme()",
-        '"http"',
-        '"https"',
-    ):
-        if required not in source:
-            fail(f"src/main.rs does not contain {required}")
+    sources = {
+        name: (ROOT / "src" / name).read_text(encoding="utf-8")
+        for name in ("main.rs", "cli.rs", "service.rs", "backend.rs", "file_dialog.rs")
+    }
+    required_by_source = {
+        "main.rs": ("WebviewUrl::External", "HttpService::start", "spawn_stop_watcher"),
+        "cli.rs": (
+            "DEFAULT_URL",
+            "MATTERVIZ_WEB_URL",
+            "validate_url",
+            '"http"',
+            '"https"',
+        ),
+        "service.rs": ("validate_host", '"/api/orbital"', '"/api/return"'),
+        "backend.rs": ("gui_request.txt", "response_", "BACKEND_UNAVAILABLE"),
+        "file_dialog.rs": ("FileDialog",),
+    }
+    for name, required_values in required_by_source.items():
+        for required in required_values:
+            if required not in sources[name]:
+                fail(f"src/{name} does not contain {required}")
 
     print("matterviz-desktop configuration is valid")
     return 0

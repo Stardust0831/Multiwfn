@@ -21,14 +21,13 @@ pnpm check
 pnpm build
 ```
 
-Serve `dist/` with the existing Multiwfn GUI service:
+Serve `dist/` with the native Rust MatterViz host:
 
 ```bash
-python3 tools/multiwfn_matterviz_server.py \
+frontend/matterviz-desktop/target/release/matterviz-desktop \
   --frontend frontend/matterviz-viewer/dist \
   --session multiwfn_matterviz_session \
-  --manifest multiwfn_matterviz_session/manifest.json \
-  --open
+  --manifest multiwfn_matterviz_session/manifest.json
 ```
 
 ## Desktop shell
@@ -68,10 +67,10 @@ The first native WebView shell lives in `../matterviz-desktop`; see
 Build a Multiwfn executable which selects this frontend with:
 
 ```bash
+cd ../matterviz-desktop && cargo build --release --locked && cd ../matterviz-viewer
 cmake -S ../.. -B ../../build-matterviz-gui -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DMULTIWFN_GUI_BACKEND=matterviz \
-  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
+  -DMULTIWFN_GUI_BACKEND=matterviz
 cmake --build ../../build-matterviz-gui --parallel 2
 ```
 

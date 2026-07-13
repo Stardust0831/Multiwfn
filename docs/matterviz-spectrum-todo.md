@@ -2,14 +2,29 @@
 
 Updated: 2026-07-14
 
+## 2026-07-14 Rust host migration
+
+- [x] Stop extending the Python launcher workaround and define the native architecture: Fortran remains the Multiwfn calculation/session adapter; Rust owns the loopback HTTP service, WebView, lifecycle and native file dialog.
+- [x] Inventory the existing Python URL, validation, file IPC, timeout, cleanup, path-security, port-isolation and shutdown contracts before porting them.
+- [x] Change the MatterViz Fortran launch boundary to invoke `matterviz-desktop` directly; retain the Windows `CreateProcessW` adapter so the native calculation request loop starts while the window is open.
+- [x] Remove Python discovery and Python adapter staging from the MatterViz CMake resource target; require and stage the prebuilt Rust host with the frontend.
+- [x] Implement `/api/orbital`, `/api/bond`, `/api/esp`, `/api/return`, frontend/session serving and port fallback in Rust with the current URLs and file request protocol unchanged; core Rust integration tests pass locally, while full Tauri checks await platform dependencies/CI.
+- [x] Implement the current `--select-file --output` contract in Rust so reload/file selection does not retain a hidden Python runtime dependency.
+- [x] Update Linux, macOS and Windows package workflows and extracted-package smoke tests to launch the Rust host directly; assert that MatterViz archives contain no runtime Python scripts or Python requirement.
+- [ ] Prove a packaged Windows uncached orbital request is consumed while the WebView remains open, then verify Return/window-close lifecycle and concurrent-session port isolation.
+- [ ] Run Rust tests/check/clippy, frontend test/check/build, CMake/source guards and locked Linux/macOS/Windows package jobs before publishing another preview.
+- [x] Draft a versioned binary volume protocol with explicit dimensions, lattice/origin, scalar type, byte order, units and integrity/size bounds in `docs/matterviz-volume-protocol.md`; production traffic remains on Cube until codecs and transport tests pass.
+- [ ] Replace dynamic orbital/ESP Cube staging with a bounded shared-memory or pipe transport on Windows, Linux and macOS, retaining a deliberate compatibility/debug fallback until native transport is proven.
+- [ ] Add throughput, lifecycle, cancellation/cleanup and malformed/oversized-volume tests for the native transport before removing the file fallback.
+
 ## 2026-07-14 Windows asynchronous launch blocker
 
 - [x] Reproduce Preview 5 with the packaged Windows executable and prove that MinGW `execute_command_line(wait=.false.)` remains blocked until the Python/WebView launcher exits, so `run_matterviz_gui_loop` cannot consume orbital requests while the window is open.
 - [x] Verify the diagnosis independently by wrapping the same Preview 5 launcher with Windows `start /b`: Multiwfn consumed `orbital 13 25000 0.05` and generated a valid cube/JSON response while the launcher remained alive.
-- [x] Replace the Windows shell/Fortran async assumption with a GUI-adapter-only `CreateProcessW` C ABI; keep Linux/macOS on the existing path and do not modify calculation modules.
-- [x] Add a packaged-Windows regression that keeps a fake GUI launcher alive and requires Multiwfn to consume `gui_request.txt` and publish the matching response before shutdown. Confirm that Preview 5 fails this test for the expected unconsumed-request reason.
+- [x] Replace the Windows shell/Fortran async assumption with a GUI-adapter-only `CreateProcessW` C ABI; this remains the direct Rust-host spawn boundary and does not modify calculation modules.
+- [x] Add a packaged-Windows regression that keeps the bundled Rust host alive and requires Multiwfn to consume `gui_request.txt` and publish the matching response before HTTP Return. The earlier Python-fixture form proved that Preview 5 failed for the expected unconsumed-request reason; the migrated test now targets the new runtime.
 - [ ] Require the new Windows build to pass the async request-loop regression, existing session-isolation tests and all package checks before publishing another preview.
-- [ ] Audit Windows non-ASCII interpreter/session paths separately after the asynchronous lifecycle blocker is closed; do not mix that compatibility expansion into the release-blocking request-loop test.
+- [ ] Audit Windows non-ASCII executable/session paths separately after the asynchronous lifecycle blocker is closed; the Rust migration removes interpreter-path handling, but UTF-8 Fortran command and native file-dialog paths still need packaged verification.
 
 ## 2026-07-13 frontend parity work pending release
 
@@ -89,7 +104,8 @@ Updated: 2026-07-14
 - [x] Complete API isolation and mutation-method audit.
 - [x] Use a fresh atomically created GUI session directory for each default launch so concurrent Multiwfn instances cannot share requests/artifacts; preserve explicit environment overrides.
 - [x] Bound orbital request quality and require finite, bounded isovalue in the GUI HTTP adapter, with manifest-backed orbital index checks and HTTP rejection tests.
-- [ ] Add a per-session capability and loopback/Host protections for mutation endpoints; migrate state-changing requests away from unauthenticated GET where compatibility allows.
+- [x] Add a random per-session capability, strict loopback Host validation and anti-embedding/security headers for API and session routes.
+- [ ] Migrate state-changing requests away from GET only with a coordinated frontend/host compatibility version; capability and Host checks protect the preserved URL contract in this milestone.
 - [x] Define and test Return behavior while a backend request is already in flight: the UI, HTTP request and WebView close promptly, while an already-running Fortran calculation is deliberately not cancelled and finishes naturally.
 - [x] Add a finite token-scoped WebView startup handshake with server-before-shell ordering, initial-page readiness, timeout/error cleanup and CI Rust checks.
 - [x] Installed-resource/native-shell packaging smoke: Linux and Windows pass extracted adapter-to-WebView readiness; macOS passes dependency relocation, shell loading and extracted Multiwfn tests, with interactive WKWebView validation deferred to the preview tester.

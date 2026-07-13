@@ -937,16 +937,25 @@ end subroutine
 subroutine build_launch_command(manifest,session,cmd)
 character(len=*),intent(in) :: manifest,session
 character(len=*),intent(out) :: cmd
-character(len=512) :: home,python,tool,frontend,shell,native
+character(len=512) :: home,frontend,native
 character(len=1024) :: launchcmd
+#ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
+character(len=512) :: python,tool,shell
 integer :: istat
+#endif
 
 call get_matterviz_home(home)
 #ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
 call resolve_resource_path(home,"frontend/3dmol-viewer",frontend)
 #else
 call resolve_resource_path(home,"frontend/matterviz-viewer/dist",frontend)
+call resolve_matterviz_desktop_launcher(home,native)
+launchcmd='"'//trim(native)//'" --frontend "'//trim(frontend)// &
+    '" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'"'
+cmd=trim(launchcmd)
+return
 #endif
+#ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
 #ifdef MULTIWFN_MATTERVIZ_DEFAULT_SHELL_QT
 shell="qt"
 #elif defined(MULTIWFN_MATTERVIZ_DEFAULT_SHELL_WEBVIEW)
@@ -1007,6 +1016,7 @@ else
         '" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
 end if
 cmd=trim(launchcmd)
+#endif
 end subroutine
 
 integer function launch_matterviz_process(command)
@@ -1040,6 +1050,15 @@ if (path_exists(native)) return
 call resolve_resource_path(home,"tools/multiwfn_qt_gui",native)
 end subroutine
 
+subroutine resolve_matterviz_desktop_launcher(home,native)
+character(len=*),intent(in) :: home
+character(len=*),intent(out) :: native
+
+call resolve_resource_path(home,"tools/matterviz-desktop.exe",native)
+if (path_exists(native)) return
+call resolve_resource_path(home,"tools/matterviz-desktop",native)
+end subroutine
+
 logical function path_exists(path)
 character(len=*),intent(in) :: path
 inquire(file=trim(path),exist=path_exists)
@@ -1047,9 +1066,12 @@ end function
 
 subroutine select_file_with_dialog(selected)
 character(len=*),intent(out) :: selected
-character(len=512) :: session,home,python,tool,outfile,cmd,native
+character(len=512) :: session,home,outfile,cmd,native
 integer :: istat,iu
 logical :: session_ok
+#ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
+character(len=512) :: python,tool
+#endif
 
 selected=" "
 call get_session_dir(session,session_ok)
@@ -1058,6 +1080,19 @@ call get_matterviz_home(home)
 outfile=trim(session)//"/selected_file.txt"
 call remove_session_file(trim(outfile))
 
+#ifndef MULTIWFN_LEGACY_3DMOL_BACKEND
+call resolve_matterviz_desktop_launcher(home,native)
+if (.not.path_exists(native)) return
+cmd='"'//trim(native)//'" --select-file --output "'//trim(outfile)//'"'
+call execute_command_line(trim(cmd),exitstat=istat)
+if (istat/=0) return
+open(newunit=iu,file=trim(outfile),status="old",action="read",iostat=istat)
+if (istat/=0) return
+read(iu,"(a)",iostat=istat) selected
+close(iu)
+if (istat/=0) selected=" "
+return
+#else
 call resolve_native_qt_launcher(home,native)
 if (path_exists(native)) then
 #ifdef MULTIWFN_WINDOWS
@@ -1101,6 +1136,7 @@ if (istat/=0) return
 read(iu,"(a)",iostat=istat) selected
 close(iu)
 if (istat/=0) selected=" "
+#endif
 end subroutine
 
 subroutine get_matterviz_home(home)

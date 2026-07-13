@@ -16,8 +16,10 @@ set(MULTIWFN_GUI_BACKEND "dislin" CACHE STRING "GUI backend used by the CMake bu
 set_property(CACHE MULTIWFN_GUI_BACKEND PROPERTY STRINGS dislin 3dmol matterviz)
 set(MULTIWFN_3DMOL_DEFAULT_SHELL "browser" CACHE STRING "Default web GUI shell: browser, qt, or webview")
 set_property(CACHE MULTIWFN_3DMOL_DEFAULT_SHELL PROPERTY STRINGS browser qt webview)
-set(MULTIWFN_MATTERVIZ_DEFAULT_SHELL "browser" CACHE STRING "Default MatterViz GUI shell: browser or webview")
-set_property(CACHE MULTIWFN_MATTERVIZ_DEFAULT_SHELL PROPERTY STRINGS browser webview)
+set(MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE
+  "${CMAKE_CURRENT_SOURCE_DIR}/frontend/matterviz-desktop/target/release/matterviz-desktop${CMAKE_EXECUTABLE_SUFFIX}"
+  CACHE FILEPATH "Prebuilt Rust MatterViz desktop host"
+)
 set(MULTIWFN_GNU_OPT_LEVEL "O2" CACHE STRING "GNU Fortran optimization level for Release builds")
 set(MULTIWFN_GNU_HOT_OPT_LEVEL "" CACHE STRING "Optional GNU Fortran optimization level for selected hot sources")
 set(MULTIWFN_GNU_EXTRA_FLAGS "" CACHE STRING "Extra GNU Fortran compile flags, separated by spaces")
@@ -55,10 +57,6 @@ endif()
 if(NOT MULTIWFN_3DMOL_DEFAULT_SHELL MATCHES "^(browser|qt|webview)$")
   message(FATAL_ERROR "MULTIWFN_3DMOL_DEFAULT_SHELL must be browser, qt, or webview")
 endif()
-if(NOT MULTIWFN_MATTERVIZ_DEFAULT_SHELL MATCHES "^(browser|webview)$")
-  message(FATAL_ERROR "MULTIWFN_MATTERVIZ_DEFAULT_SHELL must be browser or webview")
-endif()
-
 set(CMAKE_Fortran_PREPROCESS ON)
 set(CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mod")
 
@@ -226,10 +224,6 @@ endif()
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
   target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_LEGACY_3DMOL_BACKEND)
 endif()
-if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz" AND MULTIWFN_MATTERVIZ_DEFAULT_SHELL STREQUAL "webview")
-  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_MATTERVIZ_DEFAULT_SHELL_WEBVIEW)
-endif()
-
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(NOT Python3_Interpreter_FOUND)
@@ -289,14 +283,6 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
 endif()
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
-  find_package(Python3 QUIET COMPONENTS Interpreter)
-  if(NOT Python3_Interpreter_FOUND)
-    message(WARNING
-      "The MatterViz session adapter requires Python 3 at runtime. "
-      "Install Python 3 or provide an interpreter through MULTIWFN_MATTERVIZ_PYTHON when launching."
-    )
-  endif()
-
   set(MULTIWFN_MATTERVIZ_DIST
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/matterviz-viewer/dist"
   )
@@ -304,6 +290,12 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     message(FATAL_ERROR
       "The MatterViz frontend has not been built. Run pnpm install and pnpm build in "
       "frontend/matterviz-viewer before configuring Multiwfn."
+    )
+  endif()
+  if(NOT EXISTS "${MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE}")
+    message(FATAL_ERROR
+      "The Rust MatterViz desktop host has not been built. Run cargo build --release --locked in "
+      "frontend/matterviz-desktop or set MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE."
     )
   endif()
 
@@ -319,16 +311,12 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
       "${CMAKE_CURRENT_SOURCE_DIR}/settings.ini"
       "${CMAKE_CURRENT_BINARY_DIR}/settings.ini"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_server.py"
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_file_dialog.py"
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_webview.py"
+      "${MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE}"
       "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       "${MULTIWFN_MATTERVIZ_DIST}"
       "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/frontend/matterviz-viewer/dist"
-    COMMAND ${CMAKE_COMMAND} -E rm -rf
-      "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools/__pycache__"
-    DEPENDS ${MULTIWFN_EXECUTABLE_NAME}
+    DEPENDS ${MULTIWFN_EXECUTABLE_NAME} "${MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE}"
     COMMENT "Staging Multiwfn MatterViz GUI runtime resources"
     VERBATIM
   )

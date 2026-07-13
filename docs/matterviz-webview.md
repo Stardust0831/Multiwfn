@@ -1,169 +1,116 @@
-# MatterViz desktop WebView shell
+# MatterViz desktop WebView host
 
-`frontend/matterviz-desktop` is a small Tauri 2 application that opens the
-existing MatterViz frontend in the operating system WebView. It does not start
-Multiwfn, run the Python service, or copy the backend/session protocol into the
-desktop process. The normal data path remains:
+`frontend/matterviz-desktop` is the native Rust/Tauri host for the MatterViz
+frontend. It owns both the session HTTP service and the operating-system
+WebView; no Python service, adapter, or runtime is bundled or launched.
 
-```text
-Multiwfn -> multiwfn_matterviz_server.py -> HTTP(S) URL -> Tauri WebView
-```
-
-Each Multiwfn GUI launch creates a fresh `multiwfn_matterviz_session_*` directory
-for its manifest, artifacts, request, and stop files. Set
-`MULTIWFN_MATTERVIZ_SESSION` when an explicitly shared or pre-existing session path
-is required; the configured path is passed to the launcher unchanged.
-
-The shell uses this URL by default:
+The Multiwfn backend creates a fresh `multiwfn_matterviz_session_*` directory
+for each GUI launch. It then starts the host directly:
 
 ```text
-http://127.0.0.1:8765/index.html?manifest=/session/manifest.json
+matterviz-desktop --frontend <dist> --session <session> --manifest <manifest>
 ```
 
-To restore a workbench state file, pass `--state <path>` to either the browser
-service or `tools/multiwfn_matterviz_webview.py`. The launcher adds
-`state=/session/workbench-state.json` to the URL and serves that fixed route
-from the explicitly selected file; it does not expose the source directory.
+The host serves the frontend and session files from loopback, including the
+existing `/api/return` endpoint. A return request writes `gui_stop.flag`, stops
+the service, and closes the host process. The manifest and artifacts remain in
+the session directory for the lifetime of the GUI.
 
-The URL can be overridden with `--url <URL>`, `--url=<URL>`, or the
-`MATTERVIZ_WEB_URL` environment variable. Command-line arguments take
-precedence over the environment. Plain `http` URLs are restricted to
-`localhost`, `127.0.0.1`, or `::1`; `https` URLs may use a remote host for
-deployments where the visualization service is hosted elsewhere.
+Each managed launch creates a random API capability in the WebView URL. The
+frontend propagates it to orbital, bond, ESP and Return requests. The service
+also requires a single `Host` header matching its actual loopback authority,
+including the selected fallback port; this prevents unrelated web origins and
+DNS rebinding from reading a session or triggering calculations.
 
 ## Prerequisites
 
-- Node.js 24.11 or newer and pnpm 11 for the MatterViz frontend (see its README).
-- Python 3.11 or newer for the existing local HTTP service.
-- Rust 1.77 or newer and the Tauri CLI 2.x for desktop development/builds.
+- Node.js 24.11 or newer and pnpm 11 for the MatterViz frontend.
+- Rust 1.88 or newer for the desktop host.
 - Platform WebView dependencies:
-  - Windows: WebView2 Evergreen Runtime (normally present on supported Windows).
+  - Windows: Microsoft Edge WebView2 Evergreen Runtime.
   - macOS: Xcode Command Line Tools and the system WKWebView framework.
-  - Linux: GTK/WebKitGTK development packages required by Tauri 2 (the exact
-    package names depend on the distribution).
+  - Linux: GTK/WebKitGTK development packages required by Tauri 2 (package
+    names depend on the distribution); the native file picker uses the XDG
+    desktop portal when invoked.
 
-The shell does not require Qt. It also does not require a running Rust toolchain
-for the static validation command below.
+Python is not required by the MatterViz runtime. Python-based repository tools
+and tests remain development-only and are not copied into a package.
 
 ## Development
 
-From the MatterViz checkout root, build the frontend and start the existing
-service in one terminal:
+Build the frontend, then start the native host with a session manifest:
 
 ```sh
-pnpm --dir frontend/matterviz-viewer install
+pnpm --dir frontend/matterviz-viewer install --frozen-lockfile
 pnpm --dir frontend/matterviz-viewer build
-python3 tools/multiwfn_matterviz_server.py \
+mkdir -p multiwfn_matterviz_session
+printf '{"structure":{"path":"structure.json","format":"json"},"cubes":[]}' \
+  > multiwfn_matterviz_session/manifest.json
+cargo run --manifest-path frontend/matterviz-desktop/Cargo.toml -- \
   --frontend frontend/matterviz-viewer/dist \
-  --session multiwfn_matterviz_session \
-  --manifest multiwfn_matterviz_session/manifest.json
+  --session "$PWD/multiwfn_matterviz_session" \
+  --manifest "$PWD/multiwfn_matterviz_session/manifest.json" \
+  --port 18765
 ```
 
-With an optional saved workbench state:
+Use `GET http://127.0.0.1:18765/session/manifest.json` to verify that the
+service has started. `GET http://127.0.0.1:18765/api/return` requests a clean
+shutdown. `--host`, `--port`, and `--startup-timeout` are available for local
+development and CI; managed launches may set `MULTIWFN_MATTERVIZ_HOST` and
+`MULTIWFN_MATTERVIZ_PORT` when a fixed test endpoint is required.
+
+For a remote visualization service, the standalone URL mode remains available:
 
 ```sh
-python3 tools/multiwfn_matterviz_server.py \
-  --frontend frontend/matterviz-viewer/dist \
-  --session multiwfn_matterviz_session \
-  --manifest multiwfn_matterviz_session/manifest.json \
-  --state /path/to/multiwfn-matterviz-state.json
+cargo run --manifest-path frontend/matterviz-desktop/Cargo.toml -- \
+  --url https://viz.example.invalid/session
 ```
 
-In a second terminal, run the shell:
-
-```sh
-cd frontend/matterviz-desktop
-cargo tauri dev -- --url http://127.0.0.1:8765/index.html?manifest=/session/manifest.json
-```
-
-For a different local port or path, use `MATTERVIZ_WEB_URL` instead:
-
-```sh
-MATTERVIZ_WEB_URL=http://localhost:9000/ cargo tauri dev
-```
-
-An HTTPS visualization service can use any host:
-
-```sh
-MATTERVIZ_WEB_URL=https://viz.example.invalid/session cargo tauri dev
-```
-
-For standalone shell development, the server must be started separately and
-must remain available while the window is open. In a Multiwfn build configured
-with `MULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview`,
-`tools/multiwfn_matterviz_webview.py` starts the session service, selects an
-available port, passes the exact URL (including the optional `state` query) to
-this executable, waits for the initial external page load to finish, and
-closes the service when the window exits. Set
-`MULTIWFN_MATTERVIZ_WEBVIEW` to a development binary
-when it is not installed next to the packaged launcher.
-
-The adapter and shell use a session-local `gui_startup.status` file for this
-finite startup handshake. Each launch clears stale status files, generates a
-fresh process token, and passes the status path/token through
-`MULTIWFN_MATTERVIZ_STARTUP_STATUS` and
-`MULTIWFN_MATTERVIZ_STARTUP_TOKEN`. The native shell writes `ready` only after
-the first external page `Finished` load event. A shell error, early process
-exit, or a timeout prints one concise diagnostic, writes `gui_stop.flag`, and
-closes/reaps the local service and child process. The timeout defaults to 15
-seconds and can be changed with `--startup-timeout` or
-`MULTIWFN_MATTERVIZ_STARTUP_TIMEOUT`.
+Plain HTTP URLs are restricted to `localhost`, `127.0.0.1`, or `::1`; HTTPS may
+use a remote host.
 
 ## Build and package
 
-The Tauri config points `frontendDist` at `../matterviz-viewer/dist` so the
-Tauri CLI can validate/package the frontend distribution. The Rust entry point
-still creates an external WebView URL at runtime; the Python service and
-session files are never bundled or launched by this shell.
+The Tauri config points `frontendDist` at `../matterviz-viewer/dist`, allowing
+the Tauri CLI to validate/package the built frontend:
 
 ```sh
-cd frontend/matterviz-desktop
-cargo tauri build
+pnpm --dir frontend/matterviz-viewer build
+cargo build --manifest-path frontend/matterviz-desktop/Cargo.toml --release --locked
+cmake -S . -B build-matterviz-webview \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMULTIWFN_GUI_BACKEND=matterviz
+cmake --build build-matterviz-webview --parallel
 ```
 
-To exercise the integrated Multiwfn launch path from a source build:
+The resulting package contains `Multiwfn_MatterVizGUI` (or `.exe`),
+`resources/tools/matterviz-desktop` (or `.exe`), and
+`resources/frontend/matterviz-viewer/dist`. It does not contain the historical
+`multiwfn_matterviz_server.py`, `multiwfn_matterviz_webview.py`, or
+`multiwfn_matterviz_file_dialog.py` launchers and has no Python runtime
+requirement.
 
-```sh
-cmake -S . -B build-matterviz-webview -G Ninja \
-  -DMULTIWFN_GUI_BACKEND=matterviz \
-  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
-cmake --build build-matterviz-webview
-MULTIWFN_MATTERVIZ_WEBVIEW="$PWD/frontend/matterviz-desktop/target/release/matterviz-desktop" \
-  build-matterviz-webview/Multiwfn_MatterVizGUI
-```
-
-The MatterViz backend stages only its frontend and launcher resources; it does
-not stage the legacy 3Dmol frontend or Qt shell.
-
-Start the packaged application while a local service is running. To select a
-non-default local URL:
-
-```sh
-MATTERVIZ_WEB_URL=http://127.0.0.1:9010/ ./target/release/matterviz-desktop
-```
-
-The exact executable path and package format are platform-specific. Tauri
-produces Windows (WebView2), macOS (WKWebView), and Linux (WebKitGTK) bundles
-when the corresponding host prerequisites are installed.
+Linux and Windows extracted-package checks start the Rust host directly, poll
+the session manifest route, call `/api/return`, and require a clean process exit
+with `gui_stop.flag`. macOS extracted checks remain limited to non-interactive
+binary/resource validation because WKWebView needs an interactive desktop.
 
 ## Static validation
 
-This command parses `Cargo.toml`, `tauri.conf.json`, and the capability file
-without Rust, Cargo, or Tauri installed:
+Without a full toolchain, validate the Tauri configuration with:
 
 ```sh
 python3 frontend/matterviz-desktop/scripts/validate-config.py
 ```
 
-With the Rust toolchain available, the additional checks are:
+With Rust available:
 
 ```sh
-cd frontend/matterviz-desktop
-cargo check
-cargo tauri info
+cargo test --manifest-path frontend/matterviz-desktop/Cargo.toml --locked
+cargo check --manifest-path frontend/matterviz-desktop/Cargo.toml --locked
 ```
 
 The default capability file grants no filesystem, shell, process, or other
-frontend IPC permissions. The current shell needs no Tauri command bridge; any
+frontend IPC permissions. The current host needs no Tauri command bridge; any
 future bridge should add narrowly scoped permissions and document its threat
 model here.

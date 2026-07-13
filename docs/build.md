@@ -17,39 +17,45 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The artifact-based MatterViz GUI backend is also available through CMake. To
-build the native WebView shell by default:
+The artifact-based MatterViz GUI backend is also available through CMake. Build
+the frontend first, then the Rust host, then Multiwfn:
 
 ```sh
+pnpm --dir frontend/matterviz-viewer install --frozen-lockfile
+pnpm --dir frontend/matterviz-viewer build
+cargo build --manifest-path frontend/matterviz-desktop/Cargo.toml --release --locked
 cmake -S . -B build-matterviz-webview \
   -DCMAKE_BUILD_TYPE=Release \
-  -DMULTIWFN_GUI_BACKEND=matterviz \
-  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
+  -DMULTIWFN_GUI_BACKEND=matterviz
 cmake --build build-matterviz-webview --parallel
 ```
 
 This produces `Multiwfn_MatterVizGUI`, copies `settings.ini` beside the
-executable, and stages the MatterViz Python launchers plus web frontend under
+executable, and stages the Rust `matterviz-desktop` host plus the frontend under
 `build-matterviz-webview/resources/`. MatterViz resources do not stage the
-legacy 3Dmol frontend or Qt shell. This is a development build layout, not a
-self-contained release package. The executable can be run directly from the
-build directory when its development runtime dependencies are available.
+legacy 3Dmol frontend, Qt shell, or Python adapters. The executable can be run
+directly from the build directory when its native WebView dependencies are
+available; the package runtime does not require Python.
 
-The staged launchers are `multiwfn_matterviz_server.py` and
-`multiwfn_matterviz_file_dialog.py`.
+The Fortran backend launches the host directly with
+`--frontend`, `--session`, and `--manifest`. The host owns the session HTTP
+service and Tauri window in one process, including `/api/return`, which writes
+`gui_stop.flag` and shuts down the service. For a standalone host smoke:
 
-The MatterViz browser and WebView launch paths require Python 3. The browser
-shell uses only the Python standard library plus the system's default browser.
-CMake checks the selected shell's Python dependencies with the interpreter
-found at configure time and prints a warning when they are unavailable. At
-runtime, set `MULTIWFN_MATTERVIZ_PYTHON` to use a Python interpreter other than
-`python3` from `PATH`.
+```sh
+frontend=frontend/matterviz-viewer/dist
+session="$PWD/matterviz-smoke/session"
+mkdir -p "$session"
+printf '{"structure":{"path":"structure.json","format":"json"},"cubes":[]}' > "$session/manifest.json"
+frontend/matterviz-desktop/target/release/matterviz-desktop \
+  --frontend "$frontend" \
+  --session "$session" \
+  --manifest "$session/manifest.json" \
+  --port 18765
+```
 
-A browser-default build uses `MULTIWFN_MATTERVIZ_DEFAULT_SHELL=browser` and
-produces `Multiwfn_MatterVizGUI` with the same staged configuration and
-resources.
-Formal release packages use a separately tested, self-contained runtime and
-must not rely on this development staging layout.
+While the host is running, `GET /session/manifest.json` verifies startup and
+`GET /api/return` requests a clean shutdown.
 
 The original DISLIN/Motif GUI remains outside the CMake build; use the upstream
 `Makefile` when that legacy backend is required.
