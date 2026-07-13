@@ -77,8 +77,8 @@ Updated: 2026-07-13
 - [x] Freeze new feature work for the manual prerelease confirmation cycle.
 - [x] Pass local frontend tests/check/build, Python tests, configuration validation, workflow lint and Return browser lifecycle validation.
 - [x] Complete a high-level read-only review of the final Return lifecycle and packaging-smoke changes with no blocker or high-severity finding.
-- [ ] Confirm the final pushed commit passes the locked Linux, macOS and Windows package jobs.
-- [ ] Publish the final Return-enabled build as a GitHub prerelease and pause for manual confirmation.
+- [x] Confirm the final pushed commit passes the locked Linux, macOS and Windows package jobs.
+- [x] Publish the final Return-enabled build as a GitHub prerelease and pause for manual confirmation.
 
 ## Parallel integration policy
 
