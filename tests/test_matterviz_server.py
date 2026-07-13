@@ -1,5 +1,6 @@
 import json
 import http.client
+import http.server
 from pathlib import Path
 import sys
 import tempfile
@@ -12,6 +13,75 @@ from unittest import mock
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS_DIR))
 import multiwfn_matterviz_server as server  # noqa: E402
+
+
+class QuietHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, _format, *_args):
+        pass
+
+
+class PortBindingTests(unittest.TestCase):
+    def test_server_disables_live_address_reuse(self):
+        self.assertFalse(server.ThreadingHTTPServer.allow_reuse_address)
+        self.assertFalse(server.ThreadingHTTPServer.allow_reuse_port)
+
+    def test_busy_preferred_port_falls_back_to_an_os_assigned_port(self):
+        first = server.ThreadingHTTPServer(("127.0.0.1", 0), QuietHandler)
+        second = None
+        try:
+            preferred = int(first.server_address[1])
+            second = server.bind_http_server("127.0.0.1", preferred, QuietHandler)
+            self.assertNotEqual(int(second.server_address[1]), preferred)
+        finally:
+            if second is not None:
+                second.server_close()
+            first.server_close()
+
+    def test_concurrent_services_keep_their_session_manifests_isolated(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            servers = []
+            threads = []
+            try:
+                for marker in ("older", "newer"):
+                    frontend = root / f"frontend-{marker}"
+                    session = root / f"session-{marker}"
+                    frontend.mkdir()
+                    session.mkdir()
+                    manifest = session / "manifest.json"
+                    manifest.write_text(json.dumps({"marker": marker}), encoding="utf-8")
+                    handler = server.make_handler(frontend, session, manifest)
+                    preferred = int(servers[0].server_address[1]) if servers else 0
+                    httpd = server.bind_http_server("127.0.0.1", preferred, handler)
+                    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+                    thread.start()
+                    servers.append(httpd)
+                    threads.append(thread)
+
+                self.assertNotEqual(servers[0].server_address[1], servers[1].server_address[1])
+                for marker, httpd in zip(("older", "newer"), servers, strict=True):
+                    connection = http.client.HTTPConnection(*httpd.server_address, timeout=2)
+                    connection.request("GET", "/session/manifest.json")
+                    response = connection.getresponse()
+                    payload = json.loads(response.read())
+                    connection.close()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(payload, {"marker": marker})
+            finally:
+                for httpd in servers:
+                    httpd.shutdown()
+                    httpd.server_close()
+                for thread in threads:
+                    thread.join(timeout=2)
+
+    @unittest.skipUnless(hasattr(server.socket, "SO_EXCLUSIVEADDRUSE"), "Windows socket option")
+    def test_windows_server_uses_exclusive_address_binding(self):
+        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), QuietHandler)
+        try:
+            value = httpd.socket.getsockopt(server.socket.SOL_SOCKET, server.socket.SO_EXCLUSIVEADDRUSE)
+            self.assertEqual(value, 1)
+        finally:
+            httpd.server_close()
 
 
 class OrbitalRequestTests(unittest.TestCase):
