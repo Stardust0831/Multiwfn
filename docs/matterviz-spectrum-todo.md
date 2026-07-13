@@ -51,6 +51,8 @@ Updated: 2026-07-13
 - [x] P2: cover WebView startup/bind/launch/interruption and normal child-close signaling with adapter unit tests and CI.
 - [x] Exercise the real `/api/return` route over HTTP and verify its JSON response, `gui_stop.flag` creation and server shutdown.
 - [ ] P2: complete an installed-shell browser/WebView Return and shutdown smoke test.
+- [x] Build locked Linux, macOS and Windows MatterViz preview archives and verify extracted package structure and Multiwfn execution; Linux and Windows additionally pass real native WebView readiness.
+- [x] Publish `matterviz-preview-1` as a GitHub prerelease for manual validation; keep interactive macOS WKWebView readiness in the manual checklist because hosted runners have no interactive WindowServer.
 - [ ] Keep ESP work separate from the first native-parity PR and review its scientific authority carefully.
 - [x] Run frontend unit tests, `npm run check`, `npm run build` and browser validation after cleanup.
 - [ ] Run Multiwfn/CMake build when a CMake toolchain is available.
@@ -66,8 +68,8 @@ Updated: 2026-07-13
 - [ ] Add a per-session capability and loopback/Host protections for mutation endpoints; migrate state-changing requests away from unauthenticated GET where compatibility allows.
 - [ ] Define and test Return behavior while a long backend calculation is already in flight.
 - [x] Add a finite token-scoped WebView startup handshake with server-before-shell ordering, initial-page readiness, timeout/error cleanup and CI Rust checks.
-- [ ] Installed-resource/native-shell packaging smoke test.
-- [ ] Cross-platform locked WebView build and bundle-size evidence.
+- [x] Installed-resource/native-shell packaging smoke: Linux and Windows pass extracted adapter-to-WebView readiness; macOS passes dependency relocation, shell loading and extracted Multiwfn tests, with interactive WKWebView validation deferred to the preview tester.
+- [x] Cross-platform locked WebView build and bundle-size evidence using committed `Cargo.lock` and three CI-produced preview archives.
 - [x] Label frontend-sampled ESP extrema as approximate visual estimates rather than authoritative Multiwfn results.
 
 ## Parallel integration policy
