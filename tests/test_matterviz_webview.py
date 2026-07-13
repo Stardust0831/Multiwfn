@@ -29,6 +29,11 @@ class ImmediateThread:
         return False
 
 
+class StartFailureThread(ImmediateThread):
+    def start(self):
+        raise RuntimeError("thread unavailable")
+
+
 class FakeProcess:
     def __init__(self, *, poll_result=None):
         self.poll_result = poll_result
@@ -243,6 +248,15 @@ class MatterVizWebViewTests(unittest.TestCase):
         self.assertTrue(status_path.is_file())
         self.assertNotIn("stale-token", status_path.read_text(encoding="utf-8"))
 
+    def test_startup_status_requires_the_current_token(self):
+        status_path = self.session / adapter.STARTUP_STATUS_NAME
+        status_path.write_text("ready\n", encoding="utf-8")
+        self.assertIsNone(adapter.read_startup_status(status_path, "current-token"))
+        status_path.write_text("ready stale-token\n", encoding="utf-8")
+        self.assertIsNone(adapter.read_startup_status(status_path, "current-token"))
+        status_path.write_text("ready current-token\n", encoding="utf-8")
+        self.assertEqual(adapter.read_startup_status(status_path, "current-token"), ("ready", None))
+
     def test_early_child_exit_reports_once_and_reaps(self):
         result, stderr, process, server = self.run_main(process=FakeProcess(poll_result=17))
         self.assertEqual(result, 2)
@@ -299,6 +313,16 @@ class MatterVizWebViewTests(unittest.TestCase):
         self.assertTrue(server.server_close_called)
         self.assertIn("Could not launch MatterViz WebView", stderr)
         self.assertNotIn("Traceback", stderr)
+        self.assert_flag()
+
+    def test_thread_start_failure_closes_without_shutdown_deadlock(self):
+        server = FakeServer()
+        result, stderr, process, server = self.run_main(server=server, thread_cls=StartFailureThread)
+        self.assertEqual(result, 2)
+        self.assertIn("startup failed: thread unavailable", stderr)
+        self.assertFalse(server.shutdown_called)
+        self.assertTrue(server.server_close_called)
+        self.assertFalse(process.terminated)
         self.assert_flag()
 
     def test_keyboard_interrupt_closes_server_and_signals(self):

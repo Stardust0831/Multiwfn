@@ -107,9 +107,7 @@ def read_startup_status(path: Path, token: str) -> tuple[str, str | None] | None
     if record is None:
         return None
     state, status_token, message = record
-    # A token-less line is retained for manually-run shells and older builds;
-    # the fixed path is still removed before every adapter launch.
-    if status_token is not None and status_token != token:
+    if status_token != token:
         return None
     return state, message
 
@@ -180,13 +178,14 @@ def main() -> int:
     process = None
     status_path = session / STARTUP_STATUS_NAME
     service_thread = None
+    service_thread_started = False
     service_errors: list[BaseException] = []
     service_started = threading.Event()
 
     def failure(message: str) -> int:
         print(message, file=sys.stderr)
         signal_return(session)
-        if server is not None:
+        if server is not None and service_thread_started:
             try:
                 server.shutdown()
             except (OSError, RuntimeError):
@@ -232,6 +231,7 @@ def main() -> int:
 
         service_thread = threading.Thread(target=service_runner, daemon=True)
         service_thread.start()
+        service_thread_started = True
         # Let the service enter serve_forever before launching the shell. The
         # socket is already bound, but this removes a race for immediate page
         # requests and makes startup failure cleanup deterministic.
