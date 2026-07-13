@@ -43,8 +43,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         matterviz_sources = matterviz_sources.split("endif()", 1)[0]
         self.assertIn("noGUI/matterviz_spawn.c", matterviz_sources)
         self.assertIn("CreateProcessW", SPAWN)
-        self.assertIn("MultiByteToWideChar(CP_ACP", SPAWN)
-        self.assertNotIn("CP_UTF8", SPAWN)
+        self.assertIn("CP_UTF8, MB_ERR_INVALID_CHARS", SPAWN)
+        self.assertNotIn("CP_ACP", SPAWN)
         self.assertIn("CloseHandle(process.hThread)", SPAWN)
         self.assertIn("CloseHandle(process.hProcess)", SPAWN)
         self.assertIn("launch_status=launch_matterviz_process(trim(cmd))", FORTRAN)

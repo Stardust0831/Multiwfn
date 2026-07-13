@@ -7,15 +7,20 @@
 
 #ifdef _WIN32
 static wchar_t *multiwfn_command_to_wide(const char *command) {
-    /* GNU Fortran default CHARACTER and get_environment_variable use the
-       active Windows narrow-character runtime encoding.  Interpret the full
-       command consistently as CP_ACP instead of guessing UTF-8 per string. */
-    int length = MultiByteToWideChar(CP_ACP, 0, command, -1, NULL, 0);
+    /* The supported MSYS2 UCRT64 GNU Fortran build exposes default CHARACTER
+       paths as UTF-8 bytes.  Keep one explicit encoding contract and reject
+       malformed input instead of guessing per command. */
+    int length = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, command, -1, NULL, 0);
     if (length == 0) return NULL;
 
     wchar_t *wide = (wchar_t *)malloc((size_t)length * sizeof(wchar_t));
-    if (wide == NULL) return NULL;
-    if (MultiByteToWideChar(CP_ACP, 0, command, -1, wide, length) == 0) {
+    if (wide == NULL) {
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return NULL;
+    }
+    if (MultiByteToWideChar(
+            CP_UTF8, MB_ERR_INVALID_CHARS, command, -1, wide, length) == 0) {
         free(wide);
         return NULL;
     }
@@ -30,7 +35,10 @@ int multiwfn_spawn_async(const char *command) {
     wchar_t *wide = multiwfn_command_to_wide(command);
     DWORD error_code;
 
-    if (wide == NULL) return (int)ERROR_NOT_ENOUGH_MEMORY;
+    if (wide == NULL) {
+        error_code = GetLastError();
+        return error_code == 0 ? (int)ERROR_NO_UNICODE_TRANSLATION : (int)error_code;
+    }
     startup.cb = sizeof(startup);
     if (!CreateProcessW(
             NULL, wide, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process)) {

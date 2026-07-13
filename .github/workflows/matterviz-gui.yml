@@ -476,6 +476,7 @@ jobs:
           $env:Path = (($env:Path -split ';') | Where-Object { $_ -notmatch 'msys64' }) -join ';'
           pwsh -NoProfile -File tests/windows/test_matterviz_async_launch.ps1 `
             -ExecutablePath "$PWD/clean-test/Multiwfn_MatterVizGUI.exe"
+          if ($LASTEXITCODE -ne 0) { throw "MatterViz asynchronous launch regression failed" }
           $cleanShell = "clean-test/resources/tools/matterviz-desktop.exe"
           $cleanOutput = & $cleanShell --url http://example.com/ 2>&1
           if ($LASTEXITCODE -ne 2) { throw "Extracted MatterViz shell smoke returned $LASTEXITCODE" }
