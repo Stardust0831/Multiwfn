@@ -14,6 +14,7 @@
   import { onMount } from 'svelte'
   import EspLegend from './EspLegend.svelte'
   import SlicePanel from './SlicePanel.svelte'
+  import ViewerInspector from './ViewerInspector.svelte'
   import {
     estimate_esp_range,
     extract_esp_extrema_async,
@@ -70,6 +71,8 @@
   let espExtremaOpen = $state(false)
   let espExtremaLoading = $state(false)
   let espExtrema = $state<EspExtremaResult | undefined>()
+  let inspectorOpen = $state(true)
+  let inspectorSection = $state<'structure' | 'surfaces' | 'cell'>('structure')
   let espRange = $state<[number, number]>([-0.05, 0.05])
   let espLegendPosition = $state<LegendPosition>({ left: 16, top: 16 })
   let stateInput = $state<HTMLInputElement | undefined>()
@@ -645,6 +648,25 @@
     sceneProps = { ...sceneProps, show_gizmo: value }
   }
 
+  const apply_inspector_scene_props = (next: Record<string, unknown>): void => {
+    const { background_color, background_opacity, ...scene } = next
+    sceneProps = scene as typeof sceneProps
+    if (typeof scene.show_gizmo === 'boolean') showGizmo = scene.show_gizmo
+    if (typeof background_color === 'string') backgroundColor = background_color
+    if (typeof background_opacity === 'number' && Number.isFinite(background_opacity)) {
+      backgroundOpacity = Math.max(0, Math.min(1, background_opacity))
+    }
+  }
+
+  const set_inspector_unit_cell = (value: boolean): void => {
+    showUnitCell = value
+    latticeProps = {
+      ...latticeProps,
+      cell_edge_opacity: value ? 1 : 0,
+      show_cell_vectors: value,
+    }
+  }
+
   const open_panel = (panel: 'layers' | 'slice' | 'logs'): void => {
     const next = panel === 'layers' ? !layerOpen
       : panel === 'slice' ? !sliceOpen
@@ -785,41 +807,85 @@
     </section>
   {/if}
 
-  <section class="viewer-shell">
-    {#if structure}
-      <Structure
-        bind:structure
-        bind:volumetric_data={volumetricData}
-        bind:isosurface_settings={isosurfaceSettings}
-        bind:active_volume_idx={activeVolumeIdx}
-        bind:measured_sites={measuredSites}
-        bind:supercell_scaling={supercellScaling}
-        bind:show_image_atoms={showImageAtoms}
-        bind:lattice_props={latticeProps}
-        bind:scene_props={sceneProps}
-        bind:background_color={backgroundColor}
-        bind:background_opacity={backgroundOpacity}
-        bind:loading
-        bind:error_msg={errorMessage}
-        on_camera_move={track_camera}
-        on_camera_reset={track_camera}
-        show_controls="always"
-        allow_file_drop={true}
+  <section class="workspace" class:inspector-closed={!inspectorOpen}>
+    <nav class="tool-rail" aria-label="Inspector tools">
+      <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true }}>
+        <span aria-hidden="true">S</span><small>Structure</small>
+      </button>
+      <button type="button" class:active={inspectorOpen && inspectorSection === 'surfaces'} aria-label="Open surfaces inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'surfaces'; inspectorOpen = true }}>
+        <span aria-hidden="true">V</span><small>Surfaces</small>
+      </button>
+      {#if manifest.periodic?.enabled}
+        <button type="button" class:active={inspectorOpen && inspectorSection === 'cell'} aria-label="Open cell inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'cell'; inspectorOpen = true }}>
+          <span aria-hidden="true">C</span><small>Cell</small>
+        </button>
+      {/if}
+      <button type="button" class:active={layerOpen} aria-label={`Open volume layers (${volumeEntries.length})`} aria-expanded={layerOpen} onclick={() => open_panel('layers')}>
+        <span aria-hidden="true">L</span><small>Layers</small>
+      </button>
+      <button type="button" class="rail-close" aria-label="Close inspector" aria-expanded={inspectorOpen} onclick={() => inspectorOpen = false}>
+        <span aria-hidden="true">&lt;</span><small>Hide</small>
+      </button>
+    </nav>
+
+    {#if inspectorOpen}
+      <ViewerInspector
+        bind:section={inspectorSection}
+        scene_props={{ ...sceneProps, background_color: backgroundColor, background_opacity: backgroundOpacity }}
+        isosurface_settings={isosurfaceSettings}
+        periodic={Boolean(manifest.periodic?.enabled)}
+        supercell_scaling={supercellScaling}
+        show_image_atoms={showImageAtoms}
+        show_unit_cell={showUnitCell}
+        volume_count={volumeEntries.length}
+        on_scene_props_change={apply_inspector_scene_props}
+        on_isosurface_settings_change={(next) => isosurfaceSettings = next}
+        on_supercell_change={(value) => supercellScaling = value}
+        on_boundary_atoms_change={(value) => showImageAtoms = value}
+        on_unit_cell_change={set_inspector_unit_cell}
+        on_range_change={set_range}
+        on_layers={() => { layerOpen = true; inspectorOpen = false }}
+        on_close={() => inspectorOpen = false}
       />
-    {:else if !loading}
-      <div class="empty">No structure is available in this session.</div>
     {/if}
-    {#if loading}<div class="loading">Working...</div>{/if}
-    {#if sliceOpen}
-      <SlicePanel
-        volumes={volumetricData ?? []}
-        bind:active_volume_idx={activeVolumeIdx}
-        bind:open={sliceOpen}
-      />
-    {/if}
-    {#if espLegendOpen}
-      <EspLegend min={espRange[0]} max={espRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
-    {/if}
+
+    <section class="viewer-shell">
+      {#if structure}
+        <Structure
+          bind:structure
+          bind:volumetric_data={volumetricData}
+          bind:isosurface_settings={isosurfaceSettings}
+          bind:active_volume_idx={activeVolumeIdx}
+          bind:measured_sites={measuredSites}
+          bind:supercell_scaling={supercellScaling}
+          bind:show_image_atoms={showImageAtoms}
+          bind:lattice_props={latticeProps}
+          bind:scene_props={sceneProps}
+          bind:background_color={backgroundColor}
+          bind:background_opacity={backgroundOpacity}
+          bind:loading
+          bind:error_msg={errorMessage}
+          on_camera_move={track_camera}
+          on_camera_reset={track_camera}
+          show_controls="always"
+          allow_file_drop={true}
+        />
+      {:else if !loading}
+        <div class="empty">No structure is available in this session.</div>
+      {/if}
+      {#if loading}<div class="loading">Working...</div>{/if}
+      {#if sliceOpen}
+        <SlicePanel
+          volumes={volumetricData ?? []}
+          bind:active_volume_idx={activeVolumeIdx}
+          bind:open={sliceOpen}
+        />
+      {/if}
+      {#if espLegendOpen}
+        <EspLegend min={espRange[0]} max={espRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
+      {/if}
+    </section>
+
   </section>
 
   <footer class="statusbar" class:error={Boolean(errorMessage)}>
