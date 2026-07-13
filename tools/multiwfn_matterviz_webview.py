@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 
-import multiwfn_3dmol_server as web
+import multiwfn_matterviz_server as web
 
 
 STARTUP_STATUS_NAME = "gui_startup.status"

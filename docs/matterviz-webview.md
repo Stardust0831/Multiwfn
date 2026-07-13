@@ -6,12 +6,12 @@ Multiwfn, run the Python service, or copy the backend/session protocol into the
 desktop process. The normal data path remains:
 
 ```text
-Multiwfn -> multiwfn_3dmol_server.py -> HTTP(S) URL -> Tauri WebView
+Multiwfn -> multiwfn_matterviz_server.py -> HTTP(S) URL -> Tauri WebView
 ```
 
-Each Multiwfn GUI launch creates a fresh `multiwfn_3dmol_session_*` directory
+Each Multiwfn GUI launch creates a fresh `multiwfn_matterviz_session_*` directory
 for its manifest, artifacts, request, and stop files. Set
-`MULTIWFN_3DMOL_SESSION` when an explicitly shared or pre-existing session path
+`MULTIWFN_MATTERVIZ_SESSION` when an explicitly shared or pre-existing session path
 is required; the configured path is passed to the launcher unchanged.
 
 The shell uses this URL by default:
@@ -53,19 +53,19 @@ service in one terminal:
 ```sh
 pnpm --dir frontend/matterviz-viewer install
 pnpm --dir frontend/matterviz-viewer build
-python3 tools/multiwfn_3dmol_server.py \
+python3 tools/multiwfn_matterviz_server.py \
   --frontend frontend/matterviz-viewer/dist \
-  --session multiwfn_3dmol_session \
-  --manifest multiwfn_3dmol_session/manifest.json
+  --session multiwfn_matterviz_session \
+  --manifest multiwfn_matterviz_session/manifest.json
 ```
 
 With an optional saved workbench state:
 
 ```sh
-python3 tools/multiwfn_3dmol_server.py \
+python3 tools/multiwfn_matterviz_server.py \
   --frontend frontend/matterviz-viewer/dist \
-  --session multiwfn_3dmol_session \
-  --manifest multiwfn_3dmol_session/manifest.json \
+  --session multiwfn_matterviz_session \
+  --manifest multiwfn_matterviz_session/manifest.json \
   --state /path/to/multiwfn-matterviz-state.json
 ```
 
@@ -90,7 +90,7 @@ MATTERVIZ_WEB_URL=https://viz.example.invalid/session cargo tauri dev
 
 For standalone shell development, the server must be started separately and
 must remain available while the window is open. In a Multiwfn build configured
-with `MULTIWFN_3DMOL_DEFAULT_SHELL=webview`,
+with `MULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview`,
 `tools/multiwfn_matterviz_webview.py` starts the session service, selects an
 available port, passes the exact URL (including the optional `state` query) to
 this executable, waits for the initial external page load to finish, and
@@ -125,13 +125,15 @@ To exercise the integrated Multiwfn launch path from a source build:
 
 ```sh
 cmake -S . -B build-matterviz-webview -G Ninja \
-  -DMULTIWFN_GUI_BACKEND=3dmol \
-  -DMULTIWFN_WEB_FRONTEND=matterviz \
-  -DMULTIWFN_3DMOL_DEFAULT_SHELL=webview
+  -DMULTIWFN_GUI_BACKEND=matterviz \
+  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
 cmake --build build-matterviz-webview
 MULTIWFN_MATTERVIZ_WEBVIEW="$PWD/frontend/matterviz-desktop/target/release/matterviz-desktop" \
-  build-matterviz-webview/Multiwfn_3DmolGUI
+  build-matterviz-webview/Multiwfn_MatterVizGUI
 ```
+
+The MatterViz backend stages only its frontend and launcher resources; it does
+not stage the legacy 3Dmol frontend or Qt shell.
 
 Start the packaged application while a local service is running. To select a
 non-default local URL:

@@ -17,33 +17,37 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The artifact-based 3Dmol GUI backend is also available through CMake. To build
-the native Qt shell by default:
+The artifact-based MatterViz GUI backend is also available through CMake. To
+build the native WebView shell by default:
 
 ```sh
-cmake -S . -B build-qt-gui \
+cmake -S . -B build-matterviz-webview \
   -DCMAKE_BUILD_TYPE=Release \
-  -DMULTIWFN_GUI_BACKEND=3dmol \
-  -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt
-cmake --build build-qt-gui --parallel
+  -DMULTIWFN_GUI_BACKEND=matterviz \
+  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
+cmake --build build-matterviz-webview --parallel
 ```
 
-This produces `Multiwfn_QtGUI`, copies `settings.ini` beside the executable,
-and stages its Python launchers plus web frontend under
-`build-qt-gui/resources/`. This is a development build layout, not a
+This produces `Multiwfn_MatterVizGUI`, copies `settings.ini` beside the
+executable, and stages the MatterViz Python launchers plus web frontend under
+`build-matterviz-webview/resources/`. MatterViz resources do not stage the
+legacy 3Dmol frontend or Qt shell. This is a development build layout, not a
 self-contained release package. The executable can be run directly from the
 build directory when its development runtime dependencies are available.
 
-Both 3Dmol shells require Python 3. The browser shell uses only the Python
-standard library plus the system's default browser. The Qt shell additionally
-requires PyQt6, and its embedded 3D viewer requires PyQt6-WebEngine. CMake
-checks these imports with the Python interpreter found at configure time and
-prints a warning when the selected shell's dependencies are unavailable. At
-runtime, set `MULTIWFN_3DMOL_PYTHON` to use a Python interpreter other than
+The staged launchers are `multiwfn_matterviz_server.py` and
+`multiwfn_matterviz_file_dialog.py`.
+
+The MatterViz browser and WebView launch paths require Python 3. The browser
+shell uses only the Python standard library plus the system's default browser.
+CMake checks the selected shell's Python dependencies with the interpreter
+found at configure time and prints a warning when they are unavailable. At
+runtime, set `MULTIWFN_MATTERVIZ_PYTHON` to use a Python interpreter other than
 `python3` from `PATH`.
 
-A browser-default build uses `MULTIWFN_3DMOL_DEFAULT_SHELL=browser` and
-produces `Multiwfn_3DmolGUI` with the same staged configuration and resources.
+A browser-default build uses `MULTIWFN_MATTERVIZ_DEFAULT_SHELL=browser` and
+produces `Multiwfn_MatterVizGUI` with the same staged configuration and
+resources.
 Formal release packages use a separately tested, self-contained runtime and
 must not rely on this development staging layout.
 

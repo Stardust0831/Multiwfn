@@ -3,7 +3,7 @@ import re
 import unittest
 
 
-SOURCE = Path(__file__).resolve().parents[1] / "noGUI" / "GUI_3dmol.f90"
+SOURCE = Path(__file__).resolve().parents[1] / "noGUI" / "GUI_matterviz.f90"
 
 
 class GuiSessionPathSourceTests(unittest.TestCase):
@@ -21,18 +21,18 @@ class GuiSessionPathSourceTests(unittest.TestCase):
     def test_explicit_override_is_created_without_default_fallback(self):
         self.assertRegex(
             self.source,
-            r'get_environment_variable\("MULTIWFN_3DMOL_SESSION",requested,status=istat\)',
+            r'get_environment_variable\("MULTIWFN_MATTERVIZ_SESSION",requested,status=istat\)',
         )
         self.assertIn("call ensure_dir(trim(session),ok)", self.source)
         self.assertIn("call create_default_session_dir(session,ok)", self.source)
-        self.assertNotIn('session="multiwfn_3dmol_session"', self.source)
+        self.assertNotIn('session="multiwfn_matterviz_session"', self.source)
 
     def test_default_creation_retries_atomic_mkdir_collisions(self):
         self.assertIn("do attempt=0,99", self.source)
         self.assertIn("call mkdir_path(trim(candidate),istat)", self.source)
         self.assertIn("inquire(file=trim(candidate),exist=alive)", self.source)
         self.assertIn("if (istat==0.and.alive)", self.source)
-        self.assertIn("multiwfn_3dmol_session_", self.source)
+        self.assertIn("multiwfn_matterviz_session_", self.source)
         self.assertIn("clock_count,gui_session_serial,attempt", self.source)
 
     def test_failure_aborts_before_launch(self):

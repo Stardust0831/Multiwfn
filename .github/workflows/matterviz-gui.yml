@@ -11,11 +11,14 @@ on:
       - main
     paths:
       - CMakeLists.txt
-      - noGUI/GUI_3dmol.f90
-      - tools/multiwfn_3dmol_server.py
+      - noGUI/GUI_matterviz.f90
+      - tools/multiwfn_matterviz_server.py
+      - tools/multiwfn_matterviz_file_dialog.py
       - tools/multiwfn_matterviz_webview.py
+      - tests/test_matterviz_server.py
       - tests/test_matterviz_webview.py
       - tests/test_gui_session_paths.py
+      - tests/test_matterviz_build_names.py
       - frontend/matterviz-viewer/**
       - frontend/matterviz-desktop/**
       - docs/matterviz-webview.md
@@ -66,7 +69,12 @@ jobs:
         run: python3 frontend/matterviz-desktop/scripts/validate-config.py
 
       - name: Test MatterViz WebView adapter
-        run: python3 -m unittest -v tests/test_matterviz_webview.py tests/test_gui_session_paths.py
+        run: >-
+          python3 -m unittest -v
+          tests/test_matterviz_server.py
+          tests/test_matterviz_webview.py
+          tests/test_gui_session_paths.py
+          tests/test_matterviz_build_names.py
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -90,12 +98,11 @@ jobs:
           set -euo pipefail
           cmake -S . -B build-matterviz-gui -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DMULTIWFN_GUI_BACKEND=3dmol \
-            -DMULTIWFN_WEB_FRONTEND=matterviz \
-            -DMULTIWFN_3DMOL_DEFAULT_SHELL=browser \
+            -DMULTIWFN_GUI_BACKEND=matterviz \
+            -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=browser \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-gui --parallel 2
-          test -x build-matterviz-gui/Multiwfn_3DmolGUI
+          test -x build-matterviz-gui/Multiwfn_MatterVizGUI
           test -f build-matterviz-gui/resources/frontend/matterviz-viewer/dist/index.html
 
   package:
@@ -185,9 +192,8 @@ jobs:
           cmake -S . -B build-matterviz-package -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_BUILD_RPATH="$rpath" \
-            -DMULTIWFN_GUI_BACKEND=3dmol \
-            -DMULTIWFN_WEB_FRONTEND=matterviz \
-            -DMULTIWFN_3DMOL_DEFAULT_SHELL=webview \
+            -DMULTIWFN_GUI_BACKEND=matterviz \
+            -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-package --parallel 2
 
@@ -198,9 +204,8 @@ jobs:
           set -euo pipefail
           cmake -S . -B build-matterviz-package -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DMULTIWFN_GUI_BACKEND=3dmol \
-            -DMULTIWFN_WEB_FRONTEND=matterviz \
-            -DMULTIWFN_3DMOL_DEFAULT_SHELL=webview \
+            -DMULTIWFN_GUI_BACKEND=matterviz \
+            -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview \
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-package --parallel 2
 
@@ -215,13 +220,13 @@ jobs:
           mkdir -p "package/$pkg/resources/tools" "package/$pkg/resources/frontend/matterviz-viewer" "package/$pkg/resources/lib"
           cp LICENSE.txt "package/$pkg/LICENSE.txt"
           cp settings.ini "package/$pkg/settings.ini"
-          cp tools/multiwfn_3dmol_server.py tools/multiwfn_3dmol_file_dialog.py tools/multiwfn_matterviz_webview.py \
+          cp tools/multiwfn_matterviz_server.py tools/multiwfn_matterviz_file_dialog.py tools/multiwfn_matterviz_webview.py \
             "package/$pkg/resources/tools/"
           cp -R frontend/matterviz-viewer/dist "package/$pkg/resources/frontend/matterviz-viewer/"
           cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
           MatterViz WebView preview
 
-          Run Multiwfn_3DmolGUI (Multiwfn_3DmolGUI.exe on Windows). GUI entry
+          Run Multiwfn_MatterVizGUI (Multiwfn_MatterVizGUI.exe on Windows). GUI entry
           points start the bundled MatterViz WebView through Python 3.
 
           Requirements:
@@ -238,16 +243,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp build-matterviz-package/Multiwfn_3DmolGUI "package/$PKG/Multiwfn_3DmolGUI"
+          cp build-matterviz-package/Multiwfn_MatterVizGUI "package/$PKG/Multiwfn_MatterVizGUI"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop \
             "package/$PKG/resources/tools/matterviz-desktop"
-          for binary in build-matterviz-package/Multiwfn_3DmolGUI frontend/matterviz-desktop/target/release/matterviz-desktop; do
+          for binary in build-matterviz-package/Multiwfn_MatterVizGUI frontend/matterviz-desktop/target/release/matterviz-desktop; do
             if objdump -T "$binary" | grep -Eq 'GLIBC_(2\.(3[6-9]|[4-9][0-9])|[3-9]\.)'; then
               echo "Found a GLIBC dependency newer than the declared 2.35 floor in $binary" >&2
               exit 1
             fi
           done
-          ldd build-matterviz-package/Multiwfn_3DmolGUI | awk '/=> \// {print $3}' | while read -r lib; do
+          ldd build-matterviz-package/Multiwfn_MatterVizGUI | awk '/=> \// {print $3}' | while read -r lib; do
             base="$(basename "$lib")"
             case "$base" in
               libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
@@ -257,7 +262,7 @@ jobs:
                 ;;
             esac
           done
-          chmod +x "package/$PKG/Multiwfn_3DmolGUI" "package/$PKG/resources/tools/matterviz-desktop"
+          chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
           "package/$PKG/resources/tools/matterviz-desktop" --url http://example.com/ >/tmp/matterviz-smoke.log 2>&1 && exit 1 || status=$?
           test "$status" -eq 2
           grep -q "plain HTTP MatterViz URLs must use" /tmp/matterviz-smoke.log
@@ -290,10 +295,10 @@ jobs:
           mkdir matterviz-smoke/session
           (
             cd matterviz-smoke
-            MULTIWFN_3DMOL_SESSION="$PWD/session" \
-            MULTIWFN_3DMOL_SHELL=browser \
-            MULTIWFN_3DMOL_PYTHON="$(command -v true)" \
-              "$root/Multiwfn_3DmolGUI" tiny.cube <<'EOF' > multiwfn.out
+            MULTIWFN_MATTERVIZ_SESSION="$PWD/session" \
+            MULTIWFN_MATTERVIZ_SHELL=browser \
+            MULTIWFN_MATTERVIZ_PYTHON="$(command -v true)" \
+              "$root/Multiwfn_MatterVizGUI" tiny.cube <<'EOF' > multiwfn.out
           13
           -2
           -1
@@ -349,20 +354,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp build-matterviz-package/Multiwfn_3DmolGUI "package/$PKG/Multiwfn_3DmolGUI"
+          cp build-matterviz-package/Multiwfn_MatterVizGUI "package/$PKG/Multiwfn_MatterVizGUI"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop \
             "package/$PKG/resources/tools/matterviz-desktop"
-          chmod +x "package/$PKG/Multiwfn_3DmolGUI" "package/$PKG/resources/tools/matterviz-desktop"
-          otool -l "package/$PKG/Multiwfn_3DmolGUI" \
+          chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
+          otool -l "package/$PKG/Multiwfn_MatterVizGUI" \
             | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' > /tmp/multiwfn-rpaths.txt
           while IFS= read -r rpath; do
-            [ -z "$rpath" ] || install_name_tool -delete_rpath "$rpath" "package/$PKG/Multiwfn_3DmolGUI"
+            [ -z "$rpath" ] || install_name_tool -delete_rpath "$rpath" "package/$PKG/Multiwfn_MatterVizGUI"
           done < /tmp/multiwfn-rpaths.txt
           dylibbundler -od -b \
-            -x "package/$PKG/Multiwfn_3DmolGUI" \
+            -x "package/$PKG/Multiwfn_MatterVizGUI" \
             -d "package/$PKG/resources/lib" \
             -p @executable_path/resources/lib
-          if otool -L "package/$PKG/Multiwfn_3DmolGUI" | grep -E '/(opt/homebrew|usr/local)/'; then
+          if otool -L "package/$PKG/Multiwfn_MatterVizGUI" | grep -E '/(opt/homebrew|usr/local)/'; then
             echo "Unrelocated Homebrew dependency remains in Multiwfn" >&2
             exit 1
           fi
@@ -370,7 +375,7 @@ jobs:
             echo "Unexpected Homebrew dependency remains in MatterViz Desktop" >&2
             exit 1
           fi
-          for binary in "package/$PKG/Multiwfn_3DmolGUI" package/"$PKG"/resources/lib/*.dylib; do
+          for binary in "package/$PKG/Multiwfn_MatterVizGUI" package/"$PKG"/resources/lib/*.dylib; do
             duplicates="$(otool -l "$binary" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | sort | uniq -d)"
             if [ -n "$duplicates" ]; then
               echo "Duplicate LC_RPATH in $binary: $duplicates" >&2
@@ -395,21 +400,21 @@ jobs:
           mkdir clean-test
           tar -xzf "dist/$PKG.tar.gz" -C clean-test
           root="$PWD/clean-test/$PKG"
-          bash tests/functional/run_nogui_tests.sh "$root/Multiwfn_3DmolGUI"
+          bash tests/functional/run_nogui_tests.sh "$root/Multiwfn_MatterVizGUI"
 
       - name: Package Windows preview
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          cp build-matterviz-package/Multiwfn_3DmolGUI.exe "package/$PKG/Multiwfn_3DmolGUI.exe"
+          cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
             "package/$PKG/resources/tools/matterviz-desktop.exe"
           : > windows-dlls.log
           processed=""
           while :; do
             changed=0
-            for binary in "package/$PKG/Multiwfn_3DmolGUI.exe" \
+            for binary in "package/$PKG/Multiwfn_MatterVizGUI.exe" \
               "package/$PKG/resources/tools/matterviz-desktop.exe" \
               package/"$PKG"/*.dll package/"$PKG"/resources/tools/*.dll; do
               [ -e "$binary" ] || continue
@@ -459,7 +464,7 @@ jobs:
           H 0 0 0.96
           H 0.92 0 -0.24
           "@ | Set-Content -Path "$work/water.xyz" -Encoding ascii
-          "26`n1`n`nq`n0`nq`n" | & "$PWD/clean-test/Multiwfn_3DmolGUI.exe" "$work/water.xyz" > "$work/geometry.out"
+          "26`n1`n`nq`n0`nq`n" | & "$PWD/clean-test/Multiwfn_MatterVizGUI.exe" "$work/water.xyz" > "$work/geometry.out"
           Select-String -Path "$work/geometry.out" -SimpleMatch "Formula: H2 O1" | Out-Null
           $session = Join-Path $PWD "windows-webview-smoke/session"
           New-Item -ItemType Directory -Force $session | Out-Null
@@ -504,6 +509,8 @@ jobs:
           test -f "package/$PKG/LICENSE.txt"
           test -f "package/$PKG/README-MatterViz.txt"
           test -f "package/$PKG/settings.ini"
+          test -f "package/$PKG/resources/tools/multiwfn_matterviz_server.py"
+          test -f "package/$PKG/resources/tools/multiwfn_matterviz_file_dialog.py"
           test -f "package/$PKG/resources/tools/multiwfn_matterviz_webview.py"
           test -f "package/$PKG/resources/frontend/matterviz-viewer/dist/index.html"
           test -n "$(find "package/$PKG/resources/frontend/matterviz-viewer/dist/assets" -type f -print -quit)"

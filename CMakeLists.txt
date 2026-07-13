@@ -12,12 +12,12 @@ option(MULTIWFN_BUILD_GUI "Build the DISLIN/Motif GUI executable" OFF)
 option(MULTIWFN_WITH_OPENMP "Enable OpenMP when the compiler supports it" ON)
 option(MULTIWFN_WITH_FD "Enable fractional-derivative support via FLINT/ARB" OFF)
 option(MULTIWFN_WINDOWS_STATIC_LINK "Prefer static runtime and math libraries for Windows redistribution" ON)
-set(MULTIWFN_GUI_BACKEND "dislin" CACHE STRING "GUI backend used by the CMake build: dislin or 3dmol")
-set_property(CACHE MULTIWFN_GUI_BACKEND PROPERTY STRINGS dislin 3dmol)
+set(MULTIWFN_GUI_BACKEND "dislin" CACHE STRING "GUI backend used by the CMake build: dislin, legacy 3dmol, or matterviz")
+set_property(CACHE MULTIWFN_GUI_BACKEND PROPERTY STRINGS dislin 3dmol matterviz)
 set(MULTIWFN_3DMOL_DEFAULT_SHELL "browser" CACHE STRING "Default web GUI shell: browser, qt, or webview")
 set_property(CACHE MULTIWFN_3DMOL_DEFAULT_SHELL PROPERTY STRINGS browser qt webview)
-set(MULTIWFN_WEB_FRONTEND "3dmol" CACHE STRING "Web visualization frontend: 3dmol or matterviz")
-set_property(CACHE MULTIWFN_WEB_FRONTEND PROPERTY STRINGS 3dmol matterviz)
+set(MULTIWFN_MATTERVIZ_DEFAULT_SHELL "browser" CACHE STRING "Default MatterViz GUI shell: browser or webview")
+set_property(CACHE MULTIWFN_MATTERVIZ_DEFAULT_SHELL PROPERTY STRINGS browser webview)
 set(MULTIWFN_GNU_OPT_LEVEL "O2" CACHE STRING "GNU Fortran optimization level for Release builds")
 set(MULTIWFN_GNU_HOT_OPT_LEVEL "" CACHE STRING "Optional GNU Fortran optimization level for selected hot sources")
 set(MULTIWFN_GNU_EXTRA_FLAGS "" CACHE STRING "Extra GNU Fortran compile flags, separated by spaces")
@@ -49,14 +49,14 @@ if(MULTIWFN_BUILD_GUI)
   message(FATAL_ERROR "The CMake build currently supports noGUI only; use the original Makefile for the GUI build.")
 endif()
 
-if(NOT MULTIWFN_GUI_BACKEND MATCHES "^(dislin|3dmol)$")
-  message(FATAL_ERROR "MULTIWFN_GUI_BACKEND must be dislin or 3dmol")
+if(NOT MULTIWFN_GUI_BACKEND MATCHES "^(dislin|3dmol|matterviz)$")
+  message(FATAL_ERROR "MULTIWFN_GUI_BACKEND must be dislin, 3dmol, or matterviz")
 endif()
 if(NOT MULTIWFN_3DMOL_DEFAULT_SHELL MATCHES "^(browser|qt|webview)$")
   message(FATAL_ERROR "MULTIWFN_3DMOL_DEFAULT_SHELL must be browser, qt, or webview")
 endif()
-if(NOT MULTIWFN_WEB_FRONTEND MATCHES "^(3dmol|matterviz)$")
-  message(FATAL_ERROR "MULTIWFN_WEB_FRONTEND must be 3dmol or matterviz")
+if(NOT MULTIWFN_MATTERVIZ_DEFAULT_SHELL MATCHES "^(browser|webview)$")
+  message(FATAL_ERROR "MULTIWFN_MATTERVIZ_DEFAULT_SHELL must be browser or webview")
 endif()
 
 set(CMAKE_Fortran_PREPROCESS ON)
@@ -165,13 +165,17 @@ set(MULTIWFN_CORE_SOURCES
 
 set(MULTIWFN_GUI_SOURCE GUI.f90)
 set(MULTIWFN_EXECUTABLE_NAME Multiwfn_noGUI)
+if(MULTIWFN_GUI_BACKEND MATCHES "^(3dmol|matterviz)$")
+  set(MULTIWFN_GUI_SOURCE noGUI/GUI_matterviz.f90)
+  list(APPEND MULTIWFN_CORE_SOURCES noGUI/plot_external_empty.f90)
+endif()
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
-  set(MULTIWFN_GUI_SOURCE noGUI/GUI_3dmol.f90)
   set(MULTIWFN_EXECUTABLE_NAME Multiwfn_3DmolGUI)
   if(MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "qt")
     set(MULTIWFN_EXECUTABLE_NAME Multiwfn_QtGUI)
   endif()
-  list(APPEND MULTIWFN_CORE_SOURCES noGUI/plot_external_empty.f90)
+elseif(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
+  set(MULTIWFN_EXECUTABLE_NAME Multiwfn_MatterVizGUI)
 endif()
 list(INSERT MULTIWFN_CORE_SOURCES 10 "${MULTIWFN_GUI_SOURCE}")
 
@@ -211,13 +215,16 @@ endif()
 add_executable(${MULTIWFN_EXECUTABLE_NAME} ${MULTIWFN_CORE_SOURCES})
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "qt")
-  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_3DMOL_DEFAULT_SHELL_QT)
+  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_MATTERVIZ_DEFAULT_SHELL_QT)
 endif()
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "webview")
-  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_3DMOL_DEFAULT_SHELL_WEBVIEW)
+  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_MATTERVIZ_DEFAULT_SHELL_WEBVIEW)
 endif()
-if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol" AND MULTIWFN_WEB_FRONTEND STREQUAL "matterviz")
-  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_WEB_FRONTEND_MATTERVIZ)
+if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
+  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_LEGACY_3DMOL_BACKEND)
+endif()
+if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz" AND MULTIWFN_MATTERVIZ_DEFAULT_SHELL STREQUAL "webview")
+  target_compile_definitions(${MULTIWFN_EXECUTABLE_NAME} PRIVATE MULTIWFN_MATTERVIZ_DEFAULT_SHELL_WEBVIEW)
 endif()
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
@@ -225,7 +232,7 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
   if(NOT Python3_Interpreter_FOUND)
     message(WARNING
       "The 3Dmol development shell requires Python 3 at runtime. "
-      "Install Python 3 or provide an interpreter through MULTIWFN_3DMOL_PYTHON when launching."
+      "Install Python 3 or provide an interpreter through MULTIWFN_MATTERVIZ_PYTHON when launching."
     )
   elseif(MULTIWFN_3DMOL_DEFAULT_SHELL STREQUAL "qt")
     execute_process(
@@ -256,8 +263,8 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
       "${CMAKE_CURRENT_SOURCE_DIR}/settings.ini"
       "${CMAKE_CURRENT_BINARY_DIR}/settings.ini"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_server.py"
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_3dmol_file_dialog.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_server.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_file_dialog.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_webview.py"
       "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_qt_gui.py"
       "${MULTIWFN_3DMOL_BUILD_RESOURCES}/tools"
@@ -276,28 +283,52 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
     VERBATIM
   )
 
-  if(MULTIWFN_WEB_FRONTEND STREQUAL "matterviz")
-    set(MULTIWFN_MATTERVIZ_DIST
-      "${CMAKE_CURRENT_SOURCE_DIR}/frontend/matterviz-viewer/dist"
-    )
-    if(NOT EXISTS "${MULTIWFN_MATTERVIZ_DIST}/index.html")
-      message(FATAL_ERROR
-        "The MatterViz frontend has not been built. Run pnpm install and pnpm build in "
-        "frontend/matterviz-viewer before configuring Multiwfn."
-      )
-    endif()
+endif()
 
-    add_custom_target(multiwfn_matterviz_resources ALL
-      COMMAND ${CMAKE_COMMAND} -E rm -rf
-        "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/matterviz-viewer"
-      COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${MULTIWFN_MATTERVIZ_DIST}"
-        "${MULTIWFN_3DMOL_BUILD_RESOURCES}/frontend/matterviz-viewer/dist"
-      COMMENT "Staging MatterViz GUI runtime resources"
-      VERBATIM
+if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  if(NOT Python3_Interpreter_FOUND)
+    message(WARNING
+      "The MatterViz session adapter requires Python 3 at runtime. "
+      "Install Python 3 or provide an interpreter through MULTIWFN_MATTERVIZ_PYTHON when launching."
     )
-    add_dependencies(multiwfn_matterviz_resources multiwfn_3dmol_resources)
   endif()
+
+  set(MULTIWFN_MATTERVIZ_DIST
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/matterviz-viewer/dist"
+  )
+  if(NOT EXISTS "${MULTIWFN_MATTERVIZ_DIST}/index.html")
+    message(FATAL_ERROR
+      "The MatterViz frontend has not been built. Run pnpm install and pnpm build in "
+      "frontend/matterviz-viewer before configuring Multiwfn."
+    )
+  endif()
+
+  set(MULTIWFN_MATTERVIZ_BUILD_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/resources")
+  add_custom_target(multiwfn_matterviz_resources ALL
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+      "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools"
+      "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/frontend"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+      "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools"
+      "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/frontend/matterviz-viewer"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/settings.ini"
+      "${CMAKE_CURRENT_BINARY_DIR}/settings.ini"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_server.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_file_dialog.py"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/multiwfn_matterviz_webview.py"
+      "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${MULTIWFN_MATTERVIZ_DIST}"
+      "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/frontend/matterviz-viewer/dist"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+      "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools/__pycache__"
+    DEPENDS ${MULTIWFN_EXECUTABLE_NAME}
+    COMMENT "Staging Multiwfn MatterViz GUI runtime resources"
+    VERBATIM
+  )
 endif()
 
 if(WIN32)

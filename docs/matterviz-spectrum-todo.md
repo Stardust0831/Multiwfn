@@ -94,9 +94,10 @@ Updated: 2026-07-13
 - [x] Fix the review-found partial-FCHK-topology failure: candidate bond counts are not published until all connectivity is validated, so an unsupported later bond cannot leave a nonzero count with unallocated arrays.
 - [x] Run the GUI/session source guards in the MatterViz CI workflow, including unified JSON, zero-based/aromatic bonds, ghost metadata and invalid-topology count publication.
 - [ ] Run the archived 11-atom/10-bond session and installed-package explicit-connectivity smoke after CI produces the next package.
-- [ ] Confirm the upstream periodic proxy-loop fix and native JSON launch path in the locked Linux, macOS and Windows package jobs.
-- [ ] Unverified until CI: compile the Fortran GUI/session adapter and run the packaged periodic and nonperiodic launch checks; local documentation work does not establish Fortran compilation.
-- [ ] Complete the remaining adapter/build naming migration from 3Dmol to MatterViz. Do not preserve obsolete 3Dmol identifiers solely for compatibility; perform the rename as a bounded packaging change with tests and documentation updates.
+- [x] Confirm the upstream periodic proxy-loop fix and native JSON launch path in the locked Linux, macOS and Windows package jobs for commit `ce2515e`.
+- [x] Compile the Fortran GUI/session adapter and pass the Linux, macOS and Windows package workflows for the native-JSON commit.
+- [x] Complete the local adapter/build naming migration: first-class `matterviz` CMake backend, `Multiwfn_MatterVizGUI`, `MULTIWFN_MATTERVIZ_*`, MatterViz session/tool names and isolated MatterViz resources.
+- [ ] Confirm the renamed MatterViz backend and three renamed installation packages in CI before tagging the next prerelease.
 
 ## Parallel integration policy
 

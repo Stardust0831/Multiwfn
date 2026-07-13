@@ -26,8 +26,9 @@ carry that license.
   improvement over the official release packages.
 - Maintain optional upstream-source tracking for official Multiwfn source
   archive updates.
-- Explore a cross-platform 3Dmol.js/Plotly/Qt visualization frontend that can
-  replace the legacy DISLIN GUI.
+- Build a cross-platform MatterViz visualization frontend that can replace the
+  legacy DISLIN GUI. The older 3Dmol.js/Plotly prototype is retained only as a
+  behavioral reference, not as a compatibility target.
 
 ## Development Principles
 
@@ -41,7 +42,7 @@ Changes are normally expected in:
 - `CMakeLists.txt`, CMake modules, and platform build scripts.
 - CI, test, and release workflows under `.github/workflows/`.
 - Engineering code under `frontend/`, `tools/`, `docs/`, and `tests/`.
-- GUI adapter files such as `noGUI/GUI_3dmol.f90`.
+- GUI adapter files such as `noGUI/GUI_matterviz.f90`.
 
 Computational core changes should be avoided unless necessary. When they are
 needed, please describe the reason, scope, test method, and numerical comparison
@@ -55,29 +56,34 @@ possible while leaving calculations in the Multiwfn backend.
 
 Current pieces:
 
-- `frontend/3dmol-viewer`: 3Dmol.js/Plotly visualization frontend.
-- `frontend/qt-multiwfn-gui`: Qt shell prototype for an application window.
-- `noGUI/GUI_3dmol.f90`: experimental GUI backend adapter.
-- `tools/multiwfn_3dmol_server.py`: local session service.
+- `frontend/matterviz-viewer`: MatterViz visualization frontend.
+- `frontend/matterviz-desktop`: optional native WebView shell.
+- `noGUI/`: experimental GUI backend adapter layer.
+- `tools/multiwfn_matterviz_server.py`: local MatterViz session service.
 
 Current demo features include structure display, multiple cube layers,
 cube-by-cube coloring, periodic display controls, cube slices, simple 2D plots,
 PNG export, and manifest export. The `Periodic ESP` sample is synthetic UI test
 data, not a physical Multiwfn calculation.
 
-Build the 3Dmol GUI backend:
+Build the MatterViz GUI backend:
 
 ```sh
-cmake -S . -B build-3dmol-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol
-cmake --build build-3dmol-gui --parallel
+cmake -S . -B build-matterviz-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=matterviz
+cmake --build build-matterviz-gui --parallel
 ```
 
-Build the Qt-shell variant:
+Build with the native WebView shell selected by default:
 
 ```sh
-cmake -S . -B build-qt-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt
-cmake --build build-qt-gui --parallel
+cmake -S . -B build-matterviz-webview -DCMAKE_BUILD_TYPE=Release \
+  -DMULTIWFN_GUI_BACKEND=matterviz \
+  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
+cmake --build build-matterviz-webview --parallel
 ```
+
+MatterViz builds produce `Multiwfn_MatterVizGUI` and stage only MatterViz
+frontend/launcher resources; legacy 3Dmol and Qt resources are not staged.
 
 ## Build
 

@@ -1,6 +1,7 @@
 # Multiwfn MatterViz frontend
 
-This is an experimental frontend developed independently from the current 3Dmol implementation.
+This is an experimental MatterViz frontend developed independently from the legacy 3Dmol.js
+implementation.
 It consumes the same Multiwfn session manifest and serialized backend API, so the Fortran
 calculation modules remain unchanged.
 
@@ -23,10 +24,10 @@ pnpm build
 Serve `dist/` with the existing Multiwfn GUI service:
 
 ```bash
-python3 tools/multiwfn_3dmol_server.py \
+python3 tools/multiwfn_matterviz_server.py \
   --frontend frontend/matterviz-viewer/dist \
-  --session multiwfn_3dmol_session \
-  --manifest multiwfn_3dmol_session/manifest.json \
+  --session multiwfn_matterviz_session \
+  --manifest multiwfn_matterviz_session/manifest.json \
   --open
 ```
 
@@ -69,14 +70,13 @@ Build a Multiwfn executable which selects this frontend with:
 ```bash
 cmake -S ../.. -B ../../build-matterviz-gui -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DMULTIWFN_GUI_BACKEND=3dmol \
-  -DMULTIWFN_WEB_FRONTEND=matterviz \
-  -DMULTIWFN_3DMOL_DEFAULT_SHELL=webview
+  -DMULTIWFN_GUI_BACKEND=matterviz \
+  -DMULTIWFN_MATTERVIZ_DEFAULT_SHELL=webview
 cmake --build ../../build-matterviz-gui --parallel 2
 ```
 
-The `3dmol` backend name currently denotes the shared HTTP/session adapter; selecting MatterViz
-does not load or use the 3Dmol frontend. This temporary name avoids touching Multiwfn calculation
-modules while the generic web adapter is being separated.
+The `matterviz` backend is first-class: it selects the MatterViz frontend and
+produces `Multiwfn_MatterVizGUI`. MatterViz resources do not include the legacy
+3Dmol frontend or Qt shell.
 
 MatterViz is distributed under the MIT license. Multiwfn remains under its original license.

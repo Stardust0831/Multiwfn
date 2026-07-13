@@ -382,7 +382,7 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, state: Path | None = None):
-    class Multiwfn3DmolHandler(http.server.SimpleHTTPRequestHandler):
+    class MultiwfnMatterVizHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(frontend_dir), **kwargs)
 
@@ -468,13 +468,21 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, state: P
 
             super().do_GET()
 
-    return Multiwfn3DmolHandler
+    return MultiwfnMatterVizHandler
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Serve the Multiwfn MatterViz visualization frontend")
-    parser.add_argument("--frontend", default="frontend/3dmol-viewer", help="Path to the frontend directory")
-    parser.add_argument("--session", default="multiwfn_3dmol_session", help="Path to the generated GUI session")
+    parser.add_argument(
+        "--frontend",
+        default="frontend/matterviz-viewer/dist",
+        help="Path to the MatterViz frontend directory",
+    )
+    parser.add_argument(
+        "--session",
+        default="multiwfn_matterviz_session",
+        help="Path to the generated MatterViz GUI session",
+    )
     parser.add_argument("--manifest", default=None, help="Path to the generated manifest")
     parser.add_argument("--state", default=None, help="Optional path to a workbench state JSON file")
     parser.add_argument("--host", default="127.0.0.1", help="HTTP bind address")
@@ -505,8 +513,7 @@ def main() -> int:
     server = ThreadingHTTPServer((args.host, port), handler)
     url = build_workbench_url(args.host, port, state=state)
 
-    frontend_name = "MatterViz" if "matterviz" in str(frontend_dir).lower() else "3Dmol"
-    print(f"Multiwfn {frontend_name} GUI service: {url}")
+    print(f"Multiwfn MatterViz GUI service: {url}")
     if args.open and not args.no_open:
         def open_or_report() -> None:
             if not try_open_url(url):
@@ -519,7 +526,7 @@ def main() -> int:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            input(f"Press ENTER to stop the {frontend_name} GUI service...")
+            input("Press ENTER to stop the MatterViz GUI service...")
         finally:
             server.shutdown()
         return 0
@@ -527,7 +534,7 @@ def main() -> int:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print(f"\nStopping Multiwfn {frontend_name} GUI service.")
+        print("\nStopping Multiwfn MatterViz GUI service.")
     finally:
         server.server_close()
     return 0

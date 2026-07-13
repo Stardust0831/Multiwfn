@@ -1,28 +1,30 @@
 # Visualization Notes
 
 The current visualization work keeps the Multiwfn Fortran calculation modules
-unchanged. The frontend is a 3Dmol.js workbench under `frontend/3dmol-viewer`,
-and the demo GUI backend is `noGUI/GUI_3dmol.f90`. The VMD bridge idea is not
-the active path; only the artifact-bridge boundary is kept.
+unchanged. The active frontend is the MatterViz workbench under
+`frontend/matterviz-viewer`, and the GUI/session adapter is
+`noGUI/GUI_matterviz.f90`. The older 3Dmol.js prototype remains only as a
+legacy reference; it is not staged or loaded by the MatterViz backend.
 
 ## Current Boundary
 
 - Multiwfn remains responsible for wavefunction analysis and cube generation.
-- The optional `MULTIWFN_GUI_BACKEND=3dmol` CMake build compiles a replacement
+- The optional `MULTIWFN_GUI_BACKEND=matterviz` CMake build compiles a replacement
   `module GUI` that preserves the original GUI entry point names.
-- The frontend reads structure files, Gaussian cube files, and optional JSON
-  manifests from disk or HTTP.
+- Periodic and nonperiodic sessions emit one MatterViz-native `structure.json`;
+  explicit bonds are carried in root `properties.bonds`.
+- The frontend reads structured session manifests and Gaussian cube artifacts
+  directly from the local adapter.
 - HOMO, LUMO, density, ELF, ESP, and custom cube data are represented as
   independent layers in the viewer.
-- Positive and negative isosurfaces are rendered by 3Dmol.js from `VolumeData`
-  parsed as `cube`.
+- Positive and negative isosurfaces are rendered by MatterViz from parsed cube
+  volumes.
 - Camera, lighting-style effects, colors, labels, axes, spin, PNG export, and
   scene state export are owned by the frontend.
 - Periodic visualization is handled as frontend display metadata: unit-cell
   vectors, fractional display ranges, atom repetition, and optional cube-surface
   tiling.
-- Cube slices and 2D plots are rendered by the frontend from cube/CSV/JSON
-  artifacts.
+- Cube slices are rendered by the frontend from the structured cube volumes.
 
 This keeps the code path non-invasive: no Fortran menu or analysis routine is
 changed for visualization. The demo only swaps the GUI module boundary.
@@ -48,13 +50,12 @@ handling is investigated.
 
 ## Next Integration Step
 
-The likely bridge should be outside the Fortran core at first. It can run a
-scripted Multiwfn workflow, collect generated structure and cube files, write a
-manifest, then open the 3Dmol workbench. This approach preserves the
-cross-platform noGUI build and avoids replacing Multiwfn's existing analysis
-implementation.
+The bridge remains outside the Fortran calculation core. The GUI/session
+adapter exports the current in-memory structure and volume artifacts, writes a
+manifest, then opens the MatterViz workbench. This preserves the cross-platform
+noGUI build and avoids replacing Multiwfn's existing analysis implementation.
 
-Periodic cube support should be validated with real Multiwfn periodic outputs.
-The current frontend can tile cube surfaces by translating cube origins, but it
-does not yet resample non-orthogonal periodic scalar fields into a continuous
-expanded grid.
+Periodic cube support must continue to be validated with real Multiwfn outputs,
+especially non-orthogonal cells and cross-boundary connectivity. Missing native
+GUI/session data chains must be recorded as output-protocol gaps rather than
+filled by external-output parsers or DOM scraping.

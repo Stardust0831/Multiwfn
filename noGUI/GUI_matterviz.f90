@@ -20,14 +20,14 @@ subroutine selfilegui
 character(len=512) :: envfile
 integer :: istat
 
-call get_environment_variable("MULTIWFN_3DMOL_INPUT",envfile,status=istat)
+call get_environment_variable("MULTIWFN_MATTERVIZ_INPUT",envfile,status=istat)
 if (istat==0.and.len_trim(envfile)>0) then
     filename=trim(envfile)
 else
     call select_file_with_dialog(filename)
     if (len_trim(filename)==0) then
         write(*,"(/,a)") " MatterViz GUI backend: no file was selected."
-        write(*,"(a)") " Input the file path in the console, or set MULTIWFN_3DMOL_INPUT."
+        write(*,"(a)") " Input the file path in the console, or set MULTIWFN_MATTERVIZ_INPUT."
     end if
 end if
 end subroutine
@@ -36,7 +36,7 @@ subroutine drawmolgui
 GUI_mode=1
 idrawmol=1
 if (ifPBC>0) aug3D_main0=-1
-call launch_3dmol_gui("drawmolgui",1,0,0D0,0D0,0D0,0D0,0D0,0D0)
+call launch_matterviz_gui("drawmolgui",1,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 subroutine drawplanegui(init1,end1,init2,end2,init3,end3,idrawtype)
@@ -49,48 +49,48 @@ dp_init2=init2
 dp_end2=end2
 dp_init3=init3
 dp_end3=end3
-call launch_3dmol_gui("drawplanegui",2,idrawtype,init1,end1,init2,end2,init3,end3)
+call launch_matterviz_gui("drawplanegui",2,idrawtype,init1,end1,init2,end2,init3,end3)
 end subroutine
 
 subroutine drawisosurgui(iallowsetstyle)
 integer,intent(in) :: iallowsetstyle
 GUI_mode=3
 idrawisosur=1
-call launch_3dmol_gui("drawisosurgui",3,iallowsetstyle,0D0,0D0,0D0,0D0,0D0,0D0)
+call launch_matterviz_gui("drawisosurgui",3,iallowsetstyle,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 subroutine drawmoltopogui
 GUI_mode=4
-call launch_3dmol_gui("drawmoltopogui",4,0,0D0,0D0,0D0,0D0,0D0,0D0)
+call launch_matterviz_gui("drawmoltopogui",4,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 subroutine drawsurfanalysis
 GUI_mode=5
-call launch_3dmol_gui("drawsurfanalysis",5,0,0D0,0D0,0D0,0D0,0D0,0D0)
+call launch_matterviz_gui("drawsurfanalysis",5,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 subroutine drawbasinintgui
 GUI_mode=6
-call launch_3dmol_gui("drawbasinintgui",6,0,0D0,0D0,0D0,0D0,0D0,0D0)
+call launch_matterviz_gui("drawbasinintgui",6,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 subroutine drawdomaingui
 GUI_mode=6
-call launch_3dmol_gui("drawdomaingui",6,0,0D0,0D0,0D0,0D0,0D0,0D0)
+call launch_matterviz_gui("drawdomaingui",6,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 subroutine setboxGUI
 GUI_mode=7
 ishowdatarange=1
-call launch_3dmol_gui("setboxGUI",7,0,0D0,0D0,0D0,0D0,0D0,0D0)
+call launch_matterviz_gui("setboxGUI",7,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 subroutine miniGUI
 GUI_mode=7
-call launch_3dmol_gui("miniGUI",7,0,0D0,0D0,0D0,0D0,0D0,0D0)
+call launch_matterviz_gui("miniGUI",7,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
-subroutine launch_3dmol_gui(entry,mode,extra,init1,end1,init2,end2,init3,end3)
+subroutine launch_matterviz_gui(entry,mode,extra,init1,end1,init2,end2,init3,end3)
 character(len=*),intent(in) :: entry
 integer,intent(in) :: mode,extra
 real*8,intent(in) :: init1,end1,init2,end2,init3,end3
@@ -126,7 +126,7 @@ write(*,"(/,a)") " MatterViz GUI backend wrote a visualization session:"
 write(*,"(a,a)") "   ",trim(manifest)
 write(*,"(a)") " Launching visualization GUI..."
 call execute_command_line(trim(cmd),wait=.false.)
-if (trim(entry)=="drawmolgui") call run_3dmol_gui_loop(trim(session))
+if (trim(entry)=="drawmolgui") call run_matterviz_gui_loop(trim(session))
 end subroutine
 
 subroutine reset_generated_orbitals()
@@ -337,7 +337,7 @@ character(len=512) :: requested
 session=" "
 ok=.false.
 requested=" "
-call get_environment_variable("MULTIWFN_3DMOL_SESSION",requested,status=istat)
+call get_environment_variable("MULTIWFN_MATTERVIZ_SESSION",requested,status=istat)
 if (istat==2) then
     write(*,"(/,a)") " MatterViz GUI backend: session path exceeds the 512-character path limit."
     return
@@ -373,7 +373,7 @@ gui_session_serial=gui_session_serial+1
 ! wins a candidate name, the failed mkdir is treated as a collision and the
 ! next candidate is attempted; no shared fixed-name fallback is used.
 do attempt=0,99
-    write(candidate,"('multiwfn_3dmol_session_',i4.4,2i2.2,'_',3i2.2,'.',i3.3,'_',i0,'_',i0,'_',i0)") &
+    write(candidate,"('multiwfn_matterviz_session_',i4.4,2i2.2,'_',3i2.2,'.',i3.3,'_',i0,'_',i0,'_',i0)") &
         values(1),values(2),values(3),values(5),values(6),values(7),values(8),clock_count,gui_session_serial,attempt
     call mkdir_path(trim(candidate),istat)
     inquire(file=trim(candidate),exist=alive)
@@ -458,7 +458,7 @@ if (orbtotal<=0.or..not.allocated(a).or.ncenter<=0) return
 if (.not.allocated(MOene).or..not.allocated(MOocc)) return
 
 limit=-1
-call get_environment_variable("MULTIWFN_3DMOL_ORBITAL_PREVIEW",env,status=istat)
+call get_environment_variable("MULTIWFN_MATTERVIZ_ORBITAL_PREVIEW",env,status=istat)
 if (istat==0.and.len_trim(env)>0) read(env,*,iostat=istat) limit
 if (limit<0) return
 if (limit==0) then
@@ -563,7 +563,7 @@ ny=nint(molylen/dy)+1
 nz=nint(molzlen/dz)+1
 end subroutine
 
-subroutine run_3dmol_gui_loop(session)
+subroutine run_matterviz_gui_loop(session)
 character(len=*),intent(in) :: session
 character(len=1024) :: reqfile,stopfile,respfile,line
 character(len=32) :: action,method
@@ -927,24 +927,24 @@ character(len=*),intent(out) :: cmd
 character(len=512) :: home,python,tool,frontend,shell,native
 integer :: istat
 
-call get_3dmol_home(home)
-#ifdef MULTIWFN_WEB_FRONTEND_MATTERVIZ
-call resolve_resource_path(home,"frontend/matterviz-viewer/dist",frontend)
-#else
+call get_matterviz_home(home)
+#ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
 call resolve_resource_path(home,"frontend/3dmol-viewer",frontend)
+#else
+call resolve_resource_path(home,"frontend/matterviz-viewer/dist",frontend)
 #endif
-#ifdef MULTIWFN_3DMOL_DEFAULT_SHELL_QT
+#ifdef MULTIWFN_MATTERVIZ_DEFAULT_SHELL_QT
 shell="qt"
-#elif defined(MULTIWFN_3DMOL_DEFAULT_SHELL_WEBVIEW)
+#elif defined(MULTIWFN_MATTERVIZ_DEFAULT_SHELL_WEBVIEW)
 shell="webview"
 #else
 shell="browser"
 #endif
-call get_environment_variable("MULTIWFN_3DMOL_SHELL",shell,status=istat)
+call get_environment_variable("MULTIWFN_MATTERVIZ_SHELL",shell,status=istat)
 if (istat/=0.or.len_trim(shell)==0) then
-#ifdef MULTIWFN_3DMOL_DEFAULT_SHELL_QT
+#ifdef MULTIWFN_MATTERVIZ_DEFAULT_SHELL_QT
     shell="qt"
-#elif defined(MULTIWFN_3DMOL_DEFAULT_SHELL_WEBVIEW)
+#elif defined(MULTIWFN_MATTERVIZ_DEFAULT_SHELL_WEBVIEW)
     shell="webview"
 #else
     shell="browser"
@@ -966,7 +966,7 @@ if (trim(shell)=="qt") then
 else if (trim(shell)=="webview") then
     call resolve_resource_path(home,"tools/multiwfn_matterviz_webview.py",tool)
 else
-    call resolve_resource_path(home,"tools/multiwfn_3dmol_server.py",tool)
+    call resolve_resource_path(home,"tools/multiwfn_matterviz_server.py",tool)
 end if
 
 #ifdef _WIN32
@@ -974,7 +974,7 @@ python="python"
 #else
 python="python3"
 #endif
-call get_environment_variable("MULTIWFN_3DMOL_PYTHON",python,status=istat)
+call get_environment_variable("MULTIWFN_MATTERVIZ_PYTHON",python,status=istat)
 if (istat/=0.or.len_trim(python)==0) then
 #ifdef _WIN32
     python="python"
@@ -1015,7 +1015,7 @@ logical :: session_ok
 selected=" "
 call get_session_dir(session,session_ok)
 if (.not.session_ok) return
-call get_3dmol_home(home)
+call get_matterviz_home(home)
 outfile=trim(session)//"/selected_file.txt"
 call remove_session_file(trim(outfile))
 
@@ -1043,7 +1043,7 @@ python="python"
 #else
 python="python3"
 #endif
-call get_environment_variable("MULTIWFN_3DMOL_PYTHON",python,status=istat)
+call get_environment_variable("MULTIWFN_MATTERVIZ_PYTHON",python,status=istat)
 if (istat/=0.or.len_trim(python)==0) then
 #ifdef _WIN32
     python="python"
@@ -1052,7 +1052,7 @@ if (istat/=0.or.len_trim(python)==0) then
 #endif
 end if
 
-call resolve_resource_path(home,"tools/multiwfn_3dmol_file_dialog.py",tool)
+call resolve_resource_path(home,"tools/multiwfn_matterviz_file_dialog.py",tool)
 cmd=trim(python)//' "'//trim(tool)//'" --output "'//trim(outfile)//'"'
 call execute_command_line(trim(cmd),exitstat=istat)
 if (istat/=0) return
@@ -1064,13 +1064,13 @@ close(iu)
 if (istat/=0) selected=" "
 end subroutine
 
-subroutine get_3dmol_home(home)
+subroutine get_matterviz_home(home)
 character(len=*),intent(out) :: home
 character(len=512) :: exe,dir,base
 integer :: istat
 
 home="."
-call get_environment_variable("MULTIWFN_3DMOL_HOME",home,status=istat)
+call get_environment_variable("MULTIWFN_MATTERVIZ_HOME",home,status=istat)
 if (istat==0.and.len_trim(home)>0) return
 
 call get_command_argument(0,exe,status=istat)

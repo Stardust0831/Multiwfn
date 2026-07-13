@@ -124,8 +124,8 @@ jobs:
               cp build-gui-linux-compat/Multiwfn_QtGUI "package/$pkg/Multiwfn_QtGUI"
               cp LICENSE.txt "package/$pkg/LICENSE.txt"
               cp settings.ini "package/$pkg/settings.ini"
-              cp tools/multiwfn_3dmol_server.py "package/$pkg/resources/tools/"
-              cp tools/multiwfn_3dmol_file_dialog.py "package/$pkg/resources/tools/"
+              cp tools/multiwfn_matterviz_server.py "package/$pkg/resources/tools/"
+              cp tools/multiwfn_matterviz_file_dialog.py "package/$pkg/resources/tools/"
               cp tools/multiwfn_qt_gui.py "package/$pkg/resources/tools/"
               cp qt-launcher-dist/multiwfn_qt_gui "package/$pkg/resources/tools/multiwfn_qt_gui.bin"
               printf "%s\n" \

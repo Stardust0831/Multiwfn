@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 /path/to/Multiwfn_3DmolGUI" >&2
+  echo "Usage: $0 /path/to/Multiwfn_MatterVizGUI" >&2
   exit 2
 fi
 
@@ -33,9 +33,9 @@ EOF
 mkdir -p "$workdir/session"
 (
   cd "$workdir"
-  MULTIWFN_3DMOL_SESSION="$workdir/session" \
-  MULTIWFN_3DMOL_SHELL=browser \
-  MULTIWFN_3DMOL_PYTHON="$(command -v true)" \
+  MULTIWFN_MATTERVIZ_SESSION="$workdir/session" \
+  MULTIWFN_MATTERVIZ_SHELL=browser \
+  MULTIWFN_MATTERVIZ_PYTHON="$(command -v true)" \
     "$exe" tiny.cube <<'EOF' > multiwfn.out
 13
 -2
