@@ -6,6 +6,7 @@
     AXIS_PRESETS,
     SLICE_COLORMAPS,
     clamp01,
+    normalize_slice_resolution,
     resolve_slice_range,
     slice_to_rgba,
     type SliceAxis,
@@ -17,22 +18,24 @@
   export let active_volume_idx = 0
   export let open = false
   export let onclose: (() => void) | undefined = undefined
+  export let axis: SliceAxis = 'xy'
+  export let miller_h = AXIS_PRESETS.xy[0]
+  export let miller_k = AXIS_PRESETS.xy[1]
+  export let miller_l = AXIS_PRESETS.xy[2]
+  export let position = 0.5
+  export let resolution = 128
+  export let colormap: SliceColormap = 'Viridis'
+  export let range_mode: 'auto' | 'manual' = 'auto'
+  export let manual_min = ''
+  export let manual_max = ''
 
   let canvas: HTMLCanvasElement | undefined
   let canvas_host: HTMLDivElement | undefined
   let resize_observer: ResizeObserver | undefined
-  let axis: SliceAxis = 'xy'
-  let miller_h = AXIS_PRESETS.xy[0]
-  let miller_k = AXIS_PRESETS.xy[1]
-  let miller_l = AXIS_PRESETS.xy[2]
-  let position = 0.5
-  let resolution = 128
-  let colormap: SliceColormap = 'Viridis'
-  let range_mode: 'auto' | 'manual' = 'auto'
-  let manual_min = ''
-  let manual_max = ''
 
   $: volume_index = Math.min(Math.max(0, Number(active_volume_idx) || 0), Math.max(0, volumes.length - 1))
+  $: position = clamp01(position)
+  $: resolution = normalize_slice_resolution(resolution)
   $: volume = volumes[volume_index]
   $: miller_indices = [Number(miller_h) || 0, Number(miller_k) || 0, Number(miller_l) || 0] as [number, number, number]
   $: slice = sample_slice(volume, miller_indices, position, resolution)

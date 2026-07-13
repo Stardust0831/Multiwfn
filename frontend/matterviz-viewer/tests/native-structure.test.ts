@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { createServer, type ViteDevServer } from 'vite'
 import type { AnyStructure } from 'matterviz'
@@ -90,6 +91,20 @@ test('parses native periodic JSON and round-trips the lattice matrix', () => {
   assert.deepEqual(parsed.sites[1]?.abc, [0.5, 0.5, 0.5])
   assert.deepEqual(parsed.sites[1]?.xyz, [2, 2.5, 3])
   assert.deepEqual(parsed.properties?.bonds, native.properties.bonds)
+})
+
+test('preserves explicit cross-boundary bond cell shifts from a native periodic artifact', async () => {
+  const artifact = new URL('./artifacts/periodic-cross-boundary/structure.json', import.meta.url)
+  const parsed = parse_any_structure(await readFile(artifact, 'utf8'), 'structure.json')
+
+  assert.ok('lattice' in parsed && parsed.lattice)
+  assert.deepEqual(parsed.lattice.matrix, [[5, 0, 0], [1, 4, 0], [0.5, 0.25, 5]])
+  assert.deepEqual(parsed.properties?.bonds, [{
+    site_idx_1: 0,
+    site_idx_2: 1,
+    order: 1,
+    cell_shift: [1, 0, 0],
+  }])
 })
 
 test('preserves a labeled Multiwfn ghost center without mapping it to a real element', () => {

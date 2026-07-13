@@ -286,3 +286,56 @@ test('clamps bounded structure appearance values and ignores malformed fields', 
     backgroundOpacity: 0,
   })
 })
+
+test('round-trips slice controls and ESP legend placement', () => {
+  const exported = create_workbench_state({
+    manifest: {},
+    entries: [{ path: 'density.cube' }],
+    isosurfaceSettings: {},
+    activeVolume: 0,
+    atomSupercell: '1x1x1',
+    showBoundaryAtoms: true,
+    showUnitCell: true,
+    slice: {
+      open: true,
+      plane: 'yz',
+      millerIndices: [1, -2, 3],
+      position: 0.75,
+      resolution: 256,
+      colormap: 'RdBu',
+      rangeMode: 'manual',
+      manualMin: -2,
+      manualMax: 4,
+    },
+    espLegend: { visible: false, position: { left: 42, top: 18 } },
+  })
+  const parsed = parse_workbench_state(JSON.parse(JSON.stringify(exported)))
+  assert.deepEqual(parsed.slice, exported.slice)
+  assert.deepEqual(parsed.espLegend, exported.espLegend)
+  const restored = restore_workbench_state(parsed, { entries: [{ path: 'density.cube' }], isosurfaceSettings: {} })
+  assert.deepEqual(restored.slice, exported.slice)
+  assert.deepEqual(restored.espLegend, exported.espLegend)
+})
+
+test('normalizes malformed optional slice and legend fields', () => {
+  const parsed = parse_workbench_state({
+    format: 'multiwfn-matterviz-workbench',
+    version: 1,
+    activeVolume: 0,
+    volumes: [{ path: 'density.cube', volumeIndex: 0 }],
+    slice: {
+      plane: 'bad',
+      millerIndices: [1, Number.NaN, 3],
+      position: 4,
+      resolution: 999,
+      colormap: 'bad',
+      rangeMode: 'invalid',
+      manualMin: 'nope',
+      manualMax: 2,
+    },
+    espLegend: { visible: 'yes', position: { left: Number.NaN, top: 2 } },
+    session: {},
+  })
+  assert.deepEqual(parsed.slice, { position: 1, resolution: 512, manualMax: 2 })
+  assert.equal(parsed.espLegend, undefined)
+})

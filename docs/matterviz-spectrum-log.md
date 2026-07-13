@@ -1,5 +1,14 @@
 # MatterViz parity development log
 
+## 2026-07-13: frontend parity increment pending release
+
+- Continued strict `origin/main` 3Dmol GUI parity work on the MatterViz frontend branch; this does not add DOS/PDOS, IR, Raman, UV-Vis or NMR capabilities.
+- Added a right-side orbital selection panel using existing manifest metadata, including None selection, orbital navigation and closed-shell HOMO/LUMO context. The panel exposes an independent orbital isovalue and the complete grid precision set: 25k, 50k, 120k, 300k, 500k, 1000k and 1500k points. A final review caught and corrected an open-shell frontier-label regression through a shared helper and unit test.
+- Added stale-backend handling that preserves the loaded structure canvas and cached orbital layers, disables uncached orbital requests, and directs the user to reopen Multiwfn menu 0 for new calculations.
+- Extended workbench state round-tripping for slice plane/Miller indices, position, resolution, colormap, range mode and manual bounds, plus ESP legend visibility/position and the linked ESP range.
+- Added a periodic cross-boundary structure artifact and parser test preserving MatterViz-compatible bond `cell_shift` metadata. The artifact rendered differently with and without the shift at desktop and 800px without page errors; a real Multiwfn-generated cross-boundary workflow remains a parity gap.
+- Live request verification recorded: `orbital 42 300000 0.031`. A packaged-asset-equivalent browser audit passed at 1440x900 and 800x700 with all seven grid levels, no viewer/panel overlap, correct `Cached only` fallback, disabled uncached orbitals, a retained structure canvas and no page errors. Current local frontend evidence also includes 71 passing `npm test` tests, `npm run check` with zero diagnostics and a successful `npm run build`; these are work-in-progress checks only. No preview containing this increment has been released.
+
 ## 2026-07-13: scope correction
 
 - Re-established `origin/main` (`d204ae429752617b6fce82ee45012bbe07ddb64c`) as the sole original 3Dmol GUI baseline.

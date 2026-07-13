@@ -1,5 +1,8 @@
 import type { CameraProjection, IsosurfaceLayer, IsosurfaceSettings, Vec3 } from 'matterviz'
 import type { ManifestEntry, MultiwfnManifest } from './manifest'
+import type { SliceAxis, SliceColormap } from './slice'
+
+const WORKBENCH_SLICE_COLORMAPS = new Set(['Viridis', 'RdBu', 'Jet', 'Portland'])
 
 export type WorkbenchCameraState = {
   position?: Vec3
@@ -37,6 +40,23 @@ export type WorkbenchStructureAppearance = {
   backgroundOpacity?: number
 }
 
+export type WorkbenchSliceState = {
+  open?: boolean
+  plane?: SliceAxis
+  millerIndices?: [number, number, number]
+  position?: number
+  resolution?: number
+  colormap?: SliceColormap
+  rangeMode?: 'auto' | 'manual'
+  manualMin?: number
+  manualMax?: number
+}
+
+export type WorkbenchEspLegendState = {
+  visible?: boolean
+  position?: { left: number; top: number }
+}
+
 export type MatterVizWorkbenchState = {
   format: 'multiwfn-matterviz-workbench'
   version: 1
@@ -63,6 +83,8 @@ export type MatterVizWorkbenchState = {
   camera?: WorkbenchCameraState
   isosurface?: WorkbenchIsosurfaceAppearance
   structureAppearance?: WorkbenchStructureAppearance
+  slice?: WorkbenchSliceState
+  espLegend?: WorkbenchEspLegendState
   session: Pick<MultiwfnManifest, 'multiwfnGui' | 'bondAnalysis' | 'espAnalysis'>
 }
 
@@ -79,6 +101,8 @@ export type WorkbenchStateInput = {
   sceneProps?: Record<string, unknown>
   backgroundColor?: string
   backgroundOpacity?: number
+  slice?: WorkbenchSliceState
+  espLegend?: WorkbenchEspLegendState
 }
 
 export type WorkbenchStateRestoration = {
@@ -87,6 +111,8 @@ export type WorkbenchStateRestoration = {
   periodic?: MatterVizWorkbenchState['periodic']
   camera?: WorkbenchCameraState
   structureAppearance?: WorkbenchStructureAppearance
+  slice?: WorkbenchSliceState
+  espLegend?: WorkbenchEspLegendState
 }
 
 const as_record = (value: unknown): Record<string, unknown> =>
@@ -210,6 +236,47 @@ const normalize_appearance = (value: unknown): WorkbenchIsosurfaceAppearance | u
 const normalize_color = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() !== '' ? value : undefined
 
+const normalize_slice = (value: unknown): WorkbenchSliceState | undefined => {
+  const row = as_record(value)
+  const slice: WorkbenchSliceState = {}
+  const open = row.open ?? row.visible
+  if (typeof open === 'boolean') slice.open = open
+  const plane = row.plane ?? row.axis
+  if (plane === 'xy' || plane === 'xz' || plane === 'yz') slice.plane = plane
+  const millerValue = row.millerIndices ?? row.miller_indices
+  if (Array.isArray(millerValue) && millerValue.length >= 3) {
+    const values = millerValue.slice(0, 3).map(finite_integer)
+    if (values.every((item) => item !== undefined)) slice.millerIndices = values as [number, number, number]
+  }
+  const position = clamp_finite(row.position, 0, 1)
+  if (position !== undefined) slice.position = position
+  const resolution = finite_integer(row.resolution)
+  if (resolution !== undefined) slice.resolution = Math.min(512, Math.max(2, resolution))
+  const colormap = row.colormap
+  if (typeof colormap === 'string' && WORKBENCH_SLICE_COLORMAPS.has(colormap)) {
+    slice.colormap = colormap as SliceColormap
+  }
+  const rangeMode = row.rangeMode ?? row.range_mode
+  if (rangeMode === 'auto' || rangeMode === 'manual') slice.rangeMode = rangeMode
+  const manualMin = finite_number(row.manualMin ?? row.manual_min)
+  const manualMax = finite_number(row.manualMax ?? row.manual_max)
+  if (manualMin !== undefined) slice.manualMin = manualMin
+  if (manualMax !== undefined) slice.manualMax = manualMax
+  return Object.keys(slice).length ? slice : undefined
+}
+
+const normalize_legend = (value: unknown): WorkbenchEspLegendState | undefined => {
+  const row = as_record(value)
+  const legend: WorkbenchEspLegendState = {}
+  const visible = row.visible ?? row.open
+  if (typeof visible === 'boolean') legend.visible = visible
+  const position = as_record(row.position)
+  const left = finite_number(position.left)
+  const top = finite_number(position.top)
+  if (left !== undefined && top !== undefined) legend.position = { left, top }
+  return Object.keys(legend).length ? legend : undefined
+}
+
 const ISO_COLORMAPS = new Set([
   'interpolateViridis', 'interpolatePlasma', 'interpolateInferno', 'interpolateMagma',
   'interpolateCividis', 'interpolateTurbo', 'interpolateRdBu', 'interpolateRdYlBu',
@@ -295,6 +362,8 @@ export const create_workbench_state = (input: WorkbenchStateInput): MatterVizWor
     camera: normalize_camera(input.camera),
     isosurface: appearance,
     structureAppearance,
+    slice: normalize_slice(input.slice),
+    espLegend: normalize_legend(input.espLegend),
     session: {
       multiwfnGui: input.manifest.multiwfnGui,
       bondAnalysis: input.manifest.bondAnalysis,
@@ -347,6 +416,8 @@ export const parse_workbench_state = (value: unknown): MatterVizWorkbenchState =
     camera: normalize_camera(root.camera),
     isosurface: normalize_appearance(root.isosurface),
     structureAppearance: normalize_structure_appearance(root.structureAppearance),
+    slice: normalize_slice(root.slice),
+    espLegend: normalize_legend(root.espLegend),
     session,
   }
 }
@@ -404,6 +475,8 @@ export const restore_workbench_state = (
     periodic: state.periodic,
     camera: state.camera,
     structureAppearance: state.structureAppearance,
+    slice: state.slice,
+    espLegend: state.espLegend,
   }
 }
 

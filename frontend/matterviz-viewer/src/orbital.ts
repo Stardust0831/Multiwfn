@@ -1,5 +1,24 @@
 import type { ManifestEntry } from './manifest'
 
+export const ORBITAL_GRID_QUALITY_LEVELS = [25000, 50000, 120000, 300000, 500000, 1000000, 1500000] as const
+
+export const normalize_orbital_isovalue = (value: unknown, fallback = 0.02): number => {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(0.3, Math.max(0.000001, Math.abs(parsed)))
+}
+
+export const orbital_frontier_label = (
+  index: number,
+  homoIndex: unknown,
+  openShell: unknown,
+): 'HOMO' | 'LUMO' | '' => {
+  if (openShell !== false) return ''
+  const homo = Number(homoIndex)
+  if (!Number.isInteger(homo) || homo < 1) return ''
+  return index === homo ? 'HOMO' : index === homo + 1 ? 'LUMO' : ''
+}
+
 type VisibilityLayer = { visible?: boolean; volume_idx?: number }
 
 const orbital_index = (entry: ManifestEntry): number | undefined => {

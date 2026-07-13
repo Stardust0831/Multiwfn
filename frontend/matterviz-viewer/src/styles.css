@@ -103,6 +103,8 @@ button:disabled { opacity: 0.45; cursor: default; }
   background: #fff;
 }
 .workspace.inspector-closed { grid-template-columns: 44px minmax(0, 1fr); }
+.workspace.has-orbitals { grid-template-columns: 44px 300px minmax(0, 1fr) 260px; }
+.workspace.inspector-closed.has-orbitals { grid-template-columns: 44px minmax(0, 1fr) 260px; }
 .tool-rail {
   z-index: 30;
   display: flex;
@@ -136,6 +138,53 @@ button:disabled { opacity: 0.45; cursor: default; }
   width: 100% !important;
   height: 100% !important;
 }
+.orbital-panel {
+  display: grid;
+  grid-template-rows: auto minmax(120px, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #f8f9fb;
+  border-left: 1px solid #cfd6df;
+}
+.orbital-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding: 7px 9px;
+  border-bottom: 1px solid #d7dde5;
+}
+.orbital-panel > header div { display: flex; align-items: baseline; gap: 6px; }
+.orbital-panel > header small { color: #667085; }
+.orbital-panel > header > span { color: #18794e; font-size: 10px; }
+.orbital-panel > header > span.offline { color: #b54708; }
+.orbital-list { overflow: auto; padding: 5px; }
+.orbital-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  margin-bottom: 2px;
+  padding: 0 7px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+.orbital-list button.active { border-color: #8fc0e1; background: #dceefa; }
+.orbital-list button span { font-weight: 600; }
+.orbital-list button small { min-width: 0; overflow: hidden; color: #667085; text-overflow: ellipsis; white-space: nowrap; }
+.orbital-controls { display: grid; gap: 6px; padding: 8px; border-top: 1px solid #d7dde5; }
+.orbital-controls label { display: grid; gap: 3px; }
+.orbital-controls label span { color: #5c6675; font-size: 11px; }
+.orbital-controls input, .orbital-controls select, .orbital-controls > button { width: 100%; }
+.orbital-navigation { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; gap: 4px; }
+.orbital-navigation button { padding: 0; }
+.orbital-navigation input { width: 100%; }
+.orbital-controls p { margin: 0; color: #b54708; font-size: 10px; line-height: 1.35; }
 .loading, .empty {
   position: absolute;
   inset: 0;
@@ -276,6 +325,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 @media (max-width: 800px) {
   .workspace { position: relative; grid-template-columns: 44px minmax(0, 1fr); }
+  .workspace.has-orbitals,
+  .workspace.inspector-closed.has-orbitals { grid-template-columns: 44px minmax(0, 1fr) 220px; }
   .toolbar { flex-wrap: nowrap; overflow-x: auto; }
   .periodic-bar { overflow-x: auto; }
 }

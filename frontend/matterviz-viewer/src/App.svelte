@@ -32,9 +32,12 @@
     type MultiwfnManifest,
   } from './manifest'
   import {
+    ORBITAL_GRID_QUALITY_LEVELS,
     exclusive_volume_visibility,
     initial_orbital_volume_index,
     loaded_orbital_volume_index,
+    normalize_orbital_isovalue,
+    orbital_frontier_label,
   } from './orbital'
   import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
   import { request_return_and_close } from './return'
@@ -46,6 +49,7 @@
     type MatterVizWorkbenchState,
     type WorkbenchCameraState,
   } from './state'
+  import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -68,14 +72,27 @@
   let loading = $state(true)
   let returnPending = $state(false)
   let errorMessage = $state<string | undefined>()
+  let viewerError = $state<string | undefined>()
   let status = $state('Loading Multiwfn session...')
   let orbitalIndex = $state(0)
+  let orbitalIsovalue = $state(0.02)
+  let orbitalBackendAvailable = $state(true)
   let quality = $state(120000)
   let espIsovalue = $state(0.001)
   let bondMethod = $state('mayer')
   let logOpen = $state(false)
   let layerOpen = $state(false)
   let sliceOpen = $state(false)
+  let slicePlane = $state<SliceAxis>('xy')
+  let sliceMillerH = $state(0)
+  let sliceMillerK = $state(0)
+  let sliceMillerL = $state(1)
+  let slicePosition = $state(0.5)
+  let sliceResolution = $state(128)
+  let sliceColormap = $state<SliceColormap>('Viridis')
+  let sliceRangeMode = $state<'auto' | 'manual'>('auto')
+  let sliceManualMin = $state('')
+  let sliceManualMax = $state('')
   let espLegendOpen = $state(false)
   let espExtremaOpen = $state(false)
   let espExtremaLoading = $state(false)
@@ -123,10 +140,11 @@
   }
 
   const orbital_label = (item: { index: number; energy?: number; occupation?: number }): string => {
-    const homo = Number(manifest.orbitals?.homoIndex ?? 0)
-    const frontier = manifest.bondAnalysis?.openShell === false
-      ? item.index === homo ? 'HOMO' : item.index === homo + 1 ? 'LUMO' : ''
-      : ''
+    const frontier = orbital_frontier_label(
+      item.index,
+      manifest.orbitals?.homoIndex,
+      manifest.bondAnalysis?.openShell,
+    )
     const energy = Number.isFinite(item.energy) ? `${Number(item.energy).toFixed(6)} Ha` : ''
     const occupation = Number.isFinite(item.occupation) ? `occ ${Number(item.occupation).toPrecision(4)}` : ''
     return [`MO ${item.index}`, frontier, energy, occupation].filter(Boolean).join(' | ')
@@ -160,6 +178,16 @@
       return
     }
     orbitalIndex = Math.max(1, Math.min(orbital_count() || orbitalIndex + offset, orbitalIndex + offset))
+  }
+
+  const activate_orbital = async (index: number): Promise<void> => {
+    orbitalIndex = index
+    await request_orbital()
+  }
+
+  const step_orbital = async (offset: number): Promise<void> => {
+    move_orbital(offset)
+    await request_orbital()
   }
 
   const report_error = (error: unknown): void => {
@@ -296,6 +324,13 @@
     if (volumeIdx !== undefined) activeVolumeIdx = volumeIdx
   }
 
+  const restore_visible_orbital_selection = (): void => {
+    const visibleLayer = (isosurfaceSettings.layers ?? []).find((layer) => layer.visible !== false)
+    const volumeIdx = visibleLayer?.volume_idx
+    const visibleIndex = volumeIdx === undefined ? 0 : Number(volumeEntries[volumeIdx]?.orbitalIndex)
+    orbitalIndex = Number.isInteger(visibleIndex) && visibleIndex > 0 ? visibleIndex : 0
+  }
+
   const replace_volume_entry = async (
     volumeIdx: number,
     entry: ManifestEntry,
@@ -392,6 +427,20 @@
     update_layer(densityIdx, { color_range: espRange })
   }
 
+  const linked_esp_range = (): [number, number] | undefined => {
+    const pair = esp_pair()
+    if (!pair) return undefined
+    const layer = (isosurfaceSettings.layers ?? []).find((item) => item.volume_idx === pair.densityIdx)
+    const range = layer?.color_range
+    if (!Array.isArray(range) || range.length < 2) return undefined
+    const lower = Number(range[0])
+    const upper = Number(range[1])
+    if (!Number.isFinite(lower) || !Number.isFinite(upper)) return undefined
+    return lower <= upper ? [lower, upper] : [upper, lower]
+  }
+
+  const current_esp_range = (): [number, number] => linked_esp_range() ?? espRange
+
   const state_url = (): URL | undefined => {
     const value = new URL(window.location.href).searchParams.get('state')
     return value ? new URL(value, window.location.href) : undefined
@@ -464,6 +513,23 @@
       if (appearance.backgroundColor !== undefined) backgroundColor = appearance.backgroundColor
       if (appearance.backgroundOpacity !== undefined) backgroundOpacity = appearance.backgroundOpacity
     }
+    const slice = restored.slice
+    sliceOpen = slice?.open ?? false
+    slicePlane = slice?.plane ?? 'xy'
+    const millerIndices = slice?.millerIndices ?? AXIS_PRESETS[slicePlane]
+    sliceMillerH = millerIndices[0]
+    sliceMillerK = millerIndices[1]
+    sliceMillerL = millerIndices[2]
+    slicePosition = slice?.position ?? 0.5
+    sliceResolution = slice?.resolution ?? 128
+    sliceColormap = slice?.colormap ?? 'Viridis'
+    sliceRangeMode = slice?.rangeMode ?? 'auto'
+    sliceManualMin = slice?.manualMin === undefined ? '' : String(slice.manualMin)
+    sliceManualMax = slice?.manualMax === undefined ? '' : String(slice.manualMax)
+    espLegendOpen = restored.espLegend?.visible ?? Boolean(esp_pair())
+    espLegendPosition = restored.espLegend?.position ?? { left: 16, top: 16 }
+    const restoredEspRange = linked_esp_range()
+    if (restoredEspRange) espRange = restoredEspRange
     set_status('MatterViz workbench state restored')
     add_log('Workbench state restored')
   }
@@ -492,6 +558,8 @@
       manifest = (await response.json()) as MultiwfnManifest
       manifestBase = new URL('.', url)
       quality = Number(manifest.espAnalysis?.defaultQuality ?? 120000)
+      orbitalIsovalue = normalize_orbital_isovalue(manifest.multiwfnGui?.state?.sur_value_orb, 0.02)
+      orbitalBackendAvailable = true
       espIsovalue = Number(manifest.espAnalysis?.defaultIsovalue ?? 0.001)
       orbitalIndex = Number(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex ?? 0)
       if (manifest.multiwfnGui?.state?.showMolecule !== undefined) {
@@ -564,13 +632,17 @@
       return
     }
     const requestedQuality = quality
+    if (!orbitalBackendAvailable) {
+      report_error(new Error('This orbital session is no longer connected to Multiwfn; reopen menu 0 to calculate another orbital'))
+      return
+    }
     loading = true
     add_log(`Requesting orbital ${requestedIndex} at grid quality ${requestedQuality}`)
     try {
       const params = new URLSearchParams({
         index: String(requestedIndex),
         quality: String(requestedQuality),
-        isovalue: '0.02',
+        isovalue: String(orbitalIsovalue),
       })
       const response = await fetch(api_url('/api/orbital', params), { cache: 'no-store' })
       const payload = await read_api_payload(response)
@@ -582,15 +654,19 @@
         role: 'orbital',
         orbitalIndex: requestedIndex,
         gridQuality: Number(payload.quality ?? requestedQuality),
-        isovalue: Number(payload.isovalue ?? payload.layer.isovalue ?? 0.02),
+        isovalue: Number(payload.isovalue ?? payload.layer.isovalue ?? orbitalIsovalue),
       }
       const activeIdx = cachedVolumeIdx === undefined
         ? await apply_entries([layer], manifestBase, 'append')
         : await replace_volume_entry(cachedVolumeIdx, layer, manifestBase)
       orbitalIndex = requestedIndex
+      orbitalBackendAvailable = true
       activate_only_volume(activeIdx)
       set_status(`Orbital ${requestedIndex} loaded`)
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.includes('Multiwfn backend unavailable')) orbitalBackendAvailable = false
+      restore_visible_orbital_selection()
       report_error(error)
     } finally {
       loading = false
@@ -602,6 +678,12 @@
     if (!Number.isFinite(nextQuality)) return
     quality = nextQuality
     if (orbital_index_valid()) await request_orbital({ forceRecompute: true })
+  }
+
+  const change_orbital_isovalue = (value: unknown): void => {
+    orbitalIsovalue = normalize_orbital_isovalue(value, orbitalIsovalue)
+    const activeIdx = loaded_orbital_volume_index(volumeEntries, orbitalIndex)
+    if (activeIdx !== undefined) update_layer(activeIdx, { isovalue: orbitalIsovalue })
   }
 
   const request_esp = async (): Promise<void> => {
@@ -736,6 +818,18 @@
       sceneProps,
       backgroundColor,
       backgroundOpacity,
+      slice: {
+        open: sliceOpen,
+        plane: slicePlane,
+        millerIndices: [sliceMillerH, sliceMillerK, sliceMillerL],
+        position: slicePosition,
+        resolution: sliceResolution,
+        colormap: sliceColormap,
+        rangeMode: sliceRangeMode,
+        ...(Number.isFinite(Number(sliceManualMin)) && sliceManualMin.trim() !== '' ? { manualMin: Number(sliceManualMin) } : {}),
+        ...(Number.isFinite(Number(sliceManualMax)) && sliceManualMax.trim() !== '' ? { manualMax: Number(sliceManualMax) } : {}),
+      },
+      espLegend: { visible: espLegendOpen, position: espLegendPosition },
     }))
     set_status('MatterViz workbench state exported')
   }
@@ -902,28 +996,6 @@
       <button class="icon-button" type="button" title="Zoom out" aria-label="Zoom out" onclick={() => step_zoom('out')} disabled={!current_camera_pose()}><Icon icon="ZoomOut" width="16" height="16" /></button>
       <button class="icon-button" type="button" title="Zoom in" aria-label="Zoom in" onclick={() => step_zoom('in')} disabled={!current_camera_pose()}><Icon icon="ZoomIn" width="16" height="16" /></button>
     </div>
-    <button type="button" title="Previous orbital" aria-label="Previous orbital" onclick={() => move_orbital(-1)} disabled={loading || orbitalIndex <= 1}>&lt;</button>
-    <label>
-      <span>Orbital</span>
-      {#if manifest.orbitals?.items?.length && manifest.orbitals.items.length >= orbital_count()}
-        <select bind:value={orbitalIndex} aria-label="Orbital" disabled={loading}>
-          <option value={0}>None</option>
-          {#each manifest.orbitals.items as item}<option value={item.index}>{orbital_label(item)}</option>{/each}
-        </select>
-      {:else}
-        <input aria-label="Orbital" type="number" min="0" max={orbital_count() || undefined} bind:value={orbitalIndex} disabled={loading} />
-      {/if}
-    </label>
-    <button type="button" title="Next orbital" aria-label="Next orbital" onclick={() => move_orbital(1)} disabled={loading || orbitalIndex >= orbital_count()}>&gt;</button>
-    <button type="button" onclick={() => request_orbital()} disabled={loading || !orbital_selection_valid()}>{orbitalIndex === 0 ? 'Hide orbitals' : 'Show orbital'}</button>
-    <label>
-      <span>Grid</span>
-      <select value={quality} onchange={change_orbital_quality} disabled={loading}>
-        {#each manifest.espAnalysis?.qualityLevels ?? [25000, 50000, 120000, 300000, 500000] as level}
-          <option value={level}>{level.toLocaleString()}</option>
-        {/each}
-      </select>
-    </label>
     <label>
       <span>Density iso</span>
       <input type="number" min="0.000001" max="0.1" step="0.0001" bind:value={espIsovalue} />
@@ -1015,7 +1087,7 @@
     </section>
   {/if}
 
-  <section class="workspace" class:inspector-closed={!inspectorOpen}>
+  <section class="workspace" class:inspector-closed={!inspectorOpen} class:has-orbitals={orbital_selection_available()}>
     <nav class="tool-rail" aria-label="Inspector tools">
       <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true }}>
         <span aria-hidden="true">S</span><small>Structure</small>
@@ -1072,7 +1144,7 @@
           bind:background_color={backgroundColor}
           bind:background_opacity={backgroundOpacity}
           bind:loading
-          bind:error_msg={errorMessage}
+          bind:error_msg={viewerError}
           on_camera_move={track_camera}
           on_camera_reset={track_camera}
           show_controls="always"
@@ -1087,12 +1159,72 @@
           volumes={volumetricData ?? []}
           bind:active_volume_idx={activeVolumeIdx}
           bind:open={sliceOpen}
+          bind:axis={slicePlane}
+          bind:miller_h={sliceMillerH}
+          bind:miller_k={sliceMillerK}
+          bind:miller_l={sliceMillerL}
+          bind:position={slicePosition}
+          bind:resolution={sliceResolution}
+          bind:colormap={sliceColormap}
+          bind:range_mode={sliceRangeMode}
+          bind:manual_min={sliceManualMin}
+          bind:manual_max={sliceManualMax}
         />
       {/if}
       {#if espLegendOpen}
-        <EspLegend min={espRange[0]} max={espRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
+        {@const legendRange = current_esp_range()}
+        <EspLegend min={legendRange[0]} max={legendRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
     </section>
+
+    {#if orbital_selection_available()}
+      <aside class="orbital-panel" aria-label="Orbital controls">
+        <header>
+          <div><strong>Orbitals</strong><small>{orbital_count()}</small></div>
+          <span class:offline={!orbitalBackendAvailable}>{orbitalBackendAvailable ? 'Connected' : 'Cached only'}</span>
+        </header>
+        {#if manifest.orbitals?.items?.length}
+          <div class="orbital-list" role="listbox" aria-label="Orbital list">
+            <button type="button" class:active={orbitalIndex === 0} role="option" aria-selected={orbitalIndex === 0} onclick={() => activate_orbital(0)} disabled={loading}>None</button>
+            {#each manifest.orbitals.items as item}
+              <button
+                type="button"
+                class:active={orbitalIndex === item.index}
+                role="option"
+                aria-selected={orbitalIndex === item.index}
+                title={orbital_label(item)}
+                onclick={() => activate_orbital(item.index)}
+                disabled={loading || (!orbitalBackendAvailable && loaded_orbital_volume_index(volumeEntries, item.index) === undefined)}
+              >
+                <span>MO {item.index}</span>
+                <small>{orbital_frontier_label(item.index, manifest.orbitals?.homoIndex, manifest.bondAnalysis?.openShell) || (Number.isFinite(item.energy) ? `${Number(item.energy).toFixed(4)} Ha` : '')}</small>
+              </button>
+            {/each}
+          </div>
+        {/if}
+        <div class="orbital-controls">
+          <div class="orbital-navigation">
+            <button type="button" title="Previous orbital" aria-label="Previous orbital" onclick={() => step_orbital(-1)} disabled={loading || orbitalIndex <= 1}>&lt;</button>
+            <input aria-label="Orbital index" type="number" min="0" max={orbital_count() || undefined} bind:value={orbitalIndex} disabled={loading} />
+            <button type="button" title="Next orbital" aria-label="Next orbital" onclick={() => step_orbital(1)} disabled={loading || orbitalIndex >= orbital_count()}>&gt;</button>
+          </div>
+          <button type="button" onclick={() => request_orbital()} disabled={loading || !orbital_selection_valid() || (!orbitalBackendAvailable && loaded_orbital_volume_index(volumeEntries, orbitalIndex) === undefined)}>{orbitalIndex === 0 ? 'Hide orbitals' : 'Show orbital'}</button>
+          <label>
+            <span>Orbital isovalue</span>
+            <input type="number" min="0.000001" max="0.3" step="0.001" value={orbitalIsovalue} onchange={(event) => change_orbital_isovalue(event.currentTarget.valueAsNumber)} />
+          </label>
+          <label>
+            <span>Grid precision</span>
+            <select value={quality} onchange={change_orbital_quality} disabled={loading || !orbitalBackendAvailable}>
+              {#each manifest.espAnalysis?.qualityLevels ?? ORBITAL_GRID_QUALITY_LEVELS as level}
+                <option value={level}>{Math.round(level / 1000)}k points</option>
+              {/each}
+            </select>
+          </label>
+          {#if !orbitalBackendAvailable}<p>Reopen Multiwfn menu 0 to calculate uncached orbitals.</p>{/if}
+        </div>
+      </aside>
+    {/if}
 
   </section>
 

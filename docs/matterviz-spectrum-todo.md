@@ -2,6 +2,17 @@
 
 Updated: 2026-07-13
 
+## 2026-07-13 frontend parity work pending release
+
+- [x] Complete code/test review of the current frontend parity changes before treating them as a release candidate; no preview containing this work has been released.
+- [x] Add a right-side orbital selection panel with manifest orbital metadata, None and closed-shell HOMO/LUMO context, previous/next navigation, independent orbital isovalue control, and the full original-GUI grid precision choices: 25k, 50k, 120k, 300k, 500k, 1000k and 1500k points.
+- [x] Preserve the structure canvas and cached orbital layers when the backend becomes stale; disable uncached orbital requests and report that reopening Multiwfn menu 0 is required for new calculations.
+- [x] Persist slice controls (plane/Miller indices, position, resolution, colormap and auto/manual range) and ESP legend visibility/position/range through workbench state.
+- [x] Add a periodic cross-boundary artifact and parser coverage preserving MatterViz-compatible bond `cell_shift` metadata, and verify shifted/unshifted rendering at desktop and 800px without page errors; validation with a real Multiwfn-generated cross-boundary workflow remains open.
+- [x] Verify the right orbital panel and stale-backend fallback at 1440x900 and 800x700: all seven grid levels present, no viewer/panel overlap, uncached orbitals disabled, structure canvas retained and no page errors.
+- [x] Record the live request check `orbital 42 300000 0.031`, browser audit and current `npm test`/`npm run check`/`npm run build` results as work-in-progress evidence only, not release completion.
+- [ ] Commit and push this parity increment, then require green PR #26 CI before producing another preview.
+
 ## Scope correction
 
 - [x] Use `origin/main` as the only original 3Dmol GUI feature baseline.
