@@ -68,6 +68,15 @@ class OrbitalRequestTests(unittest.TestCase):
                     server.request_orbital(self.session, values, manifest=self.manifest)
                 backend.assert_not_called()
 
+    def test_duplicate_parameters_are_rejected(self):
+        query = self.request(index=3, quality=120000, isovalue=0.02)
+        query["quality"].append("500000")
+        with mock.patch.object(server, "request_backend") as backend:
+            with self.assertRaisesRegex(server.OrbitalRequestError, "provided once"):
+                server.request_orbital(self.session, query, manifest=self.manifest)
+        backend.assert_not_called()
+        self.assertFalse((self.session / "gui_request.txt").exists())
+
     def test_index_is_checked_against_manifest_count(self):
         with mock.patch.object(server, "request_backend") as backend:
             with self.assertRaises(server.OrbitalRequestError):

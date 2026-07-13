@@ -232,7 +232,7 @@ def _query_scalar(query: dict[str, list[str]], name: str, default: str) -> str:
     values = query.get(name)
     if values is None:
         return default
-    if not isinstance(values, list) or not values:
+    if not isinstance(values, list) or len(values) != 1:
         raise OrbitalRequestError(f"Orbital {name} must be provided once")
     value = values[0]
     if not isinstance(value, str):
@@ -248,6 +248,8 @@ def parse_orbital_request(
         index = int(_query_scalar(query, "index", "0"), 10)
         quality = int(_query_scalar(query, "quality", "0"), 10)
         isovalue = float(_query_scalar(query, "isovalue", "0.0"))
+    except OrbitalRequestError:
+        raise
     except (TypeError, ValueError):
         raise OrbitalRequestError("Orbital index and quality must be integers; isovalue must be numeric") from None
 

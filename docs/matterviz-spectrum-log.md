@@ -31,6 +31,9 @@
 - Browser verification at 1440x900 and 800x700 confirmed native MatterViz wireframe and material controls are reachable and change rendered pixels. Native PNG export produced valid nonblank images without page errors; a temporary ESP fixture confirmed that the DOM legend is currently omitted because MatterViz exports only the WebGL canvas.
 - API/mutation review found session isolation and orbital resource validation to be the highest bounded adapter risks. It also recorded unauthenticated mutation endpoints and Return-during-calculation semantics for staged remediation; traversal containment, request serialization, bond/ESP allowlists and same-origin normal frontend requests were confirmed safeguards.
 - Adopted the provided VESTA screenshot as a UI-layout reference, not a feature baseline: retain every proven Multiwfn top/right action, keep the 3D viewport dominant, move stable display/material controls into a compact left panel, and add top fixed-step rotate/pan/zoom tools only through public MatterViz camera APIs. VESTA-only scientific tools remain out of scope.
+- Added an explicit Axes toggle backed by MatterViz `scene_props.show_gizmo` and optional workbench-state persistence. State import/export passed at 1440x900 and 800x700 with the checkbox disabled as requested and no page errors.
+- Hardened orbital GUI HTTP requests before they reach Multiwfn: positive grid quality is limited to the native 25k-1.5M range, index is bounded by manifest metadata when available, isovalue must be finite and within the existing GUI range, duplicate parameters are rejected, and invalid requests cannot create a backend request file. Fifteen Python tests passed.
+- PR CI for `12aaa0d` completed successfully across frontend/adapter, Linux glibc compatibility, three noGUI platforms and three GUI packaging platforms; core-source guard and CodeRabbit also passed.
 
 ## Earlier work, superseded
 

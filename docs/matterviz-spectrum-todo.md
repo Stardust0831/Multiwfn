@@ -59,7 +59,7 @@ Updated: 2026-07-13
 
 - [x] Complete API isolation and mutation-method audit.
 - [ ] Use a unique per-process GUI session directory to prevent two Multiwfn instances in one working directory from sharing requests/artifacts.
-- [ ] Bound orbital request quality and require finite, bounded isovalue in the GUI HTTP adapter.
+- [x] Bound orbital request quality and require finite, bounded isovalue in the GUI HTTP adapter, with manifest-backed orbital index checks and HTTP rejection tests.
 - [ ] Add a per-session capability and loopback/Host protections for mutation endpoints; migrate state-changing requests away from unauthenticated GET where compatibility allows.
 - [ ] Define and test Return behavior while a long backend calculation is already in flight.
 - [ ] Finite WebView startup handshake and failure reporting.
