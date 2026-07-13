@@ -30,6 +30,7 @@
 - Surface-control audit separated rendering smoothness from calculation grid quality: the latter is already connected, while the former requires a real MatterViz geometry/API improvement. Product scope keeps smoothness as an upstream enhancement and explicitly declines `solid+mesh` and biomacromolecule-focused `Cartoon` work for this phase.
 - Browser verification at 1440x900 and 800x700 confirmed native MatterViz wireframe and material controls are reachable and change rendered pixels. Native PNG export produced valid nonblank images without page errors; a temporary ESP fixture confirmed that the DOM legend is currently omitted because MatterViz exports only the WebGL canvas.
 - API/mutation review found session isolation and orbital resource validation to be the highest bounded adapter risks. It also recorded unauthenticated mutation endpoints and Return-during-calculation semantics for staged remediation; traversal containment, request serialization, bond/ESP allowlists and same-origin normal frontend requests were confirmed safeguards.
+- Adopted the provided VESTA screenshot as a UI-layout reference, not a feature baseline: retain every proven Multiwfn top/right action, keep the 3D viewport dominant, move stable display/material controls into a compact left panel, and add top fixed-step rotate/pan/zoom tools only through public MatterViz camera APIs. VESTA-only scientific tools remain out of scope.
 
 ## Earlier work, superseded
 
