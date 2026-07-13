@@ -50,6 +50,7 @@
   let supercellScaling = $state('1x1x1')
   let showImageAtoms = $state(true)
   let showUnitCell = $state(true)
+  let showGizmo = $state<boolean | undefined>()
   let latticeProps = $state({
     cell_edge_opacity: 1,
     cell_surface_opacity: 0,
@@ -381,6 +382,7 @@
         ...sceneProps,
         ...(appearance.showAtoms !== undefined ? { show_atoms: appearance.showAtoms } : {}),
         ...(appearance.showBonds !== undefined ? { show_bonds: appearance.showBonds } : {}),
+        ...(appearance.showGizmo !== undefined ? { show_gizmo: appearance.showGizmo } : {}),
         ...(appearance.atomRadius !== undefined ? { atom_radius: appearance.atomRadius } : {}),
         ...(appearance.sameSizeAtoms !== undefined ? { same_size_atoms: appearance.sameSizeAtoms } : {}),
         ...(appearance.bondThickness !== undefined ? { bond_thickness: appearance.bondThickness } : {}),
@@ -389,6 +391,7 @@
         ...(appearance.showSiteIndices !== undefined ? { show_site_indices: appearance.showSiteIndices } : {}),
         ...(appearance.sphereSegments !== undefined ? { sphere_segments: appearance.sphereSegments } : {}),
       }
+      if (appearance.showGizmo !== undefined) showGizmo = appearance.showGizmo
       if (appearance.backgroundColor !== undefined) backgroundColor = appearance.backgroundColor
       if (appearance.backgroundOpacity !== undefined) backgroundOpacity = appearance.backgroundOpacity
     }
@@ -637,6 +640,11 @@
     }
   }
 
+  const set_show_gizmo = (value: boolean): void => {
+    showGizmo = value
+    sceneProps = { ...sceneProps, show_gizmo: value }
+  }
+
   const open_panel = (panel: 'layers' | 'slice' | 'logs'): void => {
     const next = panel === 'layers' ? !layerOpen
       : panel === 'slice' ? !sliceOpen
@@ -718,6 +726,14 @@
       <button type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>ESP legend</button>
       <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>Approx. ESP extrema</button>
     {/if}
+    <label>
+      <input
+        type="checkbox"
+        checked={showGizmo !== false}
+        onchange={(event) => set_show_gizmo(event.currentTarget.checked)}
+      />
+      <span>Axes</span>
+    </label>
     <button type="button" onclick={() => stateInput?.click()}>Import</button>
     <button type="button" onclick={export_state}>Export</button>
     <input class="hidden-file-input" bind:this={stateInput} type="file" accept="application/json,.json" onchange={import_state_file} />

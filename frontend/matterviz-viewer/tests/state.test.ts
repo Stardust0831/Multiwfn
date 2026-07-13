@@ -165,6 +165,7 @@ test('round-trips structure appearance and background state', () => {
     sceneProps: {
       show_atoms: false,
       show_bonds: 'molecules',
+      show_gizmo: false,
       atom_radius: 1.25,
       same_size_atoms: true,
       bond_thickness: 0.2,
@@ -179,6 +180,7 @@ test('round-trips structure appearance and background state', () => {
   const expected = {
     showAtoms: false,
     showBonds: 'molecules',
+    showGizmo: false,
     atomRadius: 1.25,
     sameSizeAtoms: true,
     bondThickness: 0.2,
@@ -196,6 +198,29 @@ test('round-trips structure appearance and background state', () => {
   assert.deepEqual(restored.structureAppearance, expected)
 })
 
+test('round-trips true and false axes visibility and omits malformed legacy values', () => {
+  for (const showGizmo of [true, false]) {
+    const parsed = parse_workbench_state({
+      format: 'multiwfn-matterviz-workbench',
+      version: 1,
+      activeVolume: 0,
+      volumes: [{ path: 'structure.cif', volumeIndex: 0 }],
+      structureAppearance: { showGizmo },
+      session: {},
+    })
+    assert.equal(parsed.structureAppearance?.showGizmo, showGizmo)
+  }
+  const malformed = parse_workbench_state({
+    format: 'multiwfn-matterviz-workbench',
+    version: 1,
+    activeVolume: 0,
+    volumes: [{ path: 'structure.cif', volumeIndex: 0 }],
+    structureAppearance: { showGizmo: 'yes' },
+    session: {},
+  })
+  assert.equal(malformed.structureAppearance, undefined)
+})
+
 test('clamps bounded structure appearance values and ignores malformed fields', () => {
   const parsed = parse_workbench_state({
     format: 'multiwfn-matterviz-workbench',
@@ -205,6 +230,8 @@ test('clamps bounded structure appearance values and ignores malformed fields', 
     structureAppearance: {
       showAtoms: 'yes',
       showBonds: 'invalid',
+      showGizmo: 'yes',
+      show_gizmo: 'no',
       atomRadius: -10,
       same_size_atoms: true,
       bond_thickness: 10,

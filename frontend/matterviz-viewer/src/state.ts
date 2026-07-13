@@ -20,6 +20,7 @@ export type WorkbenchIsosurfaceAppearance = {
 export type WorkbenchStructureAppearance = {
   showAtoms?: boolean
   showBonds?: 'always' | 'never' | 'crystals' | 'molecules'
+  showGizmo?: boolean
   atomRadius?: number
   sameSizeAtoms?: boolean
   bondThickness?: number
@@ -126,6 +127,8 @@ const normalize_structure_appearance = (value: unknown): WorkbenchStructureAppea
   if (showBonds === 'always' || showBonds === 'never' || showBonds === 'crystals' || showBonds === 'molecules') {
     appearance.showBonds = showBonds
   }
+  const showGizmo = read('showGizmo', 'show_gizmo')
+  if (typeof showGizmo === 'boolean') appearance.showGizmo = showGizmo
   const atomRadius = clamp_positive(read('atomRadius', 'atom_radius'), 0.1, 3)
   if (atomRadius !== undefined) appearance.atomRadius = atomRadius
   const sameSizeAtoms = read('sameSizeAtoms', 'same_size_atoms')
