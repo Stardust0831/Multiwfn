@@ -12,6 +12,7 @@ on:
     paths:
       - CMakeLists.txt
       - noGUI/GUI_matterviz.f90
+      - noGUI/matterviz_spawn.c
       - tools/multiwfn_matterviz_server.py
       - tools/multiwfn_matterviz_file_dialog.py
       - tools/multiwfn_matterviz_webview.py
@@ -19,6 +20,7 @@ on:
       - tests/test_matterviz_webview.py
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
+      - tests/windows/test_matterviz_async_launch.ps1
       - frontend/matterviz-viewer/**
       - frontend/matterviz-desktop/**
       - docs/matterviz-webview.md
@@ -472,6 +474,8 @@ jobs:
           Remove-Item -Recurse -Force clean-test -ErrorAction SilentlyContinue
           Expand-Archive "dist/$env:PKG.zip" -DestinationPath clean-test
           $env:Path = (($env:Path -split ';') | Where-Object { $_ -notmatch 'msys64' }) -join ';'
+          pwsh -NoProfile -File tests/windows/test_matterviz_async_launch.ps1 `
+            -ExecutablePath "$PWD/clean-test/Multiwfn_MatterVizGUI.exe"
           $cleanShell = "clean-test/resources/tools/matterviz-desktop.exe"
           $cleanOutput = & $cleanShell --url http://example.com/ 2>&1
           if ($LASTEXITCODE -ne 2) { throw "Extracted MatterViz shell smoke returned $LASTEXITCODE" }

@@ -1,5 +1,13 @@
 # MatterViz parity development log
 
+## 2026-07-14: Windows request loop launch diagnosis and fix
+
+- Manual Preview 5 validation showed `/api/orbital` returning `Multiwfn backend unavailable` while the terminal and WebView were still open. The archived session contained valid native structure/manifest data; the request endpoint and frontend parameters were correct.
+- Reproduced the packaged executable with a controlled long-lived launcher. On MinGW Windows, `execute_command_line(..., wait=.false.)` did not return until that launcher exited, so the subsequent `run_matterviz_gui_loop` never ran while the GUI was open. Closing the GUI created `gui_stop.flag`; only then did Multiwfn continue, immediately leave the loop and return to the main menu.
+- Confirmed the causal fix without rebuilding by launching the same Preview 5 child through `start /b`: an `orbital 13 25000 0.05` request was consumed and produced `orbital_13_25000.cube` plus an `ok: true` response while the child remained alive.
+- Implemented a narrow GUI/session adapter fix: MatterViz/legacy-web CMake builds now link `noGUI/matterviz_spawn.c`; Windows uses `CreateProcessW`, closes the returned process/thread handles and enters the existing Fortran request loop immediately. No orbital, grid or other Multiwfn calculation source was changed.
+- Added static build guards and a native packaged-Windows lifecycle test using a fake long-lived GUI server. The test asserts request consumption and matching response while the launcher PID is alive, then exercises `gui_stop.flag` and graceful `q` exit. Preview 5 fails this regression exactly at the unconsumed request. Local protocol/source tests pass 44 tests with one expected Windows socket skip; C/YAML/PowerShell parsing checks pass. A positive Windows result awaits CI compilation because the local WSL environment has no CMake/MinGW toolchain.
+
 ## 2026-07-13: frontend parity increment pending release
 
 - Continued strict `origin/main` 3Dmol GUI parity work on the MatterViz frontend branch; this does not add DOS/PDOS, IR, Raman, UV-Vis or NMR capabilities.

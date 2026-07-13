@@ -1,6 +1,14 @@
 # MatterViz origin/main parity TODO
 
-Updated: 2026-07-13
+Updated: 2026-07-14
+
+## 2026-07-14 Windows asynchronous launch blocker
+
+- [x] Reproduce Preview 5 with the packaged Windows executable and prove that MinGW `execute_command_line(wait=.false.)` remains blocked until the Python/WebView launcher exits, so `run_matterviz_gui_loop` cannot consume orbital requests while the window is open.
+- [x] Verify the diagnosis independently by wrapping the same Preview 5 launcher with Windows `start /b`: Multiwfn consumed `orbital 13 25000 0.05` and generated a valid cube/JSON response while the launcher remained alive.
+- [x] Replace the Windows shell/Fortran async assumption with a GUI-adapter-only `CreateProcessW` C ABI; keep Linux/macOS on the existing path and do not modify calculation modules.
+- [x] Add a packaged-Windows regression that keeps a fake GUI launcher alive and requires Multiwfn to consume `gui_request.txt` and publish the matching response before shutdown. Confirm that Preview 5 fails this test for the expected unconsumed-request reason.
+- [ ] Require the new Windows build to pass the async request-loop regression, existing session-isolation tests and all package checks before publishing another preview.
 
 ## 2026-07-13 frontend parity work pending release
 

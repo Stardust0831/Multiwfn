@@ -167,7 +167,10 @@ set(MULTIWFN_GUI_SOURCE GUI.f90)
 set(MULTIWFN_EXECUTABLE_NAME Multiwfn_noGUI)
 if(MULTIWFN_GUI_BACKEND MATCHES "^(3dmol|matterviz)$")
   set(MULTIWFN_GUI_SOURCE noGUI/GUI_matterviz.f90)
-  list(APPEND MULTIWFN_CORE_SOURCES noGUI/plot_external_empty.f90)
+  list(APPEND MULTIWFN_CORE_SOURCES
+    noGUI/plot_external_empty.f90
+    noGUI/matterviz_spawn.c
+  )
 endif()
 if(MULTIWFN_GUI_BACKEND STREQUAL "3dmol")
   set(MULTIWFN_EXECUTABLE_NAME Multiwfn_3DmolGUI)

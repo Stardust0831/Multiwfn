@@ -94,7 +94,9 @@ subroutine launch_matterviz_gui(entry,mode,extra,init1,end1,init2,end2,init3,end
 character(len=*),intent(in) :: entry
 integer,intent(in) :: mode,extra
 real*8,intent(in) :: init1,end1,init2,end2,init3,end3
-character(len=512) :: session,manifest,cmd
+character(len=512) :: session,manifest
+character(len=1024) :: cmd
+integer :: launch_status,launch_matterviz_process
 logical :: session_ok
 
 call reset_generated_orbitals()
@@ -125,7 +127,18 @@ call build_launch_command(trim(manifest),trim(session),cmd)
 write(*,"(/,a)") " MatterViz GUI backend wrote a visualization session:"
 write(*,"(a,a)") "   ",trim(manifest)
 write(*,"(a)") " Launching visualization GUI..."
+#ifdef _WIN32
+! MinGW execute_command_line(wait=.false.) may still block until the child
+! exits.  Use the native Windows process adapter so the request loop starts
+! while the visualization host remains alive.
+launch_status=launch_matterviz_process(trim(cmd))
+if (launch_status/=0) then
+    write(*,"(a,i0)") " MatterViz GUI launch failed with status ",launch_status
+    return
+end if
+#else
 call execute_command_line(trim(cmd),wait=.false.)
+#endif
 if (trim(entry)=="drawmolgui") call run_matterviz_gui_loop(trim(session))
 end subroutine
 
@@ -925,6 +938,7 @@ subroutine build_launch_command(manifest,session,cmd)
 character(len=*),intent(in) :: manifest,session
 character(len=*),intent(out) :: cmd
 character(len=512) :: home,python,tool,frontend,shell,native
+character(len=1024) :: launchcmd
 integer :: istat
 
 call get_matterviz_home(home)
@@ -984,13 +998,38 @@ if (istat/=0.or.len_trim(python)==0) then
 end if
 
 if (trim(shell)=="qt") then
-    cmd=trim(python)//' "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
+    launchcmd='"'//trim(python)//'" "'//trim(tool)//'" --manifest "'//trim(manifest)//'" --frontend "'//trim(frontend)//'"'
 else if (trim(shell)=="webview") then
-    cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'"'
+    launchcmd='"'//trim(python)//'" "'//trim(tool)//'" --frontend "'//trim(frontend)// &
+        '" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'"'
 else
-    cmd=trim(python)//' "'//trim(tool)//'" --frontend "'//trim(frontend)//'" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
+    launchcmd='"'//trim(python)//'" "'//trim(tool)//'" --frontend "'//trim(frontend)// &
+        '" --session "'//trim(session)//'" --manifest "'//trim(manifest)//'" --open'
 end if
+cmd=trim(launchcmd)
 end subroutine
+
+integer function launch_matterviz_process(command)
+use iso_c_binding, only: c_char,c_int,c_null_char
+character(len=*),intent(in) :: command
+character(kind=c_char),allocatable :: c_command(:)
+integer :: idx,length
+interface
+    integer(c_int) function multiwfn_spawn_async(command_arg) bind(C,name="multiwfn_spawn_async")
+    import :: c_char,c_int
+    character(kind=c_char),intent(in) :: command_arg(*)
+    end function
+end interface
+
+length=len_trim(command)
+allocate(c_command(length+1))
+do idx=1,length
+    c_command(idx)=char(iachar(command(idx:idx)),kind=c_char)
+end do
+c_command(length+1)=c_null_char
+launch_matterviz_process=int(multiwfn_spawn_async(c_command))
+deallocate(c_command)
+end function
 
 subroutine resolve_native_qt_launcher(home,native)
 character(len=*),intent(in) :: home

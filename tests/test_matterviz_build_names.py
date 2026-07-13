@@ -5,6 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 CMAKE = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 FORTRAN = (ROOT / "noGUI" / "GUI_matterviz.f90").read_text(encoding="utf-8")
+SPAWN = (ROOT / "noGUI" / "matterviz_spawn.c").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github" / "workflows" / "matterviz-gui.yml").read_text(encoding="utf-8")
 
 
@@ -36,6 +37,20 @@ class MatterVizBuildNamingTests(unittest.TestCase):
             self.assertNotIn(obsolete, FORTRAN)
         self.assertIn("MULTIWFN_MATTERVIZ_SESSION", FORTRAN)
         self.assertIn("multiwfn_matterviz_session_", FORTRAN)
+
+    def test_windows_matterviz_host_uses_native_nonblocking_spawn(self):
+        matterviz_sources = CMAKE.split('if(MULTIWFN_GUI_BACKEND MATCHES "^(3dmol|matterviz)$")', 1)[1]
+        matterviz_sources = matterviz_sources.split("endif()", 1)[0]
+        self.assertIn("noGUI/matterviz_spawn.c", matterviz_sources)
+        self.assertIn("CreateProcessW", SPAWN)
+        self.assertIn("MultiByteToWideChar(CP_ACP", SPAWN)
+        self.assertNotIn("CP_UTF8", SPAWN)
+        self.assertIn("CloseHandle(process.hThread)", SPAWN)
+        self.assertIn("CloseHandle(process.hProcess)", SPAWN)
+        self.assertIn("launch_status=launch_matterviz_process(trim(cmd))", FORTRAN)
+        self.assertIn("launchcmd='\"'//trim(python)//'\" \"'//trim(tool)", FORTRAN)
+        windows_launch = FORTRAN.split("#ifdef _WIN32", 1)[1].split("#else", 1)[0]
+        self.assertNotIn("call execute_command_line", windows_launch)
 
     def test_matterviz_package_workflow_has_no_transitional_names(self):
         for obsolete in (
