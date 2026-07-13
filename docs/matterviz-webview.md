@@ -93,9 +93,21 @@ must remain available while the window is open. In a Multiwfn build configured
 with `MULTIWFN_3DMOL_DEFAULT_SHELL=webview`,
 `tools/multiwfn_matterviz_webview.py` starts the session service, selects an
 available port, passes the exact URL (including the optional `state` query) to
-this executable, and closes the service when the window exits. Set
+this executable, waits for the initial external page load to finish, and
+closes the service when the window exits. Set
 `MULTIWFN_MATTERVIZ_WEBVIEW` to a development binary
 when it is not installed next to the packaged launcher.
+
+The adapter and shell use a session-local `gui_startup.status` file for this
+finite startup handshake. Each launch clears stale status files, generates a
+fresh process token, and passes the status path/token through
+`MULTIWFN_MATTERVIZ_STARTUP_STATUS` and
+`MULTIWFN_MATTERVIZ_STARTUP_TOKEN`. The native shell writes `ready` only after
+the first external page `Finished` load event. A shell error, early process
+exit, or a timeout prints one concise diagnostic, writes `gui_stop.flag`, and
+closes/reaps the local service and child process. The timeout defaults to 15
+seconds and can be changed with `--startup-timeout` or
+`MULTIWFN_MATTERVIZ_STARTUP_TIMEOUT`.
 
 ## Build and package
 

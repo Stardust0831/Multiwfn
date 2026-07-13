@@ -1,11 +1,18 @@
 use std::env;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::webview::PageLoadEvent;
 use url::Url;
 
 const DEFAULT_URL: &str =
     "http://127.0.0.1:8765/index.html?manifest=/session/manifest.json";
 const URL_ENV: &str = "MATTERVIZ_WEB_URL";
+const STARTUP_STATUS_ENV: &str = "MULTIWFN_MATTERVIZ_STARTUP_STATUS";
+const STARTUP_TOKEN_ENV: &str = "MULTIWFN_MATTERVIZ_STARTUP_TOKEN";
 
 fn is_loopback_host(host: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
@@ -49,21 +56,154 @@ fn requested_url() -> Result<Url, String> {
     Ok(parsed)
 }
 
+#[derive(Clone, Debug)]
+struct StartupStatus {
+    path: Option<PathBuf>,
+    token: Option<String>,
+    reported_ready: Arc<AtomicBool>,
+}
+
+impl Default for StartupStatus {
+    fn default() -> Self {
+        Self {
+            path: None,
+            token: None,
+            reported_ready: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl StartupStatus {
+    fn from_environment() -> Self {
+        Self {
+            path: env::var_os(STARTUP_STATUS_ENV).map(PathBuf::from),
+            token: env::var(STARTUP_TOKEN_ENV).ok(),
+            reported_ready: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn line(&self, state: &str, message: Option<&str>) -> String {
+        let token = self.token.as_deref().unwrap_or("");
+        let clean_message = message
+            .unwrap_or("")
+            .lines()
+            .next()
+            .unwrap_or("")
+            .replace('\r', " ")
+            .replace('\n', " ");
+        if clean_message.is_empty() {
+            if token.is_empty() {
+                format!("{state}\n")
+            } else {
+                format!("{state} {token}\n")
+            }
+        } else if token.is_empty() {
+            format!("{state}: {clean_message}\n")
+        } else {
+            format!("{state} {token} {clean_message}\n")
+        }
+    }
+
+    fn report(&self, state: &str, message: Option<&str>) {
+        let Some(path) = &self.path else {
+            return;
+        };
+        let payload = self.line(state, message);
+        // Replace in the same directory so readers never observe a partially
+        // written status. A fixed temporary name is sufficient because only
+        // one shell process owns a session status path at a time.
+        let temporary = path.with_extension("status.tmp");
+        if fs::write(&temporary, payload).is_ok() {
+            let _ = fs::rename(&temporary, path);
+        }
+    }
+
+    fn ready(&self) {
+        if self.reported_ready.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.report("ready", None);
+    }
+
+    fn error(&self, message: &str) {
+        self.report("error", Some(message));
+    }
+
+    fn managed_by_adapter(&self) -> bool {
+        self.path.is_some()
+    }
+}
+
 fn main() {
+    let startup = StartupStatus::from_environment();
     let web_url = requested_url().unwrap_or_else(|error| {
-        eprintln!("MatterViz Desktop: {error}");
+        startup.error(&error);
+        if !startup.managed_by_adapter() {
+            eprintln!("MatterViz Desktop: {error}");
+        }
         std::process::exit(2);
     });
 
-    tauri::Builder::default()
+    let setup_status = startup.clone();
+    let setup_url = web_url.clone();
+    let result = tauri::Builder::default()
         .setup(move |app| {
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(web_url.clone()))
-                .title("MatterViz")
-                .inner_size(1400.0, 900.0)
-                .resizable(true)
-                .build()?;
+            let callback_status = setup_status.clone();
+            let window_result = WebviewWindowBuilder::new(
+                app,
+                "main",
+                WebviewUrl::External(setup_url.clone()),
+            )
+            .title("MatterViz")
+            .inner_size(1400.0, 900.0)
+            .resizable(true)
+            .on_page_load(move |_window, payload| {
+                if matches!(payload.event(), PageLoadEvent::Finished) {
+                    callback_status.ready();
+                }
+            })
+            .build();
+            if let Err(error) = window_result {
+                let message = format!("could not create MatterViz window: {error}");
+                setup_status.error(&message);
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, message).into());
+            }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running MatterViz Desktop");
+        .run(tauri::generate_context!());
+
+    if let Err(error) = result {
+        let message = format!("error while running MatterViz Desktop: {error}");
+        startup.error(&message);
+        if !startup.managed_by_adapter() {
+            eprintln!("MatterViz Desktop: {message}");
+        }
+        std::process::exit(2);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StartupStatus;
+
+    #[test]
+    fn status_line_contains_token_and_single_line_message() {
+        let status = StartupStatus {
+            path: None,
+            token: Some("session-token".to_owned()),
+            reported_ready: Default::default(),
+        };
+        assert_eq!(status.line("ready", None), "ready session-token\n");
+        assert_eq!(
+            status.line("error", Some("bad\nnews")),
+            "error session-token bad news\n"
+        );
+    }
+
+    #[test]
+    fn status_line_works_without_adapter_environment() {
+        let status = StartupStatus::default();
+        assert_eq!(status.line("ready", None), "ready\n");
+        assert_eq!(status.line("error", Some("bad URL")), "error: bad URL\n");
+    }
 }

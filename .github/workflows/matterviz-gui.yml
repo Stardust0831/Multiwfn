@@ -78,7 +78,9 @@ jobs:
 
       - name: Check MatterViz WebView shell
         working-directory: frontend/matterviz-desktop
-        run: cargo check
+        run: |
+          cargo test
+          cargo check
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
