@@ -15,6 +15,7 @@ export interface VolumeStatistics {
 }
 
 export interface MattervizVolumeV1 {
+  protocol_major: 1 | 2
   request_id: bigint
   volume_id: bigint
   dimensions: Vec3
@@ -38,6 +39,7 @@ const MAX_POINTS = 1_500_000n
 const MAX_BODY_BYTES = 12_000_000n
 const MAX_FRAME_BYTES = 12_000_304n
 const BOHR_TO_ANGSTROM = 0.529177249
+const NATIVE_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
 
 const CRC32C_TABLE = (() => {
   const table = new Uint32Array(256)
@@ -52,7 +54,47 @@ const CRC32C_TABLE = (() => {
 })()
 
 function invalid(reason: string): never {
-  throw new Error(`Invalid MatterViz volume v1 frame: ${reason}`)
+  throw new Error(`Invalid MatterViz volume frame: ${reason}`)
+}
+
+export async function read_matterviz_volume_response(response: Response): Promise<ArrayBufferLike> {
+  const declared = response.headers.get('content-length')
+  const length = declared === null ? Number.NaN : Number(declared)
+  if (!Number.isSafeInteger(length) || length < VOLUME_HEADER_BYTES) {
+    throw new Error('MatterViz volume response has an invalid Content-Length')
+  }
+  if (!response.body) {
+    const fallback = await response.arrayBuffer()
+    if (fallback.byteLength !== length) throw new Error('MatterViz volume response was truncated')
+    return fallback
+  }
+  let buffer: ArrayBufferLike
+  try {
+    buffer = typeof SharedArrayBuffer !== 'undefined' && globalThis.crossOriginIsolated === true
+      ? new SharedArrayBuffer(length)
+      : new ArrayBuffer(length)
+  } catch {
+    throw new Error(`Could not allocate ${length} bytes for the MatterViz volume`)
+  }
+  const target = new Uint8Array(buffer)
+  const reader = response.body.getReader()
+  let offset = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (offset > target.length - value.byteLength) {
+        await reader.cancel('MatterViz volume response exceeded Content-Length')
+        throw new Error('MatterViz volume response exceeded Content-Length')
+      }
+      target.set(value, offset)
+      offset += value.byteLength
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  if (offset !== target.length) throw new Error('MatterViz volume response was truncated')
+  return buffer
 }
 
 function require_bytes(offset: number, size: number, length: number): void {
@@ -104,24 +146,24 @@ function scale_vec3(value: Vec3, scale: number): Vec3 {
 }
 
 /** Decode one exact MatterViz binary volume v1 frame. */
-export function decode_matterviz_volume(input: ArrayBuffer | Uint8Array): MattervizVolumeV1 {
-  const bytes = input instanceof Uint8Array ? new Uint8Array(input) : new Uint8Array(input)
+export function decode_matterviz_volume(input: ArrayBufferLike | Uint8Array): MattervizVolumeV1 {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
   if (bytes.byteLength < PRELUDE_BYTES) invalid('truncated prelude')
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 
   const magic = new TextDecoder().decode(bytes.subarray(0, 8))
   if (magic !== 'MWFNVOL\0') invalid('bad magic')
   const major = view.getUint16(8, true)
-  if (major !== 1) invalid(`unsupported major version ${major}`)
+  if (major !== 1 && major !== 2) invalid(`unsupported major version ${major}`)
   const minor = view.getUint16(10, true)
   if (minor !== 0) invalid(`unsupported minor version ${minor}`)
   const message_type = view.getUint16(12, true)
   if (message_type !== 4) invalid('message type is not volume')
   const flags = view.getUint16(14, true)
-  if (flags !== 0x0003) invalid('v1.0 requires exactly the CRC32C flags')
+  if (flags !== 0x0003) invalid('volume frame requires exactly the CRC32C flags')
 
   const header_bytes = view.getUint32(16, true)
-  if (header_bytes !== VOLUME_HEADER_BYTES) invalid('header length is not v1.0')
+  if (header_bytes !== VOLUME_HEADER_BYTES) invalid('unsupported header length')
   const request_id = view.getBigUint64(20, true)
   if (request_id === 0n) invalid('request_id must be nonzero')
   const body_bytes = view.getBigUint64(28, true)
@@ -129,9 +171,10 @@ export function decode_matterviz_volume(input: ArrayBuffer | Uint8Array): Matter
   const body_crc = view.getUint32(40, true)
   if (view.getUint32(44, true) !== 0) invalid('prelude reserved field is nonzero')
 
-  if (body_bytes > MAX_BODY_BYTES) invalid('body exceeds size limit')
+  if (major === 1 && body_bytes > MAX_BODY_BYTES) invalid('v1 body exceeds size limit')
   const expected_frame_bytes = BigInt(header_bytes) + body_bytes
-  if (expected_frame_bytes > MAX_FRAME_BYTES) invalid('frame exceeds size limit')
+  if (major === 1 && expected_frame_bytes > MAX_FRAME_BYTES) invalid('v1 frame exceeds size limit')
+  if (expected_frame_bytes > BigInt(Number.MAX_SAFE_INTEGER)) invalid('frame exceeds JavaScript addressable size')
   if (expected_frame_bytes !== BigInt(bytes.byteLength)) invalid('frame length does not match header and body')
   require_bytes(0, header_bytes, bytes.byteLength)
   require_bytes(header_bytes, Number(body_bytes), bytes.byteLength)
@@ -148,7 +191,8 @@ export function decode_matterviz_volume(input: ArrayBuffer | Uint8Array): Matter
   const nz = view.getUint32(64, true)
   if (nx === 0 || ny === 0 || nz === 0) invalid('dimensions must be nonzero')
   const sample_count_big = BigInt(nx) * BigInt(ny) * BigInt(nz)
-  if (sample_count_big > MAX_POINTS) invalid('sample count exceeds size limit')
+  if (major === 1 && sample_count_big > MAX_POINTS) invalid('v1 sample count exceeds size limit')
+  if (sample_count_big > BigInt(Number.MAX_SAFE_INTEGER)) invalid('sample count exceeds JavaScript addressable size')
   const sample_count = Number(sample_count_big)
 
   if (view.getUint8(68) !== 1) invalid('unsupported scalar type')
@@ -198,14 +242,19 @@ export function decode_matterviz_volume(input: ArrayBuffer | Uint8Array): Matter
   }
   if (statistics.min > statistics.max) invalid('min is greater than max')
 
-  const samples = new Float64Array(sample_count)
+  const sample_offset = bytes.byteOffset + header_bytes
+  const can_view_samples = NATIVE_LITTLE_ENDIAN
+    && sample_offset % Float64Array.BYTES_PER_ELEMENT === 0
+  const samples = can_view_samples
+    ? new Float64Array(bytes.buffer, sample_offset, sample_count)
+    : new Float64Array(sample_count)
   let min = Infinity
   let max = -Infinity
   let sum = 0
   let abs_max = 0
   for (let index = 0; index < sample_count; index += 1) {
     const value = finite(view.getFloat64(header_bytes + index * 8, true), `sample[${index}]`)
-    samples[index] = value
+    if (!can_view_samples) samples[index] = value
     min = Math.min(min, value)
     max = Math.max(max, value)
     sum += value
@@ -220,6 +269,7 @@ export function decode_matterviz_volume(input: ArrayBuffer | Uint8Array): Matter
   }
 
   return {
+    protocol_major: major,
     request_id,
     volume_id,
     dimensions: [nx, ny, nz],
@@ -242,7 +292,7 @@ export function decode_matterviz_volume(input: ArrayBuffer | Uint8Array): Matter
   }
 }
 
-/** Convert a decoded frame to MatterViz's nested grid representation. */
+/** Convert a decoded frame to MatterViz volumetric data without copying samples. */
 export function adapt_matterviz_volume(volume: MattervizVolumeV1): VolumetricData {
   const [nx, ny, nz] = volume.dimensions
   const periodic_axis_count = volume.periodic_axes.filter(Boolean).length
@@ -255,28 +305,12 @@ export function adapt_matterviz_volume(volume: MattervizVolumeV1): VolumetricDat
   if (grid_lattice.flat().some((value) => !Number.isFinite(value))) {
     throw new Error('MatterViz volume grid lattice must be finite')
   }
-  const grid = Array.from({ length: nx }, () =>
-    Array.from({ length: ny }, () => new Array<number>(nz)))
-  let sample_index = 0
-  if (volume.data_order === 'i_fastest_fortran') {
-    for (let iz = 0; iz < nz; iz += 1) {
-      for (let iy = 0; iy < ny; iy += 1) {
-        for (let ix = 0; ix < nx; ix += 1) {
-          grid[ix]![iy]![iz] = volume.samples[sample_index++]!
-        }
-      }
-    }
-  } else {
-    for (let ix = 0; ix < nx; ix += 1) {
-      for (let iy = 0; iy < ny; iy += 1) {
-        for (let iz = 0; iz < nz; iz += 1) {
-          grid[ix]![iy]![iz] = volume.samples[sample_index++]!
-        }
-      }
-    }
-  }
   return {
-    grid,
+    grid: {
+      data: volume.samples,
+      dimensions: volume.dimensions,
+      order: volume.data_order === 'i_fastest_fortran' ? 'x-fastest' : 'z-fastest',
+    },
     grid_dims: volume.dimensions,
     lattice: grid_lattice,
     origin: scale_vec3(volume.origin, scale),

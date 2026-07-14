@@ -43,6 +43,8 @@
 #define MWFN_ERR_TIMEOUT (-1003)
 #define MWFN_ERR_HANDLE (-1004)
 #define MWFN_ERR_REJECTED (-1005)
+#define MWFN_ERR_UNSUPPORTED (-1006)
+#define MWFN_STREAM_CHUNK_BYTES 65536U
 
 static void mwfn_put_u16(uint8_t *dst, uint16_t value) {
     dst[0] = (uint8_t)(value & 0xffU);
@@ -83,8 +85,7 @@ static void mwfn_put_f64(uint8_t *dst, double value) {
     mwfn_put_u64(dst, bits);
 }
 
-static uint32_t mwfn_crc32c(const uint8_t *data, size_t length) {
-    uint32_t crc = UINT32_MAX;
+static uint32_t mwfn_crc32c_update(uint32_t crc, const uint8_t *data, size_t length) {
     size_t index;
     for (index = 0; index < length; ++index) {
         unsigned int bit;
@@ -94,7 +95,11 @@ static uint32_t mwfn_crc32c(const uint8_t *data, size_t length) {
             crc = (crc >> 1) ^ (UINT32_C(0x82f63b78) & mask);
         }
     }
-    return ~crc;
+    return crc;
+}
+
+static uint32_t mwfn_crc32c(const uint8_t *data, size_t length) {
+    return ~mwfn_crc32c_update(UINT32_MAX, data, length);
 }
 
 static int mwfn_valid_ready(const uint8_t *header) {
@@ -111,10 +116,11 @@ static int mwfn_valid_ready(const uint8_t *header) {
     return mwfn_crc32c(copy, sizeof(copy)) == mwfn_get_u32(header + 36);
 }
 
-static int mwfn_valid_ack_fields(const uint8_t *ack, int64_t request_id, int64_t volume_id,
-                                 int require_zero_status) {
+static int mwfn_valid_ack_fields_major(const uint8_t *ack, uint16_t major,
+                                       int64_t request_id, int64_t volume_id,
+                                       int require_zero_status) {
     uint8_t copy[MWFN_ACK_BYTES];
-    if (memcmp(ack, "MWFNVOL\0", 8U) != 0 || mwfn_get_u16(ack + 8) != 1U ||
+    if (memcmp(ack, "MWFNVOL\0", 8U) != 0 || mwfn_get_u16(ack + 8) != major ||
         mwfn_get_u16(ack + 10) != 0U || mwfn_get_u16(ack + 12) != 8U ||
         mwfn_get_u16(ack + 14) != 1U || mwfn_get_u32(ack + 16) != MWFN_ACK_BYTES ||
         mwfn_get_u64(ack + 20) != (uint64_t)request_id || mwfn_get_u64(ack + 28) != 0U ||
@@ -129,8 +135,42 @@ static int mwfn_valid_ack_fields(const uint8_t *ack, int64_t request_id, int64_t
     return mwfn_crc32c(copy, sizeof(copy)) == mwfn_get_u32(ack + 36);
 }
 
+static int mwfn_valid_ack_fields(const uint8_t *ack, int64_t request_id, int64_t volume_id,
+                                 int require_zero_status) {
+    return mwfn_valid_ack_fields_major(ack, 1U, request_id, volume_id, require_zero_status);
+}
+
 static int mwfn_valid_ack(const uint8_t *ack, int64_t request_id, int64_t volume_id) {
     return mwfn_valid_ack_fields(ack, request_id, volume_id, 1);
+}
+
+static int mwfn_valid_stream_ack(const uint8_t *ack, int64_t request_id, int64_t volume_id) {
+    return mwfn_valid_ack_fields_major(ack, 2U, request_id, volume_id, 1);
+}
+
+static int mwfn_host_is_little_endian(void) {
+    const uint16_t marker = 1U;
+    return *((const uint8_t *)&marker) == 1U;
+}
+
+static int mwfn_stream_shape(int32_t nx, int32_t ny, int32_t nz, int64_t sample_count,
+                             uint64_t *count_out, uint64_t *body_bytes_out) {
+    uint64_t count;
+    if (count_out == NULL || body_bytes_out == NULL || nx <= 0 || ny <= 0 || nz <= 0 ||
+        sample_count <= 0) {
+        return EINVAL;
+    }
+    count = (uint64_t)(uint32_t)nx;
+    if (count > UINT64_MAX / (uint64_t)(uint32_t)ny) return EOVERFLOW;
+    count *= (uint64_t)(uint32_t)ny;
+    if (count > UINT64_MAX / (uint64_t)(uint32_t)nz) return EOVERFLOW;
+    count *= (uint64_t)(uint32_t)nz;
+    if ((uint64_t)sample_count != count) return EINVAL;
+    if (count > SIZE_MAX / sizeof(double)) return EOVERFLOW;
+    if (count > UINT64_MAX / sizeof(double)) return EOVERFLOW;
+    *count_out = count;
+    *body_bytes_out = count * sizeof(double);
+    return 0;
 }
 
 static int mwfn_build_volume(uint8_t **frame_out, size_t *frame_bytes_out,
@@ -1045,6 +1085,46 @@ cleanup:
 
 #endif
 
+#ifdef _WIN32
+typedef ULONGLONG mwfn_stream_deadline_t;
+
+static mwfn_stream_deadline_t mwfn_stream_deadline(unsigned int timeout_ms) {
+    return GetTickCount64() + timeout_ms;
+}
+
+static int mwfn_stream_write(intptr_t volume_write, const uint8_t *bytes, size_t length,
+                             mwfn_stream_deadline_t deadline) {
+    return mwfn_write_all_win((HANDLE)(uintptr_t)volume_write, bytes, length, deadline);
+}
+
+static int mwfn_stream_read_ack(intptr_t ack_read, uint8_t *ack,
+                                mwfn_stream_deadline_t deadline) {
+    return mwfn_read_exact_win_deadline((HANDLE)(uintptr_t)ack_read, ack, MWFN_ACK_BYTES,
+                                        deadline);
+}
+#else
+typedef uint64_t mwfn_stream_deadline_t;
+
+static mwfn_stream_deadline_t mwfn_stream_deadline(unsigned int timeout_ms) {
+    return mwfn_now_ms() + timeout_ms;
+}
+
+static int mwfn_stream_write(intptr_t volume_write, const uint8_t *bytes, size_t length,
+                             mwfn_stream_deadline_t deadline) {
+    return mwfn_write_all_posix((int)volume_write, bytes, length, deadline);
+}
+
+static int mwfn_stream_read_ack(intptr_t ack_read, uint8_t *ack,
+                                mwfn_stream_deadline_t deadline) {
+    return mwfn_read_exact_posix_deadline((int)ack_read, ack, MWFN_ACK_BYTES, deadline);
+}
+#endif
+
+static int mwfn_cube_fallback_enabled(void) {
+    const char *value = getenv("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK");
+    return value != NULL && strcmp(value, "1") == 0;
+}
+
 int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_utf8,
                              const char *session_utf8, const char *manifest_utf8,
                              intptr_t *volume_write_out, intptr_t *ack_read_out,
@@ -1088,6 +1168,10 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
         } else {
             transport_error = error_code;
         }
+        if (!mwfn_cube_fallback_enabled()) {
+            *transport_error_out = transport_error == 0 ? ERROR_INVALID_DATA : transport_error;
+            return -1;
+        }
         error_code = mwfn_clear_stop_flag_windows(session_utf8);
         if (error_code == 0) {
             error_code = mwfn_spawn_windows(executable_utf8, frontend_utf8, session_utf8,
@@ -1129,6 +1213,10 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
             transport_error = error_code;
         } else {
             transport_error = error_code;
+        }
+        if (!mwfn_cube_fallback_enabled()) {
+            *transport_error_out = transport_error == 0 ? EPROTO : transport_error;
+            return -1;
         }
         error_code = mwfn_clear_stop_flag_posix(session_utf8);
         if (error_code == 0) {
@@ -1213,6 +1301,151 @@ int multiwfn_matterviz_publish_volume(
         }
     }
 #endif
+    return 0;
+}
+
+/*
+ * Publish a major-2 volume without allocating storage proportional to the
+ * sample body. Major 2 keeps the v1 header/body layout but removes the v1
+ * sample/body size limit. The caller owns samples for the duration of this
+ * call; transport negotiation remains outside this primitive.
+ */
+int multiwfn_matterviz_publish_volume_stream(
+    intptr_t volume_write, intptr_t ack_read, int64_t request_id, int64_t volume_id,
+    int32_t nx, int32_t ny, int32_t nz, int32_t data_order, int32_t periodic_axes,
+    int32_t coordinate_unit, int32_t quantity_kind, int32_t value_unit,
+    const double origin[3], const double voxel_axes[9], const double lattice[9],
+    const double *samples, int64_t sample_count, uint32_t publish_timeout_ms) {
+    uint8_t header[MWFN_HEADER_BYTES] = {0};
+    uint64_t count;
+    uint64_t body_bytes;
+    uint32_t body_crc = UINT32_MAX;
+    double minimum = 0.0;
+    double maximum = 0.0;
+    double mean_sum = 0.0;
+    double abs_max = 0.0;
+    mwfn_stream_deadline_t deadline;
+    uint64_t offset;
+    unsigned int index;
+    int error_code;
+
+#ifdef _WIN32
+    if ((HANDLE)(uintptr_t)volume_write == NULL ||
+        (HANDLE)(uintptr_t)volume_write == INVALID_HANDLE_VALUE ||
+        (HANDLE)(uintptr_t)ack_read == NULL ||
+        (HANDLE)(uintptr_t)ack_read == INVALID_HANDLE_VALUE) {
+        return MWFN_ERR_HANDLE;
+    }
+#else
+    if (volume_write < 0 || ack_read < 0) return MWFN_ERR_HANDLE;
+#endif
+    if (publish_timeout_ms == 0U) return MWFN_ERR_TIMEOUT;
+    if (!mwfn_host_is_little_endian()) return MWFN_ERR_UNSUPPORTED;
+    if (request_id <= 0 || volume_id <= 0 || data_order < 1 || data_order > 2 ||
+        (periodic_axes & ~7) != 0 || (coordinate_unit != 1 && coordinate_unit != 2) ||
+        (quantity_kind < 1 || quantity_kind > 3) ||
+        ((quantity_kind == 1 && value_unit != 1) ||
+         (quantity_kind == 2 && value_unit != 2) ||
+         (quantity_kind == 3 && value_unit != 3)) || origin == NULL ||
+        voxel_axes == NULL || lattice == NULL || samples == NULL) {
+        return MWFN_ERR_INVALID;
+    }
+    error_code = mwfn_stream_shape(nx, ny, nz, sample_count, &count, &body_bytes);
+    if (error_code != 0) return error_code == EOVERFLOW ? EOVERFLOW : MWFN_ERR_INVALID;
+    for (index = 0; index < 3U; ++index) {
+        if (!isfinite(origin[index])) return MWFN_ERR_INVALID;
+    }
+    for (index = 0; index < 9U; ++index) {
+        if (!isfinite(voxel_axes[index]) || !isfinite(lattice[index])) {
+            return MWFN_ERR_INVALID;
+        }
+    }
+
+    for (offset = 0; offset < count; ++offset) {
+        const double value = samples[(size_t)offset];
+        const double absolute = fabs(value);
+        if (!isfinite(value) || !isfinite(absolute)) return MWFN_ERR_INVALID;
+        if (offset == 0U) {
+            minimum = value;
+            maximum = value;
+        } else {
+            if (value < minimum) minimum = value;
+            if (value > maximum) maximum = value;
+        }
+        mean_sum += value;
+        if (!isfinite(mean_sum)) return MWFN_ERR_INVALID;
+        if (absolute > abs_max) abs_max = absolute;
+        body_crc = mwfn_crc32c_update(body_crc, (const uint8_t *)&value, sizeof(value));
+    }
+    body_crc = ~body_crc;
+    {
+        const double mean = mean_sum / (double)count;
+        if (!isfinite(minimum) || !isfinite(maximum) || !isfinite(mean) || !isfinite(abs_max)) {
+            return MWFN_ERR_INVALID;
+        }
+        memcpy(header, "MWFNVOL\0", 8U);
+        mwfn_put_u16(header + 8, 2U);
+        mwfn_put_u16(header + 10, 0U);
+        mwfn_put_u16(header + 12, 4U);
+        mwfn_put_u16(header + 14, 3U);
+        mwfn_put_u32(header + 16, MWFN_HEADER_BYTES);
+        mwfn_put_u64(header + 20, (uint64_t)request_id);
+        mwfn_put_u64(header + 28, body_bytes);
+        mwfn_put_u64(header + 48, (uint64_t)volume_id);
+        mwfn_put_u32(header + 56, (uint32_t)nx);
+        mwfn_put_u32(header + 60, (uint32_t)ny);
+        mwfn_put_u32(header + 64, (uint32_t)nz);
+        header[68] = 1U;
+        header[69] = 1U;
+        header[70] = (uint8_t)data_order;
+        header[71] = (uint8_t)periodic_axes;
+        mwfn_put_u16(header + 72, (uint16_t)coordinate_unit);
+        mwfn_put_u16(header + 74, (uint16_t)quantity_kind);
+        mwfn_put_u16(header + 76, (uint16_t)value_unit);
+        for (index = 0; index < 3U; ++index) {
+            mwfn_put_f64(header + 80U + index * 8U, origin[index]);
+        }
+        for (index = 0; index < 9U; ++index) {
+            mwfn_put_f64(header + 104U + index * 8U, voxel_axes[index]);
+            mwfn_put_f64(header + 176U + index * 8U, lattice[index]);
+        }
+        mwfn_put_u64(header + 248, count);
+        mwfn_put_u64(header + 256, body_bytes);
+        mwfn_put_f64(header + 264, minimum);
+        mwfn_put_f64(header + 272, maximum);
+        mwfn_put_f64(header + 280, mean);
+        mwfn_put_f64(header + 288, abs_max);
+        mwfn_put_u32(header + 40, body_crc);
+        mwfn_put_u32(header + 36, mwfn_crc32c(header, sizeof(header)));
+    }
+
+    deadline = mwfn_stream_deadline(publish_timeout_ms);
+    error_code = mwfn_stream_write(volume_write, header, sizeof(header), deadline);
+    if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+    if (error_code != 0) return error_code;
+    for (offset = 0; offset < count;) {
+        const uint64_t remaining = count - offset;
+        const size_t chunk_samples = remaining > MWFN_STREAM_CHUNK_BYTES / sizeof(double)
+                                         ? MWFN_STREAM_CHUNK_BYTES / sizeof(double)
+                                         : (size_t)remaining;
+        const size_t chunk_bytes = chunk_samples * sizeof(double);
+        error_code = mwfn_stream_write(
+            volume_write, (const uint8_t *)(samples + (size_t)offset), chunk_bytes, deadline);
+        if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+        if (error_code != 0) return error_code;
+        offset += (uint64_t)chunk_samples;
+    }
+    {
+        uint8_t ack[MWFN_ACK_BYTES];
+        error_code = mwfn_stream_read_ack(ack_read, ack, deadline);
+        if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+        if (error_code != 0) return error_code;
+        if (!mwfn_valid_stream_ack(ack, request_id, volume_id)) {
+            return mwfn_valid_ack_fields_major(ack, 2U, request_id, volume_id, 0)
+                       ? MWFN_ERR_REJECTED
+                       : MWFN_ERR_PROTOCOL;
+        }
+    }
     return 0;
 }
 

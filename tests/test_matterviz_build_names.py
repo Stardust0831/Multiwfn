@@ -69,7 +69,7 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("CreateProcessW", SPAWN)
         self.assertIn("execv(executable, argv)", SPAWN)
         self.assertIn("multiwfn_matterviz_spawn", SPAWN)
-        self.assertIn("multiwfn_matterviz_publish_volume", SPAWN)
+        self.assertIn("multiwfn_matterviz_publish_volume_stream", SPAWN)
         self.assertIn("CreatePipe", SPAWN)
         self.assertIn("pipe2(fds, O_CLOEXEC)", SPAWN)
         self.assertIn("exec_pipe", SPAWN)
@@ -91,7 +91,7 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn('CreateFileW(\n        L"NUL"', SPAWN)
         self.assertIn("call launch_matterviz_native", FORTRAN)
         self.assertIn("publish_matterviz_volume(reqid", FORTRAN)
-        self.assertIn('"format": "mwfn-volume-v1"', FORTRAN)
+        self.assertIn('"format": "mwfn-volume-v2"', FORTRAN)
         self.assertNotIn("launch_status,launch_matterviz_process", FORTRAN)
         self.assertNotIn("#ifdef _WIN32", FORTRAN)
 
@@ -115,6 +115,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
             "end subroutine", 1
         )[0]
         self.assertIn("native_volume=publish_matterviz_volume", orbital)
+        self.assertIn("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK", FORTRAN)
+        self.assertIn("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK", SPAWN)
         self.assertIn("if (native_volume) then", orbital)
         self.assertIn("call write_cube(trim(cubefile),cubmat)", orbital)
         self.assertIn("density_native=publish_matterviz_volume", esp)
@@ -131,19 +133,24 @@ class MatterVizBuildNamingTests(unittest.TestCase):
     def test_packaged_windows_requests_a_real_native_orbital(self):
         self.assertIn("matterviz-real-orbital-Co5Cr.fch.gz", WINDOWS_ASYNC)
         self.assertIn("index=43&quality=25000", WINDOWS_ASYNC)
-        self.assertIn('"mwfn-volume-v1"', WINDOWS_ASYNC)
+        self.assertIn("application/vnd.multiwfn.volume; version=2", WINDOWS_ASYNC)
+        self.assertIn("Get-Crc32C", WINDOWS_ASYNC)
+        self.assertIn("MWFNVOL`0", WINDOWS_ASYNC)
         self.assertIn('"orbital_43_25000.cube"', WINDOWS_ASYNC)
 
     def test_packaged_linux_requests_a_real_native_orbital(self):
         self.assertIn("matterviz-real-orbital-Co5Cr.fch.gz", LINUX_REAL_ORBITAL)
         self.assertIn("index=43&quality=25000", LINUX_REAL_ORBITAL)
-        self.assertIn('"mwfn-volume-v1"', LINUX_REAL_ORBITAL)
+        self.assertIn('"application/vnd.multiwfn.volume; version=2"', LINUX_REAL_ORBITAL)
+        self.assertIn("validate_stream_volume", LINUX_REAL_ORBITAL)
+        self.assertIn("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK", LINUX_REAL_ORBITAL)
         self.assertIn('"orbital_43_25000.cube"', LINUX_REAL_ORBITAL)
         self.assertIn("advertised_service_base", LINUX_REAL_ORBITAL)
         self.assertIn("--force-cube-fallback", LINUX_REAL_ORBITAL)
         self.assertIn('volume_path != cube_path.name', LINUX_REAL_ORBITAL)
         self.assertIn("tests/linux/test_matterviz_real_orbital.py", WORKFLOW)
         self.assertIn("--force-cube-fallback", WORKFLOW)
+        self.assertIn("bash tests/c/run_matterviz_stream_test.sh", WORKFLOW)
 
     def test_matterviz_file_dialog_uses_rust_host(self):
         block = FORTRAN.split("subroutine select_file_with_dialog", 1)[1].split(

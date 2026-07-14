@@ -19,6 +19,17 @@ const ESP_QUALITIES: [i64; 7] = [
 const BOND_METHODS: [&str; 5] = ["mayer", "gwbo", "wiberg_lowdin", "mulliken", "fbo"];
 static REQUEST_ID: AtomicU64 = AtomicU64::new(0);
 
+pub struct PendingBackendRequest {
+    id: u64,
+    request: std::path::PathBuf,
+    response: std::path::PathBuf,
+    stop: std::path::PathBuf,
+    consume_deadline: Instant,
+    deadline: Instant,
+    timeout_message: String,
+    consumed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct OrbitalRequest {
     pub index: i64,
@@ -66,19 +77,13 @@ pub fn request_orbital(
     manifest: &Path,
     lock: &Mutex<()>,
 ) -> Value {
-    let count = manifest_orbital_count(manifest);
-    let request = match parse_orbital_request(query, count) {
+    let request = match prepare_orbital_request(query, manifest) {
         Ok(value) => value,
         Err(message) => return json!({"ok": false, "message": message}),
     };
     let result = request_backend(
         session,
-        &format!(
-            "orbital {} {} {}",
-            request.index,
-            request.quality,
-            significant(request.isovalue)
-        ),
+        &orbital_request_payload(&request),
         Duration::from_secs(300),
         "Timed out waiting for Multiwfn orbital grid",
         lock,
@@ -87,6 +92,22 @@ pub fn request_orbital(
         prune_orbitals(session, 12);
     }
     result
+}
+
+pub fn prepare_orbital_request(
+    query: &[(String, String)],
+    manifest: &Path,
+) -> Result<OrbitalRequest, String> {
+    parse_orbital_request(query, manifest_orbital_count(manifest))
+}
+
+pub fn orbital_request_payload(request: &OrbitalRequest) -> String {
+    format!(
+        "orbital {} {} {}",
+        request.index,
+        request.quality,
+        significant(request.isovalue)
+    )
 }
 
 pub fn request_bond(session: &Path, query: &[(String, String)], lock: &Mutex<()>) -> Value {
@@ -159,57 +180,95 @@ fn request_backend(
     lock: &Mutex<()>,
 ) -> Value {
     let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let id = reserve_request_id();
+    match start_backend_request(session, id, payload, timeout, timeout_message) {
+        Ok(mut pending) => pending.wait(),
+        Err(value) => value,
+    }
+}
+
+pub fn start_backend_request(
+    session: &Path,
+    id: u64,
+    payload: &str,
+    timeout: Duration,
+    timeout_message: &str,
+) -> Result<PendingBackendRequest, Value> {
     let stop = session.join("gui_stop.flag");
     if stop.is_file() {
-        return json!({"ok": false, "message": BACKEND_UNAVAILABLE});
+        return Err(json!({"ok": false, "message": BACKEND_UNAVAILABLE}));
     }
-    let id = next_request_id();
     let request = session.join("gui_request.txt");
     let response = session.join(format!("response_{id}.json"));
     let _ = fs::remove_file(&response);
     if let Err(error) = fs::write(&request, format!("{id} {payload}\n")) {
-        return json!({"ok": false, "message": error.to_string()});
+        return Err(json!({"ok": false, "message": error.to_string()}));
     }
-    let consume_deadline = Instant::now() + CONSUME_TIMEOUT;
-    let deadline = Instant::now() + timeout;
-    let mut consumed = false;
-    while Instant::now() < deadline {
-        if let Ok(text) = fs::read_to_string(&response) {
-            if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                return value;
-            }
-        }
-        if stop.is_file() {
-            if !consumed
-                && fs::read_to_string(&request)
-                    .map(|text| text.starts_with(&format!("{id} ")))
-                    .unwrap_or(false)
-            {
-                let _ = fs::remove_file(&request);
-            }
-            return json!({"ok": false, "message": BACKEND_UNAVAILABLE});
-        }
-        if !consumed && !request.is_file() {
-            consumed = true;
-        }
-        if !consumed && Instant::now() >= consume_deadline {
-            match fs::read_to_string(&request) {
-                Ok(text) if text.starts_with(&format!("{id} ")) => {
-                    let _ = fs::remove_file(&request);
-                    return json!({"ok": false, "message": BACKEND_UNAVAILABLE});
-                }
-                Ok(_) => {
-                    return json!({"ok": false, "message": "Backend request was superseded; try again"})
-                }
-                Err(_) => consumed = true,
-            }
-        }
-        thread::sleep(POLL_INTERVAL);
-    }
-    json!({"ok": false, "message": timeout_message})
+    Ok(PendingBackendRequest {
+        id,
+        request,
+        response,
+        stop,
+        consume_deadline: Instant::now() + CONSUME_TIMEOUT,
+        deadline: Instant::now() + timeout,
+        timeout_message: timeout_message.to_owned(),
+        consumed: false,
+    })
 }
 
-fn next_request_id() -> u64 {
+impl PendingBackendRequest {
+    pub fn poll(&mut self) -> Option<Value> {
+        if let Ok(text) = fs::read_to_string(&self.response) {
+            if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                return Some(value);
+            }
+        }
+        if self.stop.is_file() {
+            self.remove_unconsumed_request();
+            return Some(json!({"ok": false, "message": BACKEND_UNAVAILABLE}));
+        }
+        if !self.consumed && !self.request.is_file() {
+            self.consumed = true;
+        }
+        if !self.consumed && Instant::now() >= self.consume_deadline {
+            match fs::read_to_string(&self.request) {
+                Ok(text) if text.starts_with(&format!("{} ", self.id)) => {
+                    let _ = fs::remove_file(&self.request);
+                    return Some(json!({"ok": false, "message": BACKEND_UNAVAILABLE}));
+                }
+                Ok(_) => {
+                    return Some(json!({"ok": false, "message": "Backend request was superseded; try again"}));
+                }
+                Err(_) => self.consumed = true,
+            }
+        }
+        if Instant::now() >= self.deadline {
+            return Some(json!({"ok": false, "message": self.timeout_message.clone()}));
+        }
+        None
+    }
+
+    pub fn wait(&mut self) -> Value {
+        loop {
+            if let Some(value) = self.poll() {
+                return value;
+            }
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    fn remove_unconsumed_request(&self) {
+        if !self.consumed
+            && fs::read_to_string(&self.request)
+                .map(|text| text.starts_with(&format!("{} ", self.id)))
+                .unwrap_or(false)
+        {
+            let _ = fs::remove_file(&self.request);
+        }
+    }
+}
+
+pub fn reserve_request_id() -> u64 {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

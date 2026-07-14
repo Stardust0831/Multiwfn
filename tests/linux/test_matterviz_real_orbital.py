@@ -17,6 +17,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -220,6 +221,60 @@ def request_json(url: str, timeout: float) -> dict[str, object]:
     return value
 
 
+def crc32c(data: bytes) -> int:
+    crc = 0xFFFFFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ (0x82F63B78 if crc & 1 else 0)
+    return (~crc) & 0xFFFFFFFF
+
+
+def validate_stream_volume(headers: dict[str, str], body: bytes) -> None:
+    if headers.get("Content-Type") != "application/vnd.multiwfn.volume; version=2":
+        raise RegressionError(
+            f"native orbital response had invalid content type: {headers.get('Content-Type')!r}"
+        )
+    if len(body) < 304:
+        raise RegressionError(f"native orbital stream was truncated ({len(body)} bytes)")
+    header = body[:304]
+    if header[:8] != b"MWFNVOL\0":
+        raise RegressionError("native orbital stream had invalid magic")
+    major, minor, message_type, flags, header_bytes = struct.unpack_from("<HHHHI", header, 8)
+    if (major, minor, message_type, flags, header_bytes) != (2, 0, 4, 3, 304):
+        raise RegressionError(
+            "native orbital stream had invalid v2 header "
+            f"(major={major}, minor={minor}, type={message_type}, flags={flags}, bytes={header_bytes})"
+        )
+    header_for_crc = bytearray(header)
+    expected_header_crc = struct.unpack_from("<I", header, 36)[0]
+    header_for_crc[36:40] = b"\0\0\0\0"
+    if crc32c(header_for_crc) != expected_header_crc:
+        raise RegressionError("native orbital stream header CRC32C mismatch")
+    request_id, body_bytes = struct.unpack_from("<QQ", header, 20)
+    volume_id = struct.unpack_from("<Q", header, 48)[0]
+    dimensions = struct.unpack_from("<III", header, 56)
+    if request_id == 0 or volume_id == 0 or any(dimension == 0 for dimension in dimensions):
+        raise RegressionError("native orbital stream had invalid identity or dimensions")
+    sample_count = dimensions[0] * dimensions[1] * dimensions[2]
+    if body_bytes != sample_count * 8 or len(body) != 304 + body_bytes:
+        raise RegressionError(
+            f"native orbital stream length mismatch (declared={body_bytes}, actual={len(body) - 304}, dims={dimensions})"
+        )
+    expected_body_crc = struct.unpack_from("<I", header, 40)[0]
+    payload = body[304:]
+    if crc32c(payload) != expected_body_crc:
+        raise RegressionError("native orbital stream body CRC32C mismatch")
+    values = struct.unpack(f"<{sample_count}d", payload)
+    if not all(value == value and abs(value) != float("inf") for value in values):
+        raise RegressionError("native orbital stream contained a nonfinite sample")
+    minimum, maximum, mean, abs_max = struct.unpack_from("<dddd", header, 264)
+    if not all(value == value and abs(value) != float("inf") for value in (minimum, maximum, mean, abs_max)):
+        raise RegressionError("native orbital stream had nonfinite statistics")
+    if min(values) != minimum or max(values) != maximum or max(abs(value) for value in values) != abs_max:
+        raise RegressionError("native orbital stream statistics did not match samples")
+
+
 def terminate_pids(pids: set[int]) -> None:
     for signal_number in (signal.SIGTERM, signal.SIGKILL):
         for pid in sorted(pids, reverse=True):
@@ -345,6 +400,10 @@ exec "${0%/*}/matterviz-desktop-real" "$@"
     shutil.copytree(packaged_frontend, fake_frontend, dirs_exist_ok=True)
 
     env = os.environ.copy()
+    if force_cube_fallback:
+        env["MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK"] = "1"
+    else:
+        env.pop("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK", None)
     env.update(
         {
             "MULTIWFN_MATTERVIZ_SESSION": str(session),
@@ -408,13 +467,13 @@ exec "${0%/*}/matterviz-desktop-real" "$@"
         orbital_url = (
             f"{service_base}/api/orbital?index=43&quality=25000&isovalue=0.05&cap={capability}"
         )
-        orbital = request_json(orbital_url, REQUEST_TIMEOUT)
-        layer = orbital.get("layer")
-        if orbital.get("ok") is not True or not isinstance(layer, dict):
-            raise RegressionError(f"native orbital response was not successful: {orbital}")
-        volume_path = layer.get("path")
         cube_path = session / "orbital_43_25000.cube"
         if force_cube_fallback:
+            orbital = request_json(orbital_url, REQUEST_TIMEOUT)
+            layer = orbital.get("layer")
+            if orbital.get("ok") is not True or not isinstance(layer, dict):
+                raise RegressionError(f"Cube fallback orbital response was not successful: {orbital}")
+            volume_path = layer.get("path")
             if layer.get("format") is not None or volume_path != cube_path.name:
                 raise RegressionError(f"unexpected Cube fallback layer: {layer}")
             if not cube_path.is_file() or cube_path.stat().st_size <= 0:
@@ -429,24 +488,13 @@ exec "${0%/*}/matterviz-desktop-real" "$@"
                     f"Cube fallback volume was invalid (HTTP {status}, {len(cube_bytes)} bytes)"
                 )
         else:
-            if layer.get("format") != "mwfn-volume-v1":
-                raise RegressionError(f"unexpected native orbital format: {layer.get('format')!r}")
-            if not isinstance(volume_path, str) or not re.fullmatch(
-                r"/api/volume/[1-9][0-9]*", volume_path
-            ):
-                raise RegressionError(
-                    f"native orbital response had invalid volume path: {volume_path!r}"
-                )
-            status, _, volume_bytes = http_get(
-                f"{service_base}{volume_path}?cap={capability}", REQUEST_TIMEOUT
-            )
-            if status != 200 or len(volume_bytes) <= 304 or not volume_bytes.startswith(b"MWFNVOL\0"):
-                raise RegressionError(
-                    f"native orbital volume was invalid (HTTP {status}, {len(volume_bytes)} bytes)"
-                )
+            status, response_headers, volume_bytes = http_get(orbital_url, REQUEST_TIMEOUT)
+            if status != 200:
+                raise RegressionError(f"native orbital stream failed with HTTP {status}")
+            validate_stream_volume(response_headers, volume_bytes)
             if cube_path.exists():
                 raise RegressionError(
-                    "successful native orbital publication staged orbital_43_25000.cube"
+                    "successful native orbital stream staged orbital_43_25000.cube"
                 )
         if (session / "gui_request.txt").exists():
             raise RegressionError("Rust orbital API left an unconsumed backend request")

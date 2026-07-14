@@ -192,9 +192,68 @@ or release scope of the current PR.
   fallback remains available only through an explicit development/diagnostic
   option.
 
-Current compatibility gates remain unchanged: preserve the three control-file
-interfaces and deliberate automatic Cube fallback through this PR and its next
-prerelease.
+Current compatibility gates preserve the three control-file interfaces. Cube
+fallback remains only on paths that have not yet migrated from v1; it is not
+part of a formal major-2 request.
+
+Scope correction for the low-copy v2 increment (2026-07-15): the control-file
+migration remains deferred, but a request that has entered the formal major-2
+orbital stream must not silently fall back to Cube. The retained automatic Cube
+compatibility statement applies only to the still-v1 paths until their own v2
+bundle migration and three-platform acceptance are complete.
+
+## Low-copy volume transport and flat-grid work
+
+- [x] Add a major-2 C publisher with the existing 304-byte metadata header,
+  u64 lengths, incremental CRC32C and bounded direct writes from `cubmat`; cover
+  fragmented reads, 1,500,001 samples, invalid data, timeout and broken pipes.
+- [x] Add Rust major-2 header decoding, request-ID stream broker, bounded chunk
+  forwarding and major-2 ACKs while retaining the v1 store for compatibility.
+- [x] Add host/cgroup-aware memory admission. The optional
+  `MULTIWFN_MATTERVIZ_MAX_ACTIVE_VOLUME_BYTES` override may only tighten the
+  automatically derived budget; it is not a replacement hard maximum.
+- [x] Change `/api/orbital` in a transported session to one binary HTTP response
+  so Rust can forward the body under backpressure without constructing a full
+  frame or waiting for the post-ACK JSON response.
+- [x] Preallocate the browser response buffer from `Content-Length`, fill it
+  incrementally and decode major 2 as a `Float64Array` view over the final
+  buffer. Keep v1 limits and URL loading unchanged for compatibility.
+- [x] Stop menu 0 from exporting an arbitrary already-allocated global
+  `cubmat` as startup `cubmat.cube`; this was the source of stale density data
+  in Preview 9 sessions.
+- [x] Add vendor-first `ScalarGrid3D` support with flat typed arrays and legacy
+  nested-grid compatibility across marching cubes, sampling, range, resampling,
+  periodic operations, parsing and slices. The viewer pins revision r17
+  (`736cf19985c69187f6c20ddadb9962d84b580704a0fb2f57a981a363b998c4b0`).
+- [x] Move isosurface geometry generation to a module Worker. Use
+  `SharedArrayBuffer` when cross-origin isolation is available; otherwise
+  transfer the ordinary `ArrayBuffer`, serialize requests per grid and return
+  ownership on normal success/error. A Worker crash explicitly invalidates a
+  transferred grid instead of claiming that its detached buffer was restored.
+- [x] Add exact geometry preflight before mesh allocation: triangle count,
+  unique crossed-edge/vertex count and positions/normals/indices/colors/GPU
+  estimates. Reject work that exceeds the Rust-provided post-volume geometry
+  budget instead of presenting an inexact preview as exact.
+- [x] Enforce one cumulative geometry budget across all resident positive,
+  negative and multi-layer surfaces. Preserve the original TypedArray
+  `byteOffset` and length after transferable Worker ownership returns; the
+  regression test uses the real 304-byte binary volume header offset.
+- [x] Resolve the current Linux process's cgroup v2/v1 leaf from
+  `/proc/self/cgroup` and mountinfo, including namespace mount-root mapping,
+  then walk its ancestors and apply the tightest hierarchical constraint
+  instead of assuming either the leaf or cgroup root alone is effective.
+- [ ] Define and implement an ordered major-2 volume bundle for ESP density and
+  potential. ESP remains on the tested v1 two-volume store until this contract
+  is reviewed; do not force two volumes through the single-orbital response.
+- [ ] Remove the now-unused successful orbital `response_<id>.json` artifact as
+  part of the deferred bidirectional control-pipe migration, not through a new
+  one-off cleanup protocol.
+- [ ] Run Rust test/check/clippy in CI (Cargo is not installed in the current
+  WSL environment), then complete Linux/macOS/Windows package and live orbital
+  verification before publishing the next prerelease.
+- [x] Prove the production frontend build emits a standalone bundled module
+  Worker (`marching-cubes-worker-DNZvsbt9.js`) with no unresolved relative
+  imports; pass 95 frontend tests, Svelte diagnostics and the production build.
 
 ## Current Rust-host release gates
 

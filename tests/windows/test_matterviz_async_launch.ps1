@@ -159,6 +159,21 @@ function Get-ServiceProcess([string] $BaseUrl, [string] $ExpectedPath) {
     return $candidate
 }
 
+function Get-Crc32C([byte[]] $Bytes) {
+    [uint32]$crc = 0xffffffff
+    foreach ($byte in $Bytes) {
+        $crc = $crc -bxor [uint32]$byte
+        for ($bit = 0; $bit -lt 8; $bit++) {
+            if (($crc -band 1) -ne 0) {
+                $crc = ($crc -shr 1) -bxor [uint32]0x82F63B78
+            } else {
+                $crc = $crc -shr 1
+            }
+        }
+    }
+    return [uint32](-bnot $crc)
+}
+
 try {
     New-Item -ItemType Directory -Force -Path $work, $session, $fakeTools, $fakeFrontend | Out-Null
     $inputPath = Join-Path $work "Co5Cr.fch"
@@ -226,23 +241,46 @@ try {
     } 5 "Could not identify the Rust MatterViz host process"
     $capability = Get-SessionCapability $serviceBase
 
-    $orbitalPayload = Invoke-RestMethod -Uri (
-        "$serviceBase/api/orbital" +
-        "?index=43&quality=25000&isovalue=0.05&cap=$capability"
-    )
-    if (-not $orbitalPayload.ok -or
-        $orbitalPayload.layer.format -ne "mwfn-volume-v1" -or
-        $orbitalPayload.layer.path -notmatch '^/api/volume/[1-9][0-9]*$') {
-        throw "Rust orbital API did not return a native nonzero orbital volume"
-    }
+    $orbitalUrl = "$serviceBase/api/orbital?index=43&quality=25000&isovalue=0.05&cap=$capability"
     $volumePath = Join-Path $root "orbital-43.mwfnvol"
-    Invoke-WebRequest -UseBasicParsing -Uri (
-        "$serviceBase$($orbitalPayload.layer.path)?cap=$capability"
-    ) -OutFile $volumePath | Out-Null
+    $orbitalResponse = Invoke-WebRequest -UseBasicParsing -Uri $orbitalUrl -OutFile $volumePath -PassThru
     $volumeBytes = [IO.File]::ReadAllBytes($volumePath)
-    if ($volumeBytes.Length -le 304 -or
+    if ($orbitalResponse.StatusCode -ne 200 -or
+        [string]$orbitalResponse.Headers["Content-Type"] -ne "application/vnd.multiwfn.volume; version=2") {
+        throw "Native orbital response did not return the v2 binary content type"
+    }
+    if ($volumeBytes.Length -lt 304 -or
         [Text.Encoding]::ASCII.GetString($volumeBytes, 0, 8) -ne "MWFNVOL`0") {
-        throw "Native orbital volume response is empty or has invalid magic"
+        throw "Native orbital volume response is truncated or has invalid magic"
+    }
+    $major = [BitConverter]::ToUInt16($volumeBytes, 8)
+    $minor = [BitConverter]::ToUInt16($volumeBytes, 10)
+    $messageType = [BitConverter]::ToUInt16($volumeBytes, 12)
+    $flags = [BitConverter]::ToUInt16($volumeBytes, 14)
+    $headerBytes = [BitConverter]::ToUInt32($volumeBytes, 16)
+    if ($major -ne 2 -or $minor -ne 0 -or $messageType -ne 4 -or $flags -ne 3 -or $headerBytes -ne 304) {
+        throw "Native orbital volume response has invalid v2 metadata"
+    }
+    $header = [byte[]]$volumeBytes[0..303]
+    $expectedHeaderCrc = [BitConverter]::ToUInt32($header, 36)
+    36..39 | ForEach-Object { $header[$_] = 0 }
+    if ((Get-Crc32C $header) -ne $expectedHeaderCrc) {
+        throw "Native orbital volume header CRC32C mismatch"
+    }
+    $bodyBytes = [BitConverter]::ToUInt64($volumeBytes, 28)
+    $volumeId = [BitConverter]::ToUInt64($volumeBytes, 48)
+    $nx = [BitConverter]::ToUInt32($volumeBytes, 56)
+    $ny = [BitConverter]::ToUInt32($volumeBytes, 60)
+    $nz = [BitConverter]::ToUInt32($volumeBytes, 64)
+    $sampleCount = [uint64]$nx * [uint64]$ny * [uint64]$nz
+    if ($volumeId -eq 0 -or $nx -eq 0 -or $ny -eq 0 -or $nz -eq 0 -or
+        $bodyBytes -ne ($sampleCount * 8) -or $volumeBytes.Length -ne (304 + [int]$bodyBytes)) {
+        throw "Native orbital volume response has invalid dimensions or body length"
+    }
+    $body = [byte[]]$volumeBytes[304..($volumeBytes.Length - 1)]
+    $expectedBodyCrc = [BitConverter]::ToUInt32($volumeBytes, 40)
+    if ((Get-Crc32C $body) -ne $expectedBodyCrc) {
+        throw "Native orbital volume body CRC32C mismatch"
     }
     if (Test-Path -LiteralPath (Join-Path $session "orbital_43_25000.cube")) {
         throw "Successful native orbital publication unexpectedly staged a dynamic Cube"

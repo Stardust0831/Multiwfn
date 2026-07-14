@@ -45,6 +45,19 @@ interface
     integer(c_int32_t),value :: publish_timeout_ms
     end function
 
+    integer(c_int) function multiwfn_matterviz_publish_volume_stream(volume_write,ack_read,request_id, &
+        volume_id,nx_arg,ny_arg,nz_arg,data_order,periodic_axes,coordinate_unit,quantity_kind, &
+        value_unit,origin,voxel_axes,lattice,samples,sample_count,publish_timeout_ms) &
+        bind(C,name="multiwfn_matterviz_publish_volume_stream")
+    import :: c_int,c_int32_t,c_int64_t,c_intptr_t,c_double
+    integer(c_intptr_t),value :: volume_write,ack_read
+    integer(c_int64_t),value :: request_id,volume_id,sample_count
+    integer(c_int32_t),value :: nx_arg,ny_arg,nz_arg,data_order,periodic_axes
+    integer(c_int32_t),value :: coordinate_unit,quantity_kind,value_unit
+    real(c_double),intent(in) :: origin(3),voxel_axes(9),lattice(9),samples(*)
+    integer(c_int32_t),value :: publish_timeout_ms
+    end function
+
     subroutine multiwfn_matterviz_transport_close(volume_write,ack_read) &
         bind(C,name="multiwfn_matterviz_transport_close")
     import :: c_intptr_t
@@ -53,6 +66,15 @@ interface
 end interface
 
 contains
+
+logical function matterviz_cube_fallback_enabled()
+character(len=32) :: value
+integer :: status
+
+value=""
+call get_environment_variable("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK",value,status=status)
+matterviz_cube_fallback_enabled=status==0.and.trim(value)=="1"
+end function
 
 subroutine selfilegui
 character(len=512) :: envfile
@@ -138,9 +160,9 @@ character(len=1024) :: cmd
 #else
 character(len=512) :: frontend,native
 #endif
-integer :: launch_status
+integer :: launch_status,iu
 integer :: transport_error
-logical :: session_ok
+logical :: session_ok,diagnostic_cube_fallback
 
 call reset_generated_orbitals()
 call reset_bond_analysis_cache()
@@ -152,10 +174,15 @@ call get_session_dir(session,session_ok)
 if (.not.session_ok) return
 call remove_session_file(trim(session)//"/gui_stop.flag")
 call remove_session_file(trim(session)//"/gui_request.txt")
+if (trim(entry)=="drawmolgui") then
+    call remove_session_file(trim(session)//"/cubmat.cube")
+    call remove_session_file(trim(session)//"/cubmattmp.cube")
+end if
+diagnostic_cube_fallback=matterviz_cube_fallback_enabled()
 call prepare_gui_structure_topology()
 
 if (allocated(a).and.ncenter>0) call write_structure_json(trim(session)//"/structure.json")
-if (allocated(cubmat)) then
+if (allocated(cubmat).and.trim(entry)/="drawmolgui") then
     call write_cube(trim(session)//"/cubmat.cube",cubmat)
     gui_has_cubmat_file=.true.
 end if
@@ -190,11 +217,24 @@ call launch_matterviz_native(trim(native),trim(frontend),trim(session),trim(mani
     launch_status,transport_error)
 if (launch_status/=0) then
     write(*,"(a,i0)") " MatterViz GUI launch failed with status ",launch_status
+    if (transport_error/=0) then
+        write(*,"(a,i0,a)") " MatterViz binary transport startup failed (",transport_error,")"
+    end if
     return
 end if
 if (transport_error/=0) then
-    write(*,"(a,i0,a)") " MatterViz binary transport unavailable (",transport_error, &
-        "); using Cube compatibility output"
+    if (diagnostic_cube_fallback) then
+        write(*,"(a,i0,a)") " MatterViz binary transport unavailable (",transport_error, &
+            "); explicit diagnostic Cube fallback enabled"
+    else
+        write(*,"(a,i0,a)") " MatterViz binary transport unavailable (",transport_error, &
+            "); the visualization session is invalid"
+        open(newunit=iu,file=trim(session)//"/gui_stop.flag",status="replace",action="write")
+        write(iu,"(a)") "return"
+        close(iu)
+        call close_matterviz_transport()
+        return
+    end if
 end if
 #endif
 if (trim(entry)=="drawmolgui") then
@@ -702,9 +742,9 @@ integer*8,intent(in) :: reqid
 integer,intent(in) :: iorb,quality
 real*8,intent(in) :: isoval
 character(len=512) :: cubefile,cuberel,layerpath
-integer :: iu,functype,orbtotal
+integer :: iu,functype,orbtotal,volume_status
 integer*8 :: volume_id
-logical :: native_volume
+logical :: native_volume,allow_cube
 
 orbtotal=gui_orbital_total()
 if (iorb<0.or.iorb>orbtotal) then
@@ -737,17 +777,31 @@ call savecubmat(functype,1,iorb)
 if (ifixorbsign==1.and.sum(cubmat)<0) cubmat=-cubmat
 
 if (functype==44) then
-    native_volume=publish_matterviz_volume(reqid,2,2,volume_id)
+    native_volume=publish_matterviz_volume(reqid,2,2,volume_id,2,volume_status)
 else
-    native_volume=publish_matterviz_volume(reqid,1,1,volume_id)
+    native_volume=publish_matterviz_volume(reqid,1,1,volume_id,2,volume_status)
 end if
 if (native_volume) then
     write(layerpath,"('/api/volume/',i0)") volume_id
 else
-    write(cuberel,"('orbital_',i0,'_',i0,'.cube')") iorb,nprevorbgrid
-    cubefile=trim(session)//"/"//trim(cuberel)
-    call write_cube(trim(cubefile),cubmat)
-    layerpath=trim(cuberel)
+#ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
+    allow_cube=.true.
+#else
+    allow_cube=matterviz_cube_fallback_enabled()
+#endif
+    if (allow_cube) then
+        write(cuberel,"('orbital_',i0,'_',i0,'.cube')") iorb,nprevorbgrid
+        cubefile=trim(session)//"/"//trim(cuberel)
+        call write_cube(trim(cubefile),cubmat)
+        layerpath=trim(cuberel)
+    else
+        if (volume_status==-1005) then
+            call write_gui_json_error(respfile,"MatterViz rejected the volume request; reduce grid size or retry")
+        else
+            call write_gui_json_error(respfile,"MatterViz v2 volume transport failed; reopen menu 0")
+        end if
+        return
+    end if
 end if
 
 open(newunit=iu,file=trim(respfile),status="replace",action="write")
@@ -759,7 +813,7 @@ write(iu,"(a,1pe16.8,a)") '  "isovalue": ',sur_value_orb,','
 write(iu,"(a)") '  "layer": {'
 write(iu,"(a,i0,a)") '    "name": "Orbital ',iorb,'",'
 write(iu,"(a,a,a)") '    "path": "',trim(layerpath),'",'
-if (native_volume) write(iu,"(a)") '    "format": "mwfn-volume-v1",'
+if (native_volume) write(iu,"(a)") '    "format": "mwfn-volume-v2",'
 write(iu,"(a)") '    "role": "orbital",'
 write(iu,"(a,i0,a)") '    "orbitalIndex": ',iorb,','
 write(iu,"(a)") '    "mode": "signed",'
@@ -776,7 +830,7 @@ integer*8,intent(in) :: reqid
 integer,intent(in) :: quality
 real*8,intent(in) :: isoval
 character(len=512) :: densityfile,densityrel,espfile,esprel,densitypath,esppath
-integer :: iu,nprevorbgrid_org,nx_org,ny_org,nz_org,iorbsel_org
+integer :: iu,nprevorbgrid_org,nx_org,ny_org,nz_org,iorbsel_org,density_status,potential_status
 integer*8 :: density_volume_id,esp_volume_id
 real*8 :: esprhoiso_org,orgx_org,orgy_org,orgz_org,endx_org,endy_org,endz_org
 real*8 :: dx_org,dy_org,dz_org,gridv1_org(3),gridv2_org(3),gridv3_org(3)
@@ -831,7 +885,7 @@ call setup_orbital_grid()
 allocate(cubmat(nx,ny,nz))
 call savecubmat(1,1,0)
 
-density_native=publish_matterviz_volume(reqid,2,2,density_volume_id)
+    density_native=publish_matterviz_volume(reqid,2,2,density_volume_id,1,density_status)
 if (density_native) then
     allocate(densitymat(nx,ny,nz))
     densitymat=cubmat
@@ -846,7 +900,7 @@ ESPrhoiso=isoval
 call savecubmat(12,1,0)
 
 potential_native=.false.
-if (density_native) potential_native=publish_matterviz_volume(reqid,3,3,esp_volume_id)
+if (density_native) potential_native=publish_matterviz_volume(reqid,3,3,esp_volume_id,1,potential_status)
 native_pair=density_native.and.potential_native
 if (native_pair) then
     write(densitypath,"('/api/volume/',i0)") density_volume_id
@@ -1081,17 +1135,18 @@ subroutine close_matterviz_transport()
 call multiwfn_matterviz_transport_close(gui_volume_write,gui_ack_read)
 end subroutine
 
-logical function publish_matterviz_volume(reqid,quantity_kind,value_unit,volume_id)
+logical function publish_matterviz_volume(reqid,quantity_kind,value_unit,volume_id,protocol_major,status_out)
 integer*8,intent(in) :: reqid
-integer,intent(in) :: quantity_kind,value_unit
+integer,intent(in) :: quantity_kind,value_unit,protocol_major
 integer*8,intent(out) :: volume_id
+integer,intent(out) :: status_out
 real(c_double) :: origin(3),voxel_axes(9),lattice(9)
-integer(c_int) :: status
 integer(c_int32_t) :: periodic_axes
 integer(c_int64_t) :: sample_count
 
 publish_matterviz_volume=.false.
 volume_id=-1
+status_out=-1001
 if (gui_volume_write<0_c_intptr_t.or.gui_ack_read<0_c_intptr_t) return
 if (.not.allocated(cubmat).or.reqid<=0) return
 if (size(cubmat,1)/=nx.or.size(cubmat,2)/=ny.or.size(cubmat,3)/=nz) return
@@ -1122,15 +1177,24 @@ else
         real(gridv3(1)*nz,c_double),real(gridv3(2)*nz,c_double),real(gridv3(3)*nz,c_double)]
 end if
 sample_count=int(nx,c_int64_t)*int(ny,c_int64_t)*int(nz,c_int64_t)
-status=multiwfn_matterviz_publish_volume(gui_volume_write,gui_ack_read, &
-    int(reqid,c_int64_t),gui_volume_serial,int(nx,c_int32_t),int(ny,c_int32_t), &
-    int(nz,c_int32_t),1_c_int32_t,periodic_axes,1_c_int32_t, &
-    int(quantity_kind,c_int32_t),int(value_unit,c_int32_t),origin,voxel_axes,lattice, &
-    cubmat,sample_count,30000_c_int32_t)
-if (status/=0_c_int) then
-    write(*,"(a,i0,a)") " MatterViz binary volume publish failed (",int(status), &
-        "); falling back to Cube output"
-    call close_matterviz_transport()
+if (protocol_major==2) then
+    status_out=multiwfn_matterviz_publish_volume_stream(gui_volume_write,gui_ack_read, &
+        int(reqid,c_int64_t),gui_volume_serial,int(nx,c_int32_t),int(ny,c_int32_t), &
+        int(nz,c_int32_t),1_c_int32_t,periodic_axes,1_c_int32_t, &
+        int(quantity_kind,c_int32_t),int(value_unit,c_int32_t),origin,voxel_axes,lattice, &
+        cubmat,sample_count,300000_c_int32_t)
+else
+    status_out=multiwfn_matterviz_publish_volume(gui_volume_write,gui_ack_read, &
+        int(reqid,c_int64_t),gui_volume_serial,int(nx,c_int32_t),int(ny,c_int32_t), &
+        int(nz,c_int32_t),1_c_int32_t,periodic_axes,1_c_int32_t, &
+        int(quantity_kind,c_int32_t),int(value_unit,c_int32_t),origin,voxel_axes,lattice, &
+        cubmat,sample_count,30000_c_int32_t)
+end if
+if (status_out/=0) then
+    write(*,"(a,i0,a)") " MatterViz binary volume publish failed (",status_out,")"
+    ! A consumer-side memory/admission rejection is request-local. Protocol,
+    ! pipe and timeout failures invalidate the transport for this session.
+    if (status_out/=-1005) call close_matterviz_transport()
     return
 end if
 publish_matterviz_volume=.true.

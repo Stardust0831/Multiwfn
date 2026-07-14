@@ -1,4 +1,4 @@
-//! MatterViz binary volume protocol, version 1.
+//! MatterViz binary volume protocol codecs for buffered v1 and streamed v2.
 //!
 //! This module intentionally uses explicit byte reads and writes.  The wire
 //! format is fixed-width little-endian, so casting Rust structs would make the
@@ -9,6 +9,7 @@ use std::fmt;
 pub const PRELUDE_BYTES: usize = 48;
 pub const VOLUME_HEADER_BYTES: usize = 304;
 pub const ACK_HEADER_BYTES: usize = 64;
+pub const STREAM_MAJOR: u16 = 2;
 pub const MAX_SAMPLES: u64 = 1_500_000;
 pub const MAX_BODY_BYTES: u64 = 12_000_000;
 pub const MAX_FRAME_BYTES: u64 = 12_000_304;
@@ -163,6 +164,148 @@ pub struct Volume {
     pub samples: Vec<f64>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamVolumeHeader {
+    pub request_id: u64,
+    pub volume_id: u64,
+    pub body_bytes: u64,
+    pub body_crc32c: u32,
+    pub dimensions: [u32; 3],
+    pub data_order: DataOrder,
+    pub periodic_axes: [bool; 3],
+    pub coordinate_unit: CoordinateUnit,
+    pub quantity_kind: QuantityKind,
+    pub value_unit: ValueUnit,
+    pub origin: [f64; 3],
+    pub voxel_axes: [[f64; 3]; 3],
+    pub lattice: [[f64; 3]; 3],
+    pub statistics: Statistics,
+}
+
+pub fn protocol_major(prelude: &[u8]) -> Result<u16, VolumeError> {
+    if prelude.len() < PRELUDE_BYTES {
+        return Err(VolumeError::Truncated);
+    }
+    if &prelude[..8] != MAGIC {
+        return Err(VolumeError::InvalidMagic);
+    }
+    get_u16(prelude, 8)
+}
+
+pub fn decode_stream_volume_header(frame: &[u8]) -> Result<StreamVolumeHeader, VolumeError> {
+    if frame.len() != VOLUME_HEADER_BYTES {
+        return Err(VolumeError::InvalidHeader);
+    }
+    if protocol_major(frame)? != STREAM_MAJOR || get_u16(frame, 10)? != 0 {
+        return Err(VolumeError::UnsupportedVersion);
+    }
+    if get_u16(frame, 12)? != MESSAGE_VOLUME || get_u16(frame, 14)? != REQUIRED_FLAGS {
+        return Err(VolumeError::InvalidMessageType);
+    }
+    if get_u32(frame, 16)? as usize != VOLUME_HEADER_BYTES || get_u32(frame, 44)? != 0 {
+        return Err(VolumeError::InvalidHeader);
+    }
+    let mut header = frame.to_vec();
+    let expected_header_crc = get_u32(frame, 36)?;
+    header[36..40].fill(0);
+    if crc32c(&header) != expected_header_crc {
+        return Err(VolumeError::InvalidCrc);
+    }
+    let request_id = get_u64(frame, 20)?;
+    let body_bytes = get_u64(frame, 28)?;
+    let volume_id = get_u64(frame, 48)?;
+    if request_id == 0 || volume_id == 0 {
+        return Err(VolumeError::InvalidId);
+    }
+    let dimensions = [get_u32(frame, 56)?, get_u32(frame, 60)?, get_u32(frame, 64)?];
+    let sample_count = dimensions.iter().try_fold(1_u64, |count, &dimension| {
+        if dimension == 0 {
+            return Err(VolumeError::InvalidDimensions);
+        }
+        count
+            .checked_mul(u64::from(dimension))
+            .ok_or(VolumeError::Overflow)
+    })?;
+    if body_bytes != sample_count.checked_mul(8).ok_or(VolumeError::Overflow)?
+        || get_u64(frame, 248)? != sample_count
+        || get_u64(frame, 256)? != body_bytes
+    {
+        return Err(VolumeError::InconsistentByteCount);
+    }
+    if get_u8(frame, 68)? != 1 || get_u8(frame, 69)? != 1 || get_u16(frame, 78)? != 0
+        || get_u64(frame, 296)? != 0
+    {
+        return Err(VolumeError::InvalidEnum);
+    }
+    let data_order = DataOrder::from_wire(get_u8(frame, 70)?)?;
+    let periodic = get_u8(frame, 71)?;
+    if periodic & !0x07 != 0 {
+        return Err(VolumeError::InvalidEnum);
+    }
+    let coordinate_unit = CoordinateUnit::from_wire(get_u16(frame, 72)?)?;
+    let quantity_kind = QuantityKind::from_wire(get_u16(frame, 74)?)?;
+    let value_unit = ValueUnit::from_wire(get_u16(frame, 76)?)?;
+    if !units_match(quantity_kind, value_unit) {
+        return Err(VolumeError::InvalidEnum);
+    }
+    let statistics = Statistics {
+        min: get_f64(frame, 264)?,
+        max: get_f64(frame, 272)?,
+        mean: get_f64(frame, 280)?,
+        abs_max: get_f64(frame, 288)?,
+    };
+    validate_finite(
+        read_vec3(frame, 80)?,
+        read_mat3(frame, 104)?,
+        read_mat3(frame, 176)?,
+        statistics,
+    )?;
+    Ok(StreamVolumeHeader {
+        request_id,
+        volume_id,
+        body_bytes,
+        body_crc32c: get_u32(frame, 40)?,
+        dimensions,
+        data_order,
+        periodic_axes: [periodic & 1 != 0, periodic & 2 != 0, periodic & 4 != 0],
+        coordinate_unit,
+        quantity_kind,
+        value_unit,
+        origin: read_vec3(frame, 80)?,
+        voxel_axes: read_mat3(frame, 104)?,
+        lattice: read_mat3(frame, 176)?,
+        statistics,
+    })
+}
+
+pub struct Crc32c(u32);
+
+impl Default for Crc32c {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Crc32c {
+    pub fn new() -> Self {
+        Self(!0_u32)
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.0 ^= u32::from(byte);
+            for _ in 0..8 {
+                let mask = 0_u32.wrapping_sub(self.0 & 1);
+                self.0 = (self.0 >> 1) ^ (0x82f6_3b78 & mask);
+            }
+        }
+    }
+
+    pub fn finish(self) -> u32 {
+        !self.0
+    }
+}
+
 pub fn declared_volume_frame_len(prelude: &[u8]) -> Result<usize, VolumeError> {
     if prelude.len() < PRELUDE_BYTES {
         return Err(VolumeError::Truncated);
@@ -219,11 +362,28 @@ pub fn encode_ack(
     volume_id: u64,
     status: u32,
 ) -> Result<[u8; ACK_HEADER_BYTES], VolumeError> {
+    encode_ack_for_major(1, request_id, volume_id, status)
+}
+
+pub fn encode_stream_ack(
+    request_id: u64,
+    volume_id: u64,
+    status: u32,
+) -> Result<[u8; ACK_HEADER_BYTES], VolumeError> {
+    encode_ack_for_major(STREAM_MAJOR, request_id, volume_id, status)
+}
+
+fn encode_ack_for_major(
+    major: u16,
+    request_id: u64,
+    volume_id: u64,
+    status: u32,
+) -> Result<[u8; ACK_HEADER_BYTES], VolumeError> {
     if request_id == 0 || volume_id == 0 {
         return Err(VolumeError::InvalidId);
     }
     let mut frame = [0_u8; ACK_HEADER_BYTES];
-    write_control_header(&mut frame, MESSAGE_ACK, request_id);
+    write_control_header_major(&mut frame, major, MESSAGE_ACK, request_id);
     put_u64(&mut frame, 48, volume_id);
     put_u32(&mut frame, 56, status);
     refresh_control_crc(&mut frame);
@@ -522,21 +682,24 @@ fn validate_statistics(stored: Statistics, samples: &[f64]) -> Result<(), Volume
 }
 
 fn crc32c(bytes: &[u8]) -> u32 {
-    let mut crc = !0_u32;
-    for &byte in bytes {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            let mask = 0_u32.wrapping_sub(crc & 1);
-            crc = (crc >> 1) ^ (0x82f6_3b78 & mask);
-        }
-    }
-    !crc
+    let mut crc = Crc32c::new();
+    crc.update(bytes);
+    crc.finish()
 }
 
 fn write_control_header(frame: &mut [u8], message_type: u16, request_id: u64) {
+    write_control_header_major(frame, 1, message_type, request_id)
+}
+
+fn write_control_header_major(
+    frame: &mut [u8],
+    major: u16,
+    message_type: u16,
+    request_id: u64,
+) {
     let header_bytes = frame.len() as u32;
     frame[..8].copy_from_slice(MAGIC);
-    put_u16(frame, 8, 1);
+    put_u16(frame, 8, major);
     put_u16(frame, 10, 0);
     put_u16(frame, 12, message_type);
     put_u16(frame, 14, CONTROL_FLAGS);

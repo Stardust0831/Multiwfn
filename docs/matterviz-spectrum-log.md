@@ -491,3 +491,81 @@
   native Multiwfn executable, Rust host and frontend and contains no Python,
   `.py` or 3Dmol runtime entry. Implementation is paused for Windows manual
   confirmation.
+
+## 2026-07-15 Preview 9 cache diagnosis and low-copy v2 implementation
+
+- Proved the retained Preview 9 `cubmat.cube` was stale rather than newly
+  calculated density. After removing the differing Cube headers, its data body
+  was byte-identical to a previous session orbital Cube. The menu 0 launcher
+  exported any allocated global `cubmat` and labeled it density. Menu 0 now
+  skips that startup export; other GUI entry points are left unchanged until
+  their real `cubmat` ownership is migrated.
+- Established a measured storage baseline for 10,000,000 f64 samples: a flat
+  `Float64Array` used 76.3 MiB, while conversion to `number[][][]` raised RSS
+  from 145.8 MiB to 318.8 MiB. This justified a generic MatterViz
+  `ScalarGrid3D`, not a Multiwfn-only data type.
+- Implemented a major-2 C publisher that keeps the v1 304-byte metadata layout
+  but removes the fixed 1,500,000-sample and 12 MB body limits. It scans the
+  caller-owned Fortran buffer once for finite statistics and CRC, then writes
+  bounded ranges directly from the contiguous samples without a full C frame
+  or body allocation. The strict C harness passes exact wire/CRC/statistics,
+  37-byte fragmented reads, 1,500,001 samples, invalid/overflow inputs, timeout,
+  broken pipe and no-proportional-allocation checks.
+- Added Rust major-2 decoding, incremental CRC, a bounded request-ID broker,
+  actual-memory admission for Linux/cgroups, Windows and macOS, and direct HTTP
+  forwarding. The broker is registered before `gui_request.txt` is written,
+  avoiding the request/producer race. HELLO remains major 1; each major-2 volume
+  receives a major-2 ACK.
+- Changed transported orbital requests to a single binary `/api/orbital`
+  response. This is required by backpressure: Fortran cannot write its JSON
+  response until Rust ACKs the volume, and Rust must drain the bounded broker
+  while the body is produced. Bond and ESP JSON endpoints remain unchanged.
+- The browser now allocates one final response buffer from `Content-Length`,
+  fills it from stream chunks and exposes samples as a `Float64Array` view over
+  that buffer. A major-2 test above the old point limit confirms the samples
+  share the original `ArrayBuffer`; fragmented and truncated HTTP bodies are
+  covered.
+- Integrated the vendor-first flat-grid contract
+  `{ data, dimensions, order: 'x-fastest' | 'z-fastest' }` while preserving
+  nested grids and the existing `data_order` metadata. Focused tests cover
+  marching cubes, sampling, range, downsample, periodic pad/tile, slices and a
+  10M-point single typed buffer. Binary/Cube equivalence is now asserted by
+  logical coordinates so differing physical storage orders remain valid.
+- Kept ESP on v1 pending a reviewed ordered-bundle response for density plus
+  potential. The formal v2 orbital path reports transport/memory failure and
+  does not silently emit Cube. Control files and session bootstrap artifacts
+  remain explicitly deferred; this increment does not claim a zero-file
+  runtime.
+- Completed Worker geometry and conservative preflight in MatterViz revision
+  r17. Cross-origin-isolated pages use `SharedArrayBuffer`; ordinary buffers are
+  transferred to a per-grid serialized Worker queue and returned on normal
+  success/error. Stale generations are discarded, and a Worker failure after
+  transfer marks that grid invalid instead of hiding detached-buffer loss.
+- Independent read-only review found that r15 rebuilt a returned transferable
+  grid at byte offset zero, corrupting the second signed orbital surface because
+  native samples begin after the 304-byte protocol header. r17 restores the
+  original offset and element length, keeps recoverable shared grids valid on
+  Worker errors, removes an undefined estimate fallback and charges all resident
+  surfaces against one cumulative geometry budget. A regression test now sends
+  a `Float64Array` view beginning at byte 304 through repeated Worker ownership.
+- The review also found root-only Linux cgroup probing and a likely Clippy
+  `new_without_default` failure. Admission now resolves the process leaf from
+  `/proc/self/cgroup` plus mountinfo for cgroup v2/v1 and handles namespace root
+  mappings, walks leaf-to-root ancestors for the tightest hierarchical
+  constraint, and handles unlimited sentinels and malformed fallback. `Crc32c`
+  now implements `Default`.
+- The final r17 archive also reports shared-buffer Worker failures without
+  claiming data loss and exposes the remaining-budget arithmetic to executable
+  tests rather than relying only on source-pattern assertions.
+- The final r17 archive SHA-256 is
+  `736cf19985c69187f6c20ddadb9962d84b580704a0fb2f57a981a363b998c4b0`.
+  The production build emits
+  `dist/assets/marching-cubes-worker-DNZvsbt9.js`; inspection confirms the
+  Worker contains its dependency graph and has no unresolved relative import.
+- Local verification passes all 95 frontend tests, `svelte-check` with zero
+  errors/warnings, the production build, the strict C stream harness, 53
+  GUI/session source-contract tests and Python syntax checks. Existing Vite
+  chunk-size, lightningcss `::highlight` and occupied test WebSocket-port
+  warnings remain nonblocking. Rust compilation, live browser replay and
+  Linux/macOS/Windows CI remain open release gates because Cargo and a browser
+  runner are unavailable in the current WSL environment.

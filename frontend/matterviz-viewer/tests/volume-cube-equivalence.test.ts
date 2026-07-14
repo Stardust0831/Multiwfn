@@ -33,6 +33,16 @@ const assert_close = (actual: number, expected: number, message: string): void =
   assert.ok(Math.abs(actual - expected) <= 1e-12, `${message}: ${actual} != ${expected}`)
 }
 
+const grid_value = (volume: VolumetricData, x: number, y: number, z: number): number => {
+  const grid = volume.grid
+  if (Array.isArray(grid)) return grid[x]![y]![z]!
+  const [nx, ny, nz] = grid.dimensions
+  const index = grid.order === 'x-fastest'
+    ? x + nx * (y + ny * z)
+    : z + nz * (y + ny * x)
+  return grid.data[index]!
+}
+
 test('binary adapter is numerically equivalent to the MatterViz Cube parser', async () => {
   const cube = parse_cube(
     await readFile(fixture('matterviz-volume-v1-orbital.cube'), 'utf8'),
@@ -47,7 +57,13 @@ test('binary adapter is numerically equivalent to the MatterViz Cube parser', as
   const binary = adapt_matterviz_volume(decoded)
 
   assert.deepEqual(binary.grid_dims, cube.grid_dims)
-  assert.deepEqual(binary.grid, cube.grid)
+  for (let x = 0; x < binary.grid_dims[0]; x += 1) {
+    for (let y = 0; y < binary.grid_dims[1]; y += 1) {
+      for (let z = 0; z < binary.grid_dims[2]; z += 1) {
+        assert_close(grid_value(binary, x, y, z), grid_value(cube, x, y, z), `grid[${x}][${y}][${z}]`)
+      }
+    }
+  }
   assert.equal(binary.periodic, cube.periodic)
   for (let axis = 0; axis < 3; axis += 1) {
     assert_close(binary.origin[axis], cube.origin[axis], `origin[${axis}]`)

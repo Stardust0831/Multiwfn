@@ -4,11 +4,14 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use crate::backend;
+use crate::memory_budget;
+use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::transport::{TransportConfig, VolumeTransport};
 #[cfg(test)]
 use crate::volume_store::InsertError;
@@ -36,6 +39,8 @@ pub struct HttpService {
     capability: String,
     authority: String,
     volume_store: Arc<VolumeStore>,
+    stream_broker: Arc<VolumeStreamBroker>,
+    streaming_volume_enabled: bool,
     transport: Mutex<Option<VolumeTransport>>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
@@ -97,9 +102,18 @@ impl HttpService {
         let authority = format!("{}:{}", format_host(&host), address.port());
         let stop = Arc::new(AtomicBool::new(false));
         let volume_store = Arc::new(VolumeStore::new());
+        let stream_broker = Arc::new(VolumeStreamBroker::default());
+        let streaming_volume_enabled = config.transport.is_some();
         let transport = config
             .transport
-            .map(|transport| VolumeTransport::start(transport, volume_store.clone(), stop.clone()))
+            .map(|transport| {
+                VolumeTransport::start_with_broker(
+                    transport,
+                    volume_store.clone(),
+                    stream_broker.clone(),
+                    stop.clone(),
+                )
+            })
             .transpose()?;
         let service = Self {
             session,
@@ -110,6 +124,8 @@ impl HttpService {
             capability,
             authority,
             volume_store,
+            stream_broker,
+            streaming_volume_enabled,
             transport: Mutex::new(transport),
             worker: Mutex::new(None),
         };
@@ -136,6 +152,8 @@ impl HttpService {
             capability: self.capability.clone(),
             authority: self.authority.clone(),
             volume_store: self.volume_store.clone(),
+            stream_broker: self.stream_broker.clone(),
+            streaming_volume_enabled: self.streaming_volume_enabled,
         }
     }
     pub fn url(&self) -> &str {
@@ -183,6 +201,8 @@ struct ServiceRunner {
     capability: String,
     authority: String,
     volume_store: Arc<VolumeStore>,
+    stream_broker: Arc<VolumeStreamBroker>,
+    streaming_volume_enabled: bool,
 }
 impl ServiceRunner {
     fn run(self) {
@@ -217,10 +237,13 @@ impl ServiceRunner {
             capability: self.capability.clone(),
             authority: self.authority.clone(),
             volume_store: self.volume_store.clone(),
+            stream_broker: self.stream_broker.clone(),
+            streaming_volume_enabled: self.streaming_volume_enabled,
         }
     }
     fn handle(&self, mut stream: TcpStream) {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
         let (first, host) = match read_http_request(&mut stream) {
             Ok(value) => value,
             Err(_) => {
@@ -340,6 +363,10 @@ impl ServiceRunner {
             }
             return;
         }
+        if path == "/api/orbital" && method == "GET" && self.streaming_volume_enabled {
+            self.stream_orbital(&mut stream, &query);
+            return;
+        }
         let value = match path.as_str() {
             "/api/orbital" if method == "GET" => Some(backend::request_orbital(
                 &self.session,
@@ -424,6 +451,167 @@ impl ServiceRunner {
             .map_err(|error| format!("could not signal Multiwfn Return: {error}"))?;
         self.volume_store.clear();
         Ok(())
+    }
+
+    fn stream_orbital(&self, stream: &mut TcpStream, query: &[(String, String)]) {
+        let reported_active = match query_u64(query, "activeVolumeBytes") {
+            Ok(value) => value,
+            Err(message) => {
+                respond_json(
+                    stream,
+                    &json!({"ok": false, "message": message}),
+                    400,
+                    false,
+                );
+                return;
+            }
+        };
+        let request = match backend::prepare_orbital_request(query, &self.manifest) {
+            Ok(value) => value,
+            Err(message) => {
+                respond_json(
+                    stream,
+                    &json!({"ok": false, "message": message}),
+                    400,
+                    false,
+                );
+                return;
+            }
+        };
+        let _guard = self
+            .backend_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let request_id = backend::reserve_request_id();
+        let registration = match self.stream_broker.register(request_id) {
+            Ok(value) => value,
+            Err(message) => {
+                respond_json(
+                    stream,
+                    &json!({"ok": false, "message": message}),
+                    500,
+                    false,
+                );
+                return;
+            }
+        };
+        let mut pending = match backend::start_backend_request(
+            &self.session,
+            request_id,
+            &backend::orbital_request_payload(&request),
+            Duration::from_secs(300),
+            "Timed out waiting for Multiwfn orbital grid",
+        ) {
+            Ok(value) => value,
+            Err(value) => {
+                respond_json(stream, &value, backend_start_status(&value), false);
+                return;
+            }
+        };
+        let mut started = false;
+        loop {
+            match registration
+                .receiver()
+                .recv_timeout(Duration::from_millis(100))
+            {
+                Ok(StreamEvent::Begin(metadata, header)) => {
+                    if started {
+                        return;
+                    }
+                    let current_active = (self.volume_store.bytes() as u64)
+                        .saturating_add(reported_active);
+                    let budget = match memory_budget::active_volume_budget(current_active) {
+                        Ok(value) => value,
+                        Err(message) => {
+                            respond_json(
+                                stream,
+                                &json!({"ok": false, "message": message}),
+                                500,
+                                false,
+                            );
+                            return;
+                        }
+                    };
+                    let requested_active = current_active.saturating_add(metadata.body_bytes);
+                    if requested_active > budget.active_limit_bytes {
+                        let message = format!(
+                            "Volume requires {} active bytes but the current limit is {} bytes ({} available, {} reserved)",
+                            requested_active,
+                            budget.active_limit_bytes,
+                            budget.available_bytes,
+                            budget.reserve_bytes
+                        );
+                        respond_json(
+                            stream,
+                            &json!({"ok": false, "message": message}),
+                            413,
+                            false,
+                        );
+                        return;
+                    }
+                    let content_length = match metadata
+                        .body_bytes
+                        .checked_add(crate::volume_protocol::VOLUME_HEADER_BYTES as u64)
+                    {
+                        Some(value) => value,
+                        None => {
+                            respond_json(
+                                stream,
+                                &json!({"ok": false, "message": "Volume response length overflow"}),
+                                500,
+                                false,
+                            );
+                            return;
+                        }
+                    };
+                    let geometry_budget = budget.active_limit_bytes.saturating_sub(requested_active);
+                    if write_stream_header(stream, content_length, geometry_budget).is_err()
+                        || stream.write_all(header.as_ref()).is_err()
+                    {
+                        return;
+                    }
+                    started = true;
+                }
+                Ok(StreamEvent::Chunk(chunk)) => {
+                    if !started || stream.write_all(&chunk).is_err() {
+                        return;
+                    }
+                }
+                Ok(StreamEvent::End) => return,
+                Ok(StreamEvent::Error(message)) => {
+                    if !started {
+                        respond_json(
+                            stream,
+                            &json!({"ok": false, "message": message}),
+                            500,
+                            false,
+                        );
+                    }
+                    return;
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    if let Some(value) = pending.poll() {
+                        if started {
+                            return;
+                        }
+                        let status = backend_response_status(&value);
+                        respond_json(stream, &value, status, false);
+                        return;
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    if !started {
+                        respond_json(
+                            stream,
+                            &json!({"ok": false, "message": "MatterViz volume stream disconnected"}),
+                            500,
+                            false,
+                        );
+                    }
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -665,9 +853,52 @@ fn respond_json(stream: &mut TcpStream, value: &Value, status: u16, head: bool) 
     let data = serde_json::to_vec(value).unwrap_or_else(|_| b"{\"ok\":false}".to_vec());
     respond(stream, status, "application/json", &data, head);
 }
+fn backend_response_status(value: &Value) -> u16 {
+    if value.get("ok").and_then(Value::as_bool) != Some(false) {
+        return 200;
+    }
+    let message = value.get("message").and_then(Value::as_str).unwrap_or("");
+    if message == backend::BACKEND_UNAVAILABLE {
+        503
+    } else if message.starts_with("Timed out") {
+        504
+    } else {
+        400
+    }
+}
+fn backend_start_status(value: &Value) -> u16 {
+    let message = value.get("message").and_then(Value::as_str).unwrap_or("");
+    if message == backend::BACKEND_UNAVAILABLE {
+        503
+    } else {
+        500
+    }
+}
+fn query_u64(query: &[(String, String)], name: &str) -> Result<u64, String> {
+    let mut values = query.iter().filter(|(key, _)| key == name);
+    let Some((_, value)) = values.next() else {
+        return Ok(0);
+    };
+    if values.next().is_some() {
+        return Err(format!("{name} must be specified at most once"));
+    }
+    value
+        .parse::<u64>()
+        .map_err(|_| format!("{name} must be a non-negative integer"))
+}
 fn respond_redirect(stream: &mut TcpStream, location: &str) {
-    let header = format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nCache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    let header = format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nCache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: same-origin\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
     let _ = stream.write_all(header.as_bytes());
+}
+fn write_stream_header(
+    stream: &mut TcpStream,
+    content_length: u64,
+    geometry_budget: u64,
+) -> std::io::Result<()> {
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.multiwfn.volume; version=2\r\nContent-Length: {content_length}\r\nX-MatterViz-Geometry-Memory-Budget: {geometry_budget}\r\nCache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(header.as_bytes())
 }
 fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8], head: bool) {
     let reason = match status {
@@ -678,10 +909,13 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8],
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        413 => "Payload Too Large",
         500 => "Internal Server Error",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
         _ => "Error",
     };
-    let header = format!("HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n", body.len());
+    let header = format!("HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n", body.len());
     let _ = stream.write_all(header.as_bytes());
     if !head {
         let _ = stream.write_all(body);
@@ -690,7 +924,9 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8],
 
 #[cfg(test)]
 mod tests {
-    use super::{content_type, decode_path, safe_join, AppConfig, HttpService};
+    use super::{content_type, decode_path, query_u64, safe_join, AppConfig, HttpService};
+    use crate::transport::TransportConfig;
+    use crate::volume_protocol::{Crc32c, ACK_HEADER_BYTES, PRELUDE_BYTES, VOLUME_HEADER_BYTES};
     use std::fs;
     use std::io::{ErrorKind, Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -702,6 +938,32 @@ mod tests {
     fn path_decoder_handles_percent_and_rejects_bad_hex() {
         assert_eq!(decode_path("/a%20b").unwrap(), "/a b");
         assert!(decode_path("/%xx").is_err());
+    }
+
+    #[test]
+    fn active_volume_byte_query_is_unique_and_unsigned() {
+        assert_eq!(query_u64(&[], "activeVolumeBytes").unwrap(), 0);
+        assert_eq!(
+            query_u64(
+                &[("activeVolumeBytes".to_owned(), "1234".to_owned())],
+                "activeVolumeBytes",
+            )
+            .unwrap(),
+            1234
+        );
+        assert!(query_u64(
+            &[("activeVolumeBytes".to_owned(), "-1".to_owned())],
+            "activeVolumeBytes",
+        )
+        .is_err());
+        assert!(query_u64(
+            &[
+                ("activeVolumeBytes".to_owned(), "1".to_owned()),
+                ("activeVolumeBytes".to_owned(), "2".to_owned()),
+            ],
+            "activeVolumeBytes",
+        )
+        .is_err());
     }
 
     #[test]
@@ -740,6 +1002,8 @@ mod tests {
         .unwrap();
         let manifest = request(service.url(), "GET", "/session/manifest.json");
         assert!(manifest.starts_with("HTTP/1.1 200 OK"));
+        assert!(manifest.contains("Cross-Origin-Opener-Policy: same-origin\r\n"));
+        assert!(manifest.contains("Cross-Origin-Embedder-Policy: require-corp\r\n"));
         assert!(manifest.ends_with(r#"{"session":"rust"}"#));
         let wrong_host = request_with_host(
             service.url(),
@@ -797,6 +1061,91 @@ mod tests {
         assert!(returned.starts_with("HTTP/1.1 200 OK"));
         assert!(returned.ends_with(r#"{"ok":true}"#));
         assert_eq!(fs::read_to_string(stop_path).unwrap(), "return\n");
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn orbital_route_streams_exact_major_two_frame_and_ack() {
+        let root = fixture("orbital-stream");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(
+            session.join("manifest.json"),
+            r#"{"orbitals":{"count":2}}"#,
+        )
+        .unwrap();
+        let (volume_read, mut volume_write) = pipe_pair();
+        let (mut ack_read, ack_write) = pipe_pair();
+        let service = HttpService::start(AppConfig {
+            frontend,
+            session: session.clone(),
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            transport: Some(TransportConfig {
+                volume_read_pipe: into_raw_pipe(volume_read),
+                volume_ack_pipe: into_raw_pipe(ack_write),
+            }),
+        })
+        .unwrap();
+        let mut ready = [0_u8; PRELUDE_BYTES];
+        ack_read.read_exact(&mut ready).unwrap();
+        let base = service.url().to_owned();
+        let path = authorized_path(
+            &base,
+            "/api/orbital?index=1&quality=120000&isovalue=0.05",
+        );
+        let client = std::thread::spawn(move || request_bytes(&base, "GET", &path));
+
+        let request_path = session.join("gui_request.txt");
+        let request = wait_for_file(&request_path);
+        let request_id = request
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert!(request.contains(" orbital 1 120000 0.05"));
+        fs::remove_file(&request_path).unwrap();
+
+        let mut frame = golden_frame();
+        frame[8..10].copy_from_slice(&2_u16.to_le_bytes());
+        frame[20..28].copy_from_slice(&request_id.to_le_bytes());
+        frame[36..40].fill(0);
+        let mut crc = Crc32c::new();
+        crc.update(&frame[..VOLUME_HEADER_BYTES]);
+        frame[36..40].copy_from_slice(&crc.finish().to_le_bytes());
+        for chunk in frame.chunks(23) {
+            volume_write.write_all(chunk).unwrap();
+        }
+
+        let response = client.join().unwrap();
+        let separator = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        let headers = std::str::from_utf8(&response[..separator]).unwrap();
+        assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(headers.contains("Content-Type: application/vnd.multiwfn.volume; version=2\r\n"));
+        assert!(headers.contains("X-MatterViz-Geometry-Memory-Budget: "));
+        assert!(headers.contains("Cross-Origin-Embedder-Policy: require-corp\r\n"));
+        assert_eq!(&response[separator..], frame.as_slice());
+
+        let mut ack = [0_u8; ACK_HEADER_BYTES];
+        ack_read.read_exact(&mut ack).unwrap();
+        assert_eq!(u16::from_le_bytes(ack[8..10].try_into().unwrap()), 2);
+        assert_eq!(u64::from_le_bytes(ack[20..28].try_into().unwrap()), request_id);
+        assert_eq!(u32::from_le_bytes(ack[56..60].try_into().unwrap()), 0);
+
+        drop(volume_write);
+        service.shutdown();
         join_service(service);
         let _ = fs::remove_dir_all(root);
     }
@@ -1043,6 +1392,52 @@ mod tests {
                     .map(move |index| u8::from_str_radix(&word[index..index + 2], 16).unwrap())
             })
             .collect()
+    }
+
+    fn wait_for_file(path: &std::path::Path) -> String {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if let Ok(text) = fs::read_to_string(path) {
+                return text;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("timed out waiting for {}", path.display());
+    }
+
+    #[cfg(unix)]
+    fn pipe_pair() -> (std::fs::File, std::fs::File) {
+        use std::os::fd::FromRawFd;
+        let mut ends = [0_i32; 2];
+        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+        let read = unsafe { std::fs::File::from_raw_fd(ends[0]) };
+        let write = unsafe { std::fs::File::from_raw_fd(ends[1]) };
+        (read, write)
+    }
+
+    #[cfg(windows)]
+    fn pipe_pair() -> (std::fs::File, std::fs::File) {
+        use std::os::windows::io::{FromRawHandle, RawHandle};
+        use windows_sys::Win32::Foundation::HANDLE;
+        use windows_sys::Win32::System::Pipes::CreatePipe;
+        let mut read: HANDLE = std::ptr::null_mut();
+        let mut write: HANDLE = std::ptr::null_mut();
+        assert_ne!(unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) }, 0);
+        let read = unsafe { std::fs::File::from_raw_handle(read as RawHandle) };
+        let write = unsafe { std::fs::File::from_raw_handle(write as RawHandle) };
+        (read, write)
+    }
+
+    #[cfg(unix)]
+    fn into_raw_pipe(file: std::fs::File) -> u64 {
+        use std::os::fd::IntoRawFd;
+        file.into_raw_fd() as u64
+    }
+
+    #[cfg(windows)]
+    fn into_raw_pipe(file: std::fs::File) -> u64 {
+        use std::os::windows::io::IntoRawHandle;
+        file.into_raw_handle() as usize as u64
     }
 
     fn tempfile_dir() -> PathBuf {

@@ -97,6 +97,7 @@ jobs:
           cargo fmt --manifest-path tests/matterviz-volume-e2e/Cargo.toml -- --check
           cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
           cargo clippy --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked -- -D warnings
+          bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
         run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py
@@ -581,4 +582,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "MatterViz WebView preview $preview" \
             --prerelease \
-            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native Rust WebView/session host, and Multiwfn executable. Python runtime artifacts are rejected from every package. CI verifies real uncached orbital 43 through native binary transport with no dynamic Cube on extracted Windows and Linux packages; Linux also verifies the deliberate packaged Cube fallback. macOS dependency relocation and extracted Multiwfn execution pass, while real WKWebView orbital readiness requires an interactive macOS desktop and remains part of manual preview validation. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment."
+            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native Rust WebView/session host, and Multiwfn executable. Python runtime artifacts are rejected from every package. CI verifies real uncached orbital 43 through native major-2 binary transport with no dynamic Cube on extracted Windows and Linux packages; Linux also verifies the explicit diagnostic Cube fallback, enabled only with MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1. macOS dependency relocation and extracted Multiwfn execution pass, while real WKWebView orbital readiness requires an interactive macOS desktop and remains part of manual preview validation. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment."

@@ -54,6 +54,7 @@
   import {
     adapt_matterviz_volume,
     decode_matterviz_volume,
+    read_matterviz_volume_response,
   } from './volume'
 
   let manifest = $state<MultiwfnManifest>({})
@@ -362,6 +363,20 @@
     orbitalIndex = Number.isInteger(visibleIndex) && visibleIndex > 0 ? visibleIndex : 0
   }
 
+  const active_volume_bytes = (): number => {
+    const buffers = new Set<ArrayBufferLike>()
+    let bytes = 0
+    for (const volume of volumetricData ?? []) {
+      if (Array.isArray(volume.grid)) continue
+      const buffer = volume.grid.data.buffer
+      if (buffers.has(buffer)) continue
+      buffers.add(buffer)
+      bytes += buffer.byteLength
+      if (!Number.isSafeInteger(bytes)) return Number.MAX_SAFE_INTEGER
+    }
+    return bytes
+  }
+
   const replace_volume_entry = async (
     volumeIdx: number,
     entry: ManifestEntry,
@@ -377,6 +392,33 @@
     }
     const volumes = [...(volumetricData ?? [])]
     volumes[volumeIdx] = parsed.volumes[0]
+    volumetricData = volumes
+    volumeEntries = volumeEntries.map((current, index) => index === volumeIdx ? entry : current)
+    isosurfaceSettings = {
+      ...isosurfaceSettings,
+      layers: (isosurfaceSettings.layers ?? []).map((layer) =>
+        layer.volume_idx === volumeIdx ? layer_for_entry(entry, volumeIdx) : layer),
+    }
+    return volumeIdx
+  }
+
+  const upsert_loaded_volume = (
+    volumeIdx: number | undefined,
+    entry: ManifestEntry,
+    volume: VolumetricData,
+  ): number => {
+    if (volumeIdx === undefined) {
+      const nextIdx = volumetricData?.length ?? 0
+      volumetricData = [...(volumetricData ?? []), volume]
+      volumeEntries = [...volumeEntries, entry]
+      isosurfaceSettings = {
+        ...isosurfaceSettings,
+        layers: [...(isosurfaceSettings.layers ?? []), layer_for_entry(entry, nextIdx)],
+      }
+      return nextIdx
+    }
+    const volumes = [...(volumetricData ?? [])]
+    volumes[volumeIdx] = volume
     volumetricData = volumes
     volumeEntries = volumeEntries.map((current, index) => index === volumeIdx ? entry : current)
     isosurfaceSettings = {
@@ -675,22 +717,59 @@
         index: String(requestedIndex),
         quality: String(requestedQuality),
         isovalue: String(orbitalIsovalue),
+        activeVolumeBytes: String(active_volume_bytes()),
       })
       const response = await fetch(api_url('/api/orbital', params), { cache: 'no-store' })
-      const payload = await read_api_payload(response)
-      if (!response.ok || !payload.ok || !payload.layer) {
-        throw new Error(payload.message || 'Orbital calculation failed')
+      const contentType = response.headers.get('content-type') || ''
+      let activeIdx: number
+      if (response.ok && contentType.includes('application/vnd.multiwfn.volume')) {
+        const geometryBudget = Number(
+          response.headers.get('x-matterviz-geometry-memory-budget'),
+        )
+        if (!Number.isSafeInteger(geometryBudget) || geometryBudget < 0) {
+          throw new Error('Multiwfn returned an invalid geometry memory budget')
+        }
+        const decoded = decode_matterviz_volume(await read_matterviz_volume_response(response))
+        if (decoded.protocol_major !== 2 || decoded.quantity_kind !== 'orbital') {
+          throw new Error('Multiwfn returned an unexpected volume for the orbital request')
+        }
+        const layer: ManifestEntry = {
+          name: `Orbital ${requestedIndex}`,
+          path: '/api/orbital',
+          format: 'mwfn-volume-v2',
+          role: 'orbital',
+          mode: 'signed',
+          orbitalIndex: requestedIndex,
+          gridQuality: requestedQuality,
+          isovalue: orbitalIsovalue,
+          visible: true,
+        }
+        const volume = {
+          ...adapt_matterviz_volume(decoded),
+          label: layer.name,
+          source: layer.path,
+        }
+        isosurfaceSettings = {
+          ...isosurfaceSettings,
+          geometry_memory_budget_bytes: geometryBudget,
+        }
+        activeIdx = upsert_loaded_volume(cachedVolumeIdx, layer, volume)
+      } else {
+        const payload = await read_api_payload(response)
+        if (!response.ok || !payload.ok || !payload.layer) {
+          throw new Error(payload.message || 'Orbital calculation failed')
+        }
+        const layer = {
+          ...payload.layer,
+          role: 'orbital',
+          orbitalIndex: requestedIndex,
+          gridQuality: Number(payload.quality ?? requestedQuality),
+          isovalue: Number(payload.isovalue ?? payload.layer.isovalue ?? orbitalIsovalue),
+        }
+        activeIdx = cachedVolumeIdx === undefined
+          ? await apply_entries([layer], manifestBase, 'append')
+          : await replace_volume_entry(cachedVolumeIdx, layer, manifestBase)
       }
-      const layer = {
-        ...payload.layer,
-        role: 'orbital',
-        orbitalIndex: requestedIndex,
-        gridQuality: Number(payload.quality ?? requestedQuality),
-        isovalue: Number(payload.isovalue ?? payload.layer.isovalue ?? orbitalIsovalue),
-      }
-      const activeIdx = cachedVolumeIdx === undefined
-        ? await apply_entries([layer], manifestBase, 'append')
-        : await replace_volume_entry(cachedVolumeIdx, layer, manifestBase)
       orbitalIndex = requestedIndex
       orbitalBackendAvailable = true
       activate_only_volume(activeIdx)
@@ -1151,7 +1230,10 @@
         show_unit_cell={showUnitCell}
         volume_count={volumeEntries.length}
         on_scene_props_change={apply_inspector_scene_props}
-        on_isosurface_settings_change={(next) => isosurfaceSettings = next}
+        on_isosurface_settings_change={(next) => isosurfaceSettings = {
+          ...next,
+          geometry_memory_budget_bytes: isosurfaceSettings.geometry_memory_budget_bytes,
+        }}
         on_supercell_change={(value) => supercellScaling = value}
         on_boundary_atoms_change={(value) => showImageAtoms = value}
         on_unit_cell_change={set_inspector_unit_cell}
@@ -1179,6 +1261,7 @@
           bind:error_msg={viewerError}
           on_camera_move={track_camera}
           on_camera_reset={track_camera}
+          on_geometry_error={(message) => report_error(new Error(message))}
           show_controls="always"
           allow_file_drop={false}
         />

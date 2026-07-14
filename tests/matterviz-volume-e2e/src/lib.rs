@@ -2,8 +2,12 @@
 pub mod backend;
 #[path = "../../../frontend/matterviz-desktop/src/cli.rs"]
 pub mod cli;
+#[path = "../../../frontend/matterviz-desktop/src/memory_budget.rs"]
+pub mod memory_budget;
 #[path = "../../../frontend/matterviz-desktop/src/service.rs"]
 pub mod service;
+#[path = "../../../frontend/matterviz-desktop/src/stream_broker.rs"]
+pub mod stream_broker;
 #[path = "../../../frontend/matterviz-desktop/src/transport.rs"]
 pub mod transport;
 #[path = "../../../frontend/matterviz-desktop/src/volume_protocol.rs"]
@@ -21,7 +25,6 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use serde_json::Value;
     use url::Url;
 
     use crate::service::{AppConfig, HttpService};
@@ -41,7 +44,7 @@ mod tests {
             transport_error: *mut c_int,
         ) -> c_int;
 
-        fn multiwfn_matterviz_publish_volume(
+        fn multiwfn_matterviz_publish_volume_stream(
             volume_write: isize,
             ack_read: isize,
             request_id: i64,
@@ -79,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn request_publish_store_and_cube_fallback() {
+    fn request_publish_stream_rejection_then_success() {
         let root = temp_dir();
         let frontend = root.join("frontend");
         let session = root.join("session");
@@ -106,36 +109,15 @@ mod tests {
         let first = spawn_orbital_request(&base, &capability, 3);
         let first_id = wait_for_request(&session, "orbital 3 120000 0.05");
         assert_eq!(publish(&producer, first_id, 1001), 0);
-        write_binary_response(&session, first_id, 1001);
         let first_response = first.join().unwrap();
-        assert_eq!(first_response["ok"], true);
-        assert_eq!(first_response["layer"]["format"], "mwfn-volume-v1");
-
-        let binary = request_bytes(&base, &format!("/api/volume/1001?cap={capability}"));
-        let (headers, body) = split_response(&binary);
-        assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
-        assert!(headers.contains("Content-Type: application/vnd.multiwfn.volume\r\n"));
-        let decoded = crate::volume_protocol::decode_volume(body).unwrap();
-        assert_eq!(decoded.request_id, first_id as u64);
-        assert_eq!(decoded.volume_id, 1001);
-        assert_eq!(decoded.dimensions, [2, 2, 3]);
-        assert_eq!(decoded.samples, samples());
+        assert_stream_response(&first_response, first_id);
 
         let second = spawn_orbital_request(&base, &capability, 4);
         let second_id = wait_for_request(&session, "orbital 4 120000 0.05");
-        assert_eq!(publish(&producer, second_id, 1001), REJECTED_ACK);
-        unsafe {
-            multiwfn_matterviz_transport_close(&mut producer.volume_write, &mut producer.ack_read);
-        }
-        let cube_name = "orbital_4_120000.cube";
-        fs::copy(cube_fixture(), session.join(cube_name)).unwrap();
-        write_cube_response(&session, second_id, cube_name);
+        assert_eq!(publish(&producer, second_id + 1, 1001), REJECTED_ACK);
+        assert_eq!(publish(&producer, second_id, 1001), 0);
         let second_response = second.join().unwrap();
-        assert_eq!(second_response["ok"], true);
-        assert_eq!(second_response["layer"]["path"], cube_name);
-        assert!(second_response["layer"].get("format").is_none());
-        assert!(request_bytes(&base, &format!("/session/{cube_name}"))
-            .starts_with(b"HTTP/1.1 200 OK\r\n"));
+        assert_stream_response(&second_response, second_id);
 
         wait_until(Duration::from_secs(2), || {
             request_bytes(&base, &format!("/api/volume/1001?cap={capability}"))
@@ -156,7 +138,7 @@ mod tests {
         let samples = vec![0.25; 1_500_000];
         let started = Instant::now();
         let status = unsafe {
-            multiwfn_matterviz_publish_volume(
+            multiwfn_matterviz_publish_volume_stream(
                 producer.volume_write,
                 producer.ack_read,
                 91,
@@ -216,7 +198,7 @@ mod tests {
         let lattice = [0.8, 0.2, 0.0, 0.0, 1.0, 0.4, 0.3, 0.0, 1.8];
         let samples = samples();
         unsafe {
-            multiwfn_matterviz_publish_volume(
+            multiwfn_matterviz_publish_volume_stream(
                 pipes.volume_write,
                 pipes.ack_read,
                 request_id,
@@ -249,16 +231,37 @@ mod tests {
         base: &str,
         capability: &str,
         index: usize,
-    ) -> thread::JoinHandle<Value> {
+    ) -> thread::JoinHandle<Vec<u8>> {
         let base = base.to_owned();
         let path =
             format!("/api/orbital?index={index}&quality=120000&isovalue=0.05&cap={capability}");
         thread::spawn(move || {
-            let response = request_bytes(&base, &path);
-            let (headers, body) = split_response(&response);
-            assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
-            serde_json::from_slice(body).unwrap()
+            request_bytes(&base, &path)
         })
+    }
+
+    fn assert_stream_response(response: &[u8], request_id: i64) {
+        let (headers, body) = split_response(response);
+        assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(headers.contains(
+            "Content-Type: application/vnd.multiwfn.volume; version=2\r\n"
+        ));
+        let header = &body[..crate::volume_protocol::VOLUME_HEADER_BYTES];
+        let decoded = crate::volume_protocol::decode_stream_volume_header(header).unwrap();
+        assert_eq!(decoded.request_id, request_id as u64);
+        assert_eq!(decoded.volume_id, 1001);
+        assert_eq!(decoded.dimensions, [2, 2, 3]);
+        let payload = &body[crate::volume_protocol::VOLUME_HEADER_BYTES..];
+        assert_eq!(payload.len(), decoded.body_bytes as usize);
+        let mut crc = crate::volume_protocol::Crc32c::new();
+        crc.update(payload);
+        assert_eq!(crc.finish(), decoded.body_crc32c);
+        let values = (0..payload.len())
+            .step_by(std::mem::size_of::<f64>())
+            .map(|offset| f64::from_le_bytes(payload[offset..offset + 8].try_into().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(values, samples());
+        assert_eq!(body.len(), crate::volume_protocol::VOLUME_HEADER_BYTES + payload.len());
     }
 
     fn wait_for_request(session: &Path, expected: &str) -> i64 {
@@ -279,24 +282,6 @@ mod tests {
         });
         fs::remove_file(request).unwrap();
         request_id.unwrap()
-    }
-
-    fn write_binary_response(session: &Path, request_id: i64, volume_id: i64) {
-        fs::write(
-            session.join(format!("response_{request_id}.json")),
-            format!(
-                r#"{{"ok":true,"layer":{{"path":"/api/volume/{volume_id}","format":"mwfn-volume-v1","role":"orbital"}}}}"#
-            ),
-        )
-        .unwrap();
-    }
-
-    fn write_cube_response(session: &Path, request_id: i64, cube_name: &str) {
-        fs::write(
-            session.join(format!("response_{request_id}.json")),
-            format!(r#"{{"ok":true,"layer":{{"path":"{cube_name}","role":"orbital"}}}}"#),
-        )
-        .unwrap();
     }
 
     fn request_bytes(base: &str, path: &str) -> Vec<u8> {
@@ -356,11 +341,6 @@ mod tests {
             std::process::id(),
             thread::current().id()
         ))
-    }
-
-    fn cube_fixture() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../fixtures/matterviz-volume-v1-orbital.cube")
     }
 
     fn c_path(path: &Path) -> CString {

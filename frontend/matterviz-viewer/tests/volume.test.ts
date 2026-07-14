@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   adapt_matterviz_volume,
   decode_matterviz_volume,
+  read_matterviz_volume_response,
 } from '../src/volume.ts'
 
 const fixture_hex = new URL('../../../tests/fixtures/matterviz-volume-v1-orbital.hex', import.meta.url)
@@ -44,6 +45,7 @@ async function golden_frame(): Promise<Uint8Array> {
 
 test('decodes the shared orbital golden frame and adapts geometry', async () => {
   const decoded = decode_matterviz_volume(await golden_frame())
+  assert.equal(decoded.protocol_major, 1)
   assert.equal(decoded.request_id, 42n)
   assert.equal(decoded.volume_id, 1001n)
   assert.deepEqual(decoded.dimensions, [2, 2, 3])
@@ -61,10 +63,11 @@ test('decodes the shared orbital golden frame and adapts geometry', async () => 
     periodic_axes: [true, true, true],
   })
   const bohr = 0.529177249
-  assert.deepEqual(adapted.grid, [
-    [[1, 5, 9], [3, 7, 11]],
-    [[2, 6, 10], [4, 8, 12]],
-  ])
+  assert.deepEqual(adapted.grid, {
+    data: decoded.samples,
+    dimensions: [2, 2, 3],
+    order: 'x-fastest',
+  })
   assert.deepEqual(adapted.origin, [bohr, 2 * bohr, 3 * bohr])
   assert.equal(adapted.origin_mode, 'absolute')
   assert.equal(adapted.data_order, 'x_fastest')
@@ -77,7 +80,7 @@ test('decodes the shared orbital golden frame and adapts geometry', async () => 
   assert.equal(adapted.data_range.mean, 6.5)
 })
 
-test('maps k-fastest Cube order into grid[x][y][z]', async () => {
+test('preserves k-fastest Cube order in the flat scalar grid', async () => {
   const frame = await golden_frame()
   const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
   view.setUint8(70, 2)
@@ -86,10 +89,11 @@ test('maps k-fastest Cube order into grid[x][y][z]', async () => {
     ...decode_matterviz_volume(frame),
     periodic_axes: [false, false, false],
   })
-  assert.deepEqual(adapted.grid, [
-    [[1, 2, 3], [4, 5, 6]],
-    [[7, 8, 9], [10, 11, 12]],
-  ])
+  assert.deepEqual(adapted.grid, {
+    data: decode_matterviz_volume(frame).samples,
+    dimensions: [2, 2, 3],
+    order: 'z-fastest',
+  })
   assert.equal(adapted.data_order, 'z_fastest')
 })
 
@@ -131,9 +135,9 @@ test('rejects malformed frame structure and metadata', async () => {
   const original = await golden_frame()
   const cases: Array<[string, RegExp, (frame: Uint8Array) => void]> = [
     ['bad magic', /bad magic/, (frame) => { frame[0] = 0 }],
-    ['bad major version', /unsupported major/, (frame) => { frame[8] = 2 }],
+    ['bad major version', /unsupported major/, (frame) => { frame[8] = 3 }],
     ['bad minor version', /unsupported minor/, (frame) => { frame[10] = 1 }],
-    ['extended header', /header length is not v1\.0/, (frame) => {
+    ['extended header', /unsupported header length/, (frame) => {
       new DataView(frame.buffer, frame.byteOffset, frame.byteLength).setUint32(16, 312, true)
     }],
     ['missing required flag', /requires exactly the CRC32C flags/, (frame) => { frame[14] = 1 }],
@@ -172,7 +176,7 @@ test('rejects malformed frame structure and metadata', async () => {
 
 test('rejects truncated, bad-CRC, and inconsistent byte-count frames', async () => {
   const original = await golden_frame()
-  assert.throws(() => decode_matterviz_volume(original.subarray(0, 303)), /Invalid MatterViz volume v1 frame/)
+  assert.throws(() => decode_matterviz_volume(original.subarray(0, 303)), /Invalid MatterViz volume frame/)
 
   const bad_header_crc = original.slice()
   bad_header_crc[36] ^= 0xff
@@ -200,4 +204,51 @@ test('rejects derived nonfinite grid geometry before nested-grid allocation', as
   decoded.voxel_axes[0][0] = Number.MAX_VALUE
   decoded.periodic_axes = [false, false, false]
   assert.throws(() => adapt_matterviz_volume(decoded), /grid lattice must be finite/)
+})
+
+test('decodes a major-2 frame beyond the v1 point limit without copying samples', async () => {
+  const sampleCount = 1_500_001
+  const source = await golden_frame()
+  const frame = new Uint8Array(HEADER_BYTES + sampleCount * 8)
+  frame.set(source.subarray(0, HEADER_BYTES))
+  const view = new DataView(frame.buffer)
+  view.setUint16(8, 2, true)
+  view.setBigUint64(28, BigInt(sampleCount * 8), true)
+  view.setUint32(56, sampleCount, true)
+  view.setUint32(60, 1, true)
+  view.setUint32(64, 1, true)
+  view.setBigUint64(248, BigInt(sampleCount), true)
+  view.setBigUint64(256, BigInt(sampleCount * 8), true)
+  view.setFloat64(264, 0, true)
+  view.setFloat64(272, 0, true)
+  view.setFloat64(280, 0, true)
+  view.setFloat64(288, 0, true)
+  repair_body_crc(frame)
+
+  const decoded = decode_matterviz_volume(frame.buffer)
+  assert.equal(decoded.protocol_major, 2)
+  assert.equal(decoded.samples.length, sampleCount)
+  assert.equal(decoded.samples.buffer, frame.buffer)
+  assert.equal(decoded.samples.byteOffset, HEADER_BYTES)
+})
+
+test('fills one preallocated response buffer from fragmented stream chunks', async () => {
+  const frame = await golden_frame()
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(frame.subarray(0, 37))
+      controller.enqueue(frame.subarray(37, 311))
+      controller.enqueue(frame.subarray(311))
+      controller.close()
+    },
+  }), {
+    headers: { 'content-length': String(frame.byteLength) },
+  })
+  const buffer = await read_matterviz_volume_response(response)
+  assert.deepEqual(new Uint8Array(buffer), frame)
+
+  const truncated = new Response(frame.subarray(0, frame.length - 1), {
+    headers: { 'content-length': String(frame.length) },
+  })
+  await assert.rejects(read_matterviz_volume_response(truncated), /truncated/)
 })
