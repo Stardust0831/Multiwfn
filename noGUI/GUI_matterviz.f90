@@ -96,7 +96,7 @@ integer,intent(in) :: mode,extra
 real*8,intent(in) :: init1,end1,init2,end2,init3,end3
 character(len=512) :: session,manifest
 character(len=1024) :: cmd
-integer :: launch_status,launch_matterviz_process
+integer :: launch_status
 logical :: session_ok
 
 call reset_generated_orbitals()

@@ -18,6 +18,7 @@ Updated: 2026-07-14
 - [x] Correct the packaged Windows async regression to consume the Rust host's advertised service URL instead of assuming the preferred port; capture inherited stdout/stderr incrementally so a live Multiwfn process no longer hides launch diagnostics.
 - [x] Replace PowerShell cross-thread output event handlers with a pure-.NET asynchronous line collector after the Windows runner proved event callbacks have no PowerShell runspace.
 - [x] Fix the actual Windows async-launch branch selector: CMake defines `MULTIWFN_WINDOWS`, while the Fortran adapter incorrectly checked `_WIN32` and therefore sent space-containing commands through `execute_command_line`.
+- [x] Remove the local integer declaration that shadowed the module `launch_matterviz_process` procedure and produced an undefined external symbol once the native Windows branch became live.
 - [ ] Require the corrected Linux Rust test/release build plus Linux, macOS and Windows package jobs to pass; the earlier macOS shell build succeeded, but that incomplete run is not release evidence.
 - [x] Draft a versioned binary volume protocol with explicit dimensions, lattice/origin, scalar type, byte order, units and integrity/size bounds in `docs/matterviz-volume-protocol.md`; production traffic remains on Cube until codecs and transport tests pass.
 - [ ] Replace dynamic orbital/ESP Cube staging with a bounded shared-memory or pipe transport on Windows, Linux and macOS, retaining a deliberate compatibility/debug fallback until native transport is proven.

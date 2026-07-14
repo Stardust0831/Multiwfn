@@ -63,6 +63,7 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("DuplicateHandle", SPAWN)
         self.assertIn('CreateFileW(\n        L"NUL"', SPAWN)
         self.assertIn("launch_status=launch_matterviz_process(trim(cmd))", FORTRAN)
+        self.assertNotIn("launch_status,launch_matterviz_process", FORTRAN)
         self.assertIn("launchcmd='\"'//trim(native)//'\" --frontend", FORTRAN)
         windows_launch = FORTRAN.split("#ifdef MULTIWFN_WINDOWS", 1)[1].split("#else", 1)[0]
         self.assertNotIn("call execute_command_line", windows_launch)
