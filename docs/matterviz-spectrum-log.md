@@ -583,3 +583,8 @@
   its metadata, and test builds inject a fixed active-volume limit through a
   test-only atomic hook. Production memory discovery and admission are not
   bypassed or weakened.
+- Run `29374587125` then passed the Rust host and e2e suites (50 tests), Cargo
+  check and Clippy. Its remaining main-job failure occurred after the C stream
+  harness itself passed: the shell's allocation audit invoked `rg`, which is
+  not installed on that runner. The audit now uses `grep -E`; its checked range
+  and no-allocation assertion are unchanged.
