@@ -54,6 +54,7 @@
   import {
     adapt_matterviz_volume,
     decode_matterviz_volume,
+    translate_point_volume_frame,
     translate_structure_volume_frame,
     type Vec3,
   } from './volume'
@@ -247,12 +248,26 @@
   }
 
   const sync_structure_volume_frame = (nextOrigin: Vec3): void => {
+    const previousOrigin = structureFrameOrigin
     if (structure) {
       structure = translate_structure_volume_frame(
         structure,
-        structureFrameOrigin,
+        previousOrigin,
         nextOrigin,
       )
+    }
+    const cameraPosition = sceneProps.camera_position
+    const cameraTarget = sceneProps.camera_target
+    if (cameraPosition || cameraTarget) {
+      sceneProps = {
+        ...sceneProps,
+        ...(cameraPosition
+          ? { camera_position: translate_point_volume_frame(cameraPosition, previousOrigin, nextOrigin) }
+          : {}),
+        ...(cameraTarget
+          ? { camera_target: translate_point_volume_frame(cameraTarget, previousOrigin, nextOrigin) }
+          : {}),
+      }
     }
     structureFrameOrigin = [...nextOrigin]
   }
@@ -1206,7 +1221,7 @@
           on_camera_move={track_camera}
           on_camera_reset={track_camera}
           show_controls="always"
-          allow_file_drop={true}
+          allow_file_drop={false}
         />
       {:else if !loading}
         <div class="empty">No structure is available in this session.</div>

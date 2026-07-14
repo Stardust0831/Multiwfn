@@ -385,3 +385,9 @@
   for the Rust dialog process, while POSIX uses direct `fork`/`execv` with an
   exec-status pipe and `waitpid`. The Rust CLI and `selected_file.txt` protocol
   remain unchanged, and legacy 3Dmol behavior is untouched.
+- The independent review found two managed-state gaps in the initial origin
+  fix. Existing explicit camera position/target now receive the same frame
+  translation as the structure, so the view does not jump when the first volume
+  is appended, replaced or removed. MatterViz's generic two-way file drop is
+  disabled in this managed Multiwfn viewer because it bypasses session volume
+  metadata and origin tracking; manifest/API imports remain authoritative.

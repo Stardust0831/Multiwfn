@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   adapt_matterviz_volume,
   decode_matterviz_volume,
+  translate_point_volume_frame,
   translate_structure_volume_frame,
 } from '../src/volume.ts'
 import type { Crystal, Molecule } from 'matterviz/structure'
@@ -154,6 +155,18 @@ test('recomputes periodic fractional coordinates when the volume frame changes',
   assert.deepEqual(aligned.sites[0].xyz, [0.5, 0.75, 1])
   assert.deepEqual(aligned.sites[0].abc, [0.25, 0.25, 0.25])
   assert.deepEqual(crystal.sites[0].abc, [0.5, 0.5, 0.5])
+})
+
+test('moves camera points by the same delta as the structure volume frame', () => {
+  const previous: [number, number, number] = [0, 0, 0]
+  const next: [number, number, number] = [-4, -3, -2]
+  assert.deepEqual(translate_point_volume_frame([1, 2, 3], previous, next), [5, 5, 5])
+  assert.deepEqual(translate_point_volume_frame([0, 0, 0], previous, next), [4, 3, 2])
+  assert.deepEqual(translate_point_volume_frame([5, 5, 5], next, previous), [1, 2, 3])
+  assert.throws(
+    () => translate_point_volume_frame([Number.NaN, 0, 0], previous, next),
+    /finite 3-vectors/,
+  )
 })
 
 test('decodes signed samples and every quantity-unit pair', async () => {

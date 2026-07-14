@@ -192,6 +192,10 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("searchParams.get('cap')", VIEWER_APP)
         self.assertIn("url.searchParams.set('cap', capability)", VIEWER_APP)
 
+    def test_managed_viewer_keeps_volume_imports_in_the_session_adapter(self):
+        self.assertIn("allow_file_drop={false}", VIEWER_APP)
+        self.assertIn("translate_point_volume_frame", VIEWER_APP)
+
     def test_matterviz_package_workflow_has_no_transitional_names(self):
         for obsolete in (
             "MULTIWFN_WEB_FRONTEND",

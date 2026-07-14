@@ -153,6 +153,21 @@ export function translate_structure_volume_frame(
   return { ...structure, sites }
 }
 
+export function translate_point_volume_frame(
+  point: Vec3,
+  previous_origin: Vec3,
+  next_origin: Vec3,
+): Vec3 {
+  if (!finite_vec3(point) || !finite_vec3(previous_origin) || !finite_vec3(next_origin)) {
+    throw new Error('MatterViz volume frame points and origins must be finite 3-vectors')
+  }
+  return [
+    point[0] + previous_origin[0] - next_origin[0],
+    point[1] + previous_origin[1] - next_origin[1],
+    point[2] + previous_origin[2] - next_origin[2],
+  ]
+}
+
 /** Decode one exact MatterViz binary volume v1 frame. */
 export function decode_matterviz_volume(input: ArrayBuffer | Uint8Array): MattervizVolumeV1 {
   const bytes = input instanceof Uint8Array ? new Uint8Array(input) : new Uint8Array(input)
