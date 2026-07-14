@@ -9,6 +9,12 @@ SPAWN = (ROOT / "noGUI" / "matterviz_spawn.c").read_text(encoding="utf-8")
 RUST_SERVICE = (ROOT / "frontend" / "matterviz-desktop" / "src" / "service.rs").read_text(
     encoding="utf-8"
 )
+RUST_TRANSPORT = (
+    ROOT / "frontend" / "matterviz-desktop" / "src" / "transport.rs"
+).read_text(encoding="utf-8")
+RUST_CARGO = (ROOT / "frontend" / "matterviz-desktop" / "Cargo.toml").read_text(
+    encoding="utf-8"
+)
 VIEWER_APP = (ROOT / "frontend" / "matterviz-viewer" / "src" / "App.svelte").read_text(
     encoding="utf-8"
 )
@@ -46,11 +52,22 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("MULTIWFN_MATTERVIZ_SESSION", FORTRAN)
         self.assertIn("multiwfn_matterviz_session_", FORTRAN)
 
-    def test_windows_matterviz_host_uses_native_nonblocking_spawn(self):
+    def test_matterviz_host_uses_structured_native_spawn_and_inherited_pipes(self):
         matterviz_sources = CMAKE.split('if(MULTIWFN_GUI_BACKEND MATCHES "^(3dmol|matterviz)$")', 1)[1]
         matterviz_sources = matterviz_sources.split("endif()", 1)[0]
         self.assertIn("noGUI/matterviz_spawn.c", matterviz_sources)
         self.assertIn("CreateProcessW", SPAWN)
+        self.assertIn("execv(executable, argv)", SPAWN)
+        self.assertIn("multiwfn_matterviz_spawn", SPAWN)
+        self.assertIn("multiwfn_matterviz_publish_volume", SPAWN)
+        self.assertIn("CreatePipe", SPAWN)
+        self.assertIn("pipe2(fds, O_CLOEXEC)", SPAWN)
+        self.assertIn("exec_pipe", SPAWN)
+        self.assertIn("mwfn_write_all_posix", SPAWN)
+        self.assertIn("mwfn_read_exact_posix_deadline", SPAWN)
+        self.assertIn("CancelSynchronousIo", SPAWN)
+        self.assertIn("mwfn_clear_stop_flag_posix(session_utf8)", SPAWN)
+        self.assertIn("mwfn_clear_stop_flag_windows(session_utf8)", SPAWN)
         self.assertIn("SO_EXCLUSIVEADDRUSE", RUST_SERVICE)
         self.assertIn("CP_UTF8, MB_ERR_INVALID_CHARS", SPAWN)
         self.assertNotIn("CP_ACP", SPAWN)
@@ -62,24 +79,44 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("EXTENDED_STARTUPINFO_PRESENT", SPAWN)
         self.assertIn("DuplicateHandle", SPAWN)
         self.assertIn('CreateFileW(\n        L"NUL"', SPAWN)
-        self.assertIn("launch_status=launch_matterviz_process(trim(cmd))", FORTRAN)
+        self.assertIn("call launch_matterviz_native", FORTRAN)
+        self.assertIn("publish_matterviz_volume(reqid", FORTRAN)
+        self.assertIn('"format": "mwfn-volume-v1"', FORTRAN)
         self.assertNotIn("launch_status,launch_matterviz_process", FORTRAN)
-        self.assertIn("launchcmd='\"'//trim(native)//'\" --frontend", FORTRAN)
-        windows_launch = FORTRAN.split("#ifdef MULTIWFN_WINDOWS", 1)[1].split("#else", 1)[0]
-        self.assertNotIn("call execute_command_line", windows_launch)
         self.assertNotIn("#ifdef _WIN32", FORTRAN)
 
     def test_matterviz_runtime_launches_rust_host_directly(self):
-        block = FORTRAN.split("subroutine build_launch_command", 1)[1].split(
+        block = FORTRAN.split("subroutine resolve_matterviz_launch_paths", 1)[1].split(
             "end subroutine", 1
         )[0]
-        native_branch = block.split(
-            "#ifdef MULTIWFN_LEGACY_3DMOL_BACKEND", 1
-        )[1].split("#endif", 1)[0]
         self.assertIn("resolve_matterviz_desktop_launcher(home,native)", block)
-        self.assertIn('" --session "', block)
-        self.assertIn('" --manifest "', block)
-        self.assertNotIn("multiwfn_matterviz_webview.py", native_branch)
+        launch = FORTRAN.split("subroutine launch_matterviz_native", 1)[1].split(
+            "end subroutine", 1
+        )[0]
+        self.assertIn("multiwfn_matterviz_spawn", launch)
+        self.assertNotIn("execute_command_line", launch)
+        self.assertNotIn("python", launch.lower())
+
+    def test_binary_transport_keeps_cube_as_explicit_fallback(self):
+        orbital = FORTRAN.split("subroutine handle_orbital_request", 1)[1].split(
+            "end subroutine", 1
+        )[0]
+        esp = FORTRAN.split("subroutine handle_esp_request", 1)[1].split(
+            "end subroutine", 1
+        )[0]
+        self.assertIn("native_volume=publish_matterviz_volume", orbital)
+        self.assertIn("if (native_volume) then", orbital)
+        self.assertIn("call write_cube(trim(cubefile),cubmat)", orbital)
+        self.assertIn("density_native=publish_matterviz_volume", esp)
+        self.assertIn("potential_native=publish_matterviz_volume", esp)
+        self.assertIn("if (native_pair) then", esp)
+        self.assertIn("call write_cube(trim(densityfile),densitymat)", esp)
+        self.assertIn("call write_cube(trim(espfile),cubmat)", esp)
+
+    def test_pipe_transport_tests_run_on_windows_and_unix(self):
+        self.assertIn('#[cfg(any(unix, windows))]\n    #[test]', RUST_TRANSPORT)
+        self.assertIn("CreatePipe(&mut read, &mut write", RUST_TRANSPORT)
+        self.assertIn('"Win32_Security"', RUST_CARGO)
 
     def test_matterviz_file_dialog_uses_rust_host(self):
         block = FORTRAN.split("subroutine select_file_with_dialog", 1)[1].split(

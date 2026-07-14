@@ -28,6 +28,7 @@
     display_range,
     manifest_url,
     resolve_entry_url,
+    resolve_volume_entry_url,
     type ManifestEntry,
     type MultiwfnManifest,
   } from './manifest'
@@ -50,6 +51,7 @@
     type WorkbenchCameraState,
   } from './state'
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
+  import { adapt_matterviz_volume, decode_matterviz_volume } from './volume'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -230,10 +232,29 @@
     }
   }
 
-  const parse_cube_entry = async (
+  const parse_volume_entry = async (
     entry: ManifestEntry,
     base: URL,
   ): Promise<{ structure?: AnyStructure; volumes: VolumetricData[] }> => {
+    if (entry.format === 'mwfn-volume-v1') {
+      const url = resolve_volume_entry_url(entry, base)
+      const response = await fetch(url, { cache: 'no-store' })
+      if (!response.ok) throw new Error(`${url.pathname}: HTTP ${response.status}`)
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('application/vnd.multiwfn.volume')) {
+        throw new Error(`${url.pathname}: expected a MatterViz binary volume`)
+      }
+      const volume = adapt_matterviz_volume(
+        decode_matterviz_volume(await response.arrayBuffer()),
+      )
+      return {
+        volumes: [{
+          ...volume,
+          label: entry.name || entry.role || 'Volume',
+          source: entry.path,
+        }],
+      }
+    }
     const text = await fetch_text(resolve_entry_url(entry, base))
     const parsed = parse_volumetric_file(text, entry.path)
     if (!parsed) throw new Error(`MatterViz could not parse ${entry.path}`)
@@ -250,7 +271,7 @@
     base: URL,
     mode: 'replace' | 'append' = 'replace',
   ): Promise<number> => {
-    const parsed = await Promise.all(entries.map((entry) => parse_cube_entry(entry, base)))
+    const parsed = await Promise.all(entries.map((entry) => parse_volume_entry(entry, base)))
     const volumes = parsed.flatMap((item) => item.volumes)
     const expandedEntries = entries.flatMap((entry, idx) => parsed[idx].volumes.map(() => entry))
     if (!structure) {
@@ -338,7 +359,7 @@
     entry: ManifestEntry,
     base: URL,
   ): Promise<number> => {
-    const parsed = await parse_cube_entry(entry, base)
+    const parsed = await parse_volume_entry(entry, base)
     if (parsed.volumes.length !== 1) {
       remove_volumes((_entry, index) => index === volumeIdx)
       return apply_entries([entry], base, 'append')

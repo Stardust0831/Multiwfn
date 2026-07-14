@@ -23,8 +23,25 @@ Updated: 2026-07-14
 - [x] Require the corrected Linux Rust test/release build plus Linux, macOS and Windows package jobs to pass; push and PR run pairs for `ee8edec` passed completely.
 - [x] Pass the complete PR frontend/Rust host plus Linux, macOS and Windows package matrix with the native Windows async regression; keep the separate nonzero orbital artifact gate open.
 - [x] Draft a versioned binary volume protocol with explicit dimensions, lattice/origin, scalar type, byte order, units and integrity/size bounds in `docs/matterviz-volume-protocol.md`; production traffic remains on Cube until codecs and transport tests pass.
-- [ ] Replace dynamic orbital/ESP Cube staging with a bounded shared-memory or pipe transport on Windows, Linux and macOS, retaining a deliberate compatibility/debug fallback until native transport is proven.
-- [ ] Add throughput, lifecycle, cancellation/cleanup and malformed/oversized-volume tests for the native transport before removing the file fallback.
+- [x] Correct and freeze the v1 binary volume layout: exact 48-byte prelude, 304-byte volume header, enums, CRC32C coverage, ordering, units, bounds, HTTP entry schema and explicit Cube fallback.
+- [x] Separate the Rust-host final goal, binary protocol design and cross-platform test plan into maintained documents.
+- [x] Implement strict Rust and TypeScript v1 codecs with shared checked-in golden frames; keep production dynamic traffic on Cube.
+- [x] Add bounded authenticated Rust volume storage and `/api/volume/<id>` without changing `/api/orbital` or `/api/esp` response shapes.
+- [x] Dispatch `mwfn-volume-v1` entries through frontend ArrayBuffer decoding while retaining the existing Cube parser for all Cube/legacy entries; append the capability only to same-origin binary API URLs.
+- [x] Complete the pre-pipe protocol variants: signed samples, density/ESP quantity-unit pairs, and direct MatterViz Cube/binary numerical equivalence for grid, origin, lattice and range.
+- [x] Add inherited bounded pipes with negotiated file/Cube fallback and migrate dynamic orbital and paired ESP publication; keep this marked as implementation-complete rather than release-verified.
+- [x] Implement the structured cross-platform C launcher/publisher with direct
+  argv, explicit inherited handles, ready negotiation, publish timeout and
+  idempotent close.
+- [x] Implement Rust pipe adoption, bounded framed reader, ACK-after-insert and
+  EOF/shutdown cleanup; retain HTTP and file IPC after transport failure.
+- [ ] Verify the dynamic orbital/ESP pipe path on Windows, Linux and macOS; successful native publication must avoid dynamic Cube staging, while forced negotiation/publish failure must retain the deliberate Cube fallback.
+- [x] Add a synthetic end-to-end test covering authenticated `/api/orbital`, `gui_request.txt`, C frame publication, Rust ACK-after-insert, `/api/volume/<id>`, and duplicate/rejected publication followed by Cube fallback. This does not replace the real Multiwfn calculation gate.
+- [ ] Add throughput, lifecycle, cancellation/cleanup, descriptor/handle-leak and malformed/oversized-volume tests for the native transport before considering removal of the file fallback.
+- [x] Bound the producer's complete-frame write and ACK wait with one publish deadline; cover a stalled maximum-workload writer returning timeout instead of freezing.
+- [x] Make POSIX direct launch and file-only fallback report `execv` failure through a CLOEXEC status pipe instead of treating `fork()` success as host-launch success.
+- [ ] Run one real packaged nonzero uncached orbital on all three platforms (macOS may require manual WebView confirmation), assert a binary response and no successful-path `orbital_*.cube`, then force transport failure and assert Cube fallback.
+- [x] Run an independent read-only C/Rust/Fortran lifecycle and numerical-semantics review of the local implementation; the initial stop-flag, stalled-write and POSIX exec findings are fixed with no remaining blocker/high/medium. Repeat release review after cross-platform jobs pass.
 
 ## 2026-07-14 Windows asynchronous launch blocker
 

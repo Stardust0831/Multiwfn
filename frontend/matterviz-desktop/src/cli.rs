@@ -4,6 +4,7 @@ use std::time::Duration;
 use url::Url;
 
 use crate::service::AppConfig;
+use crate::transport::TransportConfig;
 
 const DEFAULT_URL: &str = "http://127.0.0.1:8765/index.html?manifest=/session/manifest.json";
 
@@ -46,6 +47,8 @@ impl Cli {
         let mut startup_timeout = None;
         let mut select_file = false;
         let mut output = None;
+        let mut volume_read_pipe = None;
+        let mut volume_ack_pipe = None;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             let (key, inline) = arg
@@ -72,6 +75,18 @@ impl Cli {
                 "--startup-timeout" => startup_timeout = Some(parse_timeout(&take(key)?)?),
                 "--select-file" => select_file = true,
                 "--output" => output = Some(PathBuf::from(take(key)?)),
+                "--volume-read-pipe" => {
+                    if volume_read_pipe.is_some() {
+                        return Err("--volume-read-pipe must be provided once".to_owned());
+                    }
+                    volume_read_pipe = Some(parse_pipe(&take(key)?, key)?);
+                }
+                "--volume-ack-pipe" => {
+                    if volume_ack_pipe.is_some() {
+                        return Err("--volume-ack-pipe must be provided once".to_owned());
+                    }
+                    volume_ack_pipe = Some(parse_pipe(&take(key)?, key)?);
+                }
                 "--help" | "-h" => return Err(usage()),
                 other => return Err(format!("unknown argument {other}")),
             }
@@ -87,7 +102,13 @@ impl Cli {
         if select_file {
             let output =
                 output.ok_or_else(|| "--select-file requires --output <path>".to_owned())?;
-            if frontend.is_some() || session.is_some() || manifest.is_some() || state.is_some() {
+            if frontend.is_some()
+                || session.is_some()
+                || manifest.is_some()
+                || state.is_some()
+                || volume_read_pipe.is_some()
+                || volume_ack_pipe.is_some()
+            {
                 return Err("--select-file cannot be combined with a MatterViz session".to_owned());
             }
             return Ok(Self {
@@ -98,7 +119,13 @@ impl Cli {
         }
 
         if let Some(url) = url {
-            if frontend.is_some() || session.is_some() || manifest.is_some() || state.is_some() {
+            if frontend.is_some()
+                || session.is_some()
+                || manifest.is_some()
+                || state.is_some()
+                || volume_read_pipe.is_some()
+                || volume_ack_pipe.is_some()
+            {
                 return Err("--url cannot be combined with a managed session".to_owned());
             }
             validate_url(&url)?;
@@ -110,6 +137,9 @@ impl Cli {
         }
 
         if frontend.is_none() && session.is_none() {
+            if volume_read_pipe.is_some() || volume_ack_pipe.is_some() {
+                return Err("volume pipes require a managed session".to_owned());
+            }
             let url = std::env::var("MATTERVIZ_WEB_URL").unwrap_or_else(|_| DEFAULT_URL.to_owned());
             validate_url(&url)?;
             return Ok(Self {
@@ -118,6 +148,23 @@ impl Cli {
                 startup_timeout,
             });
         }
+        let transport = match (volume_read_pipe, volume_ack_pipe) {
+            (Some(volume_read_pipe), Some(volume_ack_pipe)) => {
+                if volume_read_pipe == volume_ack_pipe {
+                    return Err("volume read and ACK pipes must be different".to_owned());
+                }
+                Some(TransportConfig {
+                    volume_read_pipe,
+                    volume_ack_pipe,
+                })
+            }
+            (None, None) => None,
+            _ => {
+                return Err(
+                    "--volume-read-pipe and --volume-ack-pipe must be provided together".to_owned(),
+                )
+            }
+        };
         let config = AppConfig {
             frontend: frontend
                 .ok_or_else(|| "--frontend is required for a managed session".to_owned())?,
@@ -127,6 +174,7 @@ impl Cli {
             state,
             host,
             port,
+            transport,
         };
         Ok(Self {
             mode: Mode::Managed(config),
@@ -134,6 +182,16 @@ impl Cli {
             startup_timeout,
         })
     }
+}
+
+fn parse_pipe(value: &str, name: &str) -> Result<u64, String> {
+    let raw = value
+        .parse::<u64>()
+        .map_err(|_| format!("{name} must be an unsigned raw pipe value"))?;
+    if raw == u64::MAX {
+        return Err(format!("{name} is invalid"));
+    }
+    Ok(raw)
 }
 
 fn parse_timeout(value: &str) -> Result<Duration, String> {
@@ -161,7 +219,7 @@ fn validate_url(value: &str) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: matterviz-desktop --frontend DIR --session DIR [--manifest FILE] [--state FILE] [--host HOST] [--port PORT] [--startup-timeout SEC]\n       matterviz-desktop --select-file --output FILE\n       matterviz-desktop --url URL".to_owned()
+    "usage: matterviz-desktop --frontend DIR --session DIR [--manifest FILE] [--state FILE] [--host HOST] [--port PORT] [--startup-timeout SEC] [--volume-read-pipe RAW --volume-ack-pipe RAW]\n       matterviz-desktop --select-file --output FILE\n       matterviz-desktop --url URL".to_owned()
 }
 
 #[cfg(test)]
@@ -182,6 +240,55 @@ mod tests {
             Mode::Managed(config) => assert_eq!(config.port, 0),
             Mode::DevUrl(_) => panic!("expected managed mode"),
         }
+    }
+
+    #[test]
+    fn parses_paired_managed_volume_pipes() {
+        let cli = Cli::parse([
+            "--frontend=dist".into(),
+            "--session=session".into(),
+            "--volume-read-pipe=41".into(),
+            "--volume-ack-pipe".into(),
+            "42".into(),
+        ])
+        .unwrap();
+        let Mode::Managed(config) = cli.mode else {
+            panic!("expected managed mode");
+        };
+        let transport = config.transport.expect("transport config");
+        assert_eq!(transport.volume_read_pipe, 41);
+        assert_eq!(transport.volume_ack_pipe, 42);
+    }
+
+    #[test]
+    fn rejects_partial_duplicate_or_nonmanaged_volume_pipes() {
+        assert!(Cli::parse([
+            "--frontend=dist".into(),
+            "--session=session".into(),
+            "--volume-read-pipe=41".into(),
+        ])
+        .is_err());
+        assert!(Cli::parse([
+            "--frontend=dist".into(),
+            "--session=session".into(),
+            "--volume-read-pipe=41".into(),
+            "--volume-ack-pipe=41".into(),
+        ])
+        .is_err());
+        assert!(Cli::parse([
+            "--frontend=dist".into(),
+            "--session=session".into(),
+            "--volume-read-pipe=41".into(),
+            "--volume-read-pipe=42".into(),
+            "--volume-ack-pipe=43".into(),
+        ])
+        .is_err());
+        assert!(Cli::parse([
+            "--url=http://127.0.0.1:8765".into(),
+            "--volume-read-pipe=41".into(),
+            "--volume-ack-pipe=42".into(),
+        ])
+        .is_err());
     }
 
     #[test]

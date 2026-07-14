@@ -75,6 +75,20 @@ export const manifest_url = (): URL => {
 export const resolve_entry_url = (entry: ManifestEntry, base: URL): URL =>
   new URL(entry.path, base)
 
+export const resolve_volume_entry_url = (
+  entry: ManifestEntry,
+  base: URL,
+  page: URL = new URL(window.location.href),
+): URL => {
+  const url = resolve_entry_url(entry, base)
+  if (entry.format !== 'mwfn-volume-v1'
+    || url.origin !== page.origin
+    || !url.pathname.startsWith('/api/volume/')) return url
+  const capability = page.searchParams.get('cap')
+  if (capability) url.searchParams.set('cap', capability)
+  return url
+}
+
 export const cube_entries = (manifest: MultiwfnManifest): ManifestEntry[] =>
   Array.isArray(manifest?.cubes)
     ? manifest.cubes

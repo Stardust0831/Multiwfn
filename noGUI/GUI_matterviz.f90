@@ -1,5 +1,6 @@
 module GUI
 use defvar
+use iso_c_binding, only: c_char,c_int,c_int32_t,c_int64_t,c_intptr_t,c_double,c_null_char
 implicit none
 
 real*8 :: aug3D_main0=6D0
@@ -13,6 +14,37 @@ integer*2,allocatable :: gui_bond_order(:)
 integer :: gui_bond_count=0
 logical :: gui_has_explicit_topology=.false.
 integer*8 :: gui_session_serial=0
+integer(c_intptr_t) :: gui_volume_write=-1_c_intptr_t,gui_ack_read=-1_c_intptr_t
+integer(c_int64_t) :: gui_volume_serial=0_c_int64_t
+
+interface
+    integer(c_int) function multiwfn_matterviz_spawn(executable,frontend,session,manifest, &
+        volume_write,ack_read,transport_error) bind(C,name="multiwfn_matterviz_spawn")
+    import :: c_char,c_int,c_intptr_t
+    character(kind=c_char),intent(in) :: executable(*),frontend(*),session(*),manifest(*)
+    integer(c_intptr_t),intent(out) :: volume_write,ack_read
+    integer(c_int),intent(out) :: transport_error
+    end function
+
+    integer(c_int) function multiwfn_matterviz_publish_volume(volume_write,ack_read,request_id, &
+        volume_id,nx_arg,ny_arg,nz_arg,data_order,periodic_axes,coordinate_unit,quantity_kind, &
+        value_unit,origin,voxel_axes,lattice,samples,sample_count,publish_timeout_ms) &
+        bind(C,name="multiwfn_matterviz_publish_volume")
+    import :: c_int,c_int32_t,c_int64_t,c_intptr_t,c_double
+    integer(c_intptr_t),value :: volume_write,ack_read
+    integer(c_int64_t),value :: request_id,volume_id,sample_count
+    integer(c_int32_t),value :: nx_arg,ny_arg,nz_arg,data_order,periodic_axes
+    integer(c_int32_t),value :: coordinate_unit,quantity_kind,value_unit
+    real(c_double),intent(in) :: origin(3),voxel_axes(9),lattice(9),samples(*)
+    integer(c_int32_t),value :: publish_timeout_ms
+    end function
+
+    subroutine multiwfn_matterviz_transport_close(volume_write,ack_read) &
+        bind(C,name="multiwfn_matterviz_transport_close")
+    import :: c_intptr_t
+    integer(c_intptr_t),intent(inout) :: volume_write,ack_read
+    end subroutine
+end interface
 
 contains
 
@@ -95,12 +127,19 @@ character(len=*),intent(in) :: entry
 integer,intent(in) :: mode,extra
 real*8,intent(in) :: init1,end1,init2,end2,init3,end3
 character(len=512) :: session,manifest
+#ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
 character(len=1024) :: cmd
+#else
+character(len=512) :: frontend,native
+#endif
 integer :: launch_status
+integer :: transport_error
 logical :: session_ok
 
 call reset_generated_orbitals()
 call reset_bond_analysis_cache()
+call close_matterviz_transport()
+gui_volume_serial=0_c_int64_t
 gui_has_cubmat_file=.false.
 gui_has_cubmattmp_file=.false.
 call get_session_dir(session,session_ok)
@@ -122,11 +161,11 @@ call write_orbital_preview_cubes(entry,trim(session))
 
 manifest=trim(session)//"/manifest.json"
 call write_manifest(manifest,entry,mode,extra,init1,end1,init2,end2,init3,end3)
-call build_launch_command(trim(manifest),trim(session),cmd)
-
 write(*,"(/,a)") " MatterViz GUI backend wrote a visualization session:"
 write(*,"(a,a)") "   ",trim(manifest)
 write(*,"(a)") " Launching visualization GUI..."
+#ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
+call build_launch_command(trim(manifest),trim(session),cmd)
 #ifdef MULTIWFN_WINDOWS
 ! MinGW execute_command_line(wait=.false.) may still block until the child
 ! exits.  Use the native Windows process adapter so the request loop starts
@@ -139,7 +178,24 @@ end if
 #else
 call execute_command_line(trim(cmd),wait=.false.)
 #endif
-if (trim(entry)=="drawmolgui") call run_matterviz_gui_loop(trim(session))
+#else
+call resolve_matterviz_launch_paths(frontend,native)
+call launch_matterviz_native(trim(native),trim(frontend),trim(session),trim(manifest), &
+    launch_status,transport_error)
+if (launch_status/=0) then
+    write(*,"(a,i0)") " MatterViz GUI launch failed with status ",launch_status
+    return
+end if
+if (transport_error/=0) then
+    write(*,"(a,i0,a)") " MatterViz binary transport unavailable (",transport_error, &
+        "); using Cube compatibility output"
+end if
+#endif
+if (trim(entry)=="drawmolgui") then
+    call run_matterviz_gui_loop(trim(session))
+else
+    call close_matterviz_transport()
+end if
 end subroutine
 
 subroutine reset_generated_orbitals()
@@ -604,7 +660,7 @@ do
                 if (trim(action)=="orbital") then
                     read(line,*,iostat=istat) reqid,action,iorb,quality,isoval
                     if (istat==0) then
-                        call handle_orbital_request(trim(session),trim(respfile),iorb,quality,isoval)
+                        call handle_orbital_request(trim(session),trim(respfile),reqid,iorb,quality,isoval)
                     else
                         call write_gui_json_error(trim(respfile),"Malformed orbital request")
                     end if
@@ -618,7 +674,7 @@ do
                 else if (trim(action)=="esp") then
                     read(line,*,iostat=istat) reqid,action,quality,isoval
                     if (istat==0) then
-                        call handle_esp_request(trim(session),trim(respfile),quality,isoval)
+                        call handle_esp_request(trim(session),trim(respfile),reqid,quality,isoval)
                     else
                         call write_gui_json_error(trim(respfile),"Malformed ESP request")
                     end if
@@ -631,14 +687,18 @@ do
     end if
     call sleep(1)
 end do
+call close_matterviz_transport()
 end subroutine
 
-subroutine handle_orbital_request(session,respfile,iorb,quality,isoval)
+subroutine handle_orbital_request(session,respfile,reqid,iorb,quality,isoval)
 character(len=*),intent(in) :: session,respfile
+integer*8,intent(in) :: reqid
 integer,intent(in) :: iorb,quality
 real*8,intent(in) :: isoval
-character(len=512) :: cubefile,cuberel
+character(len=512) :: cubefile,cuberel,layerpath
 integer :: iu,functype,orbtotal
+integer*8 :: volume_id
+logical :: native_volume
 
 orbtotal=gui_orbital_total()
 if (iorb<0.or.iorb>orbtotal) then
@@ -670,9 +730,19 @@ if (iplotwfndens==2) functype=44
 call savecubmat(functype,1,iorb)
 if (ifixorbsign==1.and.sum(cubmat)<0) cubmat=-cubmat
 
-write(cuberel,"('orbital_',i0,'_',i0,'.cube')") iorb,nprevorbgrid
-cubefile=trim(session)//"/"//trim(cuberel)
-call write_cube(trim(cubefile),cubmat)
+if (functype==44) then
+    native_volume=publish_matterviz_volume(reqid,2,2,volume_id)
+else
+    native_volume=publish_matterviz_volume(reqid,1,1,volume_id)
+end if
+if (native_volume) then
+    write(layerpath,"('/api/volume/',i0)") volume_id
+else
+    write(cuberel,"('orbital_',i0,'_',i0,'.cube')") iorb,nprevorbgrid
+    cubefile=trim(session)//"/"//trim(cuberel)
+    call write_cube(trim(cubefile),cubmat)
+    layerpath=trim(cuberel)
+end if
 
 open(newunit=iu,file=trim(respfile),status="replace",action="write")
 write(iu,"(a)") "{"
@@ -682,7 +752,8 @@ write(iu,"(a,i0,a)") '  "quality": ',nprevorbgrid,','
 write(iu,"(a,1pe16.8,a)") '  "isovalue": ',sur_value_orb,','
 write(iu,"(a)") '  "layer": {'
 write(iu,"(a,i0,a)") '    "name": "Orbital ',iorb,'",'
-write(iu,"(a,a,a)") '    "path": "',trim(cuberel),'",'
+write(iu,"(a,a,a)") '    "path": "',trim(layerpath),'",'
+if (native_volume) write(iu,"(a)") '    "format": "mwfn-volume-v1",'
 write(iu,"(a)") '    "role": "orbital",'
 write(iu,"(a,i0,a)") '    "orbitalIndex": ',iorb,','
 write(iu,"(a)") '    "mode": "signed",'
@@ -693,17 +764,19 @@ write(iu,"(a)") "}"
 close(iu)
 end subroutine
 
-subroutine handle_esp_request(session,respfile,quality,isoval)
+subroutine handle_esp_request(session,respfile,reqid,quality,isoval)
 character(len=*),intent(in) :: session,respfile
+integer*8,intent(in) :: reqid
 integer,intent(in) :: quality
 real*8,intent(in) :: isoval
-character(len=512) :: densityfile,densityrel,espfile,esprel
+character(len=512) :: densityfile,densityrel,espfile,esprel,densitypath,esppath
 integer :: iu,nprevorbgrid_org,nx_org,ny_org,nz_org,iorbsel_org
+integer*8 :: density_volume_id,esp_volume_id
 real*8 :: esprhoiso_org,orgx_org,orgy_org,orgz_org,endx_org,endy_org,endz_org
 real*8 :: dx_org,dy_org,dz_org,gridv1_org(3),gridv2_org(3),gridv3_org(3)
 real*8 :: nelec_org,naelec_org,nbelec_org
-real*8,allocatable :: cubmat_org(:,:,:)
-logical :: cubmat_was_allocated
+real*8,allocatable :: cubmat_org(:,:,:),densitymat(:,:,:)
+logical :: cubmat_was_allocated,density_native,potential_native,native_pair
 
 if (ifPBC>0) then
     call write_gui_json_error(respfile,"ESP visualization is not supported for periodic systems")
@@ -752,16 +825,39 @@ call setup_orbital_grid()
 allocate(cubmat(nx,ny,nz))
 call savecubmat(1,1,0)
 
-write(densityrel,"('esp_density_',i0,'.cube')") quality
-densityfile=trim(session)//"/"//trim(densityrel)
-call write_cube(trim(densityfile),cubmat)
+density_native=publish_matterviz_volume(reqid,2,2,density_volume_id)
+if (density_native) then
+    allocate(densitymat(nx,ny,nz))
+    densitymat=cubmat
+else
+    write(densityrel,"('esp_density_',i0,'.cube')") quality
+    densityfile=trim(session)//"/"//trim(densityrel)
+    call write_cube(trim(densityfile),cubmat)
+    densitypath=trim(densityrel)
+end if
 
 ESPrhoiso=isoval
 call savecubmat(12,1,0)
 
-write(esprel,"('esp_potential_',i0,'.cube')") quality
-espfile=trim(session)//"/"//trim(esprel)
-call write_cube(trim(espfile),cubmat)
+potential_native=.false.
+if (density_native) potential_native=publish_matterviz_volume(reqid,3,3,esp_volume_id)
+native_pair=density_native.and.potential_native
+if (native_pair) then
+    write(densitypath,"('/api/volume/',i0)") density_volume_id
+    write(esppath,"('/api/volume/',i0)") esp_volume_id
+else
+    if (density_native) then
+        write(densityrel,"('esp_density_',i0,'.cube')") quality
+        densityfile=trim(session)//"/"//trim(densityrel)
+        call write_cube(trim(densityfile),densitymat)
+        densitypath=trim(densityrel)
+    end if
+    write(esprel,"('esp_potential_',i0,'.cube')") quality
+    espfile=trim(session)//"/"//trim(esprel)
+    call write_cube(trim(espfile),cubmat)
+    esppath=trim(esprel)
+end if
+if (allocated(densitymat)) deallocate(densitymat)
 
 if (allocated(cubmat)) deallocate(cubmat)
 if (cubmat_was_allocated) call move_alloc(cubmat_org,cubmat)
@@ -794,7 +890,8 @@ write(iu,"(a,i0,a)") '  "quality": ',quality,','
 write(iu,"(a,es24.16,a)") '  "isovalue": ',isoval,','
 write(iu,"(a)") '  "densityLayer": {'
 write(iu,"(a)") '    "name": "ESP on electron density",'
-write(iu,"(a,a,a)") '    "path": "',trim(densityrel),'",'
+write(iu,"(a,a,a)") '    "path": "',trim(densitypath),'",'
+if (native_pair) write(iu,"(a)") '    "format": "mwfn-volume-v1",'
 write(iu,"(a)") '    "role": "density",'
 write(iu,"(a)") '    "analysisKind": "esp-density",'
 write(iu,"(a,i0,a)") '    "gridQuality": ',quality,','
@@ -805,7 +902,8 @@ write(iu,"(a)") '    "visible": true'
 write(iu,"(a)") '  },'
 write(iu,"(a)") '  "espLayer": {'
 write(iu,"(a)") '    "name": "Electrostatic potential",'
-write(iu,"(a,a,a)") '    "path": "',trim(esprel),'",'
+write(iu,"(a,a,a)") '    "path": "',trim(esppath),'",'
+if (native_pair) write(iu,"(a)") '    "format": "mwfn-volume-v1",'
 write(iu,"(a)") '    "role": "esp",'
 write(iu,"(a)") '    "analysisKind": "esp-potential",'
 write(iu,"(a,i0,a)") '    "gridQuality": ',quality,','
@@ -933,6 +1031,104 @@ character(len=512) :: path
 write(path,"(a,'/orb',i6.6,'.cube')") trim(session),idx
 call write_cube(trim(path),data)
 end subroutine
+
+subroutine resolve_matterviz_launch_paths(frontend,native)
+character(len=*),intent(out) :: frontend,native
+character(len=512) :: home
+
+call get_matterviz_home(home)
+call resolve_resource_path(home,"frontend/matterviz-viewer/dist",frontend)
+call resolve_matterviz_desktop_launcher(home,native)
+end subroutine
+
+subroutine launch_matterviz_native(native,frontend,session,manifest,launch_status,transport_error)
+character(len=*),intent(in) :: native,frontend,session,manifest
+integer,intent(out) :: launch_status,transport_error
+character(kind=c_char),allocatable :: c_native(:),c_frontend(:),c_session(:),c_manifest(:)
+integer(c_int) :: c_status,c_transport_error
+
+call matterviz_c_string(native,c_native)
+call matterviz_c_string(frontend,c_frontend)
+call matterviz_c_string(session,c_session)
+call matterviz_c_string(manifest,c_manifest)
+c_status=multiwfn_matterviz_spawn(c_native,c_frontend,c_session,c_manifest, &
+    gui_volume_write,gui_ack_read,c_transport_error)
+launch_status=int(c_status)
+transport_error=int(c_transport_error)
+deallocate(c_native,c_frontend,c_session,c_manifest)
+end subroutine
+
+subroutine matterviz_c_string(value,c_value)
+character(len=*),intent(in) :: value
+character(kind=c_char),allocatable,intent(out) :: c_value(:)
+integer :: idx,length
+
+length=len_trim(value)
+allocate(c_value(length+1))
+do idx=1,length
+    c_value(idx)=char(iachar(value(idx:idx)),kind=c_char)
+end do
+c_value(length+1)=c_null_char
+end subroutine
+
+subroutine close_matterviz_transport()
+call multiwfn_matterviz_transport_close(gui_volume_write,gui_ack_read)
+end subroutine
+
+logical function publish_matterviz_volume(reqid,quantity_kind,value_unit,volume_id)
+integer*8,intent(in) :: reqid
+integer,intent(in) :: quantity_kind,value_unit
+integer*8,intent(out) :: volume_id
+real(c_double) :: origin(3),voxel_axes(9),lattice(9)
+integer(c_int) :: status
+integer(c_int32_t) :: periodic_axes
+integer(c_int64_t) :: sample_count
+
+publish_matterviz_volume=.false.
+volume_id=-1
+if (gui_volume_write<0_c_intptr_t.or.gui_ack_read<0_c_intptr_t) return
+if (.not.allocated(cubmat).or.reqid<=0) return
+if (size(cubmat,1)/=nx.or.size(cubmat,2)/=ny.or.size(cubmat,3)/=nz) return
+if (ifPBC==1.or.ifPBC==2) then
+    call close_matterviz_transport()
+    return
+end if
+
+gui_volume_serial=gui_volume_serial+1_c_int64_t
+if (gui_volume_serial<=0_c_int64_t) then
+    call close_matterviz_transport()
+    return
+end if
+volume_id=int(gui_volume_serial,kind=8)
+origin=[real(orgx,c_double),real(orgy,c_double),real(orgz,c_double)]
+voxel_axes=[real(gridv1(1),c_double),real(gridv1(2),c_double),real(gridv1(3),c_double), &
+    real(gridv2(1),c_double),real(gridv2(2),c_double),real(gridv2(3),c_double), &
+    real(gridv3(1),c_double),real(gridv3(2),c_double),real(gridv3(3),c_double)]
+if (ifPBC==3) then
+    periodic_axes=7_c_int32_t
+    lattice=[real(cellv1(1),c_double),real(cellv1(2),c_double),real(cellv1(3),c_double), &
+        real(cellv2(1),c_double),real(cellv2(2),c_double),real(cellv2(3),c_double), &
+        real(cellv3(1),c_double),real(cellv3(2),c_double),real(cellv3(3),c_double)]
+else
+    periodic_axes=0_c_int32_t
+    lattice=[real(gridv1(1)*nx,c_double),real(gridv1(2)*nx,c_double),real(gridv1(3)*nx,c_double), &
+        real(gridv2(1)*ny,c_double),real(gridv2(2)*ny,c_double),real(gridv2(3)*ny,c_double), &
+        real(gridv3(1)*nz,c_double),real(gridv3(2)*nz,c_double),real(gridv3(3)*nz,c_double)]
+end if
+sample_count=int(nx,c_int64_t)*int(ny,c_int64_t)*int(nz,c_int64_t)
+status=multiwfn_matterviz_publish_volume(gui_volume_write,gui_ack_read, &
+    int(reqid,c_int64_t),gui_volume_serial,int(nx,c_int32_t),int(ny,c_int32_t), &
+    int(nz,c_int32_t),1_c_int32_t,periodic_axes,1_c_int32_t, &
+    int(quantity_kind,c_int32_t),int(value_unit,c_int32_t),origin,voxel_axes,lattice, &
+    cubmat,sample_count,30000_c_int32_t)
+if (status/=0_c_int) then
+    write(*,"(a,i0,a)") " MatterViz binary volume publish failed (",int(status), &
+        "); falling back to Cube output"
+    call close_matterviz_transport()
+    return
+end if
+publish_matterviz_volume=.true.
+end function
 
 subroutine build_launch_command(manifest,session,cmd)
 character(len=*),intent(in) :: manifest,session

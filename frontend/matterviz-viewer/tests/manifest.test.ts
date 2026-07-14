@@ -5,6 +5,7 @@ import {
   display_range,
   manifest_url,
   resolve_entry_url,
+  resolve_volume_entry_url,
   type ManifestEntry,
   type MultiwfnManifest,
 } from '../src/manifest.ts'
@@ -53,6 +54,31 @@ test('resolves relative, root-relative, and absolute entry paths', () => {
     'https://viewer.example/shared/structure.xyz')
   assert.equal(resolve_entry_url(entry('https://cdn.example/density.cube', 'remote'), base).href,
     'https://cdn.example/density.cube')
+})
+
+test('adds the session capability only to same-origin binary volume API entries', () => {
+  const page = new URL('http://127.0.0.1:8765/index.html?cap=session-secret')
+  const base = new URL('/session/', page)
+  assert.equal(
+    resolve_volume_entry_url(
+      { path: '/api/volume/42', format: 'mwfn-volume-v1' },
+      base,
+      page,
+    ).href,
+    'http://127.0.0.1:8765/api/volume/42?cap=session-secret',
+  )
+  assert.equal(
+    resolve_volume_entry_url({ path: 'orbital.cube', format: 'cube' }, base, page).href,
+    'http://127.0.0.1:8765/session/orbital.cube',
+  )
+  assert.equal(
+    resolve_volume_entry_url(
+      { path: 'https://cdn.example/volume/42', format: 'mwfn-volume-v1' },
+      base,
+      page,
+    ).href,
+    'https://cdn.example/volume/42',
+  )
 })
 
 test('prefers cubes over legacy layers, including an explicitly empty cube list', () => {

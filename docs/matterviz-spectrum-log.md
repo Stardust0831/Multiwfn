@@ -164,3 +164,124 @@
 
 - A generic five-kind spectrum protocol, broadening engine, frontend panel and PR #25-derived backend parser path were implemented and locally tested.
 - Although those components passed focused tests and browser pixel checks, they expanded PR #26 beyond the authoritative baseline and were removed during the scope correction.
+# 2026-07-14 binary volume phase 2
+
+- Kept the calculation boundary fixed: no `savecubmat` or calculation-core
+  changes; future publication hooks remain in `noGUI/GUI_matterviz.f90` after
+  orbital sign correction and before the ESP density buffer is overwritten.
+- Corrected the protocol draft's impossible 32-byte prelude (its listed fields
+  totaled 36 bytes) and froze an explicit 48-byte prelude plus 304-byte v1
+  volume header.
+- Defined Fortran-native `i`-fastest and Cube `k`-fastest ordering separately,
+  exact units, CRC32C coverage, checked limits, authenticated HTTP entry shape,
+  and non-silent Cube fallback rules.
+- Split final-state goals and the cross-platform codec/store/pipe/release test
+  matrix into `matterviz-rust-host-goal.md` and
+  `matterviz-volume-test-plan.md`. Codec implementation is the next gate;
+  production traffic still uses Cube artifacts.
+- Added strict Rust and TypeScript v1 codecs sharing one asymmetric 2x2x3
+  orbital golden frame. Cross-checking exposed and corrected a fixture field
+  overwrite, a Rust statistics-validation typo, a fixture include path error,
+  and an incorrect Cube-order test expectation before integration.
+- Added an 8-entry/64 MiB per-session Rust LRU storing immutable validated
+  frames, plus the capability-protected `GET /api/volume/<id>` route with exact
+  binary MIME, duplicate rejection, deterministic eviction and Return/shutdown
+  cleanup. No producer feeds this store yet.
+- Added frontend `mwfn-volume-v1` dispatch, strict binary MIME/CRC validation,
+  parser-compatible Bohr-to-angstrom conversion, and bounded conversion into
+  MatterViz's current nested grid. Cube and legacy entries retain their existing
+  parser path.
+- Corrected the adapter geometry after reviewing MatterViz sampling:
+  `VolumetricData.lattice` now comes from `voxel_axes * dimensions`; the
+  protocol's independent lattice is not substituted for the grid transform.
+  Partially periodic volume adaptation is rejected because MatterViz currently
+  exposes only one volume-wide periodic boolean.
+- The phase review reproduced a Rust/TypeScript parity gap where TypeScript
+  accepted an authenticated frame with extra CRC-covered body bytes. The
+  decoder now requires `body_bytes == sample_bytes`, and the adapter rejects a
+  finite voxel axis whose dimension scaling overflows to a nonfinite grid
+  lattice before allocating the nested grid.
+- Froze decoder acceptance to exact v1.0 (`minor=0`, 304-byte header and only
+  the two CRC flags), added signed-sample and all quantity/unit-pair coverage,
+  and added a direct MatterViz `parse_cube` comparison against the binary
+  adapter for grid values, origin, grid lattice and data range.
+- Froze the next transport boundary as two inherited anonymous pipes: Fortran
+  sends volume frames and Rust returns a CRC-protected ACK only after store
+  insertion. Defined the structured direct-launch C ABI, ready negotiation,
+  ownership/close rules and mandatory Cube fallback on any publish failure.
+- Verification: standalone Rust codec/store tests pass 10/10; frontend tests
+  pass 76/76; `npm run check` reports 0 errors/0 warnings; `npm run build`
+  succeeds. Full local Tauri `cargo test --locked` is blocked before crate
+  compilation because this WSL environment lacks `pkg-config`/Wayland system
+  dependencies; three-platform Cargo/package verification remains required.
+
+## 2026-07-14 binary pipe integration
+
+- Implemented the frozen two-pipe transport without changing Multiwfn
+  calculation modules. The GUI/session adapter publishes the existing
+  in-memory `cubmat` after orbital sign correction; ESP preserves density in
+  memory only until the potential publication decision is known.
+- Added a structured native C launcher on Windows, Linux and macOS. It starts
+  the Rust host directly, restricts inherited handles/descriptors, negotiates a
+  ready frame, performs bounded complete writes, validates correlated ACKs and
+  relaunches file-only if negotiation fails. The legacy 3Dmol launcher remains
+  separate.
+- Added Rust pipe ownership, fragmented/concatenated frame handling,
+  validation through the shared decoder, bounded per-session storage and ACK
+  only after insertion. EOF, malformed input and shutdown clear native volumes
+  without stopping HTTP or the preserved request-file fallback.
+- Dynamic orbital responses now use `/api/volume/<id>` and
+  `mwfn-volume-v1` only after a successful ACK. Publish rejection, timeout or
+  broken transport closes native IPC and writes the original Cube response.
+  Paired ESP responses are binary only when both density and potential are
+  accepted; otherwise both Cube artifacts are produced.
+- Local verification on the integrated tree: `Multiwfn_MatterVizGUI` compiled
+  and linked successfully through CMake/Ninja; the C adapter passes strict C11
+  compilation; GUI/session source guards pass 17/17; frontend tests pass
+  79/79; `svelte-check` reports 0 errors/0 warnings; and the production frontend
+  build succeeds. A temporary Rust 1.88 toolchain then rebuilt the lightweight
+  host harness at a fixture-compatible path: all 29 tests pass, including the
+  codec, bounded store, HTTP route, request-file backend and both pipe transport
+  tests; lightweight `cargo check` and strict Clippy also pass. The two pipe
+  tests now compile for Windows as well as Unix; a Rust 1.88
+  `x86_64-pc-windows-gnu` test-target check passes after enabling the exact
+  `Win32_Security` feature required by the in-process `CreatePipe` fixture.
+  Full local
+  Tauri compilation remains system-library-gated by the unavailable
+  WebKit/Wayland development stack and therefore belongs to the package CI.
+- Release status remains open. Required evidence is a fresh locked Rust suite,
+  synthetic request-to-volume/Cube-fallback integration test, descriptor and
+  handle lifecycle coverage, three-platform packages, and a real packaged
+  nonzero uncached orbital. No prerelease is published from this state.
+- Added an isolated test-only Rust crate that compiles the production C
+  publisher and reuses the production Rust backend, transport, store and HTTP
+  modules. It proves authenticated `/api/orbital` request-file creation,
+  C-encoded publication, ACK-after-insert, exact binary retrieval, duplicate-ID
+  rejection (`-1005`), transport closure, native-store clearing and Cube
+  fallback. It passes 30/30 tests plus strict Clippy locally and is wired into
+  the Linux, Windows and macOS package matrix. This is synthetic transport
+  evidence, not a substitute for the real packaged nonzero-orbital gate.
+- The independent lifecycle review found that a transport-enabled Rust startup
+  failure can write `gui_stop.flag` before the C launcher relaunches file-only.
+  Both POSIX and Windows fallback paths now remove that flag before relaunch,
+  preventing the Fortran request loop and replacement WebView from exiting
+  immediately. Strict C compilation, the focused C-to-Rust test and the full
+  MatterViz executable relink pass after the fix.
+- The final lifecycle review identified two release blockers and both are now
+  addressed in the C adapter. Complete-frame write and ACK read share one
+  absolute publish deadline: POSIX uses nonblocking `write` plus `poll`, while
+  Windows uses a watchdog that cancels timed-out synchronous pipe I/O and joins
+  before the frame is freed. A stalled maximum-size frame now returns the stable
+  timeout error in under two seconds instead of freezing.
+- POSIX launch now uses a CLOEXEC exec-status pipe. Successful `execv` closes
+  the status writer automatically; a failed exec reports its `errno`, is
+  reaped, and cannot be mistaken for a live file-only GUI. The isolated C/Rust
+  crate verifies that a nonexistent host produces launch failure rather than
+  entering an orphaned request loop.
+- The final focused re-review found no remaining blocker, high or medium issue
+  in these repaired paths. Windows checks the absolute deadline before every
+  write and retries cancellation until an I/O appears or publication ends;
+  POSIX recomputes remaining time after interruption, and ACK readers consume
+  the same absolute deadline. Windows cancellation behavior and handle-count
+  stability remain three-platform CI/runtime gates rather than Linux-local
+  evidence.

@@ -9,6 +9,8 @@ use std::thread;
 use std::time::Duration;
 
 use crate::backend;
+use crate::transport::{TransportConfig, VolumeTransport};
+use crate::volume_store::{InsertError, VolumeStore};
 use serde_json::{json, Value};
 use socket2::{Domain, Protocol, Socket, Type};
 
@@ -20,6 +22,7 @@ pub struct AppConfig {
     pub state: Option<PathBuf>,
     pub host: String,
     pub port: u16,
+    pub transport: Option<TransportConfig>,
 }
 
 pub struct HttpService {
@@ -30,6 +33,8 @@ pub struct HttpService {
     backend_lock: Arc<Mutex<()>>,
     capability: String,
     authority: String,
+    volume_store: Arc<VolumeStore>,
+    transport: Mutex<Option<VolumeTransport>>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -88,14 +93,22 @@ impl HttpService {
             address.port()
         );
         let authority = format!("{}:{}", format_host(&host), address.port());
+        let stop = Arc::new(AtomicBool::new(false));
+        let volume_store = Arc::new(VolumeStore::new());
+        let transport = config
+            .transport
+            .map(|transport| VolumeTransport::start(transport, volume_store.clone(), stop.clone()))
+            .transpose()?;
         let service = Self {
             session,
-            stop: Arc::new(AtomicBool::new(false)),
+            stop,
             listener,
             url,
             backend_lock: Arc::new(Mutex::new(())),
             capability,
             authority,
+            volume_store,
+            transport: Mutex::new(transport),
             worker: Mutex::new(None),
         };
         let runner = service.clone_for_thread(frontend, manifest, state);
@@ -120,6 +133,7 @@ impl HttpService {
             backend_lock: self.backend_lock.clone(),
             capability: self.capability.clone(),
             authority: self.authority.clone(),
+            volume_store: self.volume_store.clone(),
         }
     }
     pub fn url(&self) -> &str {
@@ -130,15 +144,27 @@ impl HttpService {
     }
     pub fn signal_return(&self) -> Result<(), String> {
         fs::write(self.session.join("gui_stop.flag"), "return\n")
-            .map_err(|error| format!("could not signal Multiwfn Return: {error}"))
+            .map_err(|error| format!("could not signal Multiwfn Return: {error}"))?;
+        self.volume_store.clear();
+        Ok(())
+    }
+    pub fn insert_volume<B>(&self, frame: B) -> Result<u64, InsertError>
+    where
+        B: Into<Arc<[u8]>>,
+    {
+        self.volume_store.insert(frame)
     }
     pub fn shutdown(&self) {
+        self.volume_store.clear();
         self.stop.store(true, Ordering::Release);
         wake_listener(&self.listener);
     }
     pub fn join(&self) {
         if let Some(worker) = self.worker.lock().expect("service worker lock").take() {
             let _ = worker.join();
+        }
+        if let Some(transport) = self.transport.lock().expect("transport lock").as_ref() {
+            transport.join();
         }
     }
 }
@@ -153,6 +179,7 @@ struct ServiceRunner {
     backend_lock: Arc<Mutex<()>>,
     capability: String,
     authority: String,
+    volume_store: Arc<VolumeStore>,
 }
 impl ServiceRunner {
     fn run(self) {
@@ -168,7 +195,10 @@ impl ServiceRunner {
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(20))
                 }
-                Err(_) => break,
+                Err(_) => {
+                    self.volume_store.clear();
+                    break;
+                }
             }
         }
     }
@@ -183,6 +213,7 @@ impl ServiceRunner {
             backend_lock: self.backend_lock.clone(),
             capability: self.capability.clone(),
             authority: self.authority.clone(),
+            volume_store: self.volume_store.clone(),
         }
     }
     fn handle(&self, mut stream: TcpStream) {
@@ -275,8 +306,35 @@ impl ServiceRunner {
                 return;
             }
             respond_json(&mut stream, &json!({"ok": true}), 200, false);
+            self.volume_store.clear();
             self.stop.store(true, Ordering::Release);
             wake_listener(&self.listener);
+            return;
+        }
+        if let Some(volume_id) = path.strip_prefix("/api/volume/") {
+            if method != "GET" {
+                respond(&mut stream, 405, "text/plain", b"Method Not Allowed", true);
+                return;
+            }
+            let Ok(parsed_id) = volume_id.parse::<u64>() else {
+                respond(&mut stream, 400, "text/plain", b"Bad Request", false);
+                return;
+            };
+            if parsed_id == 0 || parsed_id.to_string() != volume_id {
+                respond(&mut stream, 400, "text/plain", b"Bad Request", false);
+                return;
+            }
+            if let Some(frame) = self.volume_store.get(parsed_id) {
+                respond(
+                    &mut stream,
+                    200,
+                    "application/vnd.multiwfn.volume",
+                    &frame,
+                    false,
+                );
+            } else {
+                respond(&mut stream, 404, "text/plain", b"Not Found", false);
+            }
             return;
         }
         let value = match path.as_str() {
@@ -360,7 +418,9 @@ impl ServiceRunner {
     }
     fn signal_return(&self) -> Result<(), String> {
         fs::write(self.session.join("gui_stop.flag"), "return\n")
-            .map_err(|error| format!("could not signal Multiwfn Return: {error}"))
+            .map_err(|error| format!("could not signal Multiwfn Return: {error}"))?;
+        self.volume_store.clear();
+        Ok(())
     }
 }
 
@@ -672,6 +732,7 @@ mod tests {
             state: None,
             host: "127.0.0.1".to_owned(),
             port: 0,
+            transport: None,
         })
         .unwrap();
         let manifest = request(service.url(), "GET", "/session/manifest.json");
@@ -738,6 +799,62 @@ mod tests {
     }
 
     #[test]
+    fn volume_route_is_capability_protected_and_serves_exact_frame() {
+        let root = fixture("volume-route");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+
+        let service = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            transport: None,
+        })
+        .unwrap();
+        let frame = golden_frame();
+        assert_eq!(service.insert_volume(frame.clone()).unwrap(), 1001);
+
+        assert!(request_bytes(service.url(), "GET", "/api/volume/1001")
+            .starts_with(b"HTTP/1.1 403 Forbidden"));
+        assert!(
+            request_bytes(service.url(), "GET", "/api/volume/1001?cap=wrong")
+                .starts_with(b"HTTP/1.1 403 Forbidden")
+        );
+
+        let authorized = authorized_path(service.url(), "/api/volume/1001");
+        let response = request_bytes(service.url(), "GET", &authorized);
+        assert!(response.starts_with(b"HTTP/1.1 200 OK"));
+        let separator = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("response headers")
+            + 4;
+        let headers = std::str::from_utf8(&response[..separator]).unwrap();
+        assert!(headers.contains("Content-Type: application/vnd.multiwfn.volume\r\n"));
+        assert!(headers.contains("Cache-Control: no-store\r\n"));
+        assert_eq!(&response[separator..], frame.as_slice());
+
+        assert!(request_bytes(service.url(), "HEAD", &authorized,)
+            .starts_with(b"HTTP/1.1 405 Method Not Allowed"));
+        assert!(request_bytes(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/volume/1002"),
+        )
+        .starts_with(b"HTTP/1.1 404 Not Found"));
+        service.shutdown();
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn busy_preferred_port_falls_back_to_an_os_assigned_port() {
         let root = fixture("fallback");
         let frontend = root.join("frontend");
@@ -756,6 +873,7 @@ mod tests {
             state: None,
             host: "127.0.0.1".to_owned(),
             port: preferred,
+            transport: None,
         })
         .unwrap();
         let actual = Url::parse(service.url()).unwrap().port().unwrap();
@@ -781,6 +899,20 @@ mod tests {
         .unwrap();
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
+        response
+    }
+
+    fn request_bytes(base: &str, method: &str, path: &str) -> Vec<u8> {
+        let url = Url::parse(base).unwrap();
+        let mut stream = connect_client(&url);
+        write!(
+            stream,
+            "{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            authority(&url)
+        )
+        .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
         response
     }
 
@@ -862,6 +994,23 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&path);
         path
+    }
+
+    fn golden_frame() -> Vec<u8> {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/matterviz-volume-v1-orbital.hex"
+        );
+        fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .flat_map(|line| line.split('#').next().unwrap_or("").split_whitespace())
+            .flat_map(|word| {
+                (0..word.len())
+                    .step_by(2)
+                    .map(move |index| u8::from_str_radix(&word[index..index + 2], 16).unwrap())
+            })
+            .collect()
     }
 
     fn tempfile_dir() -> PathBuf {

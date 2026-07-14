@@ -3,6 +3,9 @@ mod cli;
 mod file_dialog;
 mod lifecycle;
 mod service;
+mod transport;
+pub mod volume_protocol;
+pub mod volume_store;
 
 use std::env;
 use std::process::ExitCode;

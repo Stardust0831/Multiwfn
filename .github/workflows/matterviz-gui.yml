@@ -16,6 +16,7 @@ on:
       - frontend/matterviz-desktop/**
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
+      - tests/matterviz-volume-e2e/**
       - tests/windows/test_matterviz_async_launch.ps1
       - frontend/matterviz-viewer/**
       - docs/matterviz-webview.md
@@ -88,6 +89,12 @@ jobs:
           cargo check --locked
           cargo clippy --locked -- -D warnings
           cargo build --release --locked
+
+      - name: Test C-to-Rust binary volume transport
+        run: |
+          cargo fmt --manifest-path tests/matterviz-volume-e2e/Cargo.toml -- --check
+          cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
+          cargo clippy --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked -- -D warnings
 
       - name: Test MatterViz build contract
         run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py
@@ -183,6 +190,9 @@ jobs:
           cargo test --locked
           cargo check --locked
           cargo build --release --locked
+
+      - name: Test C-to-Rust binary volume transport
+        run: cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
 
       - name: Build Multiwfn MatterViz executable
         if: runner.os != 'Windows'
