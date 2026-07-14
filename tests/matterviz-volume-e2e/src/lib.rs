@@ -263,12 +263,22 @@ mod tests {
 
     fn wait_for_request(session: &Path, expected: &str) -> i64 {
         let request = session.join("gui_request.txt");
-        wait_until(Duration::from_secs(3), || request.is_file());
-        let text = fs::read_to_string(&request).unwrap();
-        let (id, payload) = text.trim_end().split_once(' ').unwrap();
-        assert_eq!(payload, expected);
+        let mut request_id = None;
+        wait_until(Duration::from_secs(3), || {
+            let Ok(text) = fs::read_to_string(&request) else {
+                return false;
+            };
+            let Some((id, payload)) = text.trim_end().split_once(' ') else {
+                return false;
+            };
+            if payload != expected {
+                return false;
+            }
+            request_id = id.parse().ok();
+            request_id.is_some()
+        });
         fs::remove_file(request).unwrap();
-        id.parse().unwrap()
+        request_id.unwrap()
     }
 
     fn write_binary_response(session: &Path, request_id: i64, volume_id: i64) {

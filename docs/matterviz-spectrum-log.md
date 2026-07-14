@@ -290,3 +290,8 @@
   as dead production code, and macOS rejected the Linux-specific
   `sigtimedwait` declaration. The helper is now `#[cfg(test)]`; SIGPIPE cleanup
   uses portable `sigwait` only after confirming the blocked signal is pending.
+- The next Linux package run passed the host's strict Rust checks, then exposed
+  a synthetic-test race: the test treated creation of `gui_request.txt` as a
+  complete write and could read it before the payload arrived. It now waits for
+  a complete matching request ID and payload, preserving the file protocol's
+  asynchronous observation semantics.
