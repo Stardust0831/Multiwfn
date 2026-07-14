@@ -285,3 +285,8 @@
   the same absolute deadline. Windows cancellation behavior and handle-count
   stability remain three-platform CI/runtime gates rather than Linux-local
   evidence.
+- The first three-platform run compiled and passed the new transport test on
+  Windows. Linux strict Clippy then exposed a test-only `insert_volume` helper
+  as dead production code, and macOS rejected the Linux-specific
+  `sigtimedwait` declaration. The helper is now `#[cfg(test)]`; SIGPIPE cleanup
+  uses portable `sigwait` only after confirming the blocked signal is pending.

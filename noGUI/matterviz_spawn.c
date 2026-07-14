@@ -384,8 +384,8 @@ static int mwfn_write_all_posix(int fd, const uint8_t *bytes, size_t length,
     if (masked) {
         if (sigpending(&pending_after) == 0 &&
             !sigismember(&pending_before, SIGPIPE) && sigismember(&pending_after, SIGPIPE)) {
-            struct timespec zero = {0, 0};
-            (void)sigtimedwait(&set, NULL, &zero);
+            int signal_number;
+            (void)sigwait(&set, &signal_number);
         }
         (void)pthread_sigmask(SIG_SETMASK, &old_set, NULL);
     }

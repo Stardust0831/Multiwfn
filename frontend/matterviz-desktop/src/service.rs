@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use crate::backend;
 use crate::transport::{TransportConfig, VolumeTransport};
-use crate::volume_store::{InsertError, VolumeStore};
+#[cfg(test)]
+use crate::volume_store::InsertError;
+use crate::volume_store::VolumeStore;
 use serde_json::{json, Value};
 use socket2::{Domain, Protocol, Socket, Type};
 
@@ -148,6 +150,7 @@ impl HttpService {
         self.volume_store.clear();
         Ok(())
     }
+    #[cfg(test)]
     pub fn insert_volume<B>(&self, frame: B) -> Result<u64, InsertError>
     where
         B: Into<Arc<[u8]>>,
