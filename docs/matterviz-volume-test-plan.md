@@ -62,9 +62,33 @@ Updated: 2026-07-14
 - Rust transport fragmentation, concatenation, duplicate, partial EOF and idle
   shutdown tests now compile on both Unix and Windows; the package matrix runs
   the isolated transport crate on Linux, Windows and macOS.
-- Still required before prerelease: hosted three-platform results, explicit
-  descriptor/handle leak counts, a real packaged nonzero uncached orbital with
-  no successful-path Cube, forced packaged fallback, and browser rendering.
+- The generic C-to-Rust transport and package matrix pass on Linux, Windows and
+  macOS. Extracted Windows and Linux packages both compute the real uncached
+  `(CO)5Cr` orbital 43, return `mwfn-volume-v1`, stage no dynamic Cube, process
+  Return and close their observed host/output-handle lifetimes.
+- The extracted Linux package also passes forced negotiation failure, stale
+  stop-flag cleanup, file-only relaunch and generated-Cube serving.
+- Still required before prerelease publication: final package-content/checksum
+  audit and independent release review. Interactive macOS real-orbital and
+  final desktop browser-rendering checks remain manual preview-acceptance gates.
+
+## Manual macOS WKWebView gate
+
+Hosted macOS runners build, link, relocate and test the package but have no
+interactive WindowServer. Before prerelease approval, run this gate on a real
+macOS desktop:
+
+1. Extract the CI-built archive under a path containing spaces and confirm the
+   archive contains no `.py`, `.pyc`, `__pycache__` or Python requirement.
+2. Decompress `tests/fixtures/matterviz-real-orbital-Co5Cr.fch.gz`, launch the
+   packaged `Multiwfn_MatterVizGUI` with it, enter menu 0 and leave the terminal
+   open while the WKWebView is visible.
+3. Select orbital 43 at 25k points and isovalue 0.05. Require a nonblank signed
+   orbital surface and responsive structure/camera controls; the session must
+   contain no `orbital_43_25000.cube` on the successful native path.
+4. Use Return in the WebView. Require the window and host helpers to exit, the
+   terminal to return cleanly to Multiwfn control, and no stale host to retain
+   the session port or terminal output handles.
 
 Before release run frontend `npm test`, `npm run check`, `npm run build`; Rust
 `cargo test`, `cargo check --locked`, and `cargo clippy --locked -- -D warnings`;

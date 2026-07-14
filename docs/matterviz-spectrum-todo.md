@@ -11,8 +11,8 @@ Updated: 2026-07-14
 - [x] Implement `/api/orbital`, `/api/bond`, `/api/esp`, `/api/return`, frontend/session serving and port fallback in Rust with the current URLs and file request protocol unchanged; core tests pass locally and locked full Tauri checks pass in CI.
 - [x] Implement the current `--select-file --output` contract in Rust so reload/file selection does not retain a hidden Python runtime dependency.
 - [x] Update Linux, macOS and Windows package workflows and extracted-package smoke tests to launch the Rust host directly; assert that MatterViz archives contain no runtime Python scripts or Python requirement.
-- [ ] Prove a packaged Windows uncached orbital request is consumed while the WebView remains open, then verify Return/window-close lifecycle and concurrent-session port isolation.
-- [x] Prove the packaged Windows native launch and authenticated orbital index-0 control request traverse Rust HTTP, file IPC and the live Fortran request loop, followed by Return and clean parent/desktop shutdown; a real nonzero uncached cube remains pending.
+- [x] Prove a packaged Windows uncached orbital request is consumed while the WebView remains open, then verify Return/window-close lifecycle and concurrent-session port isolation.
+- [x] Prove the packaged Windows native launch and authenticated orbital index-0 control request traverse Rust HTTP, file IPC and the live Fortran request loop, followed by Return and clean parent/desktop shutdown; the later real nonzero native-volume gate also passes.
 - [x] Run Rust tests/check/clippy, frontend test/check/build, CMake/source guards and locked Linux/macOS/Windows package jobs before publishing another preview.
 - [x] Diagnose the first Rust-host CI failure: Linux `rfd` enabled `xdg-portal` without an async runtime, leaving `zbus` runtime dependencies unresolved; explicitly select the `async-std` backend and refresh the lockfile.
 - [x] Diagnose the first Windows Rust-host run: 12 tests passed, then Return shutdown blocked in the HTTP integration test until the 60-minute job timeout; wake a potentially blocked listener during stop and bound test-client reads.
@@ -41,7 +41,7 @@ Updated: 2026-07-14
 - [x] Bound the producer's complete-frame write and ACK wait with one publish deadline; cover a stalled maximum-workload writer returning timeout instead of freezing.
 - [x] Make POSIX direct launch and file-only fallback report `execv` failure through a CLOEXEC status pipe instead of treating `fork()` success as host-launch success.
 - [ ] Run one real packaged nonzero uncached orbital on all three platforms (macOS may require manual WebView confirmation), assert a binary response and no successful-path `orbital_*.cube`, then force transport failure and assert Cube fallback.
-- [ ] Verify the checked-in `(CO)5Cr.fch` test asset through the extracted Windows package: request orbital 43 at 25k points, fetch `mwfn-volume-v1`, validate binary magic, assert no `orbital_43_25000.cube`, then Return cleanly.
+- [x] Verify the checked-in `(CO)5Cr.fch` test asset through the extracted Windows package: request orbital 43 at 25k points, fetch `mwfn-volume-v1`, validate binary magic, assert no `orbital_43_25000.cube`, then Return cleanly (run `29310169491`).
 - [x] Run an independent read-only C/Rust/Fortran lifecycle and numerical-semantics review of the local implementation; the initial stop-flag, stalled-write and POSIX exec findings are fixed with no remaining blocker/high/medium. Repeat release review after cross-platform jobs pass.
 
 ## 2026-07-14 Windows asynchronous launch blocker
@@ -206,9 +206,10 @@ prerelease.
 - [x] Prove the generic C-to-Rust binary transport on Windows, Linux and macOS.
 - [ ] Complete the documented interactive macOS WKWebView/manual orbital gate;
   hosted runners do not provide a usable WindowServer.
-- [ ] Pass the explicit extracted Linux package automatic-Cube-fallback
+- [x] Pass the explicit extracted Linux package automatic-Cube-fallback
   regression. Its test-only executable wrapper rejects the inherited-pipe
   launch and requires the unchanged C launcher to restart file-only; no
-  production protocol or runtime switch is added.
+  production protocol or runtime switch is added (PR run `29314730868`, Linux
+  job).
 - [ ] Complete final lifecycle/resource evidence, read-only review, package
   audit, prerelease publication and checksum verification.

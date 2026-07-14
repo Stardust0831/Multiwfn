@@ -331,3 +331,13 @@
   the stale stop flag, relaunch the real Rust host file-only, compute the same
   orbital and serve the staged Cube. This adds no production switch and keeps
   automatic fallback behavior unchanged for the current Goal.
+- The Linux job in PR run `29314730868` passed both extracted-package modes:
+  `native volume` and `Cube fallback`. The latter also proved that a failed
+  transport child can leave `gui_stop.flag`, the C adapter removes it before
+  file-only relaunch, and the live fallback session serves the generated Cube.
+- The first macOS attempt in that run hit one intermittent test-client
+  `ECONNRESET` after receiving an HTTP response; the failed job passed unchanged
+  on rerun, confirming no fallback regression. The test-only raw HTTP reader is
+  now portable across this macOS close behavior while still requiring complete
+  headers and the exact `Content-Length` body. Production service code is
+  unchanged.

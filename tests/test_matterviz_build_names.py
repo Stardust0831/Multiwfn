@@ -171,6 +171,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertNotIn("multiwfn_matterviz_server.py", WORKFLOW)
         self.assertNotIn("multiwfn_matterviz_webview.py", WORKFLOW)
         self.assertNotIn("multiwfn_matterviz_file_dialog.py", WORKFLOW)
+        self.assertIn("MatterViz package unexpectedly contains a Python runtime artifact", WORKFLOW)
+        self.assertIn("-name '*.py'", WORKFLOW)
 
 
 if __name__ == "__main__":

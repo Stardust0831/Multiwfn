@@ -692,7 +692,7 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8],
 mod tests {
     use super::{content_type, decode_path, safe_join, AppConfig, HttpService};
     use std::fs;
-    use std::io::{Read, Write};
+    use std::io::{ErrorKind, Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::path::PathBuf;
 
@@ -900,9 +900,7 @@ mod tests {
             "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
         )
         .unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
-        response
+        String::from_utf8(read_response(&mut stream, method == "HEAD")).unwrap()
     }
 
     fn request_bytes(base: &str, method: &str, path: &str) -> Vec<u8> {
@@ -914,9 +912,7 @@ mod tests {
             authority(&url)
         )
         .unwrap();
-        let mut response = Vec::new();
-        stream.read_to_end(&mut response).unwrap();
-        response
+        read_response(&mut stream, method == "HEAD")
     }
 
     fn request_with_duplicate_host(base: &str, method: &str, path: &str) -> String {
@@ -928,9 +924,7 @@ mod tests {
             "{method} {path} HTTP/1.1\r\nHost: {host}\r\nHost: {host}\r\n\r\n"
         )
         .unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
-        response
+        String::from_utf8(read_response(&mut stream, method == "HEAD")).unwrap()
     }
 
     fn fragmented_request(base: &str, path: &str) -> String {
@@ -946,8 +940,39 @@ mod tests {
         .unwrap();
         stream.flush().unwrap();
         write!(stream, "\r\nConnection: close\r\n\r\n").unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
+        String::from_utf8(read_response(&mut stream, false)).unwrap()
+    }
+
+    fn read_response(stream: &mut TcpStream, head: bool) -> Vec<u8> {
+        let mut response = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(length) => response.extend_from_slice(&chunk[..length]),
+                Err(error)
+                    if error.kind() == ErrorKind::ConnectionReset && !response.is_empty() =>
+                {
+                    break;
+                }
+                Err(error) => panic!("could not read HTTP test response: {error}"),
+            }
+        }
+        let separator = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("complete HTTP response headers")
+            + 4;
+        let headers = std::str::from_utf8(&response[..separator]).expect("ASCII HTTP headers");
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("Content-Length: ")
+                    .and_then(|value| value.parse::<usize>().ok())
+            })
+            .expect("HTTP response Content-Length");
+        let expected_body = if head { 0 } else { content_length };
+        assert_eq!(response.len(), separator + expected_body, "complete HTTP response body");
         response
     }
 

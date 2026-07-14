@@ -534,6 +534,12 @@ jobs:
           fi
           test -f "package/$PKG/resources/frontend/matterviz-viewer/dist/index.html"
           test -n "$(find "package/$PKG/resources/frontend/matterviz-viewer/dist/assets" -type f -print -quit)"
+          if find "package/$PKG" \
+            \( -type f \( -name '*.py' -o -name '*.pyc' -o -name '*.pyo' -o -name 'requirements*.txt' \) \
+               -o -type d -name __pycache__ \) -print -quit | grep -q .; then
+            echo "MatterViz package unexpectedly contains a Python runtime artifact" >&2
+            exit 1
+          fi
 
       - name: Upload MatterViz package
         uses: actions/upload-artifact@v4
@@ -575,4 +581,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "MatterViz WebView preview $preview" \
             --prerelease \
-            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native Rust WebView/session host, and Multiwfn executable. Python is not required by the MatterViz runtime. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment. CI verifies extracted Linux and Windows WebView readiness; macOS dependency relocation and extracted Multiwfn execution pass, while WKWebView readiness requires an interactive macOS desktop and remains part of manual preview validation."
+            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native Rust WebView/session host, and Multiwfn executable. Python runtime artifacts are rejected from every package. CI verifies real uncached orbital 43 through native binary transport with no dynamic Cube on extracted Windows and Linux packages; Linux also verifies the deliberate packaged Cube fallback. macOS dependency relocation and extracted Multiwfn execution pass, while real WKWebView orbital readiness requires an interactive macOS desktop and remains part of manual preview validation. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment."
