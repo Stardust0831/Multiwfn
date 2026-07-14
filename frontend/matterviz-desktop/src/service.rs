@@ -972,7 +972,11 @@ mod tests {
             })
             .expect("HTTP response Content-Length");
         let expected_body = if head { 0 } else { content_length };
-        assert_eq!(response.len(), separator + expected_body, "complete HTTP response body");
+        assert_eq!(
+            response.len(),
+            separator + expected_body,
+            "complete HTTP response body"
+        );
         response
     }
 
