@@ -8,19 +8,19 @@ Updated: 2026-07-14
 - [x] Inventory the existing Python URL, validation, file IPC, timeout, cleanup, path-security, port-isolation and shutdown contracts before porting them.
 - [x] Change the MatterViz Fortran launch boundary to invoke `matterviz-desktop` directly; retain the Windows `CreateProcessW` adapter so the native calculation request loop starts while the window is open.
 - [x] Remove Python discovery and Python adapter staging from the MatterViz CMake resource target; require and stage the prebuilt Rust host with the frontend.
-- [x] Implement `/api/orbital`, `/api/bond`, `/api/esp`, `/api/return`, frontend/session serving and port fallback in Rust with the current URLs and file request protocol unchanged; core Rust integration tests pass locally, while full Tauri checks await platform dependencies/CI.
+- [x] Implement `/api/orbital`, `/api/bond`, `/api/esp`, `/api/return`, frontend/session serving and port fallback in Rust with the current URLs and file request protocol unchanged; core tests pass locally and locked full Tauri checks pass in CI.
 - [x] Implement the current `--select-file --output` contract in Rust so reload/file selection does not retain a hidden Python runtime dependency.
 - [x] Update Linux, macOS and Windows package workflows and extracted-package smoke tests to launch the Rust host directly; assert that MatterViz archives contain no runtime Python scripts or Python requirement.
 - [ ] Prove a packaged Windows uncached orbital request is consumed while the WebView remains open, then verify Return/window-close lifecycle and concurrent-session port isolation.
 - [x] Prove the packaged Windows native launch and authenticated orbital index-0 control request traverse Rust HTTP, file IPC and the live Fortran request loop, followed by Return and clean parent/desktop shutdown; a real nonzero uncached cube remains pending.
-- [ ] Run Rust tests/check/clippy, frontend test/check/build, CMake/source guards and locked Linux/macOS/Windows package jobs before publishing another preview.
+- [x] Run Rust tests/check/clippy, frontend test/check/build, CMake/source guards and locked Linux/macOS/Windows package jobs before publishing another preview.
 - [x] Diagnose the first Rust-host CI failure: Linux `rfd` enabled `xdg-portal` without an async runtime, leaving `zbus` runtime dependencies unresolved; explicitly select the `async-std` backend and refresh the lockfile.
 - [x] Diagnose the first Windows Rust-host run: 12 tests passed, then Return shutdown blocked in the HTTP integration test until the 60-minute job timeout; wake a potentially blocked listener during stop and bound test-client reads.
 - [x] Correct the packaged Windows async regression to consume the Rust host's advertised service URL instead of assuming the preferred port; capture inherited stdout/stderr incrementally so a live Multiwfn process no longer hides launch diagnostics.
 - [x] Replace PowerShell cross-thread output event handlers with a pure-.NET asynchronous line collector after the Windows runner proved event callbacks have no PowerShell runspace.
 - [x] Fix the actual Windows async-launch branch selector: CMake defines `MULTIWFN_WINDOWS`, while the Fortran adapter incorrectly checked `_WIN32` and therefore sent space-containing commands through `execute_command_line`.
 - [x] Remove the local integer declaration that shadowed the module `launch_matterviz_process` procedure and produced an undefined external symbol once the native Windows branch became live.
-- [ ] Require the corrected Linux Rust test/release build plus Linux, macOS and Windows package jobs to pass; the earlier macOS shell build succeeded, but that incomplete run is not release evidence.
+- [x] Require the corrected Linux Rust test/release build plus Linux, macOS and Windows package jobs to pass; push and PR run pairs for `ee8edec` passed completely.
 - [x] Pass the complete PR frontend/Rust host plus Linux, macOS and Windows package matrix with the native Windows async regression; keep the separate nonzero orbital artifact gate open.
 - [x] Draft a versioned binary volume protocol with explicit dimensions, lattice/origin, scalar type, byte order, units and integrity/size bounds in `docs/matterviz-volume-protocol.md`; production traffic remains on Cube until codecs and transport tests pass.
 - [ ] Replace dynamic orbital/ESP Cube staging with a bounded shared-memory or pipe transport on Windows, Linux and macOS, retaining a deliberate compatibility/debug fallback until native transport is proven.
@@ -32,7 +32,7 @@ Updated: 2026-07-14
 - [x] Verify the diagnosis independently by wrapping the same Preview 5 launcher with Windows `start /b`: Multiwfn consumed `orbital 13 25000 0.05` and generated a valid cube/JSON response while the launcher remained alive.
 - [x] Replace the Windows shell/Fortran async assumption with a GUI-adapter-only `CreateProcessW` C ABI; this remains the direct Rust-host spawn boundary and does not modify calculation modules.
 - [x] Add a packaged-Windows regression that keeps the bundled Rust host alive and requires Multiwfn to consume `gui_request.txt` and publish the matching response before HTTP Return. The earlier Python-fixture form proved that Preview 5 failed for the expected unconsumed-request reason; the migrated test now targets the new runtime.
-- [ ] Require the new Windows build to pass the async request-loop regression, existing session-isolation tests and all package checks before publishing another preview.
+- [x] Require the new Windows build to pass the async request-loop regression, existing session-isolation tests and all package checks before publishing another preview.
 - [ ] Audit Windows non-ASCII executable/session paths separately after the asynchronous lifecycle blocker is closed; the Rust migration removes interpreter-path handling, but UTF-8 Fortran command and native file-dialog paths still need packaged verification.
 
 ## 2026-07-13 frontend parity work pending release
