@@ -160,18 +160,19 @@ function Get-ServiceProcess([string] $BaseUrl, [string] $ExpectedPath) {
 }
 
 function Get-Crc32C([byte[]] $Bytes) {
-    [uint32]$crc = [uint32]::MaxValue
+    [uint64]$crc = 4294967295
+    [uint64]$polynomial = 2197175160
     foreach ($byte in $Bytes) {
-        $crc = $crc -bxor [uint32]$byte
+        $crc = $crc -bxor [uint64]$byte
         for ($bit = 0; $bit -lt 8; $bit++) {
             if (($crc -band 1) -ne 0) {
-                $crc = ($crc -shr 1) -bxor [uint32]0x82F63B78
+                $crc = ($crc -shr 1) -bxor $polynomial
             } else {
                 $crc = $crc -shr 1
             }
         }
     }
-    return [uint32]($crc -bxor [uint32]::MaxValue)
+    return [uint32](($crc -bxor 4294967295) -band 4294967295)
 }
 
 try {

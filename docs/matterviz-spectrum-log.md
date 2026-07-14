@@ -593,3 +593,8 @@
   then failed only because PowerShell interpreted literal `0xffffffff` as
   signed `-1` before assigning it to `UInt32` in the test CRC helper. The helper
   now uses `[uint32]::MaxValue` and an explicit UInt32 XOR for the final CRC.
+- Run `29376141053` confirmed all non-Windows jobs again, but PowerShell also
+  treated the high-bit CRC polynomial literal as a negative `Int32`. The helper
+  now performs the complete CRC state update in `UInt64` with positive decimal
+  constants and narrows only the final 32-bit result, eliminating signed
+  hexadecimal conversions.
