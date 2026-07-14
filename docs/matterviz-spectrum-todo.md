@@ -248,6 +248,9 @@ prerelease.
   document overflow.
 - [x] Confirm the previously pushed file-picker/alignment increment in PR CI run
   `29324664144`: Rust/frontend plus Linux, macOS and Windows package jobs passed.
-  This run predates the final pinned MatterViz r6 state fix.
-- [ ] Pass the focused unit/source/C/Fortran checks and locked three-platform
+  This run predates the final pinned MatterViz r8 state fix.
+- [x] Pass the focused unit/source/C/Fortran checks and locked three-platform
   package workflow, then publish a corrected preview for Windows manual retest.
+  PR run `29328529075` and tag run `29329561943` passed; Preview 8 targets exact
+  commit `00b79a7`, and all independently downloaded release assets match the
+  published SHA256 list with no Python or 3Dmol runtime entries.

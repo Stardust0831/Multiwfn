@@ -416,3 +416,16 @@
   and secondary panes, stable logical identity across periodic derived rebuilds,
   cumulative revisions and the narrow r8 vendor scope. Three-platform package
   CI and packaged Windows manual behavior remain release gates.
+- Exact commit `00b79a7` passed PR run `29328529075`: frontend/Rust host and
+  Linux, macOS and Windows package jobs all succeeded. The general build,
+  Linux compatibility, legacy GUI release matrix and core-source protection
+  workflows for the same SHA also passed.
+- Published GitHub prerelease [`matterviz-preview-8`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-8)
+  from that exact commit in tag run `29329561943`; all build/package/publish jobs
+  passed. Independently downloaded Linux, macOS and Windows assets match every
+  entry in `SHA256SUMS.txt`, contain the native Multiwfn executable, Rust host
+  and MatterViz frontend, and contain no Python, `.py` or 3Dmol runtime entry.
+- Implementation is paused for Windows manual confirmation of Enter file
+  selection, orbital alignment/switching, grid quality/isovalue, camera reset
+  and Return. Deferred control-pipe and formal-release Cube-policy work remains
+  post-Goal and was not pulled into Preview 8.
