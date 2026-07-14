@@ -17,6 +17,7 @@ on:
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
       - tests/matterviz-volume-e2e/**
+      - tests/fixtures/**
       - tests/windows/test_matterviz_async_launch.ps1
       - frontend/matterviz-viewer/**
       - docs/matterviz-webview.md

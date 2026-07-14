@@ -19,6 +19,9 @@ VIEWER_APP = (ROOT / "frontend" / "matterviz-viewer" / "src" / "App.svelte").rea
     encoding="utf-8"
 )
 WORKFLOW = (ROOT / ".github" / "workflows" / "matterviz-gui.yml").read_text(encoding="utf-8")
+WINDOWS_ASYNC = (ROOT / "tests" / "windows" / "test_matterviz_async_launch.ps1").read_text(
+    encoding="utf-8"
+)
 
 
 class MatterVizBuildNamingTests(unittest.TestCase):
@@ -117,6 +120,12 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn('#[cfg(any(unix, windows))]\n    #[test]', RUST_TRANSPORT)
         self.assertIn("CreatePipe(&mut read, &mut write", RUST_TRANSPORT)
         self.assertIn('"Win32_Security"', RUST_CARGO)
+
+    def test_packaged_windows_requests_a_real_native_orbital(self):
+        self.assertIn("matterviz-real-orbital-Co5Cr.fch.gz", WINDOWS_ASYNC)
+        self.assertIn("index=43&quality=25000", WINDOWS_ASYNC)
+        self.assertIn('"mwfn-volume-v1"', WINDOWS_ASYNC)
+        self.assertIn('"orbital_43_25000.cube"', WINDOWS_ASYNC)
 
     def test_matterviz_file_dialog_uses_rust_host(self):
         block = FORTRAN.split("subroutine select_file_with_dialog", 1)[1].split(

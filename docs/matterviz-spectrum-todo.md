@@ -41,6 +41,7 @@ Updated: 2026-07-14
 - [x] Bound the producer's complete-frame write and ACK wait with one publish deadline; cover a stalled maximum-workload writer returning timeout instead of freezing.
 - [x] Make POSIX direct launch and file-only fallback report `execv` failure through a CLOEXEC status pipe instead of treating `fork()` success as host-launch success.
 - [ ] Run one real packaged nonzero uncached orbital on all three platforms (macOS may require manual WebView confirmation), assert a binary response and no successful-path `orbital_*.cube`, then force transport failure and assert Cube fallback.
+- [ ] Verify the checked-in `(CO)5Cr.fch` test asset through the extracted Windows package: request orbital 43 at 25k points, fetch `mwfn-volume-v1`, validate binary magic, assert no `orbital_43_25000.cube`, then Return cleanly.
 - [x] Run an independent read-only C/Rust/Fortran lifecycle and numerical-semantics review of the local implementation; the initial stop-flag, stalled-write and POSIX exec findings are fixed with no remaining blocker/high/medium. Repeat release review after cross-platform jobs pass.
 
 ## 2026-07-14 Windows asynchronous launch blocker

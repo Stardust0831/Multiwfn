@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string] $ExecutablePath
+    [string] $ExecutablePath,
+    [string] $FixturePath = ""
 )
 
 Set-StrictMode -Version Latest
@@ -30,6 +31,15 @@ public static class MatterVizAsyncLineCollector
 $executable = [IO.Path]::GetFullPath($ExecutablePath)
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Packaged Multiwfn executable was not found: $executable"
+}
+$fixture = if ([string]::IsNullOrWhiteSpace($FixturePath)) {
+    Join-Path $PSScriptRoot "..\fixtures\matterviz-real-orbital-Co5Cr.fch.gz"
+} else {
+    $FixturePath
+}
+$fixture = [IO.Path]::GetFullPath($fixture)
+if (-not (Test-Path -LiteralPath $fixture -PathType Leaf)) {
+    throw "Packaged orbital fixture was not found: $fixture"
 }
 
 $root = Join-Path ([IO.Path]::GetTempPath()) ("multiwfn matterviz async " + [Guid]::NewGuid().ToString("N"))
@@ -151,13 +161,17 @@ function Get-ServiceProcess([string] $BaseUrl, [string] $ExpectedPath) {
 
 try {
     New-Item -ItemType Directory -Force -Path $work, $session, $fakeTools, $fakeFrontend | Out-Null
-    Write-Ascii (Join-Path $work "tiny.xyz") @"
-3
-MatterViz async launch regression
-O 0.000000 0.000000 0.000000
-H 0.000000 0.000000 0.960000
-H 0.920000 0.000000 -0.240000
-"@
+    $inputPath = Join-Path $work "Co5Cr.fch"
+    $fixtureStream = [IO.File]::OpenRead($fixture)
+    $inputStream = [IO.File]::Create($inputPath)
+    $gzipStream = [IO.Compression.GZipStream]::new(
+        $fixtureStream, [IO.Compression.CompressionMode]::Decompress)
+    try { $gzipStream.CopyTo($inputStream) }
+    finally {
+        $gzipStream.Dispose()
+        $inputStream.Dispose()
+        $fixtureStream.Dispose()
+    }
     Write-Ascii (Join-Path $fakeFrontend "index.html") "<!doctype html><title>fake MatterViz</title>"
     if (-not (Test-Path -LiteralPath (Join-Path $packagedTools "matterviz-desktop.exe"))) {
         throw "Packaged Rust MatterViz host was not found under $packagedTools"
@@ -173,7 +187,6 @@ H 0.920000 0.000000 -0.240000
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
-    $inputPath = Join-Path $work "tiny.xyz"
     $psi.Arguments = '"' + $inputPath.Replace('"', '\"') + '"'
     $psi.Environment["MULTIWFN_MATTERVIZ_SESSION"] = $session
     $psi.Environment["MULTIWFN_MATTERVIZ_HOME"] = $fakeHome
@@ -215,10 +228,24 @@ H 0.920000 0.000000 -0.240000
 
     $orbitalPayload = Invoke-RestMethod -Uri (
         "$serviceBase/api/orbital" +
-        "?index=0&quality=25000&isovalue=0.05&cap=$capability"
+        "?index=43&quality=25000&isovalue=0.05&cap=$capability"
     )
-    if (-not $orbitalPayload.ok -or -not $orbitalPayload.clear) {
-        throw "Rust orbital API did not round-trip through the live Multiwfn request loop"
+    if (-not $orbitalPayload.ok -or
+        $orbitalPayload.layer.format -ne "mwfn-volume-v1" -or
+        $orbitalPayload.layer.path -notmatch '^/api/volume/[1-9][0-9]*$') {
+        throw "Rust orbital API did not return a native nonzero orbital volume"
+    }
+    $volumePath = Join-Path $root "orbital-43.mwfnvol"
+    Invoke-WebRequest -UseBasicParsing -Uri (
+        "$serviceBase$($orbitalPayload.layer.path)?cap=$capability"
+    ) -OutFile $volumePath | Out-Null
+    $volumeBytes = [IO.File]::ReadAllBytes($volumePath)
+    if ($volumeBytes.Length -le 304 -or
+        [Text.Encoding]::ASCII.GetString($volumeBytes, 0, 8) -ne "MWFNVOL`0") {
+        throw "Native orbital volume response is empty or has invalid magic"
+    }
+    if (Test-Path -LiteralPath (Join-Path $session "orbital_43_25000.cube")) {
+        throw "Successful native orbital publication unexpectedly staged a dynamic Cube"
     }
     if (Test-Path -LiteralPath (Join-Path $session "gui_request.txt")) {
         throw "Rust orbital API left an unconsumed backend request"

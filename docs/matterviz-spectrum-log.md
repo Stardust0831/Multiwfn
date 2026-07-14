@@ -295,3 +295,10 @@
   complete write and could read it before the payload arrived. It now waits for
   a complete matching request ID and payload, preserving the file protocol's
   asynchronous observation semantics.
+- Added the real 11-atom, 223-orbital `(CO)5Cr.fch` wavefunction from the
+  earlier Multiwfn 3Dmol GUI demo as a deterministic test-only gzip fixture.
+  The Windows extracted-package regression now requests uncached orbital 43 at
+  25k points, requires an authenticated `mwfn-volume-v1` response with valid
+  magic, asserts that the successful path created no dynamic Cube, and retains
+  the existing Return and descendant-handle shutdown checks. This fixture is
+  not staged into release packages.
