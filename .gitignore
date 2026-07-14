@@ -1,3 +1,4 @@
+# Build directories and CMake metadata
 build/
 /build-qt-gui/
 cmake-build-*/
@@ -8,6 +9,8 @@ compile_commands.json
 .build-env/
 perf-work/
 perf-results/
+
+# Compiled binaries and libraries
 Multiwfn
 Multiwfn_noGUI
 *.exe
@@ -21,6 +24,31 @@ Multiwfn_noGUI
 *.dylib
 *.so
 *.out
+
+# Python caches and local environments
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+
+# Generated GUI session data
+multiwfn_3dmol_session/
+
+# OS and editor temporary files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Generated documentation
 *.pdf
