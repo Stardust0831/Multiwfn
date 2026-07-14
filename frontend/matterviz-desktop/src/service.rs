@@ -801,15 +801,16 @@ mod tests {
     fn fragmented_request(base: &str, path: &str) -> String {
         let url = Url::parse(base).unwrap();
         let mut stream = connect_client(&url);
-        write!(stream, "GET {path}").unwrap();
-        stream.flush().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        stream.set_nodelay(true).unwrap();
         write!(
             stream,
-            " HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            authority(&url)
+            "GET {path} HTTP/1.1\r\nHost: {}\r\nX-Padding: {}",
+            authority(&url),
+            "x".repeat(2048)
         )
         .unwrap();
+        stream.flush().unwrap();
+        write!(stream, "\r\nConnection: close\r\n\r\n").unwrap();
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
         response

@@ -12,6 +12,7 @@ Updated: 2026-07-14
 - [x] Implement the current `--select-file --output` contract in Rust so reload/file selection does not retain a hidden Python runtime dependency.
 - [x] Update Linux, macOS and Windows package workflows and extracted-package smoke tests to launch the Rust host directly; assert that MatterViz archives contain no runtime Python scripts or Python requirement.
 - [ ] Prove a packaged Windows uncached orbital request is consumed while the WebView remains open, then verify Return/window-close lifecycle and concurrent-session port isolation.
+- [x] Prove the packaged Windows native launch and authenticated orbital index-0 control request traverse Rust HTTP, file IPC and the live Fortran request loop, followed by Return and clean parent/desktop shutdown; a real nonzero uncached cube remains pending.
 - [ ] Run Rust tests/check/clippy, frontend test/check/build, CMake/source guards and locked Linux/macOS/Windows package jobs before publishing another preview.
 - [x] Diagnose the first Rust-host CI failure: Linux `rfd` enabled `xdg-portal` without an async runtime, leaving `zbus` runtime dependencies unresolved; explicitly select the `async-std` backend and refresh the lockfile.
 - [x] Diagnose the first Windows Rust-host run: 12 tests passed, then Return shutdown blocked in the HTTP integration test until the 60-minute job timeout; wake a potentially blocked listener during stop and bound test-client reads.
@@ -20,6 +21,7 @@ Updated: 2026-07-14
 - [x] Fix the actual Windows async-launch branch selector: CMake defines `MULTIWFN_WINDOWS`, while the Fortran adapter incorrectly checked `_WIN32` and therefore sent space-containing commands through `execute_command_line`.
 - [x] Remove the local integer declaration that shadowed the module `launch_matterviz_process` procedure and produced an undefined external symbol once the native Windows branch became live.
 - [ ] Require the corrected Linux Rust test/release build plus Linux, macOS and Windows package jobs to pass; the earlier macOS shell build succeeded, but that incomplete run is not release evidence.
+- [x] Pass the complete PR frontend/Rust host plus Linux, macOS and Windows package matrix with the native Windows async regression; keep the separate nonzero orbital artifact gate open.
 - [x] Draft a versioned binary volume protocol with explicit dimensions, lattice/origin, scalar type, byte order, units and integrity/size bounds in `docs/matterviz-volume-protocol.md`; production traffic remains on Cube until codecs and transport tests pass.
 - [ ] Replace dynamic orbital/ESP Cube staging with a bounded shared-memory or pipe transport on Windows, Linux and macOS, retaining a deliberate compatibility/debug fallback until native transport is proven.
 - [ ] Add throughput, lifecycle, cancellation/cleanup and malformed/oversized-volume tests for the native transport before removing the file fallback.
