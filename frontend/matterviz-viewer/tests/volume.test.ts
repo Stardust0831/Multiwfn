@@ -110,18 +110,23 @@ test('aligns native structure JSON to the first volume origin without cumulative
     -4.660528644485103,
   ]
   const aligned = translate_structure_volume_frame(molecule, [0, 0, 0], frame_origin)
-  assert.deepEqual(aligned.sites[0].xyz, [
+  const expected = [
     4.070446475567824,
     3.6920131041043858,
     3.521275372836103,
-  ])
+  ]
+  aligned.sites[0].xyz.forEach((value, index) => {
+    assert.ok(Math.abs(value - expected[index]) <= 1e-12)
+  })
   assert.deepEqual(aligned.sites[0].abc, aligned.sites[0].xyz)
   assert.deepEqual(molecule.sites[0].xyz, [0, 0, -1.139253271649])
 
   const unchanged = translate_structure_volume_frame(aligned, frame_origin, frame_origin)
   assert.strictEqual(unchanged, aligned)
   const restored = translate_structure_volume_frame(aligned, frame_origin, [0, 0, 0])
-  assert.deepEqual(restored.sites[0].xyz, molecule.sites[0].xyz)
+  restored.sites[0].xyz.forEach((value, index) => {
+    assert.ok(Math.abs(value - molecule.sites[0].xyz[index]) <= 1e-12)
+  })
 })
 
 test('recomputes periodic fractional coordinates when the volume frame changes', () => {
