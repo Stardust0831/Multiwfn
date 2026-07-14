@@ -282,5 +282,10 @@ prerelease.
   r12 archive from the frozen lockfile.
 - [x] Pass corrected-r12 independent read-only review with no finding; archive,
   lock integrity, absolute/relative sampling and scope boundaries were verified.
-- [ ] Pass locked three-platform CI, then publish a corrected prerelease for
-  Windows manual confirmation.
+- [x] Pass locked three-platform CI and publish Preview 9 for Windows manual
+  confirmation. PR run `29359257113` and tag run `29360374182` passed; Preview 9
+  targets exact code commit `355862f`, and independently downloaded assets match
+  the published SHA256 list with no Python or 3Dmol runtime entries.
+- [ ] Pause implementation pending manual Preview 9 confirmation of file
+  selection, orbital alignment/switching, grid quality/isovalue, camera reset
+  and Return.

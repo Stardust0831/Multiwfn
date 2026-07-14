@@ -481,3 +481,13 @@
   finding. It verified all three renderer call sites use the shared reference
   origin, installed files match the archive, the archive SHA-512 matches the
   lockfile, and the diff does not touch calculation-core or binary-protocol code.
+- Exact code commit `355862f` passed PR run [`29359257113`](https://github.com/Stardust0831/Multiwfn/actions/runs/29359257113): frontend/Rust host and Linux, macOS and Windows package jobs all
+  succeeded. Related build `29359256268`, Linux compatibility `29359256620`,
+  legacy GUI release `29359256520` and core-source guard `29359256585` also
+  passed; the duplicate push run was cancelled after the PR run started.
+- Tag run [`29360374182`](https://github.com/Stardust0831/Multiwfn/actions/runs/29360374182) rebuilt all three platforms and published GitHub prerelease
+  [`matterviz-preview-9`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-9) from exact code commit `355862f`. Independently downloaded
+  Linux, macOS and Windows assets all match `SHA256SUMS.txt`; each contains the
+  native Multiwfn executable, Rust host and frontend and contains no Python,
+  `.py` or 3Dmol runtime entry. Implementation is paused for Windows manual
+  confirmation.
