@@ -588,3 +588,8 @@
   harness itself passed: the shell's allocation audit invoked `rg`, which is
   not installed on that runner. The audit now uses `grep -E`; its checked range
   and no-allocation assertion are unchanged.
+- Final-scope run `29375165944` passed the Rust/frontend host plus Linux and
+  macOS package jobs. Windows compiled Multiwfn and passed C-to-Rust transport,
+  then failed only because PowerShell interpreted literal `0xffffffff` as
+  signed `-1` before assigning it to `UInt32` in the test CRC helper. The helper
+  now uses `[uint32]::MaxValue` and an explicit UInt32 XOR for the final CRC.
