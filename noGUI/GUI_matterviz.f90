@@ -26,6 +26,12 @@ interface
     integer(c_int),intent(out) :: transport_error
     end function
 
+    integer(c_int) function multiwfn_matterviz_select_file(executable,output) &
+        bind(C,name="multiwfn_matterviz_select_file")
+    import :: c_char,c_int
+    character(kind=c_char),intent(in) :: executable(*),output(*)
+    end function
+
     integer(c_int) function multiwfn_matterviz_publish_volume(volume_write,ack_read,request_id, &
         volume_id,nx_arg,ny_arg,nz_arg,data_order,periodic_axes,coordinate_unit,quantity_kind, &
         value_unit,origin,voxel_axes,lattice,samples,sample_count,publish_timeout_ms) &
@@ -1267,6 +1273,9 @@ integer :: istat,iu
 logical :: session_ok
 #ifdef MULTIWFN_LEGACY_3DMOL_BACKEND
 character(len=512) :: python,tool
+#else
+character(kind=c_char),allocatable :: c_native(:),c_outfile(:)
+integer(c_int) :: c_status
 #endif
 
 selected=" "
@@ -1279,9 +1288,12 @@ call remove_session_file(trim(outfile))
 #ifndef MULTIWFN_LEGACY_3DMOL_BACKEND
 call resolve_matterviz_desktop_launcher(home,native)
 if (.not.path_exists(native)) return
-cmd='"'//trim(native)//'" --select-file --output "'//trim(outfile)//'"'
-call execute_command_line(trim(cmd),exitstat=istat)
-if (istat/=0) return
+! Launch the Rust file chooser through the structured native ABI.
+call matterviz_c_string(native,c_native)
+call matterviz_c_string(outfile,c_outfile)
+c_status=multiwfn_matterviz_select_file(c_native,c_outfile)
+deallocate(c_native,c_outfile)
+if (c_status/=0_c_int) return
 open(newunit=iu,file=trim(outfile),status="old",action="read",iostat=istat)
 if (istat/=0) return
 read(iu,"(a)",iostat=istat) selected

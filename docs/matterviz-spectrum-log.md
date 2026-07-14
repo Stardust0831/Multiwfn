@@ -356,3 +356,32 @@
 - Paused implementation after publication for manual preview confirmation. The
   deferred control-pipe migration and release-mode Cube policy remain explicitly
   post-Goal work and were not implemented in this PR phase.
+
+## 2026-07-14 Preview 7 manual feedback
+
+- Windows manual testing found two release regressions. Pressing Enter at the
+  initial file prompt printed the system path-not-found message instead of
+  opening the Rust file picker. After entering a path manually, menu 0 loaded
+  the molecule and accepted orbital selection but displayed no isosurface.
+- Inspected the retained live session rather than inferring from the screenshot.
+  Its manifest contained 40 orbitals and no startup Cube; response files proved
+  MO12 and MO13 completed as `mwfn-volume-v1` volumes 1 and 2. The live Rust host
+  served volume 2 as a valid 1,019,504-byte frame with dimensions 50x49x52,
+  range -0.7028304 to 0.6916017 and origin (-4.07045, -3.69201, -4.66053)
+  Angstrom after conversion. Direct marching cubes at +/-0.05 produced 1,912
+  and 1,980 faces, so calculation, pipe, store, decoder and meshing were sound.
+- Identified the rendering mismatch at the structure/volume boundary. MatterViz's
+  Cube parser subtracts the volume origin from embedded atom coordinates, while
+  the independent native `structure.json` path retained absolute atom positions.
+  Added an immutable frontend translation between volume frames, with lattice
+  fractional-coordinate recomputation and no cumulative drift across volume
+  replacement/removal.
+- Replayed the captured real MO13 frame through the rebuilt frontend. At
+  1440x900 and 800x700 the red/blue signed surfaces overlap CH3Cl, the WebGL
+  canvas is nonblank, document overflow is absent and no page/console error is
+  emitted.
+- Removed the last native file-picker shell boundary. Fortran now calls a
+  synchronous structured C ABI; Windows uses UTF-16 `CreateProcessW` and waits
+  for the Rust dialog process, while POSIX uses direct `fork`/`execv` with an
+  exec-status pipe and `waitpid`. The Rust CLI and `selected_file.txt` protocol
+  remain unchanged, and legacy 3Dmol behavior is untouched.

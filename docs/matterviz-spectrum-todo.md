@@ -215,3 +215,27 @@ prerelease.
   audit, prerelease publication and checksum verification. Preview 7 targets
   exact CI-verified commit `8db821c`; all downloaded assets pass the published
   SHA256 list and contain no Python or legacy 3Dmol runtime entries.
+
+## Preview 7 manual feedback
+
+- [x] Diagnose Enter-to-select-file failure on packaged Windows: the native
+  branch still passed a quoted Rust-host command through Fortran
+  `execute_command_line`, and Windows reported that path as not found.
+- [x] Replace that remaining native shell boundary with a synchronous structured
+  C ABI that directly starts `matterviz-desktop --select-file --output FILE`,
+  waits for completion and preserves `selected_file.txt`/cancel behavior. Keep
+  the legacy 3Dmol branch unchanged.
+- [x] Diagnose invisible dynamic orbitals from the retained Preview 7 session:
+  MO12/MO13 were calculated, ACKed, cached and decoded correctly, and MO13 at
+  +/-0.05 generated nonempty meshes. Native `structure.json` remained in
+  absolute coordinates while MatterViz renders volumes in the first volume's
+  origin-relative Cube frame, placing the mesh about 4 Angstrom outside the
+  structure camera view.
+- [x] Align native structures to the first volume origin in the frontend adapter,
+  including append/replace/remove transitions and periodic fractional-coordinate
+  recomputation; do not alter Multiwfn calculations or the binary protocol.
+- [x] Validate the captured real 50x49x52 MO13 frame at 1440x900 and 800x700:
+  signed red/blue surfaces overlap CH3Cl, canvases are nonblank, and there are no
+  page errors or document overflow.
+- [ ] Pass the focused unit/source/C/Fortran checks and locked three-platform
+  package workflow, then publish a corrected preview for Windows manual retest.

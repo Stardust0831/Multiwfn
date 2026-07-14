@@ -51,12 +51,18 @@
     type WorkbenchCameraState,
   } from './state'
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
-  import { adapt_matterviz_volume, decode_matterviz_volume } from './volume'
+  import {
+    adapt_matterviz_volume,
+    decode_matterviz_volume,
+    translate_structure_volume_frame,
+    type Vec3,
+  } from './volume'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
   let loadedManifestUrl = $state(manifest_url())
   let structure = $state<AnyStructure | undefined>()
+  let structureFrameOrigin = $state<Vec3>([0, 0, 0])
   let volumetricData = $state<VolumetricData[] | undefined>()
   let volumeEntries = $state<ManifestEntry[]>([])
   let isosurfaceSettings = $state<IsosurfaceSettings>({ ...DEFAULT_ISOSURFACE_SETTINGS })
@@ -232,6 +238,25 @@
     }
   }
 
+  const volume_origin = (volume?: VolumetricData): Vec3 => {
+    const origin = volume?.origin
+    return Array.isArray(origin) && origin.length === 3
+      && origin.every((component) => Number.isFinite(component))
+      ? [...origin] as Vec3
+      : [0, 0, 0]
+  }
+
+  const sync_structure_volume_frame = (nextOrigin: Vec3): void => {
+    if (structure) {
+      structure = translate_structure_volume_frame(
+        structure,
+        structureFrameOrigin,
+        nextOrigin,
+      )
+    }
+    structureFrameOrigin = [...nextOrigin]
+  }
+
   const parse_volume_entry = async (
     entry: ManifestEntry,
     base: URL,
@@ -274,14 +299,20 @@
     const parsed = await Promise.all(entries.map((entry) => parse_volume_entry(entry, base)))
     const volumes = parsed.flatMap((item) => item.volumes)
     const expandedEntries = entries.flatMap((entry, idx) => parsed[idx].volumes.map(() => entry))
-    if (!structure) {
-      const parsedStructure = parsed.find((item) => item.structure)?.structure
-      if (parsedStructure) structure = inject_manifest_lattice(parsedStructure, manifest, { override: true })
-    }
     const previousVolumes = mode === 'append' ? (volumetricData ?? []) : []
+    const nextVolumes = [...previousVolumes, ...volumes]
+    if (!structure) {
+      const parsedStructureIdx = parsed.findIndex((item) => item.structure)
+      const parsedStructure = parsed[parsedStructureIdx]?.structure
+      if (parsedStructure) {
+        structure = inject_manifest_lattice(parsedStructure, manifest, { override: true })
+        structureFrameOrigin = volume_origin(parsed[parsedStructureIdx]?.volumes[0])
+      }
+    }
+    sync_structure_volume_frame(volume_origin(nextVolumes[0]))
     const previousLayers = mode === 'append' ? (isosurfaceSettings.layers ?? []) : []
     const firstVolumeIdx = previousVolumes.length
-    volumetricData = [...previousVolumes, ...volumes]
+    volumetricData = nextVolumes
     volumeEntries = mode === 'append' ? [...volumeEntries, ...expandedEntries] : expandedEntries
     isosurfaceSettings = {
       ...(mode === 'append' ? isosurfaceSettings : DEFAULT_ISOSURFACE_SETTINGS),
@@ -325,6 +356,7 @@
         ...(nextColorIdx === undefined ? { colormap: undefined, color_range: undefined } : {}),
       }]
     })
+    sync_structure_volume_frame(volume_origin(nextVolumes[0]))
     volumetricData = nextVolumes
     volumeEntries = nextEntries
     isosurfaceSettings = { ...isosurfaceSettings, layers: nextLayers }
@@ -366,9 +398,11 @@
     }
     if (!structure && parsed.structure) {
       structure = inject_manifest_lattice(parsed.structure, manifest, { override: true })
+      structureFrameOrigin = volume_origin(parsed.volumes[0])
     }
     const volumes = [...(volumetricData ?? [])]
     volumes[volumeIdx] = parsed.volumes[0]
+    sync_structure_volume_frame(volume_origin(volumes[0]))
     volumetricData = volumes
     volumeEntries = volumeEntries.map((current, index) => index === volumeIdx ? entry : current)
     isosurfaceSettings = {
@@ -561,7 +595,8 @@
     const entry = manifest.structure
     if (!entry?.path) return
     const text = await fetch_text(resolve_entry_url(entry, manifestBase))
-    structure = inject_manifest_lattice(parse_any_structure(text, entry.path), manifest, { override: true })
+    const loaded = inject_manifest_lattice(parse_any_structure(text, entry.path), manifest, { override: true })
+    structure = translate_structure_volume_frame(loaded, [0, 0, 0], structureFrameOrigin)
   }
 
   const load_manifest = async (): Promise<void> => {

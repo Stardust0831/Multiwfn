@@ -1,4 +1,8 @@
 from pathlib import Path
+import ctypes
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -148,8 +152,41 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         native_branch = block.split(
             "#ifndef MULTIWFN_LEGACY_3DMOL_BACKEND", 1
         )[1].split("#else", 1)[0]
-        self.assertIn("--select-file --output", native_branch)
+        self.assertIn("multiwfn_matterviz_select_file", native_branch)
+        self.assertNotIn("execute_command_line", native_branch)
         self.assertNotIn("python", native_branch.lower())
+
+    def test_native_file_dialog_abi_reports_missing_executable(self):
+        compiler = shutil.which("cc")
+        if compiler is None:
+            self.skipTest("C compiler unavailable")
+        with tempfile.TemporaryDirectory() as tmp:
+            library = Path(tmp) / "libmatterviz_spawn.so"
+            subprocess.run(
+                [compiler, "-std=c11", "-shared", "-fPIC", str(ROOT / "noGUI" / "matterviz_spawn.c"),
+                 "-o", str(library), "-lm", "-pthread"],
+                check=True,
+            )
+            launch = ctypes.CDLL(str(library)).multiwfn_matterviz_select_file
+            launch.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+            launch.restype = ctypes.c_int
+            executable = Path(tmp) / "fake Rust host with spaces"
+            output = Path(tmp) / "session path with spaces" / "selected_file.txt"
+            output.parent.mkdir()
+            executable.write_text(
+                "#!/bin/sh\n"
+                "[ \"$1\" = \"--select-file\" ] || exit 41\n"
+                "[ \"$2\" = \"--output\" ] || exit 42\n"
+                "printf '%s\\n' '/tmp/selected input.fch' > \"$3\"\n",
+                encoding="ascii",
+            )
+            executable.chmod(0o755)
+            self.assertEqual(launch(str(executable).encode(), str(output).encode()), 0)
+            self.assertEqual(output.read_text(encoding="ascii"), "/tmp/selected input.fch\n")
+            self.assertNotEqual(
+                launch(b"/definitely/missing/matterviz-desktop", b"/tmp/path with spaces/out.txt"),
+                0,
+            )
 
     def test_frontend_propagates_the_rust_session_capability(self):
         self.assertIn("searchParams.get('cap')", VIEWER_APP)

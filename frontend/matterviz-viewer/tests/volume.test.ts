@@ -4,7 +4,9 @@ import test from 'node:test'
 import {
   adapt_matterviz_volume,
   decode_matterviz_volume,
+  translate_structure_volume_frame,
 } from '../src/volume.ts'
+import type { Crystal, Molecule } from 'matterviz/structure'
 
 const fixture_hex = new URL('../../../tests/fixtures/matterviz-volume-v1-orbital.hex', import.meta.url)
 const HEADER_BYTES = 304
@@ -90,6 +92,63 @@ test('maps k-fastest Cube order into grid[x][y][z]', async () => {
     [[7, 8, 9], [10, 11, 12]],
   ])
   assert.equal(adapted.data_order, 'z_fastest')
+})
+
+test('aligns native structure JSON to the first volume origin without cumulative drift', () => {
+  const molecule: Molecule = {
+    sites: [{
+      species: [{ element: 'C', occu: 1, oxidation_state: 0 }],
+      abc: [0, 0, 0],
+      xyz: [0, 0, -1.139253271649],
+      label: 'C1',
+      properties: { keep: true },
+    }],
+  }
+  const frame_origin: [number, number, number] = [
+    -4.070446475567824,
+    -3.6920131041043858,
+    -4.660528644485103,
+  ]
+  const aligned = translate_structure_volume_frame(molecule, [0, 0, 0], frame_origin)
+  assert.deepEqual(aligned.sites[0].xyz, [
+    4.070446475567824,
+    3.6920131041043858,
+    3.521275372836103,
+  ])
+  assert.deepEqual(aligned.sites[0].abc, aligned.sites[0].xyz)
+  assert.deepEqual(molecule.sites[0].xyz, [0, 0, -1.139253271649])
+
+  const unchanged = translate_structure_volume_frame(aligned, frame_origin, frame_origin)
+  assert.strictEqual(unchanged, aligned)
+  const restored = translate_structure_volume_frame(aligned, frame_origin, [0, 0, 0])
+  assert.deepEqual(restored.sites[0].xyz, molecule.sites[0].xyz)
+})
+
+test('recomputes periodic fractional coordinates when the volume frame changes', () => {
+  const crystal: Crystal = {
+    sites: [{
+      species: [{ element: 'H', occu: 1, oxidation_state: 0 }],
+      abc: [0.5, 0.5, 0.5],
+      xyz: [1, 1.5, 2],
+      label: 'H1',
+      properties: {},
+    }],
+    lattice: {
+      matrix: [[2, 0, 0], [0, 3, 0], [0, 0, 4]],
+      pbc: [true, true, true],
+      a: 2,
+      b: 3,
+      c: 4,
+      alpha: 90,
+      beta: 90,
+      gamma: 90,
+      volume: 24,
+    },
+  }
+  const aligned = translate_structure_volume_frame(crystal, [0, 0, 0], [0.5, 0.75, 1])
+  assert.deepEqual(aligned.sites[0].xyz, [0.5, 0.75, 1])
+  assert.deepEqual(aligned.sites[0].abc, [0.25, 0.25, 0.25])
+  assert.deepEqual(crystal.sites[0].abc, [0.5, 0.5, 0.5])
 })
 
 test('decodes signed samples and every quantity-unit pair', async () => {

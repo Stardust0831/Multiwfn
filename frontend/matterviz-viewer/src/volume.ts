@@ -1,4 +1,6 @@
 import type { VolumetricData } from 'matterviz/isosurface'
+import { create_cart_to_frac } from 'matterviz/math'
+import type { AnyStructure } from 'matterviz/structure'
 
 export type Vec3 = [number, number, number]
 export type Matrix3 = [Vec3, Vec3, Vec3]
@@ -101,6 +103,54 @@ function unit_scale(unit: CoordinateUnit): number {
 
 function scale_vec3(value: Vec3, scale: number): Vec3 {
   return [value[0] * scale, value[1] * scale, value[2] * scale]
+}
+
+const finite_vec3 = (value: unknown): value is Vec3 =>
+  Array.isArray(value)
+  && value.length === 3
+  && value.every((component) => typeof component === 'number' && Number.isFinite(component))
+
+/**
+ * Move a structure between MatterViz volume coordinate frames.
+ *
+ * MatterViz's Cube parser subtracts the first volume origin from atom
+ * coordinates and renders the first isosurface at the resulting grid origin.
+ * Native structure JSON therefore needs the same translation when volumes are
+ * supplied independently instead of embedded in a Cube file.
+ */
+export function translate_structure_volume_frame(
+  structure: AnyStructure,
+  previous_origin: Vec3,
+  next_origin: Vec3,
+): AnyStructure {
+  if (!finite_vec3(previous_origin) || !finite_vec3(next_origin)) {
+    throw new Error('MatterViz volume frame origins must be finite 3-vectors')
+  }
+  const delta: Vec3 = [
+    previous_origin[0] - next_origin[0],
+    previous_origin[1] - next_origin[1],
+    previous_origin[2] - next_origin[2],
+  ]
+  if (delta.every((component) => component === 0)) return structure
+
+  let cart_to_frac: ((cart: Vec3) => Vec3) | undefined
+  if ('lattice' in structure && structure.lattice?.matrix) {
+    try {
+      cart_to_frac = create_cart_to_frac(structure.lattice.matrix)
+    } catch {
+      throw new Error('MatterViz cannot align a volume to a singular structure lattice')
+    }
+  }
+  const sites = structure.sites.map((site) => {
+    if (!finite_vec3(site.xyz)) throw new Error('MatterViz structure site coordinates must be finite')
+    const xyz: Vec3 = [
+      site.xyz[0] + delta[0],
+      site.xyz[1] + delta[1],
+      site.xyz[2] + delta[2],
+    ]
+    return { ...site, xyz, abc: cart_to_frac ? cart_to_frac(xyz) : [...xyz] as Vec3 }
+  })
+  return { ...structure, sites }
 }
 
 /** Decode one exact MatterViz binary volume v1 frame. */

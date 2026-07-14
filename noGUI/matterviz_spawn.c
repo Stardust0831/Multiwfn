@@ -562,6 +562,54 @@ static int mwfn_spawn_file_only_posix(const char *executable, const char *fronte
                             &unused_volume, &unused_ack);
 }
 
+/* Launch the packaged Rust file chooser without involving a shell and wait for it. */
+static int mwfn_select_file_posix(const char *executable, const char *output) {
+    int exec_pipe[2] = {-1, -1};
+    const char *argv[5];
+    pid_t pid;
+    int status;
+    int exec_error = 0;
+    ssize_t read_bytes;
+    int error_code;
+    if (executable == NULL || output == NULL || executable[0] == '\0' || output[0] == '\0') {
+        return EINVAL;
+    }
+    if (mwfn_pipe_cloexec(exec_pipe) != 0) return errno == 0 ? EIO : errno;
+    argv[0] = executable;
+    argv[1] = "--select-file";
+    argv[2] = "--output";
+    argv[3] = output;
+    argv[4] = NULL;
+    pid = fork();
+    if (pid < 0) {
+        error_code = errno;
+        mwfn_close_fd(&exec_pipe[0]);
+        mwfn_close_fd(&exec_pipe[1]);
+        return error_code;
+    }
+    if (pid == 0) {
+        mwfn_close_fd(&exec_pipe[0]);
+        execv(executable, (char *const *)argv);
+        exec_error = errno == 0 ? EIO : errno;
+        while (write(exec_pipe[1], &exec_error, sizeof(exec_error)) < 0 && errno == EINTR) {
+        }
+        _exit(127);
+    }
+    mwfn_close_fd(&exec_pipe[1]);
+    do {
+        read_bytes = read(exec_pipe[0], &exec_error, sizeof(exec_error));
+    } while (read_bytes < 0 && errno == EINTR);
+    mwfn_close_fd(&exec_pipe[0]);
+    do {
+        error_code = (int)waitpid(pid, &status, 0);
+    } while (error_code < 0 && errno == EINTR);
+    if (error_code < 0) return errno == 0 ? ECHILD : errno;
+    if (read_bytes > 0) return read_bytes == (ssize_t)sizeof(exec_error) ? exec_error : EIO;
+    if (WIFEXITED(status)) return WEXITSTATUS(status) == 0 ? 0 : 200 + WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return ECHILD;
+}
+
 static int mwfn_clear_stop_flag_posix(const char *session) {
     const char suffix[] = "/gui_stop.flag";
     const size_t session_length = strlen(session);
@@ -811,6 +859,60 @@ static int mwfn_write_all_win(HANDLE handle, const uint8_t *bytes, size_t length
     return error_code;
 }
 
+static int mwfn_select_file_windows(const char *executable, const char *output) {
+    const char *names[4];
+    wchar_t *wide_values[4] = {NULL, NULL, NULL, NULL};
+    wchar_t *command_line = NULL;
+    size_t command_length = 0;
+    size_t command_capacity = 0;
+    STARTUPINFOW startup = {0};
+    PROCESS_INFORMATION process = {0};
+    DWORD wait_result;
+    DWORD exit_code = 0;
+    int error_code = 0;
+    unsigned int index;
+    if (executable == NULL || output == NULL || executable[0] == '\0' || output[0] == '\0') {
+        return ERROR_INVALID_PARAMETER;
+    }
+    names[0] = executable;
+    names[1] = "--select-file";
+    names[2] = "--output";
+    names[3] = output;
+    for (index = 0; index < 4U; ++index) {
+        wide_values[index] = mwfn_utf8_to_wide(names[index]);
+        if (wide_values[index] == NULL) {
+            error_code = ERROR_NO_UNICODE_TRANSLATION;
+            goto cleanup;
+        }
+        error_code = mwfn_append_wide(&command_line, &command_length, &command_capacity,
+                                      wide_values[index]);
+        if (error_code != 0) goto cleanup;
+    }
+    startup.cb = sizeof(startup);
+    if (!CreateProcessW(wide_values[0], command_line, NULL, NULL, FALSE, 0, NULL, NULL,
+                        &startup, &process)) {
+        error_code = (int)GetLastError();
+        goto cleanup;
+    }
+    wait_result = WaitForSingleObject(process.hProcess, INFINITE);
+    if (wait_result != WAIT_OBJECT_0) {
+        error_code = wait_result == WAIT_FAILED ? (int)GetLastError() : ERROR_GEN_FAILURE;
+        goto cleanup;
+    }
+    if (!GetExitCodeProcess(process.hProcess, &exit_code)) {
+        error_code = (int)GetLastError();
+        goto cleanup;
+    }
+    error_code = exit_code == 0U ? 0 : (exit_code > 127U ? 127 : (int)exit_code + 200);
+
+cleanup:
+    if (process.hThread != NULL) CloseHandle(process.hThread);
+    if (process.hProcess != NULL) CloseHandle(process.hProcess);
+    free(command_line);
+    for (index = 0; index < 4U; ++index) free(wide_values[index]);
+    return error_code;
+}
+
 static int mwfn_spawn_windows(const char *executable, const char *frontend, const char *session,
                               const char *manifest, int with_transport, HANDLE *volume_write_out,
                               HANDLE *ack_read_out, PROCESS_INFORMATION *process_out) {
@@ -1042,6 +1144,15 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
         *transport_error_out = error_code;
         return -1;
     }
+#endif
+}
+
+int multiwfn_matterviz_select_file(const char *executable_utf8, const char *output_utf8) {
+    if (executable_utf8 == NULL || output_utf8 == NULL) return EINVAL;
+#ifdef _WIN32
+    return mwfn_select_file_windows(executable_utf8, output_utf8);
+#else
+    return mwfn_select_file_posix(executable_utf8, output_utf8);
 #endif
 }
 
