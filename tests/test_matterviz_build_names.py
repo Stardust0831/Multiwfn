@@ -22,6 +22,9 @@ WORKFLOW = (ROOT / ".github" / "workflows" / "matterviz-gui.yml").read_text(enco
 WINDOWS_ASYNC = (ROOT / "tests" / "windows" / "test_matterviz_async_launch.ps1").read_text(
     encoding="utf-8"
 )
+LINUX_REAL_ORBITAL = (
+    ROOT / "tests" / "linux" / "test_matterviz_real_orbital.py"
+).read_text(encoding="utf-8")
 
 
 class MatterVizBuildNamingTests(unittest.TestCase):
@@ -126,6 +129,14 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("index=43&quality=25000", WINDOWS_ASYNC)
         self.assertIn('"mwfn-volume-v1"', WINDOWS_ASYNC)
         self.assertIn('"orbital_43_25000.cube"', WINDOWS_ASYNC)
+
+    def test_packaged_linux_requests_a_real_native_orbital(self):
+        self.assertIn("matterviz-real-orbital-Co5Cr.fch.gz", LINUX_REAL_ORBITAL)
+        self.assertIn("index=43&quality=25000", LINUX_REAL_ORBITAL)
+        self.assertIn('"mwfn-volume-v1"', LINUX_REAL_ORBITAL)
+        self.assertIn('"orbital_43_25000.cube"', LINUX_REAL_ORBITAL)
+        self.assertIn("advertised_service_base", LINUX_REAL_ORBITAL)
+        self.assertIn("tests/linux/test_matterviz_real_orbital.py", WORKFLOW)
 
     def test_matterviz_file_dialog_uses_rust_host(self):
         block = FORTRAN.split("subroutine select_file_with_dialog", 1)[1].split(

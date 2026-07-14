@@ -175,3 +175,37 @@ Updated: 2026-07-14
 - Bounded parity tasks may use independent worktrees and `agent/*` branches based on the latest reviewed development commit.
 - Each branch must have disjoint write scope, objective verification and its own commit; it must not edit the shared TODO/log documents.
 - The primary development branch owns documentation updates, reviews every agent commit, merges or cherry-picks it, resolves conflicts and reruns proportionate verification before pushing PR #26.
+
+## Deferred after the current Rust-host goal
+
+These items are explicitly **for implementation only after the current Goal is
+complete**. They must not change, block, or expand the compatibility contract
+or release scope of the current PR.
+
+- [ ] After the current Goal: replace `gui_request.txt`,
+  `response_<id>.json`, and `gui_stop.flag` with versioned bidirectional pipe
+  messages, then remove the runtime dependency on a writable session temporary
+  directory.
+- [ ] After the current Goal and stable Windows/Linux/macOS acceptance: disable
+  automatic dynamic Cube fallback in formal releases. A native-pipe failure
+  must report an explicit error and terminate the invalid session; Cube
+  fallback remains available only through an explicit development/diagnostic
+  option.
+
+Current compatibility gates remain unchanged: preserve the three control-file
+interfaces and deliberate automatic Cube fallback through this PR and its next
+prerelease.
+
+## Current Rust-host release gates
+
+- [x] Prove a real uncached nonzero orbital uses `mwfn-volume-v1` with no
+  dynamic Cube in the extracted Windows package (CI run `29310169491`).
+- [ ] Prove the same real FCHK/orbital path in the extracted Linux package;
+  the regression is implemented and awaits its first CI run.
+- [x] Prove the generic C-to-Rust binary transport on Windows, Linux and macOS.
+- [ ] Complete the documented interactive macOS WKWebView/manual orbital gate;
+  hosted runners do not provide a usable WindowServer.
+- [ ] Add explicit packaged automatic-Cube-fallback evidence without changing
+  the production protocol or adding a test-only runtime switch.
+- [ ] Complete final lifecycle/resource evidence, read-only review, package
+  audit, prerelease publication and checksum verification.

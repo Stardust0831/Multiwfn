@@ -18,6 +18,7 @@ on:
       - tests/test_matterviz_build_names.py
       - tests/matterviz-volume-e2e/**
       - tests/fixtures/**
+      - tests/linux/**
       - tests/windows/test_matterviz_async_launch.ps1
       - frontend/matterviz-viewer/**
       - docs/matterviz-webview.md
@@ -355,6 +356,12 @@ jobs:
           test "$return_payload" = '{"ok":true}'
           wait "$host_pid"
           test -f matterviz-smoke/session/gui_stop.flag
+          dbus-run-session -- xvfb-run -a env \
+            GDK_BACKEND=x11 \
+            NO_AT_BRIDGE=1 \
+            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+            python3 tests/linux/test_matterviz_real_orbital.py \
+              --executable "$root/Multiwfn_MatterVizGUI"
 
       - name: Package macOS preview
         if: runner.os == 'macOS'

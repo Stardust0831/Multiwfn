@@ -302,3 +302,20 @@
   magic, asserts that the successful path created no dynamic Cube, and retains
   the existing Return and descendant-handle shutdown checks. This fixture is
   not staged into release packages.
+- Recorded two post-Goal architecture items without changing this PR: migrate
+  the three control-file interfaces to versioned bidirectional pipe messages,
+  and, only after stable three-platform acceptance, make Cube fallback an
+  explicit development/diagnostic mode rather than an automatic release
+  behavior. The current Goal continues to preserve both compatibility
+  contracts through validation and prerelease.
+- CI run `29310169491` passed the Rust/frontend job and all three package jobs.
+  Its extracted Windows package loaded the real FCHK, computed orbital 43,
+  served a valid native volume without staging `orbital_43_25000.cube`, and
+  completed the Return/process-shutdown assertions. The same run also passed
+  the generic C-to-Rust transport tests on Windows, Linux and macOS.
+- Added the corresponding extracted-package Linux real-orbital regression. It
+  launches the packaged Rust WebView under Xvfb, reads and validates the
+  actually advertised loopback service URL, requests orbital 43 at 25k points,
+  validates the binary volume/no-Cube contract, and checks Return plus process
+  cleanup. This Linux evidence remains pending until the updated workflow
+  completes.
