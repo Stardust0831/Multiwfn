@@ -518,8 +518,8 @@ impl ServiceRunner {
                     if started {
                         return;
                     }
-                    let current_active = (self.volume_store.bytes() as u64)
-                        .saturating_add(reported_active);
+                    let current_active =
+                        (self.volume_store.bytes() as u64).saturating_add(reported_active);
                     let budget = match memory_budget::active_volume_budget(current_active) {
                         Ok(value) => value,
                         Err(message) => {
@@ -564,7 +564,8 @@ impl ServiceRunner {
                             return;
                         }
                     };
-                    let geometry_budget = budget.active_limit_bytes.saturating_sub(requested_active);
+                    let geometry_budget =
+                        budget.active_limit_bytes.saturating_sub(requested_active);
                     if write_stream_header(stream, content_length, geometry_budget).is_err()
                         || stream.write_all(header.as_ref()).is_err()
                     {
@@ -1074,11 +1075,7 @@ mod tests {
         fs::create_dir_all(&frontend).unwrap();
         fs::create_dir_all(&session).unwrap();
         fs::write(frontend.join("index.html"), "MatterViz").unwrap();
-        fs::write(
-            session.join("manifest.json"),
-            r#"{"orbitals":{"count":2}}"#,
-        )
-        .unwrap();
+        fs::write(session.join("manifest.json"), r#"{"orbitals":{"count":2}}"#).unwrap();
         let (volume_read, mut volume_write) = pipe_pair();
         let (mut ack_read, ack_write) = pipe_pair();
         let service = HttpService::start(AppConfig {
@@ -1097,10 +1094,7 @@ mod tests {
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
         let base = service.url().to_owned();
-        let path = authorized_path(
-            &base,
-            "/api/orbital?index=1&quality=120000&isovalue=0.05",
-        );
+        let path = authorized_path(&base, "/api/orbital?index=1&quality=120000&isovalue=0.05");
         let client = std::thread::spawn(move || request_bytes(&base, "GET", &path));
 
         let request_path = session.join("gui_request.txt");
@@ -1141,7 +1135,10 @@ mod tests {
         let mut ack = [0_u8; ACK_HEADER_BYTES];
         ack_read.read_exact(&mut ack).unwrap();
         assert_eq!(u16::from_le_bytes(ack[8..10].try_into().unwrap()), 2);
-        assert_eq!(u64::from_le_bytes(ack[20..28].try_into().unwrap()), request_id);
+        assert_eq!(
+            u64::from_le_bytes(ack[20..28].try_into().unwrap()),
+            request_id
+        );
         assert_eq!(u32::from_le_bytes(ack[56..60].try_into().unwrap()), 0);
 
         drop(volume_write);
@@ -1422,7 +1419,10 @@ mod tests {
         use windows_sys::Win32::System::Pipes::CreatePipe;
         let mut read: HANDLE = std::ptr::null_mut();
         let mut write: HANDLE = std::ptr::null_mut();
-        assert_ne!(unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) }, 0);
+        assert_ne!(
+            unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) },
+            0
+        );
         let read = unsafe { std::fs::File::from_raw_handle(read as RawHandle) };
         let write = unsafe { std::fs::File::from_raw_handle(write as RawHandle) };
         (read, write)

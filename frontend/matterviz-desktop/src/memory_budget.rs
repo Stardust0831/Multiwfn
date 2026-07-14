@@ -238,7 +238,10 @@ fn parse_cgroup_memberships(text: &str) -> Vec<CgroupMembership> {
                     kind: CgroupKind::V2,
                     path: path.to_owned(),
                 })
-            } else if controllers.split(',').any(|controller| controller == "memory") {
+            } else if controllers
+                .split(',')
+                .any(|controller| controller == "memory")
+            {
                 Some(CgroupMembership {
                     kind: CgroupKind::V1Memory,
                     path: path.to_owned(),
@@ -334,7 +337,10 @@ fn cgroup_mount_paths(mount: &CgroupMount, cgroup_path: &str) -> Option<Vec<Path
         // hierarchy. In that case the path is already mount-relative.
         path
     };
-    let segments: Vec<_> = relative.split('/').filter(|segment| !segment.is_empty()).collect();
+    let segments: Vec<_> = relative
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
     let mut paths = Vec::with_capacity(segments.len() + 1);
     for count in (0..=segments.len()).rev() {
         let mut resolved = PathBuf::from(&mount.mount_point);
@@ -349,9 +355,7 @@ fn cgroup_mount_paths(mount: &CgroupMount, cgroup_path: &str) -> Option<Vec<Path
 #[cfg(target_os = "windows")]
 fn memory_snapshot() -> Result<MemorySnapshot, String> {
     use std::mem::size_of;
-    use windows_sys::Win32::System::SystemInformation::{
-        GlobalMemoryStatusEx, MEMORYSTATUSEX,
-    };
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
     let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
     status.dwLength = size_of::<MEMORYSTATUSEX>() as u32;
@@ -434,7 +438,10 @@ mod tests {
             None,
         );
         assert_eq!(budget.reserve_bytes, 16 * GIB / 5);
-        assert_eq!(budget.active_limit_bytes, 10 * GIB - 16 * GIB / 5 + 512 * MIB);
+        assert_eq!(
+            budget.active_limit_bytes,
+            10 * GIB - 16 * GIB / 5 + 512 * MIB
+        );
     }
 
     #[test]
@@ -487,15 +494,11 @@ mod tests {
         assert_eq!(files[0].kind, CgroupKind::V2);
         assert_eq!(
             files[0].limit,
-            Path::new(
-                "/sys/fs/cgroup/user.slice/user-1000.slice/session-2.scope/memory.max",
-            )
+            Path::new("/sys/fs/cgroup/user.slice/user-1000.slice/session-2.scope/memory.max",)
         );
         assert_eq!(
             files[0].usage,
-            Path::new(
-                "/sys/fs/cgroup/user.slice/user-1000.slice/session-2.scope/memory.current",
-            )
+            Path::new("/sys/fs/cgroup/user.slice/user-1000.slice/session-2.scope/memory.current",)
         );
     }
 
@@ -513,27 +516,21 @@ mod tests {
         assert_eq!(files[0].kind, CgroupKind::V1Memory);
         assert_eq!(
             files[0].limit,
-            Path::new(
-                "/sys/fs/cgroup/memory/docker/container-1/memory.limit_in_bytes",
-            )
+            Path::new("/sys/fs/cgroup/memory/docker/container-1/memory.limit_in_bytes",)
         );
         assert_eq!(
             files[0].usage,
-            Path::new(
-                "/sys/fs/cgroup/memory/docker/container-1/memory.usage_in_bytes",
-            )
+            Path::new("/sys/fs/cgroup/memory/docker/container-1/memory.usage_in_bytes",)
         );
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn maps_mount_root_to_a_namespace_relative_cgroup_path() {
-        let mounts = parse_cgroup_mounts(
-            concat!(
-                "30 20 0:25 /docker/container-1 /run/cgroup/memory rw,relatime ",
-                "- cgroup cgroup rw,memory\n",
-            ),
-        );
+        let mounts = parse_cgroup_mounts(concat!(
+            "30 20 0:25 /docker/container-1 /run/cgroup/memory rw,relatime ",
+            "- cgroup cgroup rw,memory\n",
+        ));
         assert_eq!(mounts.len(), 1);
         assert_eq!(
             cgroup_mount_path(&mounts[0], "/docker/container-1/worker"),
@@ -555,10 +552,7 @@ mod tests {
                 "/sys/fs/cgroup/memory/leaf/memory.limit_in_bytes",
                 "9223372036854771712",
             ),
-            (
-                "/sys/fs/cgroup/memory/leaf/memory.usage_in_bytes",
-                "1",
-            ),
+            ("/sys/fs/cgroup/memory/leaf/memory.usage_in_bytes", "1"),
         ]);
         let result = linux_cgroup_available_from_data(
             16 * GIB,

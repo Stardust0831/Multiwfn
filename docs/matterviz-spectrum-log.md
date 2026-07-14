@@ -569,3 +569,10 @@
   warnings remain nonblocking. Rust compilation, live browser replay and
   Linux/macOS/Windows CI remain open release gates because Cargo and a browser
   runner are unavailable in the current WSL environment.
+- Initial CI run `29373727626` reached Rust on Linux and macOS. It exposed only
+  an unformatted Rust diff and a test-only borrow error where a registration
+  borrowed `broker` before the same `Arc` was moved into the transport. The
+  test now passes `broker.clone()`, and an extracted Ubuntu rustfmt toolchain
+  formats and checks both Rust source trees locally. Runtime ownership is
+  unchanged; the corrected commit must still pass Cargo test/check/Clippy and
+  all package jobs before a prerelease is created.

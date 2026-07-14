@@ -217,7 +217,11 @@ pub fn decode_stream_volume_header(frame: &[u8]) -> Result<StreamVolumeHeader, V
     if request_id == 0 || volume_id == 0 {
         return Err(VolumeError::InvalidId);
     }
-    let dimensions = [get_u32(frame, 56)?, get_u32(frame, 60)?, get_u32(frame, 64)?];
+    let dimensions = [
+        get_u32(frame, 56)?,
+        get_u32(frame, 60)?,
+        get_u32(frame, 64)?,
+    ];
     let sample_count = dimensions.iter().try_fold(1_u64, |count, &dimension| {
         if dimension == 0 {
             return Err(VolumeError::InvalidDimensions);
@@ -232,7 +236,9 @@ pub fn decode_stream_volume_header(frame: &[u8]) -> Result<StreamVolumeHeader, V
     {
         return Err(VolumeError::InconsistentByteCount);
     }
-    if get_u8(frame, 68)? != 1 || get_u8(frame, 69)? != 1 || get_u16(frame, 78)? != 0
+    if get_u8(frame, 68)? != 1
+        || get_u8(frame, 69)? != 1
+        || get_u16(frame, 78)? != 0
         || get_u64(frame, 296)? != 0
     {
         return Err(VolumeError::InvalidEnum);
@@ -691,12 +697,7 @@ fn write_control_header(frame: &mut [u8], message_type: u16, request_id: u64) {
     write_control_header_major(frame, 1, message_type, request_id)
 }
 
-fn write_control_header_major(
-    frame: &mut [u8],
-    major: u16,
-    message_type: u16,
-    request_id: u64,
-) {
+fn write_control_header_major(frame: &mut [u8], major: u16, message_type: u16, request_id: u64) {
     let header_bytes = frame.len() as u32;
     frame[..8].copy_from_slice(MAGIC);
     put_u16(frame, 8, major);

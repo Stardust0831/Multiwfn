@@ -104,11 +104,7 @@ mod tests {
         let broker = VolumeStreamBroker::default();
         let registration = broker.register(7).unwrap();
         assert!(broker.register(7).is_err());
-        broker
-            .sender(7)
-            .unwrap()
-            .send(StreamEvent::End)
-            .unwrap();
+        broker.sender(7).unwrap().send(StreamEvent::End).unwrap();
         assert!(matches!(
             registration.receiver().recv().unwrap(),
             StreamEvent::End

@@ -5,9 +5,8 @@ use std::thread;
 
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::volume_protocol::{
-    decode_stream_volume_header, declared_volume_frame_len, encode_ack, encode_ready,
-    encode_stream_ack, protocol_major, Crc32c, STREAM_MAJOR, PRELUDE_BYTES,
-    VOLUME_HEADER_BYTES,
+    declared_volume_frame_len, decode_stream_volume_header, encode_ack, encode_ready,
+    encode_stream_ack, protocol_major, Crc32c, PRELUDE_BYTES, STREAM_MAJOR, VOLUME_HEADER_BYTES,
 };
 use crate::volume_store::VolumeStore;
 
@@ -164,11 +163,7 @@ fn receive_stream_volume(
     writer.write_all(&ack).map_err(|_| ())
 }
 
-fn send_event(
-    sender: &SyncSender<StreamEvent>,
-    mut event: StreamEvent,
-    stop: &AtomicBool,
-) -> bool {
+fn send_event(sender: &SyncSender<StreamEvent>, mut event: StreamEvent, stop: &AtomicBool) -> bool {
     loop {
         if stop.load(Ordering::Acquire) {
             return false;
@@ -479,13 +474,9 @@ mod tests {
         let broker = Arc::new(VolumeStreamBroker::default());
         let registration = broker.register(42).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
-        let transport = VolumeTransport::start_with_broker(
-            config,
-            store.clone(),
-            broker,
-            stop,
-        )
-        .unwrap();
+        let transport =
+            VolumeTransport::start_with_broker(config, store.clone(), broker.clone(), stop)
+                .unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
         crate::volume_protocol::decode_ready(&ready).unwrap();
@@ -513,7 +504,10 @@ mod tests {
         assert_eq!(body, frame[VOLUME_HEADER_BYTES..]);
         let mut ack = [0_u8; crate::volume_protocol::ACK_HEADER_BYTES];
         ack_read.read_exact(&mut ack).unwrap();
-        assert_eq!(u16::from_le_bytes(ack[8..10].try_into().unwrap()), STREAM_MAJOR);
+        assert_eq!(
+            u16::from_le_bytes(ack[8..10].try_into().unwrap()),
+            STREAM_MAJOR
+        );
         assert_eq!(u64::from_le_bytes(ack[20..28].try_into().unwrap()), 42);
         assert_eq!(u64::from_le_bytes(ack[48..56].try_into().unwrap()), 1001);
         assert_eq!(u32::from_le_bytes(ack[56..60].try_into().unwrap()), 0);
@@ -535,13 +529,8 @@ mod tests {
         let store = Arc::new(VolumeStore::new());
         let broker = Arc::new(VolumeStreamBroker::default());
         let stop = Arc::new(AtomicBool::new(false));
-        let transport = VolumeTransport::start_with_broker(
-            config,
-            store,
-            broker.clone(),
-            stop,
-        )
-        .unwrap();
+        let transport =
+            VolumeTransport::start_with_broker(config, store, broker.clone(), stop).unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
 

@@ -235,17 +235,13 @@ mod tests {
         let base = base.to_owned();
         let path =
             format!("/api/orbital?index={index}&quality=120000&isovalue=0.05&cap={capability}");
-        thread::spawn(move || {
-            request_bytes(&base, &path)
-        })
+        thread::spawn(move || request_bytes(&base, &path))
     }
 
     fn assert_stream_response(response: &[u8], request_id: i64) {
         let (headers, body) = split_response(response);
         assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
-        assert!(headers.contains(
-            "Content-Type: application/vnd.multiwfn.volume; version=2\r\n"
-        ));
+        assert!(headers.contains("Content-Type: application/vnd.multiwfn.volume; version=2\r\n"));
         let header = &body[..crate::volume_protocol::VOLUME_HEADER_BYTES];
         let decoded = crate::volume_protocol::decode_stream_volume_header(header).unwrap();
         assert_eq!(decoded.request_id, request_id as u64);
@@ -261,7 +257,10 @@ mod tests {
             .map(|offset| f64::from_le_bytes(payload[offset..offset + 8].try_into().unwrap()))
             .collect::<Vec<_>>();
         assert_eq!(values, samples());
-        assert_eq!(body.len(), crate::volume_protocol::VOLUME_HEADER_BYTES + payload.len());
+        assert_eq!(
+            body.len(),
+            crate::volume_protocol::VOLUME_HEADER_BYTES + payload.len()
+        );
     }
 
     fn wait_for_request(session: &Path, expected: &str) -> i64 {

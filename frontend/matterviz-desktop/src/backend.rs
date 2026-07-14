@@ -237,7 +237,9 @@ impl PendingBackendRequest {
                     return Some(json!({"ok": false, "message": BACKEND_UNAVAILABLE}));
                 }
                 Ok(_) => {
-                    return Some(json!({"ok": false, "message": "Backend request was superseded; try again"}));
+                    return Some(
+                        json!({"ok": false, "message": "Backend request was superseded; try again"}),
+                    );
                 }
                 Err(_) => self.consumed = true,
             }
