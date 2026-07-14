@@ -211,5 +211,7 @@ prerelease.
   launch and requires the unchanged C launcher to restart file-only; no
   production protocol or runtime switch is added (PR run `29314730868`, Linux
   job).
-- [ ] Complete final lifecycle/resource evidence, read-only review, package
-  audit, prerelease publication and checksum verification.
+- [x] Complete final lifecycle/resource evidence, read-only review, package
+  audit, prerelease publication and checksum verification. Preview 7 targets
+  exact CI-verified commit `8db821c`; all downloaded assets pass the published
+  SHA256 list and contain no Python or legacy 3Dmol runtime entries.

@@ -68,9 +68,9 @@ Updated: 2026-07-14
   Return and close their observed host/output-handle lifetimes.
 - The extracted Linux package also passes forced negotiation failure, stale
   stop-flag cleanup, file-only relaunch and generated-Cube serving.
-- Still required before prerelease publication: final package-content/checksum
-  audit and independent release review. Interactive macOS real-orbital and
-  final desktop browser-rendering checks remain manual preview-acceptance gates.
+- Preview 7 completed final package-content/checksum audit and independent
+  release review. Interactive macOS real-orbital and final desktop
+  browser-rendering checks remain manual preview-acceptance gates.
 
 ## Manual macOS WKWebView gate
 

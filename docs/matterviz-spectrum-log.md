@@ -341,3 +341,18 @@
   now portable across this macOS close behavior while still requiring complete
   headers and the exact `Content-Length` body. Production service code is
   unchanged.
+- Final candidate commit `8db821c` passed PR run `29316873086`: Rust/frontend,
+  Linux, Windows and macOS all succeeded, including the portable HTTP reader,
+  real Windows orbital, Linux native/fallback modes and per-package Python
+  artifact rejection. Local evidence also passed frontend test/check/build,
+  20 GUI/session source guards, workflow YAML parsing, strict C11 compilation
+  and `git diff --check`; local Cargo remained unavailable and was covered by
+  locked CI.
+- Published `matterviz-preview-7` from exact commit `8db821c` in tag run
+  `29317949338`. The independently downloaded Linux, macOS and Windows assets
+  all match `SHA256SUMS.txt`; each contains the native MatterViz executable,
+  Rust host and frontend, with no Python or legacy 3Dmol runtime entry. Release:
+  <https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-7>.
+- Paused implementation after publication for manual preview confirmation. The
+  deferred control-pipe migration and release-mode Cube policy remain explicitly
+  post-Goal work and were not implemented in this PR phase.
