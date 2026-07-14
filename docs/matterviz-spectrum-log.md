@@ -387,7 +387,32 @@
   remain unchanged, and legacy 3Dmol behavior is untouched.
 - The independent review found two managed-state gaps in the initial origin
   fix. Existing explicit camera position/target now receive the same frame
-  translation as the structure, so the view does not jump when the first volume
-  is appended, replaced or removed. MatterViz's generic two-way file drop is
-  disabled in this managed Multiwfn viewer because it bypasses session volume
-  metadata and origin tracking; manifest/API imports remain authoritative.
+  translation as the structure. Structure and site identity remain stable so a
+  volume-frame-only transition preserves measurement and edit state. The pinned
+  MatterViz r8 component exposes a narrow structure revision input consumed only
+  by supercell derivation, ensuring deferred periodic supercells also rebuild
+  without invoking new-molecule cleanup effects. The same revision and its
+  frame delta translate each viewport's live camera and private reset-camera
+  baseline, so primary and secondary panes remain aligned and a later reset
+  stays in the active volume frame. Viewports compare the stable
+  logical input structure for snapshot invalidation, so derived supercell and
+  periodic image-atom rebuilds do not masquerade as a newly loaded system.
+  MatterViz's generic two-way file drop is disabled in this managed Multiwfn
+  viewer because it bypasses session volume metadata and origin tracking;
+  manifest/API imports remain authoritative.
+- Local verification of the final r8 adapter passed all 85 frontend tests, zero
+  Svelte diagnostics, the production Vite build, 22 GUI/session and native
+  launcher tests, strict C11 compilation and `git diff --check`. A dynamic
+  browser replay started with structure only, requested the captured real MO13
+  frame, moved and reset the camera at 1440x900 and 800x700, and retained aligned
+  molecule/surface rendering with nonblank canvases, no page errors and no
+  document overflow.
+- PR run `29324664144` passed the Rust/frontend job and Linux, macOS and Windows
+  package jobs for pushed commit `c88adcd`. It covers the native file-picker and
+  initial alignment increment but predates MatterViz r8; a fresh locked package
+  run remains mandatory before Preview 8.
+- Final independent read-only review of the r8 state path found no blocker,
+  high or medium issue. It confirmed single-application camera deltas in primary
+  and secondary panes, stable logical identity across periodic derived rebuilds,
+  cumulative revisions and the narrow r8 vendor scope. Three-platform package
+  CI and packaged Windows manual behavior remain release gates.

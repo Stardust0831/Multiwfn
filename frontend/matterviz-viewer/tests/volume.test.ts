@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
   adapt_matterviz_volume,
+  apply_structure_volume_frame_translation,
   decode_matterviz_volume,
   translate_point_volume_frame,
   translate_structure_volume_frame,
@@ -167,6 +168,46 @@ test('moves camera points by the same delta as the structure volume frame', () =
     () => translate_point_volume_frame([Number.NaN, 0, 0], previous, next),
     /finite 3-vectors/,
   )
+})
+
+test('round-trips repeated periodic volume-frame transitions without drift', () => {
+  const crystal: Crystal = {
+    lattice: { matrix: [[2, 0, 0], [0, 4, 0], [0, 0, 8]], a: 2, b: 4, c: 8, alpha: 90, beta: 90, gamma: 90, volume: 64, pbc: [true, true, true] },
+    sites: [{
+      species: [{ element: 'O', occu: 1, oxidation_state: 0 }],
+      abc: [0.5, 0.5, 0.5],
+      xyz: [1, 2, 4],
+      label: 'O1',
+      properties: {},
+    }],
+  }
+  const shifted = translate_structure_volume_frame(crystal, [0, 0, 0], [-1, -2, -4])
+  const replaced = translate_structure_volume_frame(shifted, [-1, -2, -4], [2, 1, 0])
+  const restored = translate_structure_volume_frame(replaced, [2, 1, 0], [0, 0, 0])
+  assert.notStrictEqual(shifted, crystal)
+  assert.notStrictEqual(shifted.sites[0], crystal.sites[0])
+  assert.deepEqual(shifted.sites[0].xyz, [2, 4, 8])
+  assert.deepEqual(shifted.sites[0].abc, [1, 1, 1])
+  assert.deepEqual(restored.sites[0].xyz, crystal.sites[0].xyz)
+  assert.deepEqual(restored.sites[0].abc, crystal.sites[0].abc)
+})
+
+test('applies a managed frame translation without changing interaction identity', () => {
+  const molecule: Molecule = {
+    sites: [{
+      species: [{ element: 'O', occu: 1, oxidation_state: 0 }],
+      abc: [0, 0, 0],
+      xyz: [1, 2, 3],
+      label: 'O1',
+      properties: {},
+    }],
+  }
+  const site = molecule.sites[0]
+  const result = apply_structure_volume_frame_translation(molecule, [0, 0, 0], [-4, -3, -2])
+  assert.strictEqual(result, molecule)
+  assert.strictEqual(result.sites[0], site)
+  assert.deepEqual(result.sites[0].xyz, [5, 5, 5])
+  assert.deepEqual(result.sites[0].abc, [5, 5, 5])
 })
 
 test('decodes signed samples and every quantity-unit pair', async () => {

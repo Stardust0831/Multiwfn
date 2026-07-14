@@ -53,8 +53,8 @@
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
   import {
     adapt_matterviz_volume,
+    apply_structure_volume_frame_translation,
     decode_matterviz_volume,
-    translate_point_volume_frame,
     translate_structure_volume_frame,
     type Vec3,
   } from './volume'
@@ -64,6 +64,8 @@
   let loadedManifestUrl = $state(manifest_url())
   let structure = $state<AnyStructure | undefined>()
   let structureFrameOrigin = $state<Vec3>([0, 0, 0])
+  let structureRevision = $state(0)
+  let structureFrameDelta = $state<Vec3>([0, 0, 0])
   let volumetricData = $state<VolumetricData[] | undefined>()
   let volumeEntries = $state<ManifestEntry[]>([])
   let isosurfaceSettings = $state<IsosurfaceSettings>({ ...DEFAULT_ISOSURFACE_SETTINGS })
@@ -249,27 +251,20 @@
 
   const sync_structure_volume_frame = (nextOrigin: Vec3): void => {
     const previousOrigin = structureFrameOrigin
+    structureFrameDelta = [
+      previousOrigin[0] - nextOrigin[0],
+      previousOrigin[1] - nextOrigin[1],
+      previousOrigin[2] - nextOrigin[2],
+    ]
     if (structure) {
-      structure = translate_structure_volume_frame(
+      apply_structure_volume_frame_translation(
         structure,
         previousOrigin,
         nextOrigin,
       )
     }
-    const cameraPosition = sceneProps.camera_position
-    const cameraTarget = sceneProps.camera_target
-    if (cameraPosition || cameraTarget) {
-      sceneProps = {
-        ...sceneProps,
-        ...(cameraPosition
-          ? { camera_position: translate_point_volume_frame(cameraPosition, previousOrigin, nextOrigin) }
-          : {}),
-        ...(cameraTarget
-          ? { camera_target: translate_point_volume_frame(cameraTarget, previousOrigin, nextOrigin) }
-          : {}),
-      }
-    }
     structureFrameOrigin = [...nextOrigin]
+    structureRevision += 1
   }
 
   const parse_volume_entry = async (
@@ -1206,6 +1201,8 @@
       {#if structure}
         <Structure
           bind:structure
+          structure_revision={structureRevision}
+          structure_frame_delta={structureFrameDelta}
           bind:volumetric_data={volumetricData}
           bind:isosurface_settings={isosurfaceSettings}
           bind:active_volume_idx={activeVolumeIdx}

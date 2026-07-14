@@ -153,6 +153,21 @@ export function translate_structure_volume_frame(
   return { ...structure, sites }
 }
 
+/** Apply a frame translation without changing structure or site identity. */
+export function apply_structure_volume_frame_translation(
+  structure: AnyStructure,
+  previous_origin: Vec3,
+  next_origin: Vec3,
+): AnyStructure {
+  const translated = translate_structure_volume_frame(structure, previous_origin, next_origin)
+  if (translated === structure) return structure
+  for (let index = 0; index < structure.sites.length; index += 1) {
+    structure.sites[index]!.xyz = translated.sites[index]!.xyz
+    structure.sites[index]!.abc = translated.sites[index]!.abc
+  }
+  return structure
+}
+
 export function translate_point_volume_frame(
   point: Vec3,
   previous_origin: Vec3,

@@ -237,5 +237,17 @@ prerelease.
 - [x] Validate the captured real 50x49x52 MO13 frame at 1440x900 and 800x700:
   signed red/blue surfaces overlap CH3Cl, canvases are nonblank, and there are no
   page errors or document overflow.
+- [x] Preserve structure/site identity across managed volume-frame changes so
+  measurement, bond-edit and atom-edit state is not cleared. Pin MatterViz r8
+  with narrowly scoped revision/delta inputs that rebuild deferred supercells
+  and translate private reset-camera baselines without invoking new-structure
+  cleanup.
+- [x] Replay the no-startup-volume sequence with the captured MO13 artifact at
+  1440x900 and 800x700: request the orbital, move the camera, reset it, and
+  verify a nonblank canvas, aligned molecule/surface, no page errors and no
+  document overflow.
+- [x] Confirm the previously pushed file-picker/alignment increment in PR CI run
+  `29324664144`: Rust/frontend plus Linux, macOS and Windows package jobs passed.
+  This run predates the final pinned MatterViz r6 state fix.
 - [ ] Pass the focused unit/source/C/Fortran checks and locked three-platform
   package workflow, then publish a corrected preview for Windows manual retest.
