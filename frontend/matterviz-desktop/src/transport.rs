@@ -124,7 +124,7 @@ fn receive_stream_volume(
     let mut accepted = sender.as_ref().is_some_and(|channel| {
         send_event(
             channel,
-            StreamEvent::Begin(metadata.clone(), Box::new(header)),
+            StreamEvent::Begin(Box::new(metadata.clone()), Box::new(header)),
             stop,
         )
     });

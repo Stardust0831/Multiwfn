@@ -576,3 +576,10 @@
   formats and checks both Rust source trees locally. Runtime ownership is
   unchanged; the corrected commit must still pass Cargo test/check/Clippy and
   all package jobs before a prerelease is created.
+- Follow-up run `29374177183` compiled the Rust host on macOS and completed
+  Linux Cargo check. It then exposed a Clippy `large_enum_variant` warning and
+  a nondeterministic service test whose live host-memory admission could reject
+  its tiny synthetic frame under runner load. `StreamEvent::Begin` now boxes
+  its metadata, and test builds inject a fixed active-volume limit through a
+  test-only atomic hook. Production memory discovery and admission are not
+  bypassed or weakened.

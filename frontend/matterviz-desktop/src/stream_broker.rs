@@ -9,7 +9,7 @@ const CHANNEL_CHUNKS: usize = 8;
 
 #[derive(Debug)]
 pub enum StreamEvent {
-    Begin(StreamVolumeHeader, Box<[u8; VOLUME_HEADER_BYTES]>),
+    Begin(Box<StreamVolumeHeader>, Box<[u8; VOLUME_HEADER_BYTES]>),
     Chunk(Vec<u8>),
     End,
     Error(String),

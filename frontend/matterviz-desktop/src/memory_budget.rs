@@ -1,5 +1,8 @@
 use std::env;
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
+
 #[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 
@@ -8,6 +11,9 @@ const GIB: u64 = 1024 * MIB;
 const MIN_RESERVE_BYTES: u64 = 2 * GIB;
 const RESERVE_PERCENT: u64 = 20;
 const LIMIT_ENV: &str = "MULTIWFN_MATTERVIZ_MAX_ACTIVE_VOLUME_BYTES";
+
+#[cfg(test)]
+static TEST_ACTIVE_LIMIT_BYTES: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MemorySnapshot {
@@ -23,6 +29,17 @@ pub struct MemoryBudget {
 }
 
 pub fn active_volume_budget(current_active_bytes: u64) -> Result<MemoryBudget, String> {
+    #[cfg(test)]
+    {
+        let active_limit_bytes = TEST_ACTIVE_LIMIT_BYTES.load(Ordering::Relaxed);
+        if active_limit_bytes != 0 {
+            return Ok(MemoryBudget {
+                available_bytes: active_limit_bytes,
+                reserve_bytes: 0,
+                active_limit_bytes,
+            });
+        }
+    }
     let snapshot = memory_snapshot()?;
     let configured = env::var(LIMIT_ENV)
         .ok()
@@ -30,6 +47,11 @@ pub fn active_volume_budget(current_active_bytes: u64) -> Result<MemoryBudget, S
         .map(|value| parse_byte_limit(&value))
         .transpose()?;
     Ok(calculate_budget(snapshot, current_active_bytes, configured))
+}
+
+#[cfg(test)]
+pub fn set_test_active_limit_bytes(limit: u64) {
+    TEST_ACTIVE_LIMIT_BYTES.store(limit, Ordering::Relaxed);
 }
 
 fn calculate_budget(

@@ -83,6 +83,7 @@ mod tests {
 
     #[test]
     fn request_publish_stream_rejection_then_success() {
+        crate::memory_budget::set_test_active_limit_bytes(64 * 1024 * 1024);
         let root = temp_dir();
         let frontend = root.join("frontend");
         let session = root.join("session");

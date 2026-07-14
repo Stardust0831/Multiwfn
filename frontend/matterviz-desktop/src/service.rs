@@ -1069,6 +1069,7 @@ mod tests {
     #[cfg(any(unix, windows))]
     #[test]
     fn orbital_route_streams_exact_major_two_frame_and_ack() {
+        crate::memory_budget::set_test_active_limit_bytes(64 * 1024 * 1024);
         let root = fixture("orbital-stream");
         let frontend = root.join("frontend");
         let session = root.join("session");
