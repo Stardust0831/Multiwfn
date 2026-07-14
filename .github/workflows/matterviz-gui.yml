@@ -362,6 +362,13 @@ jobs:
             WEBKIT_DISABLE_COMPOSITING_MODE=1 \
             python3 tests/linux/test_matterviz_real_orbital.py \
               --executable "$root/Multiwfn_MatterVizGUI"
+          dbus-run-session -- xvfb-run -a env \
+            GDK_BACKEND=x11 \
+            NO_AT_BRIDGE=1 \
+            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+            python3 tests/linux/test_matterviz_real_orbital.py \
+              --executable "$root/Multiwfn_MatterVizGUI" \
+              --force-cube-fallback
 
       - name: Package macOS preview
         if: runner.os == 'macOS'

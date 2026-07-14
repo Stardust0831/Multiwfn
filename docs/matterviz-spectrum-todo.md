@@ -200,12 +200,15 @@ prerelease.
 
 - [x] Prove a real uncached nonzero orbital uses `mwfn-volume-v1` with no
   dynamic Cube in the extracted Windows package (CI run `29310169491`).
-- [ ] Prove the same real FCHK/orbital path in the extracted Linux package;
-  the regression is implemented and awaits its first CI run.
+- [x] Prove the same real FCHK/orbital path in the extracted Linux package,
+  including native volume/no-Cube, Return, process-tree and inherited-output
+  closure assertions (PR run `29312744850`, Linux job).
 - [x] Prove the generic C-to-Rust binary transport on Windows, Linux and macOS.
 - [ ] Complete the documented interactive macOS WKWebView/manual orbital gate;
   hosted runners do not provide a usable WindowServer.
-- [ ] Add explicit packaged automatic-Cube-fallback evidence without changing
-  the production protocol or adding a test-only runtime switch.
+- [ ] Pass the explicit extracted Linux package automatic-Cube-fallback
+  regression. Its test-only executable wrapper rejects the inherited-pipe
+  launch and requires the unchanged C launcher to restart file-only; no
+  production protocol or runtime switch is added.
 - [ ] Complete final lifecycle/resource evidence, read-only review, package
   audit, prerelease publication and checksum verification.

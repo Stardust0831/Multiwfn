@@ -319,3 +319,15 @@
   validates the binary volume/no-Cube contract, and checks Return plus process
   cleanup. This Linux evidence remains pending until the updated workflow
   completes.
+- PR CI run `29312744850` then passed the extracted Linux package regression at
+  commit `faf192e`: the real orbital completed through native binary transport,
+  no Cube was staged, Return succeeded, the observed WebView process tree
+  exited, and inherited stdout/stderr readers reached EOF.
+- The complete `29312744850` run passed the Rust/frontend suite and the locked
+  Linux, Windows and macOS package jobs; it published no release asset.
+- Extended that Linux regression with a deliberate packaged Cube-fallback
+  mode. A test-only host wrapper exits only when it sees inherited volume-pipe
+  arguments; the unchanged C adapter must detect negotiation failure, clear
+  the stale stop flag, relaunch the real Rust host file-only, compute the same
+  orbital and serve the staged Cube. This adds no production switch and keeps
+  automatic fallback behavior unchanged for the current Goal.

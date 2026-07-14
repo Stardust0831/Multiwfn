@@ -136,7 +136,10 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn('"mwfn-volume-v1"', LINUX_REAL_ORBITAL)
         self.assertIn('"orbital_43_25000.cube"', LINUX_REAL_ORBITAL)
         self.assertIn("advertised_service_base", LINUX_REAL_ORBITAL)
+        self.assertIn("--force-cube-fallback", LINUX_REAL_ORBITAL)
+        self.assertIn('volume_path != cube_path.name', LINUX_REAL_ORBITAL)
         self.assertIn("tests/linux/test_matterviz_real_orbital.py", WORKFLOW)
+        self.assertIn("--force-cube-fallback", WORKFLOW)
 
     def test_matterviz_file_dialog_uses_rust_host(self):
         block = FORTRAN.split("subroutine select_file_with_dialog", 1)[1].split(
