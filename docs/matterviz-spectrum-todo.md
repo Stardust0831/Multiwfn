@@ -254,3 +254,33 @@ prerelease.
   PR run `29328529075` and tag run `29329561943` passed; Preview 8 targets exact
   commit `00b79a7`, and all independently downloaded release assets match the
   published SHA256 list with no Python or 3Dmol runtime entries.
+
+## Preview 8 manual feedback
+
+- [x] Reproduce the live Windows session where MO12 and the molecule move
+  together toward the canvas edge and atom spheres are clipped while bonds
+  remain visible. Confirm both 120k and 500k binary orbital responses are valid
+  and the browser reports no page error.
+- [x] Identify the camera-frame cause: automatic framing leaves the declarative
+  `camera_target` undefined while the actual target lives in MatterViz's
+  `rotation_target_ref` and OrbitControls. r8 translated the structure and
+  camera position but not that effective target.
+- [x] Replace the abandoned r8-r10 structure/camera translation with MatterViz
+  r12 absolute volume origins. Native binary volumes and Cube fallback paired
+  with independent `structure.json` render in the original Cartesian frame;
+  standalone Cube imports retain MatterViz's relative-first behavior.
+- [x] Validate the retained real MO12 artifact at 1440x900 and 800x700: desktop
+  atom spheres, bonds and signed surfaces remain together in the original
+  molecular frame, canvases are nonblank and no page error is emitted. Switching
+  from the saved 120k frame to the saved 500k frame and camera drag/reset also
+  preserve alignment.
+- [x] Apply the same absolute/relative-first reference-origin rule to
+  cross-volume vertex sampling, and cover nonzero-origin absolute and standalone
+  Cube-relative coordinates with a behavioral unit test.
+- [x] Pass local focused/full tests, strict C compilation, Svelte check,
+  production build and retained MO12 browser replay after reinstalling the exact
+  r12 archive from the frozen lockfile.
+- [x] Pass corrected-r12 independent read-only review with no finding; archive,
+  lock integrity, absolute/relative sampling and scope boundaries were verified.
+- [ ] Pass locked three-platform CI, then publish a corrected prerelease for
+  Windows manual confirmation.

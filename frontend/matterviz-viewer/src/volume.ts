@@ -1,6 +1,4 @@
 import type { VolumetricData } from 'matterviz/isosurface'
-import { create_cart_to_frac } from 'matterviz/math'
-import type { AnyStructure } from 'matterviz/structure'
 
 export type Vec3 = [number, number, number]
 export type Matrix3 = [Vec3, Vec3, Vec3]
@@ -103,84 +101,6 @@ function unit_scale(unit: CoordinateUnit): number {
 
 function scale_vec3(value: Vec3, scale: number): Vec3 {
   return [value[0] * scale, value[1] * scale, value[2] * scale]
-}
-
-const finite_vec3 = (value: unknown): value is Vec3 =>
-  Array.isArray(value)
-  && value.length === 3
-  && value.every((component) => typeof component === 'number' && Number.isFinite(component))
-
-/**
- * Move a structure between MatterViz volume coordinate frames.
- *
- * MatterViz's Cube parser subtracts the first volume origin from atom
- * coordinates and renders the first isosurface at the resulting grid origin.
- * Native structure JSON therefore needs the same translation when volumes are
- * supplied independently instead of embedded in a Cube file.
- */
-export function translate_structure_volume_frame(
-  structure: AnyStructure,
-  previous_origin: Vec3,
-  next_origin: Vec3,
-): AnyStructure {
-  if (!finite_vec3(previous_origin) || !finite_vec3(next_origin)) {
-    throw new Error('MatterViz volume frame origins must be finite 3-vectors')
-  }
-  const delta: Vec3 = [
-    previous_origin[0] - next_origin[0],
-    previous_origin[1] - next_origin[1],
-    previous_origin[2] - next_origin[2],
-  ]
-  if (delta.every((component) => component === 0)) return structure
-
-  let cart_to_frac: ((cart: Vec3) => Vec3) | undefined
-  if ('lattice' in structure && structure.lattice?.matrix) {
-    try {
-      cart_to_frac = create_cart_to_frac(structure.lattice.matrix)
-    } catch {
-      throw new Error('MatterViz cannot align a volume to a singular structure lattice')
-    }
-  }
-  const sites = structure.sites.map((site) => {
-    if (!finite_vec3(site.xyz)) throw new Error('MatterViz structure site coordinates must be finite')
-    const xyz: Vec3 = [
-      site.xyz[0] + delta[0],
-      site.xyz[1] + delta[1],
-      site.xyz[2] + delta[2],
-    ]
-    return { ...site, xyz, abc: cart_to_frac ? cart_to_frac(xyz) : [...xyz] as Vec3 }
-  })
-  return { ...structure, sites }
-}
-
-/** Apply a frame translation without changing structure or site identity. */
-export function apply_structure_volume_frame_translation(
-  structure: AnyStructure,
-  previous_origin: Vec3,
-  next_origin: Vec3,
-): AnyStructure {
-  const translated = translate_structure_volume_frame(structure, previous_origin, next_origin)
-  if (translated === structure) return structure
-  for (let index = 0; index < structure.sites.length; index += 1) {
-    structure.sites[index]!.xyz = translated.sites[index]!.xyz
-    structure.sites[index]!.abc = translated.sites[index]!.abc
-  }
-  return structure
-}
-
-export function translate_point_volume_frame(
-  point: Vec3,
-  previous_origin: Vec3,
-  next_origin: Vec3,
-): Vec3 {
-  if (!finite_vec3(point) || !finite_vec3(previous_origin) || !finite_vec3(next_origin)) {
-    throw new Error('MatterViz volume frame points and origins must be finite 3-vectors')
-  }
-  return [
-    point[0] + previous_origin[0] - next_origin[0],
-    point[1] + previous_origin[1] - next_origin[1],
-    point[2] + previous_origin[2] - next_origin[2],
-  ]
 }
 
 /** Decode one exact MatterViz binary volume v1 frame. */
@@ -360,6 +280,7 @@ export function adapt_matterviz_volume(volume: MattervizVolumeV1): VolumetricDat
     grid_dims: volume.dimensions,
     lattice: grid_lattice,
     origin: scale_vec3(volume.origin, scale),
+    origin_mode: 'absolute',
     data_range: volume.statistics,
     data_order: volume.data_order === 'i_fastest_fortran' ? 'x_fastest' : 'z_fastest',
     periodic: periodic_axis_count === 3,

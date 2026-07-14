@@ -429,3 +429,55 @@
   selection, orbital alignment/switching, grid quality/isovalue, camera reset
   and Return. Deferred control-pipe and formal-release Cube-policy work remains
   post-Goal and was not pulled into Preview 8.
+
+## 2026-07-15 Preview 8 manual feedback
+
+- Windows manual testing found that MO12 eventually appeared, but the orbital
+  and molecule moved together toward the canvas edge; atom spheres were mostly
+  clipped and bonds remained visible. The retained session published valid
+  1,015,504-byte 120k and 4,131,056-byte 500k binary responses with no browser
+  error, ruling out calculation, request-loop and binary-store failures.
+- Reproduced the same result by opening a fresh page against the still-running
+  port 2473 service and requesting MO12. The failure is whole-scene framing,
+  not structure/isosurface misregistration.
+- r8 moved the structure and declarative camera position by the volume-origin
+  delta. On the automatic-framing path, however, `camera_target` is undefined;
+  the effective target remains inside `rotation_target_ref` and OrbitControls.
+  The camera position therefore moved while its actual look target stayed in
+  the old frame, pushing the aligned molecule and orbital toward the viewport
+  edge. Instrumentation then proved App and `Structure` received revision 1 but
+  the revision embedded in `shared_viewport_props` did not update either nested
+  viewport. The r10 correction passes revision/delta explicitly to primary and
+  secondary viewport tags, then synchronizes all camera target stores and live
+  Three.js controls from one absolute translated target.
+- Further instrumentation showed viewport reconstruction initializes directly
+  at the latest revision, making any delta hook intrinsically timing-sensitive.
+  Source review then exposed the actual ownership error: MatterViz subtracts the
+  first volume origin because its Cube parser also shifts embedded Cube atoms,
+  while Multiwfn supplies an independent absolute-coordinate `structure.json`.
+- Discarded the r8-r10 translation machinery and rebuilt the pinned vendor from
+  r4 as r12 with one `VolumetricData.origin_mode` extension. Native binary
+  volumes use `absolute`, so marching-cubes geometry retains the Multiwfn grid
+  origin and the structure/camera never move. Cube fallback is also marked
+  absolute when a manifest declares independent structure JSON; standalone Cube
+  files keep MatterViz's default relative-first convention.
+- Replayed the retained real MO12 frame through r12 at 1440x900 and 800x700.
+  Desktop rendering shows all atom spheres, bonds and signed lobes together in
+  the original molecular frame with no page error or document overflow. The
+  saved 500k replacement frame and camera drag/reset preserve the same alignment.
+  The 800px layout remains compact with the existing inspector overlay behavior.
+- Final read-only review found that cross-volume coloring still converted scene
+  vertices as if every first volume were origin-relative. The r12 package now
+  uses one reference-origin helper for geometry, cache identity and sampling, so
+  nonzero-origin absolute density/ESP fields are sampled at the rendered
+  Cartesian position while standalone Cube data retains relative-first behavior.
+- Reinstalled the exact r12 tarball with the frozen lockfile, then passed all 81
+  frontend tests, the 22 GUI/session and packaging source tests, strict C11
+  compilation, Svelte diagnostics and the production build. A second retained
+  MO12 replay at 1440x900 and 800x700 switched from the real 120k frame to the
+  real 500k frame, dragged and reset the camera, and reported nonblank canvases,
+  no page errors and no document overflow.
+- Corrected-r12 read-only review reported no critical, important or minor
+  finding. It verified all three renderer call sites use the shared reference
+  origin, installed files match the archive, the archive SHA-512 matches the
+  lockfile, and the diff does not touch calculation-core or binary-protocol code.

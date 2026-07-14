@@ -194,24 +194,21 @@ class MatterVizBuildNamingTests(unittest.TestCase):
 
     def test_managed_viewer_keeps_volume_imports_in_the_session_adapter(self):
         self.assertIn("allow_file_drop={false}", VIEWER_APP)
-        self.assertIn("structure_frame_delta={structureFrameDelta}", VIEWER_APP)
-        viewport = (
+        self.assertNotIn("structure_frame_delta", VIEWER_APP)
+        volume_adapter = (
             ROOT
             / "frontend"
             / "matterviz-viewer"
-            / "node_modules"
-            / "matterviz"
-            / "dist"
-            / "structure"
-            / "StructureViewport.svelte"
+            / "src"
+            / "volume.ts"
         ).read_text(encoding="utf-8")
-        for camera_state in (
-            "camera_position = camera_position.map",
-            "camera_target = camera_target.map",
-            "initial_camera_position = initial_camera_position.map",
-            "initial_camera_target = initial_camera_target.map",
-        ):
-            self.assertIn(camera_state, viewport)
+        self.assertIn("origin_mode: 'absolute'", volume_adapter)
+        self.assertIn("manifest.structure?.path ? { origin_mode: 'absolute' as const }", VIEWER_APP)
+        isosurface = (
+            ROOT / "frontend" / "matterviz-viewer" / "node_modules" / "matterviz"
+            / "dist" / "isosurface" / "Isosurface.svelte"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(isosurface.count("volume_reference_origin(all_volumes)"), 3)
 
     def test_matterviz_package_workflow_has_no_transitional_names(self):
         for obsolete in (

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import type { VolumetricData } from 'matterviz/isosurface'
+import { createServer } from 'vite'
 
 const installed = (path: string): URL => new URL(`../node_modules/matterviz/dist/${path}`, import.meta.url)
 
@@ -18,24 +20,48 @@ test('vendored MatterViz declarations expose the bindable camera API', async () 
   assert.match(structureDeclaration, /camera_zoom\?: number;/)
 })
 
-test('vendored MatterViz revision invalidates only supercell derivation', async () => {
-  const [declaration, implementation, viewportDeclaration, viewportImplementation] = await Promise.all([
-    readFile(installed('structure/Structure.svelte.d.ts'), 'utf8'),
-    readFile(installed('structure/Structure.svelte'), 'utf8'),
-    readFile(installed('structure/StructureViewport.svelte.d.ts'), 'utf8'),
-    readFile(installed('structure/StructureViewport.svelte'), 'utf8'),
+test('vendored MatterViz preserves explicitly absolute volume origins', async () => {
+  const [declaration, implementation] = await Promise.all([
+    readFile(installed('isosurface/types.d.ts'), 'utf8'),
+    readFile(installed('isosurface/Isosurface.svelte'), 'utf8'),
   ])
-  assert.match(declaration, /structure_revision\?: number;/)
-  assert.match(declaration, /structure_frame_delta\?: Vec3;/)
-  assert.match(implementation, /\$effect\(\(\) => \{\s+void structure_revision\s+const base_structure = cell_transformed_structure/)
-  assert.match(viewportDeclaration, /structure_revision\?: number;/)
-  assert.match(viewportDeclaration, /structure_frame_delta\?: Vec3;/)
-  assert.match(viewportDeclaration, /logical_structure\?: AnyStructure;/)
-  assert.match(implementation, /logical_structure: structure,/)
-  assert.match(viewportImplementation, /const current_structure = logical_structure/)
-  assert.match(viewportImplementation, /if \(revision === applied_structure_revision\) return/)
-  assert.match(viewportImplementation, /camera_position = camera_position\.map/)
-  assert.match(viewportImplementation, /camera_target = camera_target\.map/)
-  assert.match(viewportImplementation, /initial_camera_position = initial_camera_position\.map/)
-  assert.match(viewportImplementation, /initial_camera_target = initial_camera_target\.map/)
+  assert.match(declaration, /origin_mode\?: `relative-first` \| `absolute`;/)
+  assert.equal(implementation.match(/volume_reference_origin\(all_volumes\)/g)?.length, 3)
+})
+
+test('absolute and relative-first scene coordinates sample the same physical point', async () => {
+  const vite = await createServer({
+    configFile: false,
+    server: { middlewareMode: true, watch: null },
+    appType: 'custom',
+    optimizeDeps: { noDiscovery: true },
+  })
+  try {
+    const { create_volume_sampler, volume_reference_origin } = await vite.ssrLoadModule(
+      '/node_modules/matterviz/dist/isosurface/sampling.js',
+    )
+    const base: VolumetricData = {
+      grid: [
+        [[0, 0], [0, 0]],
+        [[4, 4], [4, 4]],
+      ],
+      grid_dims: [2, 2, 2],
+      lattice: [[2, 0, 0], [0, 2, 0], [0, 0, 2]],
+      origin: [10, 20, 30],
+      data_range: { min: 0, max: 4, abs_max: 4, mean: 2 },
+      periodic: false,
+    }
+    const sample = create_volume_sampler(base, { out_of_bounds: 'fallback' })
+
+    const absolute = { ...base, origin_mode: 'absolute' as const }
+    const absolute_ref = volume_reference_origin([absolute])
+    assert.deepEqual(absolute_ref, [0, 0, 0])
+    assert.equal(sample([11 + absolute_ref[0], 20, 30]), 2)
+
+    const relative_ref = volume_reference_origin([base])
+    assert.deepEqual(relative_ref, [10, 20, 30])
+    assert.equal(sample([1 + relative_ref[0], relative_ref[1], relative_ref[2]]), 2)
+  } finally {
+    await vite.close()
+  }
 })

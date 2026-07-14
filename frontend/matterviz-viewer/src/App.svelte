@@ -53,19 +53,13 @@
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
   import {
     adapt_matterviz_volume,
-    apply_structure_volume_frame_translation,
     decode_matterviz_volume,
-    translate_structure_volume_frame,
-    type Vec3,
   } from './volume'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
   let loadedManifestUrl = $state(manifest_url())
   let structure = $state<AnyStructure | undefined>()
-  let structureFrameOrigin = $state<Vec3>([0, 0, 0])
-  let structureRevision = $state(0)
-  let structureFrameDelta = $state<Vec3>([0, 0, 0])
   let volumetricData = $state<VolumetricData[] | undefined>()
   let volumeEntries = $state<ManifestEntry[]>([])
   let isosurfaceSettings = $state<IsosurfaceSettings>({ ...DEFAULT_ISOSURFACE_SETTINGS })
@@ -241,32 +235,6 @@
     }
   }
 
-  const volume_origin = (volume?: VolumetricData): Vec3 => {
-    const origin = volume?.origin
-    return Array.isArray(origin) && origin.length === 3
-      && origin.every((component) => Number.isFinite(component))
-      ? [...origin] as Vec3
-      : [0, 0, 0]
-  }
-
-  const sync_structure_volume_frame = (nextOrigin: Vec3): void => {
-    const previousOrigin = structureFrameOrigin
-    structureFrameDelta = [
-      previousOrigin[0] - nextOrigin[0],
-      previousOrigin[1] - nextOrigin[1],
-      previousOrigin[2] - nextOrigin[2],
-    ]
-    if (structure) {
-      apply_structure_volume_frame_translation(
-        structure,
-        previousOrigin,
-        nextOrigin,
-      )
-    }
-    structureFrameOrigin = [...nextOrigin]
-    structureRevision += 1
-  }
-
   const parse_volume_entry = async (
     entry: ManifestEntry,
     base: URL,
@@ -295,6 +263,7 @@
     if (!parsed) throw new Error(`MatterViz could not parse ${entry.path}`)
     const volumes = parsed.volumes.map((volume, idx) => ({
       ...volume,
+      ...(manifest.structure?.path ? { origin_mode: 'absolute' as const } : {}),
       label: entry.name || `${entry.role || 'Volume'} ${idx + 1}`,
       source: entry.path,
     }))
@@ -316,10 +285,8 @@
       const parsedStructure = parsed[parsedStructureIdx]?.structure
       if (parsedStructure) {
         structure = inject_manifest_lattice(parsedStructure, manifest, { override: true })
-        structureFrameOrigin = volume_origin(parsed[parsedStructureIdx]?.volumes[0])
       }
     }
-    sync_structure_volume_frame(volume_origin(nextVolumes[0]))
     const previousLayers = mode === 'append' ? (isosurfaceSettings.layers ?? []) : []
     const firstVolumeIdx = previousVolumes.length
     volumetricData = nextVolumes
@@ -366,7 +333,6 @@
         ...(nextColorIdx === undefined ? { colormap: undefined, color_range: undefined } : {}),
       }]
     })
-    sync_structure_volume_frame(volume_origin(nextVolumes[0]))
     volumetricData = nextVolumes
     volumeEntries = nextEntries
     isosurfaceSettings = { ...isosurfaceSettings, layers: nextLayers }
@@ -408,11 +374,9 @@
     }
     if (!structure && parsed.structure) {
       structure = inject_manifest_lattice(parsed.structure, manifest, { override: true })
-      structureFrameOrigin = volume_origin(parsed.volumes[0])
     }
     const volumes = [...(volumetricData ?? [])]
     volumes[volumeIdx] = parsed.volumes[0]
-    sync_structure_volume_frame(volume_origin(volumes[0]))
     volumetricData = volumes
     volumeEntries = volumeEntries.map((current, index) => index === volumeIdx ? entry : current)
     isosurfaceSettings = {
@@ -606,7 +570,7 @@
     if (!entry?.path) return
     const text = await fetch_text(resolve_entry_url(entry, manifestBase))
     const loaded = inject_manifest_lattice(parse_any_structure(text, entry.path), manifest, { override: true })
-    structure = translate_structure_volume_frame(loaded, [0, 0, 0], structureFrameOrigin)
+    structure = loaded
   }
 
   const load_manifest = async (): Promise<void> => {
@@ -1201,8 +1165,6 @@
       {#if structure}
         <Structure
           bind:structure
-          structure_revision={structureRevision}
-          structure_frame_delta={structureFrameDelta}
           bind:volumetric_data={volumetricData}
           bind:isosurface_settings={isosurfaceSettings}
           bind:active_volume_idx={activeVolumeIdx}

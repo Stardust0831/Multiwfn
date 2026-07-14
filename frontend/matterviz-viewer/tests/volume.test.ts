@@ -3,12 +3,8 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
   adapt_matterviz_volume,
-  apply_structure_volume_frame_translation,
   decode_matterviz_volume,
-  translate_point_volume_frame,
-  translate_structure_volume_frame,
 } from '../src/volume.ts'
-import type { Crystal, Molecule } from 'matterviz/structure'
 
 const fixture_hex = new URL('../../../tests/fixtures/matterviz-volume-v1-orbital.hex', import.meta.url)
 const HEADER_BYTES = 304
@@ -70,6 +66,7 @@ test('decodes the shared orbital golden frame and adapts geometry', async () => 
     [[2, 6, 10], [4, 8, 12]],
   ])
   assert.deepEqual(adapted.origin, [bohr, 2 * bohr, 3 * bohr])
+  assert.equal(adapted.origin_mode, 'absolute')
   assert.equal(adapted.data_order, 'x_fastest')
   assert.equal(adapted.periodic, true)
   assert.deepEqual(adapted.lattice, [
@@ -94,120 +91,6 @@ test('maps k-fastest Cube order into grid[x][y][z]', async () => {
     [[7, 8, 9], [10, 11, 12]],
   ])
   assert.equal(adapted.data_order, 'z_fastest')
-})
-
-test('aligns native structure JSON to the first volume origin without cumulative drift', () => {
-  const molecule: Molecule = {
-    sites: [{
-      species: [{ element: 'C', occu: 1, oxidation_state: 0 }],
-      abc: [0, 0, 0],
-      xyz: [0, 0, -1.139253271649],
-      label: 'C1',
-      properties: { keep: true },
-    }],
-  }
-  const frame_origin: [number, number, number] = [
-    -4.070446475567824,
-    -3.6920131041043858,
-    -4.660528644485103,
-  ]
-  const aligned = translate_structure_volume_frame(molecule, [0, 0, 0], frame_origin)
-  const expected = [
-    4.070446475567824,
-    3.6920131041043858,
-    3.521275372836103,
-  ]
-  aligned.sites[0].xyz.forEach((value, index) => {
-    assert.ok(Math.abs(value - expected[index]) <= 1e-12)
-  })
-  assert.deepEqual(aligned.sites[0].abc, aligned.sites[0].xyz)
-  assert.deepEqual(molecule.sites[0].xyz, [0, 0, -1.139253271649])
-
-  const unchanged = translate_structure_volume_frame(aligned, frame_origin, frame_origin)
-  assert.strictEqual(unchanged, aligned)
-  const restored = translate_structure_volume_frame(aligned, frame_origin, [0, 0, 0])
-  restored.sites[0].xyz.forEach((value, index) => {
-    assert.ok(Math.abs(value - molecule.sites[0].xyz[index]) <= 1e-12)
-  })
-})
-
-test('recomputes periodic fractional coordinates when the volume frame changes', () => {
-  const crystal: Crystal = {
-    sites: [{
-      species: [{ element: 'H', occu: 1, oxidation_state: 0 }],
-      abc: [0.5, 0.5, 0.5],
-      xyz: [1, 1.5, 2],
-      label: 'H1',
-      properties: {},
-    }],
-    lattice: {
-      matrix: [[2, 0, 0], [0, 3, 0], [0, 0, 4]],
-      pbc: [true, true, true],
-      a: 2,
-      b: 3,
-      c: 4,
-      alpha: 90,
-      beta: 90,
-      gamma: 90,
-      volume: 24,
-    },
-  }
-  const aligned = translate_structure_volume_frame(crystal, [0, 0, 0], [0.5, 0.75, 1])
-  assert.deepEqual(aligned.sites[0].xyz, [0.5, 0.75, 1])
-  assert.deepEqual(aligned.sites[0].abc, [0.25, 0.25, 0.25])
-  assert.deepEqual(crystal.sites[0].abc, [0.5, 0.5, 0.5])
-})
-
-test('moves camera points by the same delta as the structure volume frame', () => {
-  const previous: [number, number, number] = [0, 0, 0]
-  const next: [number, number, number] = [-4, -3, -2]
-  assert.deepEqual(translate_point_volume_frame([1, 2, 3], previous, next), [5, 5, 5])
-  assert.deepEqual(translate_point_volume_frame([0, 0, 0], previous, next), [4, 3, 2])
-  assert.deepEqual(translate_point_volume_frame([5, 5, 5], next, previous), [1, 2, 3])
-  assert.throws(
-    () => translate_point_volume_frame([Number.NaN, 0, 0], previous, next),
-    /finite 3-vectors/,
-  )
-})
-
-test('round-trips repeated periodic volume-frame transitions without drift', () => {
-  const crystal: Crystal = {
-    lattice: { matrix: [[2, 0, 0], [0, 4, 0], [0, 0, 8]], a: 2, b: 4, c: 8, alpha: 90, beta: 90, gamma: 90, volume: 64, pbc: [true, true, true] },
-    sites: [{
-      species: [{ element: 'O', occu: 1, oxidation_state: 0 }],
-      abc: [0.5, 0.5, 0.5],
-      xyz: [1, 2, 4],
-      label: 'O1',
-      properties: {},
-    }],
-  }
-  const shifted = translate_structure_volume_frame(crystal, [0, 0, 0], [-1, -2, -4])
-  const replaced = translate_structure_volume_frame(shifted, [-1, -2, -4], [2, 1, 0])
-  const restored = translate_structure_volume_frame(replaced, [2, 1, 0], [0, 0, 0])
-  assert.notStrictEqual(shifted, crystal)
-  assert.notStrictEqual(shifted.sites[0], crystal.sites[0])
-  assert.deepEqual(shifted.sites[0].xyz, [2, 4, 8])
-  assert.deepEqual(shifted.sites[0].abc, [1, 1, 1])
-  assert.deepEqual(restored.sites[0].xyz, crystal.sites[0].xyz)
-  assert.deepEqual(restored.sites[0].abc, crystal.sites[0].abc)
-})
-
-test('applies a managed frame translation without changing interaction identity', () => {
-  const molecule: Molecule = {
-    sites: [{
-      species: [{ element: 'O', occu: 1, oxidation_state: 0 }],
-      abc: [0, 0, 0],
-      xyz: [1, 2, 3],
-      label: 'O1',
-      properties: {},
-    }],
-  }
-  const site = molecule.sites[0]
-  const result = apply_structure_volume_frame_translation(molecule, [0, 0, 0], [-4, -3, -2])
-  assert.strictEqual(result, molecule)
-  assert.strictEqual(result.sites[0], site)
-  assert.deepEqual(result.sites[0].xyz, [5, 5, 5])
-  assert.deepEqual(result.sites[0].abc, [5, 5, 5])
 })
 
 test('decodes signed samples and every quantity-unit pair', async () => {
