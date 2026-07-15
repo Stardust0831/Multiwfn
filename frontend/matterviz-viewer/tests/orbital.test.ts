@@ -8,6 +8,7 @@ import {
   loaded_orbital_volume_index,
   normalize_orbital_isovalue,
   orbital_frontier_label,
+  visible_orbital_index,
 } from '../src/orbital.ts'
 
 const entry = (path: string, role?: string, orbitalIndex?: number) => ({ path, role, orbitalIndex })
@@ -72,4 +73,21 @@ test('labels frontier orbitals only for explicitly closed-shell sessions', () =>
   assert.equal(orbital_frontier_label(42, 42, true), '')
   assert.equal(orbital_frontier_label(42, 42, undefined), '')
   assert.equal(orbital_frontier_label(42, 0, false), '')
+})
+
+test('restores a visible orbital after a preceding visible non-orbital layer', () => {
+  const entries = [
+    entry('density.cube', 'density'),
+    entry('/api/orbital', 'orbital', 12),
+    entry('/api/orbital', 'orbital', 13),
+  ]
+  assert.equal(visible_orbital_index(entries, [
+    { volume_idx: 0, visible: true },
+    { volume_idx: 1, visible: true },
+    { volume_idx: 2, visible: false },
+  ]), 12)
+  assert.equal(visible_orbital_index(entries, [
+    { volume_idx: 0, visible: true },
+    { volume_idx: 1, visible: false },
+  ]), undefined)
 })

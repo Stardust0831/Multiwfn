@@ -39,6 +39,7 @@
     loaded_orbital_volume_index,
     normalize_orbital_isovalue,
     orbital_frontier_label,
+    visible_orbital_index,
   } from './orbital'
   import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
   import { request_return_and_close } from './return'
@@ -56,6 +57,11 @@
     decode_matterviz_volume,
     read_matterviz_volume_response,
   } from './volume'
+  import {
+    compact_volume_cache,
+    orbital_visibility,
+    type VolumeCacheOptions,
+  } from './volume-cache'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -308,37 +314,23 @@
     return firstVolumeIdx
   }
 
+  const compact_volumes = (options: VolumeCacheOptions = {}): Map<number, number> => {
+    const compacted = compact_volume_cache({
+      volumes: volumetricData ?? [],
+      entries: volumeEntries,
+      layers: isosurfaceSettings.layers ?? [],
+      active_volume_idx: activeVolumeIdx,
+    }, options)
+    volumetricData = compacted.volumes
+    volumeEntries = compacted.entries
+    isosurfaceSettings = { ...isosurfaceSettings, layers: compacted.layers }
+    activeVolumeIdx = compacted.active_volume_idx
+    return compacted.old_to_new
+  }
+
   const remove_volumes = (predicate: (entry: ManifestEntry, index: number) => boolean): void => {
-    const volumes = volumetricData ?? []
-    const layers = isosurfaceSettings.layers ?? []
-    const oldToNew = new Map<number, number>()
-    const nextVolumes: VolumetricData[] = []
-    const nextEntries: ManifestEntry[] = []
-    volumeEntries.forEach((entry, idx) => {
-      if (predicate(entry, idx)) return
-      oldToNew.set(idx, nextVolumes.length)
-      nextVolumes.push(volumes[idx])
-      nextEntries.push(entry)
-    })
-    const nextLayers = layers.flatMap((layer) => {
-      const volumeIdx = layer.volume_idx ?? 0
-      const nextVolumeIdx = oldToNew.get(volumeIdx)
-      if (nextVolumeIdx === undefined) return []
-      const nextColorIdx = layer.color_volume_idx === undefined
-        ? undefined
-        : oldToNew.get(layer.color_volume_idx)
-      return [{
-        ...layer,
-        volume_idx: nextVolumeIdx,
-        color_volume_idx: nextColorIdx,
-        ...(nextColorIdx === undefined ? { colormap: undefined, color_range: undefined } : {}),
-      }]
-    })
-    volumetricData = nextVolumes
-    volumeEntries = nextEntries
-    isosurfaceSettings = { ...isosurfaceSettings, layers: nextLayers }
-    activeVolumeIdx = oldToNew.get(activeVolumeIdx)
-      ?? Math.min(activeVolumeIdx, Math.max(0, nextVolumes.length - 1))
+    const remove_indices = volumeEntries.flatMap((entry, index) => predicate(entry, index) ? [index] : [])
+    compact_volumes({ remove_indices })
   }
 
   const remove_volume = (volumeIdx: number): void => {
@@ -356,11 +348,18 @@
     if (volumeIdx !== undefined) activeVolumeIdx = volumeIdx
   }
 
+  const activate_orbital_volume = (volumeIdx: number | undefined): number | undefined => {
+    isosurfaceSettings = {
+      ...isosurfaceSettings,
+      layers: orbital_visibility(isosurfaceSettings.layers ?? [], volumeEntries, volumeIdx),
+    }
+    if (volumeIdx !== undefined) activeVolumeIdx = volumeIdx
+    const oldToNew = compact_volumes({ retain_active_volume: volumeIdx !== undefined })
+    return volumeIdx === undefined ? undefined : oldToNew.get(volumeIdx)
+  }
+
   const restore_visible_orbital_selection = (): void => {
-    const visibleLayer = (isosurfaceSettings.layers ?? []).find((layer) => layer.visible !== false)
-    const volumeIdx = visibleLayer?.volume_idx
-    const visibleIndex = volumeIdx === undefined ? 0 : Number(volumeEntries[volumeIdx]?.orbitalIndex)
-    orbitalIndex = Number.isInteger(visibleIndex) && visibleIndex > 0 ? visibleIndex : 0
+    orbitalIndex = visible_orbital_index(volumeEntries, isosurfaceSettings.layers ?? []) ?? 0
   }
 
   const active_volume_bytes = (): number => {
@@ -690,7 +689,7 @@
     const requestedIndex = orbitalIndex
     if (requestedIndex === 0) {
       errorMessage = undefined
-      activate_only_volume(undefined)
+      activate_orbital_volume(undefined)
       set_status('No orbital selected')
       return
     }
@@ -701,7 +700,7 @@
     errorMessage = undefined
     const cachedVolumeIdx = loaded_orbital_volume_index(volumeEntries, requestedIndex)
     if (cachedVolumeIdx !== undefined && !options.forceRecompute) {
-      activate_only_volume(cachedVolumeIdx)
+      activate_orbital_volume(cachedVolumeIdx)
       set_status(`Orbital ${requestedIndex} loaded from session cache`)
       return
     }
@@ -713,6 +712,7 @@
     loading = true
     add_log(`Requesting orbital ${requestedIndex} at grid quality ${requestedQuality}`)
     try {
+      if (cachedVolumeIdx === undefined) activate_orbital_volume(undefined)
       const params = new URLSearchParams({
         index: String(requestedIndex),
         quality: String(requestedQuality),
@@ -772,7 +772,7 @@
       }
       orbitalIndex = requestedIndex
       orbitalBackendAvailable = true
-      activate_only_volume(activeIdx)
+      activate_orbital_volume(activeIdx)
       set_status(`Orbital ${requestedIndex} loaded`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

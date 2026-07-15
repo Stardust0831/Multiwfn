@@ -119,3 +119,97 @@ test('worker messages normalize proxied grid metadata arrays', async (t) => {
   assert.ok(result.positions.length > 0)
   assert.equal(grid.data.buffer, shared)
 })
+
+test('releasing a volume terminates its worker and drops queued geometry work', async (t) => {
+  if (typeof SharedArrayBuffer === 'undefined') {
+    t.skip('SharedArrayBuffer is unavailable')
+    return
+  }
+  let terminated = 0
+  class PendingWorker {
+    onmessage?: (event: MessageEvent) => void
+    onerror?: (event: ErrorEvent) => void
+    postMessage(): void {}
+    terminate(): void { terminated += 1 }
+  }
+  const previousWorker = (globalThis as any).Worker
+  ;(globalThis as any).Worker = PendingWorker
+  try {
+    const shared = new SharedArrayBuffer(8 * Float32Array.BYTES_PER_ELEMENT)
+    const grid = {
+      data: new Float32Array(shared),
+      dimensions: [2, 2, 2] as [number, number, number],
+      order: 'x-fastest' as const,
+    }
+    const request = geometry.request_isosurface_geometry(
+      grid,
+      0.5,
+      [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+      { periodic: false },
+    )
+    const queued = geometry.request_isosurface_geometry(
+      grid,
+      0.25,
+      [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+      { periodic: false },
+    )
+    const rejections = Promise.all([
+      assert.rejects(request, (error: any) => error?.code === 'geometry-released'),
+      assert.rejects(queued, (error: any) => error?.code === 'geometry-released'),
+    ])
+    await new Promise((resolve) => setImmediate(resolve))
+    geometry.release_isosurface_geometry(grid)
+    await rejections
+    assert.equal(terminated, 1)
+    assert.equal(grid.data.buffer, shared)
+    assert.equal(grid.data.length, 8)
+  } finally {
+    ;(globalThis as any).Worker = previousWorker
+  }
+})
+
+test('releasing transferred typed data invalidates the removed grid without copying it back', async () => {
+  let terminated = 0
+  class PendingWorker {
+    onmessage?: (event: MessageEvent) => void
+    onerror?: (event: ErrorEvent) => void
+    postMessage(): void {}
+    terminate(): void { terminated += 1 }
+  }
+  const previousWorker = (globalThis as any).Worker
+  ;(globalThis as any).Worker = PendingWorker
+  try {
+    const original = new ArrayBuffer(8 * Float32Array.BYTES_PER_ELEMENT)
+    const grid = {
+      data: new Float32Array(original),
+      dimensions: [2, 2, 2] as [number, number, number],
+      order: 'x-fastest' as const,
+    }
+    const request = geometry.request_isosurface_geometry(
+      grid,
+      0.5,
+      [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+      { periodic: false },
+    )
+    const rejection = assert.rejects(request, (error: any) => error?.code === 'geometry-released')
+    await new Promise((resolve) => setImmediate(resolve))
+    geometry.release_isosurface_geometry(grid)
+    await rejection
+    assert.equal(terminated, 1)
+    assert.equal(grid.data.length, 0)
+    assert.notEqual(grid.data.buffer, original)
+  } finally {
+    ;(globalThis as any).Worker = previousWorker
+  }
+})
+
+test('disposing unretained geometry is immediate and leaves retained resources intact', () => {
+  const disposed: string[] = []
+  const entries = ['old', 'current'].map((geo_key) => ({
+    geo_key,
+    geometry: { dispose: () => disposed.push(geo_key) },
+  }))
+  const retained = geometry.dispose_unretained_geometries(entries, new Set(['current']))
+  assert.deepEqual(disposed, ['old'])
+  assert.deepEqual(retained, [entries[1]])
+})

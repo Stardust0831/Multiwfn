@@ -390,6 +390,39 @@ bundle migration and three-platform acceptance are complete.
   tuples/options. Preserve the original TypedArray/SAB, byte offset, transfer
   behavior, geometry budget and marching-cubes inputs; cover the shared-buffer
   Proxy case with a red/green regression.
-- [ ] Pass independent review and locked three-platform CI, publish the corrected
-  prerelease, verify its assets and repeat Windows orbital rendering/lifecycle
-  validation.
+- [x] Pass independent review and locked three-platform CI and publish Preview
+  13 from exact commit `c5db71c`. Tag run `29426781920` completed successfully
+  and uploaded Linux, macOS and Windows packages plus `SHA256SUMS.txt`.
+- [ ] Independently audit Preview 13 checksums/package contents and repeat the
+  Windows orbital rendering/lifecycle validation.
+
+## Frontend volume-cache lifecycle
+
+- [x] Stop retaining all previously selected orbitals. Selecting a different
+  orbital removes unreferenced orbital `VolumetricData`, manifest entry and
+  layer references; selecting it again must request Multiwfn calculation.
+- [x] Centralize cache compaction and atomically reindex volume layers plus
+  transitive `color_volume_idx` references. Retain visible layers, the active
+  slice/inspector volume and hidden color sources that a retained surface uses.
+- [x] Remove strong references to released TypedArray/SharedArrayBuffer backing
+  stores and count shared backing stores only once. Do not claim synchronous JS
+  garbage collection; deterministic release means no remaining app/Worker/GPU
+  owner.
+- [x] Add a generic MatterViz geometry release boundary. Removed/replaced grids
+  terminate active Workers, invalidate queued work and immediately dispose
+  unretained Three.js geometries before the normal 50 ms rebuild debounce.
+- [x] Cover orbital A-to-B cache eviction, cache-miss detection on reselection,
+  visible non-orbital retention, transitive color sources, delete/reindex,
+  explicit active-volume retention, SAB aliasing, Worker cancellation and
+  geometry disposal with focused pure/Worker tests. Browser replay separately
+  verifies that reselection performs a third backend request.
+- [x] Run the complete frontend test/check/build gates and retained browser
+  replay at 1440x900 and 800x700. Both viewports perform MO1 -> MO2 -> MO1 as
+  three backend requests while retaining exactly one volume, with nonblank
+  Canvas, no page error and no document overflow.
+- [x] Complete and adjudicate the independent read-only lifecycle review. Its
+  important finding, force-recompute failure selecting a preceding visible
+  non-orbital layer, is fixed by role-aware orbital restoration and covered by
+  a regression test.
+- [ ] After review fixes, pass locked three-platform PR CI, publish the next
+  prerelease, audit all assets and pause for Windows manual lifecycle testing.

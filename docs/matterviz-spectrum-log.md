@@ -725,3 +725,50 @@
   All 97 frontend tests, Svelte diagnostics with zero errors/warnings and the
   production build pass. Cross-platform package CI and manual WebView2 replay
   remain release gates.
+
+## 2026-07-15 frontend volume-cache lifecycle
+
+- Traced retained orbital memory to the viewer's parallel `volumetricData`,
+  `volumeEntries` and layer arrays: each new orbital appended another
+  `VolumetricData`, and later selection deliberately reused it. The SAB decoder
+  and binary stream were not the leak; application state kept every historical
+  orbital strongly reachable and reported all of them as `activeVolumeBytes`.
+- Added one pure cache compactor that computes retained indices, follows
+  surface-to-color-volume references transitively and rebuilds all volume,
+  entry, layer, active and color indices atomically. Orbital visibility is now
+  exclusive only among orbital layers, so unrelated visible scientific layers
+  remain usable. Hidden old orbitals are evicted before an uncached backend
+  request; request failure does not resurrect released buffers.
+- JavaScript cannot explicitly free an ArrayBuffer or SharedArrayBuffer. The
+  implemented contract therefore removes every application strong reference,
+  verifies shared backing stores are deduplicated, terminates Worker ownership
+  and disposes derived Three.js geometry/GPU buffers. Actual backing-store
+  reclamation remains correctly delegated to the browser garbage collector.
+- Read-only lifecycle inspection found that MatterViz r18 did not cancel an
+  in-flight marching-cubes Worker on volume removal/unmount and could let an
+  async extraction commit geometry after teardown. MatterViz r19 adds a
+  destructive per-grid release operation, a separate release epoch so ordinary
+  newer-request staleness remains unchanged, explicit rejection cleanup and
+  immediate geometry reconciliation before the rebuild debounce.
+- Focused cache/Worker tests pass 11/11 for switching/reindexing, SAB aliases, Worker
+  release and immediate geometry disposal. `svelte-check` and the production
+  build also exit successfully. The r19 archive SHA-256 is
+  `4122eba0c8a1d1c11a253a4f2fac2faec7101a304c9ccd88afc2d17a3356615e`
+  with frozen integrity
+  `sha512-byjPRlRT6tsDL8RPfQh+Ety+yYfax/BZubqfn4zkOvtcnGNvw+5LSGVE5oi2vz2pKu1AiIDRAIEP5TgSg8jEcQ==`.
+  After review fixes the complete frontend suite passes 106/106,
+  `svelte-check` reports no diagnostics and the production build exits
+  successfully. A production-asset Playwright replay
+  with the Rust host's COOP/COEP headers passed at 1440x900 and 800x700: each
+  viewport requested MO1, MO2 and MO1 again, retained exactly one volume,
+  rendered 12,880 non-white Canvas pixels, had no horizontal overflow and
+  emitted no page error. Independent review and three-platform CI remain open
+  gates; neither the major-2 binary protocol nor Multiwfn calculation code
+  changed.
+- Independent review found one important recovery bug rather than a resource
+  leak: after failed force recomputation, the selector restored from the first
+  visible layer, which can now be a preserved density layer before the still
+  visible orbital. Restoration now filters by orbital role and positive orbital
+  index; a regression covers a visible density layer preceding MO12. Review
+  also prompted narrowing the TODO's test claims to distinguish pure lifecycle
+  tests from the separate browser request replay.

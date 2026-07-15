@@ -55,6 +55,22 @@ export const loaded_orbital_volume_index = (
   return volumeIndex >= 0 ? volumeIndex : undefined
 }
 
+/** Return the selected orbital even when another visible layer precedes it. */
+export const visible_orbital_index = (
+  entries: ManifestEntry[],
+  layers: VisibilityLayer[],
+): number | undefined => {
+  for (const layer of layers) {
+    if (layer.visible === false) continue
+    const volume_idx = layer.volume_idx ?? 0
+    const entry = entries[volume_idx]
+    if (!is_orbital_entry(entry)) continue
+    const index = orbital_index(entry)
+    if (index !== undefined) return index
+  }
+  return undefined
+}
+
 /** Preserve layer settings while making only the selected volume visible. */
 export const exclusive_volume_visibility = <Layer extends VisibilityLayer>(
   layers: Layer[],
