@@ -635,3 +635,24 @@
   reported call site before the fix and passes afterward. All 96 frontend tests,
   Svelte diagnostics with zero errors/warnings and the production build pass;
   three-platform package CI and a corrected prerelease remain required.
+- Exact fix commit `cf1d227` passed MatterViz GUI run
+  [`29381046108`](https://github.com/Stardust0831/Multiwfn/actions/runs/29381046108),
+  build `29381046160`, Linux compatibility `29381046106`, core-source protection
+  `29381046112` and legacy GUI release `29381046110`. Independent read-only
+  review found no critical, important or minor issue and confirmed the decoder
+  retains shared and ordinary buffer identity and the 304-byte sample offset.
+- Tag workflow [`29382168513`](https://github.com/Stardust0831/Multiwfn/actions/runs/29382168513)
+  passed and published GitHub prerelease
+  [`matterviz-preview-11`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-11)
+  from exact commit `cf1d227`. Independently downloaded assets match
+  `SHA256SUMS.txt`: Linux
+  `d9428effee95931601faa03471d898156e1135f5f4ba2fb4951b28e51935572c`
+  (17,866,615 bytes), macOS
+  `2f3071e283823fe68fe8e9ae89efd7adce59246f85f76769e8bcf639d5578b90`
+  (12,637,044 bytes), and Windows
+  `a2e38d51ab233b9c56aeb47eb6b76971a29fc623c4e3ba54db5f7ea60115bc19`
+  (22,013,668 bytes). All archives contain Multiwfn, the Rust host and built
+  frontend with no Python or 3Dmol runtime path. The Windows bundle contains the
+  compiled magic byte array `[77,87,70,78,86,79,76,0]`; its volume decoder uses
+  byte comparison and does not contain the reported shared-view error path.
+  Development pauses for Windows Preview 11 confirmation.

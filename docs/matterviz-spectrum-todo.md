@@ -363,6 +363,9 @@ bundle migration and three-platform acceptance are complete.
 - [x] Replace text decoding of the fixed `MWFNVOL\0` magic with byte comparison
   and cover the strict WebView2 behavior, zero-copy shared samples, the real
   304-byte sample offset and damaged magic with a focused regression test.
-- [ ] Pass the locked three-platform workflow and independent read-only review,
-  publish Preview 11, verify its checksums/package contents, then pause for the
-  original Windows file/orbital/large-grid/camera/Return confirmation cycle.
+- [x] Pass the locked three-platform workflow and independent read-only review,
+  publish Preview 11, and verify all checksums/package contents. Exact commit
+  `cf1d227` passed the PR and tag workflows; the packaged decoder uses fixed
+  byte comparison and all archives contain no Python or 3Dmol runtime path.
+- [ ] Pause implementation pending the original Windows Preview 11
+  file/orbital/large-grid/camera/Return confirmation cycle.
