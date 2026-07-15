@@ -248,9 +248,10 @@ bundle migration and three-platform acceptance are complete.
 - [ ] Remove the now-unused successful orbital `response_<id>.json` artifact as
   part of the deferred bidirectional control-pipe migration, not through a new
   one-off cleanup protocol.
-- [ ] Run Rust test/check/clippy in CI (Cargo is not installed in the current
-  WSL environment), then complete Linux/macOS/Windows package and live orbital
-  verification before publishing the next prerelease.
+- [x] Run Rust test/check/clippy in CI and complete Linux/macOS/Windows package
+  plus real uncached orbital verification. Exact commit `1f0b060` passed the
+  MatterViz GUI, build, Linux compatibility, core-source protection and legacy
+  GUI workflows before Preview 10 was published.
 - [x] Prove the production frontend build emits a standalone bundled module
   Worker (`marching-cubes-worker-DNZvsbt9.js`) with no unresolved relative
   imports; pass 95 frontend tests, Svelte diagnostics and the production build.
@@ -345,6 +346,17 @@ bundle migration and three-platform acceptance are complete.
   confirmation. PR run `29359257113` and tag run `29360374182` passed; Preview 9
   targets exact code commit `355862f`, and independently downloaded assets match
   the published SHA256 list with no Python or 3Dmol runtime entries.
-- [ ] Pause implementation pending manual Preview 9 confirmation of file
-  selection, orbital alignment/switching, grid quality/isovalue, camera reset
-  and Return.
+- [x] Process Preview 9 feedback: remove the stale menu-0 Cube export and replace
+  the bounded v1 orbital path with the reviewed low-copy major-2 stream and
+  Worker-backed flat-grid rendering path.
+
+## Preview 10 manual confirmation
+
+- [x] Publish `matterviz-preview-10` from exact CI-verified commit `1f0b060`.
+  Tag workflow `29377790013` passed and all independently downloaded Linux,
+  macOS and Windows assets match `SHA256SUMS.txt`; packages contain the native
+  Multiwfn executable, Rust host and built MatterViz frontend with no Python or
+  legacy 3Dmol runtime entry.
+- [ ] Pause implementation pending manual Preview 10 confirmation on Windows of
+  file selection, orbital alignment/switching, large-grid behavior,
+  quality/isovalue controls, camera reset and Return.

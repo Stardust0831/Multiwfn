@@ -598,3 +598,20 @@
   now performs the complete CRC state update in `UInt64` with positive decimal
   constants and narrows only the final 32-bit result, eliminating signed
   hexadecimal conversions.
+- Exact commit `1f0b060` passed the authoritative MatterViz GUI run
+  [`29376971579`](https://github.com/Stardust0831/Multiwfn/actions/runs/29376971579),
+  build `29376971508`, Linux compatibility `29376971534`, core-source protection
+  `29376971542` and legacy GUI release `29376971532`. This closes the Rust
+  test/check/Clippy and three-platform package gates for the major-2 increment.
+- Tag workflow [`29377790013`](https://github.com/Stardust0831/Multiwfn/actions/runs/29377790013)
+  passed and published GitHub prerelease
+  [`matterviz-preview-10`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-10)
+  from exact code commit `1f0b060`. Independently downloaded assets match the
+  published checksums: Linux `4d9c0519e4771f12ed69e597cef893be469281e44df76481fe8924ebe39e2977`
+  (17,866,053 bytes), macOS
+  `c49fdf2f13335f462974e23d57af23823e0bf98cbf7834fc7e1bf030d76b11fd`
+  (12,637,067 bytes), and Windows
+  `0b4b1c6ea018523de077e6174b472381a2dbab9c71ac80dd61c3de72c8772073`
+  (22,013,534 bytes). Each archive contains the native Multiwfn executable,
+  Rust host and built MatterViz frontend and contains no Python, `.py` or 3Dmol
+  runtime entry. Development pauses for manual Preview 10 confirmation.
