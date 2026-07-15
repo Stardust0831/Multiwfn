@@ -793,3 +793,90 @@
   staged Cube artifact. The Windows source map and bundle contain r19 release
   epochs, Worker cancellation, immediate volume-identity geometry disposal and
   the cache compactor. Development pauses for Windows manual confirmation.
+
+## 2026-07-16 pole-free trackball camera
+
+- Traced the reported polar behavior to Three.js `OrbitControls`: its spherical
+  polar coordinates inherently retain north/south poles. The fixed-step toolbar
+  also mixed camera-local right/back with a retained up vector, so its direction
+  semantics were not consistently screen-relative. VMD documentation confirms
+  virtual-trackball rotation as the established pole-free interaction model;
+  Three.js already ships `ArcballControls`, so no VMD source or new plotting/
+  graphics dependency was copied into MatterViz.
+- Added an opt-in generic MatterViz `camera_control_mode: 'orbit' | 'arcball'`.
+  Orbit remains the upstream-compatible default, while the Multiwfn workbench
+  explicitly selects Arcball. Arcball disables inertial animation, double-click
+  focus, FOV gestures and its internal gizmo; left drag rotates, right/Ctrl-left
+  pans, middle/wheel zooms and edge circular drag produces screen-normal roll.
+  Its camera subtree is not keyed by live `camera_up`, avoiding control teardown
+  during roll. Reset, camera export/restore, orthographic zoom, auto-rotate,
+  movement callbacks and the existing MatterViz axis gizmo share the existing
+  camera state path. Auto-rotate pauses while the user is dragging.
+- Replaced X/Y/Z step pairs with explicit up/down/left/right and clockwise/
+  counterclockwise icon buttons while retaining the numeric degree step. Pure
+  camera tests cover semantic inverse pairs, four repeated 90-degree steps,
+  orthonormal bases, distance/target preservation, projection direction, roll,
+  perspective/orthographic behavior and malformed inputs.
+- MatterViz focused source tests pass 16/16. Repository-wide source
+  `svelte-check` reports only its pre-existing color-store/anywidget diagnostics
+  (30 errors and one warning) and no diagnostic in any changed camera file.
+  The consuming Multiwfn viewer passes all 113 tests, reports zero Svelte
+  diagnostics and builds 1,377 modules successfully.
+- Vendored `matterviz-0.4.2-multiwfn.d8719d12.r20.tgz` with SHA-256
+  `b9ae757aa5f107d70a64a82df019e34bfe536db9ac35a30b532d7c7294040c9f`
+  and frozen SHA-512 integrity
+  `ilzk/lMJDpFYKljVapEcUG5dpELMb5V3VXJFjVizsQn8JSyFh8TG62e93zQxgY5+wxkOO3weIXzRHgJCh8gq9w==`.
+  The r19 Worker-release files `geometry.js`, `geometry.d.ts` and
+  `Isosurface.svelte` retain their exact prior hashes; a consumer regression
+  also checks release epochs and `release_isosurface_geometry` remain present.
+- A clean temporary installation with pnpm 11.5.0 and
+  `--frozen-lockfile --ignore-scripts` resolves exactly
+  `matterviz@0.4.2-multiwfn.d8719d12.r20`. The installed package exposes the
+  Arcball camera declarations and implementation while retaining the r19
+  `release_epochs` lifecycle. The final consuming-tree rerun passes 111/111
+  tests at that checkpoint; the post-review package passes 113/113 tests,
+  `svelte-check` with zero diagnostics and the production build with 1,377
+  transformed modules.
+- Production-asset Playwright checks pass at 1440x900 and 800x700. Both sizes
+  render nonblank Canvas output (20,717 and 35,987 non-white pixels), horizontal
+  drag changes 33,833 and 11,576 pixels, horizontal/vertical motion turns the
+  visible structure in the drag direction, a quarter-circle edge drag changes
+  roll without changing target distance, and the pose is unchanged 350 ms after
+  release. Both have all six step buttons, no page/console error, no horizontal
+  overflow and no incoherent overlap in inspected screenshots. Right-drag pan
+  updates the persisted target by 5.52 and 7.42 world units, and wheel zoom
+  updates orthographic zoom at both viewport sizes.
+- Per the updated priority decision, versioned bidirectional control pipes and
+  complete runtime zero-disk delivery become the highest-priority task only
+  after this camera release closes. That follow-up must remove formal session
+  directories/artifacts and keep Cube fallback explicit and diagnostic-only;
+  it does not change the current camera protocol or implementation.
+- Independent review blocked the first r20 candidate because its whole-file
+  camera overlay had accidentally removed the r19 `on_geometry_error` relay,
+  `CameraControlMode` had no emitted public declaration, and native Arcball
+  `reset()` became inconsistent after a panned target was fed through
+  `update()`. The rebuilt package restores all six structure/viewport callback
+  locations, emits a compile-checked public type, skips redundant target
+  updates and includes a red/green panned-reset regression. The three r19
+  lifecycle files remain byte-identical.
+- Aggressive repeated-drag browser testing then exposed Svelte's update-depth
+  guard: every Arcball pointer move was round-tripping a live Three pose through
+  declarative camera props. Arcball now owns live motion during an interaction
+  and publishes its final pose on end; genuine external commands are applied
+  only after numerical comparison, and exported state is frame-bounded. The
+  final production assets complete seven consecutive same-direction vertical
+  drags at both 1440x900 and 800x700 with a distinct Canvas image after every
+  step. Pan and circular roll change pixels, the post-release image remains
+  stable, all six toolbar controls occur exactly once, horizontal overflow is
+  zero and no page/console error is emitted. Enabling the existing axes gizmo
+  and clicking an axis handle changes the Canvas with no page error, exercising
+  the Arcball `getTarget`/`setPosition` adapter rather than only its type surface.
+- Added `docs/matterviz-upstream-drafts.md` as a local-only staging document for
+  small upstream PRs covering flat scalar grids, Worker lifecycle, declarative
+  camera state, opt-in Arcball and structure fidelity, plus a separate rendering
+  smoothness issue. Nothing was published upstream; Multiwfn transport and
+  product-specific behavior are explicitly excluded.
+- Preserved the generic MatterViz camera implementation as local commit
+  `70136670` on `agent/camera-up-zoom-api`. It was not pushed and no upstream
+  issue or PR was created; the unrelated `windows-preview/` directory remains
+  untouched and untracked.

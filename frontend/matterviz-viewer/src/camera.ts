@@ -8,10 +8,44 @@ export type CameraPose = {
   zoom?: number
 }
 
-export type CameraAxis = 'x' | 'y' | 'z'
+/** A fixed-step rotation in the camera's screen coordinate system. */
+export type CameraDirection = 'up' | 'down' | 'left' | 'right' | 'clockwise' | 'counterclockwise'
 export type CameraStepKind = 'rotation' | 'pan' | 'zoom'
 
+export type CameraStateUpdate = {
+  camera_position?: Vec3
+  camera_target?: Vec3
+  camera_up?: Vec3
+  camera_zoom?: number
+}
+
+export type CurrentCameraState = CameraStateUpdate & {
+  camera_projection?: 'perspective' | 'orthographic'
+}
+
 const EPSILON = 1e-10
+
+const same_vec3 = (current: Vec3 | undefined, next: Vec3 | undefined): boolean =>
+  current === next ||
+  Boolean(
+    current &&
+      next &&
+      current.every((value, index) => Math.abs(value - next[index]) <= 1e-12),
+  )
+
+export const camera_update_matches = (
+  current: CurrentCameraState,
+  update: CameraStateUpdate,
+): boolean => {
+  const nextProjection = update.camera_zoom !== undefined ? 'orthographic' : 'perspective'
+  return (
+    (!update.camera_position || same_vec3(current.camera_position, update.camera_position)) &&
+    (!update.camera_target || same_vec3(current.camera_target, update.camera_target)) &&
+    (!update.camera_up || same_vec3(current.camera_up, update.camera_up)) &&
+    current.camera_zoom === update.camera_zoom &&
+    current.camera_projection === nextProjection
+  )
+}
 
 const STEP_LIMITS: Record<CameraStepKind, readonly [number, number]> = {
   rotation: [0.1, 180],
@@ -66,8 +100,10 @@ export const normalize_camera_pose = (value: Partial<CameraPose>): CameraPose | 
   if (!position || !target || !projection) return undefined
   const back = normalize(subtract(position, target))
   if (!back) return undefined
-  let up = normalize(rawUp) ?? fallback_up(back)
-  if (!normalize(cross(up, back))) up = fallback_up(back)
+  // Project the supplied up vector into the plane perpendicular to the view
+  // direction. This keeps the stored pose itself orthonormal, rather than
+  // relying on camera_basis to repair it only at call sites.
+  const up = normalize(subtract(rawUp, scale(back, dot(rawUp, back)))) ?? fallback_up(back)
   const zoom = Number.isFinite(value.zoom) && Number(value.zoom) > 0 ? Number(value.zoom) : undefined
   return { position, target, up, projection, ...(zoom !== undefined ? { zoom } : {}) }
 }
@@ -90,15 +126,30 @@ const rodrigues = (vector: Vec3, axis: Vec3, radians: number): Vec3 => {
   )
 }
 
-export const rotate_camera = (pose: CameraPose, axis: CameraAxis, degrees: number): CameraPose => {
+export const rotate_camera = (pose: CameraPose, direction: CameraDirection, degrees: number): CameraPose => {
   const normalized = normalize_camera_pose(pose)
   if (!normalized || !Number.isFinite(degrees)) return pose
   const basis = camera_basis(normalized)
-  const rotationAxis = axis === 'x' ? basis.right : axis === 'y' ? normalized.up : basis.back
-  const radians = degrees * Math.PI / 180
+  let rotationAxis: Vec3
+  let sign: 1 | -1
+  switch (direction) {
+    // Positive rotation around screen-right makes fixed points move upward.
+    case 'up': rotationAxis = basis.right; sign = 1; break
+    case 'down': rotationAxis = basis.right; sign = -1; break
+    // Positive right-handed rotation around screen-up makes fixed points move
+    // left, hence the opposite sign for a visible rightward move.
+    case 'left': rotationAxis = basis.up; sign = 1; break
+    case 'right': rotationAxis = basis.up; sign = -1; break
+    // Looking toward the target, positive rotation around camera-back carries
+    // screen-up toward screen-left, i.e. a clockwise visible roll.
+    case 'clockwise': rotationAxis = basis.back; sign = 1; break
+    case 'counterclockwise': rotationAxis = basis.back; sign = -1; break
+    default: return pose
+  }
+  const radians = sign * degrees * Math.PI / 180
   const offset = subtract(normalized.position, normalized.target)
-  const rotatedOffset = axis === 'z' ? offset : rodrigues(offset, rotationAxis, radians)
-  const rotatedUp = axis === 'z' ? rodrigues(normalized.up, rotationAxis, radians) : normalized.up
+  const rotatedOffset = rodrigues(offset, rotationAxis, radians)
+  const rotatedUp = rodrigues(normalized.up, rotationAxis, radians)
   return normalize_camera_pose({
     ...normalized,
     position: add(normalized.target, rotatedOffset),

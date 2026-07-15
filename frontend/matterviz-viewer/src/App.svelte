@@ -13,7 +13,7 @@
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
   import { onMount } from 'svelte'
-  import { normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraAxis, type CameraPose } from './camera'
+  import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
@@ -126,7 +126,7 @@
     camera_zoom?: number
     camera_projection?: 'perspective' | 'orthographic'
     [key: string]: unknown
-  }>({ auto_rotate: 0 })
+  }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
 
   type ApiPayload = {
@@ -964,6 +964,7 @@
     camera_up?: [number, number, number]
     camera_zoom?: number
   }): void => {
+    if (camera_update_matches(sceneProps, data)) return
     sceneProps = {
       ...sceneProps,
       ...(data.camera_position ? { camera_position: [...data.camera_position] as [number, number, number] } : {}),
@@ -996,12 +997,12 @@
     }
   }
 
-  const step_rotate = (axis: CameraAxis, direction: -1 | 1): void => {
+  const step_rotate = (direction: CameraDirection): void => {
     const pose = current_camera_pose()
     const step = normalize_camera_step(rotationStep, 'rotation')
     if (pose && step !== undefined) {
       rotationStep = step
-      apply_camera_pose(rotate_camera(pose, axis, direction * step))
+      apply_camera_pose(rotate_camera(pose, direction, step))
     }
   }
 
@@ -1080,16 +1081,14 @@
         <span>Step (deg)</span>
         <input aria-label="Rotation step" type="number" min="0.1" max="180" step="0.1" bind:value={rotationStep} />
       </label>
-      {#each ['x', 'y', 'z'] as axis}
-        <div class="axis-step" aria-label={`Rotate ${axis.toUpperCase()} axis`}>
-          <button type="button" title={`Rotate ${axis.toUpperCase()} negative`} aria-label={`Rotate ${axis.toUpperCase()} negative`} onclick={() => step_rotate(axis as CameraAxis, -1)} disabled={!current_camera_pose()}>
-            <Icon icon="ArrowLeft" width="15" height="15" /><span>{axis.toUpperCase()}</span>
-          </button>
-          <button type="button" title={`Rotate ${axis.toUpperCase()} positive`} aria-label={`Rotate ${axis.toUpperCase()} positive`} onclick={() => step_rotate(axis as CameraAxis, 1)} disabled={!current_camera_pose()}>
-            <span>{axis.toUpperCase()}</span><Icon icon="ArrowRight" width="15" height="15" />
-          </button>
-        </div>
-      {/each}
+      <div class="axis-step" aria-label="Rotate camera to move visible structure">
+        <button class="icon-button" type="button" title="Rotate up" aria-label="Rotate up" onclick={() => step_rotate('up')} disabled={!current_camera_pose()}><Icon icon="ArrowUp" width="15" height="15" /></button>
+        <button class="icon-button" type="button" title="Rotate down" aria-label="Rotate down" onclick={() => step_rotate('down')} disabled={!current_camera_pose()}><Icon icon="ArrowDown" width="15" height="15" /></button>
+        <button class="icon-button" type="button" title="Rotate left" aria-label="Rotate left" onclick={() => step_rotate('left')} disabled={!current_camera_pose()}><Icon icon="ArrowLeft" width="15" height="15" /></button>
+        <button class="icon-button" type="button" title="Rotate right" aria-label="Rotate right" onclick={() => step_rotate('right')} disabled={!current_camera_pose()}><Icon icon="ArrowRight" width="15" height="15" /></button>
+        <button class="icon-button" type="button" title="Roll clockwise" aria-label="Roll clockwise" onclick={() => step_rotate('clockwise')} disabled={!current_camera_pose()}><Icon icon="Redo" width="15" height="15" /></button>
+        <button class="icon-button" type="button" title="Roll counterclockwise" aria-label="Roll counterclockwise" onclick={() => step_rotate('counterclockwise')} disabled={!current_camera_pose()}><Icon icon="Undo" width="15" height="15" /></button>
+      </div>
       <label title="Camera-relative pan step in world units">
         <span>Move</span>
         <input aria-label="Pan step" type="number" min="0.001" max="100" step="0.01" bind:value={panStep} />

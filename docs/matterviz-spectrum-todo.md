@@ -1,6 +1,6 @@
 # MatterViz origin/main parity TODO
 
-Updated: 2026-07-14
+Updated: 2026-07-16
 
 ## 2026-07-14 Rust host migration
 
@@ -176,21 +176,25 @@ Updated: 2026-07-14
 - Each branch must have disjoint write scope, objective verification and its own commit; it must not edit the shared TODO/log documents.
 - The primary development branch owns documentation updates, reviews every agent commit, merges or cherry-picks it, resolves conflicts and reruns proportionate verification before pushing PR #26.
 
-## Deferred after the current Rust-host goal
+## Highest priority after the trackball camera
 
-These items are explicitly **for implementation only after the current Goal is
-complete**. They must not change, block, or expand the compatibility contract
-or release scope of the current PR.
+These items are explicitly **for implementation only after the pole-free
+trackball camera is complete**. They are the next highest priority, but must not
+change, block, or expand the current camera implementation and validation.
 
-- [ ] After the current Goal: replace `gui_request.txt`,
+- [ ] Replace `gui_request.txt`,
   `response_<id>.json`, and `gui_stop.flag` with versioned bidirectional pipe
-  messages, then remove the runtime dependency on a writable session temporary
-  directory.
-- [ ] After the current Goal and stable Windows/Linux/macOS acceptance: disable
-  automatic dynamic Cube fallback in formal releases. A native-pipe failure
-  must report an explicit error and terminate the invalid session; Cube
-  fallback remains available only through an explicit development/diagnostic
-  option.
+  messages without changing Multiwfn scientific-core calculation logic.
+- [ ] Deliver manifest, native structure JSON and dynamic volume frames directly
+  from memory to the Rust Host. The formal runtime must not create a writable
+  session directory, control files, structure/manifest artifacts or Cube files.
+- [ ] Keep Cube fallback only behind an explicit development/diagnostic option.
+  A formal pipe failure must report an explicit error and terminate the invalid
+  session instead of silently writing a Cube artifact.
+- [ ] Add Windows, Linux and macOS end-to-end coverage for request/response,
+  Return/close, failure cleanup and concurrent sessions. After every successful
+  normal session, assert that no runtime intermediate file or session temporary
+  directory was created.
 
 Current compatibility gates preserve the three control-file interfaces. Cube
 fallback remains only on paths that have not yet migrated from v1; it is not
@@ -427,3 +431,26 @@ bundle migration and three-platform acceptance are complete.
 - [x] After review fixes, pass locked three-platform PR CI, publish Preview 14
   from exact commit `def456c`, and audit all assets. Pause implementation for
   Windows manual orbital-switch and memory-lifecycle confirmation.
+
+## Pole-free trackball camera
+
+- [x] Replace the Multiwfn workbench's polar `OrbitControls` interaction with
+  an opt-in generic MatterViz Arcball mode. Keep Orbit as the MatterViz default
+  for compatibility and do not change Multiwfn calculation/session protocols.
+- [x] Make left-drag and fixed-step directions structure-relative: dragging or
+  stepping up/right must turn the visible structure up/right. Support natural
+  screen-normal roll from an edge circular drag and explicit clockwise/
+  counterclockwise step buttons, with no release inertia.
+- [x] Preserve pan, zoom, auto-rotate, reset, projection switching, camera state,
+  multi-view ownership and the existing axis gizmo. Do not leave Arcball-only
+  settings visible when they have no effect.
+- [x] Add pole traversal, orthonormal-basis, inverse-step, projected-direction,
+  roll and reset regressions. Validate production Canvas behavior at 1440x900
+  and 800x700 with no page errors, overlap or horizontal overflow.
+- [ ] Package the Arcball changes on top of MatterViz r19 without losing Worker
+  cancellation or immediate geometry disposal; run frontend test/check/build,
+  complete independent read-only review and locked three-platform CI before
+  publishing the next prerelease for Windows manual confirmation.
+- [x] Keep local-only MatterViz upstream issue/PR drafts in
+  `docs/matterviz-upstream-drafts.md`. Do not publish them before manual
+  prerelease acceptance and a clean rebase onto current upstream.

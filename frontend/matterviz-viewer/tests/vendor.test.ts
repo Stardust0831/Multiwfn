@@ -1,16 +1,22 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import ts from 'typescript'
 import type { VolumetricData } from 'matterviz/isosurface'
 import { createServer } from 'vite'
 
 const installed = (path: string): URL => new URL(`../node_modules/matterviz/dist/${path}`, import.meta.url)
 
 test('vendored MatterViz declarations expose the bindable camera API', async () => {
-  const [sceneDeclaration, structureDeclaration] = await Promise.all([
+  const [sceneDeclaration, structureDeclaration, cameraDeclaration, cameraModeDeclaration, arcballImplementation] = await Promise.all([
     readFile(installed('structure/StructureScene.svelte.d.ts'), 'utf8'),
     readFile(installed('structure/index.d.ts'), 'utf8'),
+    readFile(installed('scene/SceneCamera.svelte.d.ts'), 'utf8'),
+    readFile(installed('scene/camera-controls.svelte.d.ts'), 'utf8'),
+    readFile(installed('scene/ArcballControls.svelte'), 'utf8'),
   ])
+  assert.match(sceneDeclaration, /camera_control_mode\?: CameraControlMode;/)
   assert.match(sceneDeclaration, /camera_up\?: Vec3;/)
   assert.match(sceneDeclaration, /camera_zoom\?: number;/)
   const componentDeclaration = sceneDeclaration.match(/declare const StructureScene:.*;/)?.[0] ?? ''
@@ -18,6 +24,44 @@ test('vendored MatterViz declarations expose the bindable camera API', async () 
   assert.match(componentDeclaration, /"camera_zoom"/)
   assert.match(structureDeclaration, /camera_up\?: Vec3;/)
   assert.match(structureDeclaration, /camera_zoom\?: number;/)
+  assert.match(cameraDeclaration, /camera_control_mode\?: CameraControlMode;/)
+  assert.match(cameraModeDeclaration, /export type CameraControlMode = `orbit` \| `arcball`;/)
+  assert.match(arcballImplementation, /controls\.enableAnimations = false/)
+  assert.match(arcballImplementation, /let interaction_active = \$state\(false\)/)
+})
+
+test('vendored package exports CameraControlMode as a real public type', () => {
+  const declarationPath = fileURLToPath(installed('index.d.ts'))
+  const program = ts.createProgram([declarationPath], {
+    allowJs: true,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    noEmit: true,
+    skipLibCheck: false,
+    target: ts.ScriptTarget.ES2022,
+  })
+  const source = program.getSourceFile(declarationPath)
+  assert.ok(source)
+  const moduleSymbol = program.getTypeChecker().getSymbolAtLocation(source)
+  assert.ok(moduleSymbol)
+  const exported = program.getTypeChecker().getExportsOfModule(moduleSymbol)
+  assert.ok(exported.some((symbol) => symbol.name === 'CameraControlMode'))
+})
+
+test('vendored Arcball package retains r19 volume release lifecycle', async () => {
+  const [geometry, isosurface, scene, viewport] = await Promise.all([
+    readFile(installed('isosurface/geometry.js'), 'utf8'),
+    readFile(installed('isosurface/Isosurface.svelte'), 'utf8'),
+    readFile(installed('structure/StructureScene.svelte'), 'utf8'),
+    readFile(installed('structure/StructureViewport.svelte'), 'utf8'),
+  ])
+  assert.match(geometry, /const release_epochs = new WeakMap\(\)/)
+  assert.match(geometry, /release_isosurface_geometry/)
+  assert.match(isosurface, /release_isosurface_geometry/)
+  assert.match(scene, /on_geometry_error\?: \(message: string\) => void/)
+  assert.match(scene, /\{on_geometry_error\}/)
+  assert.match(viewport, /on_geometry_error\?: \(message: string\) => void/)
+  assert.match(viewport, /\{on_geometry_error\}/)
 })
 
 test('vendored MatterViz preserves explicitly absolute volume origins', async () => {
