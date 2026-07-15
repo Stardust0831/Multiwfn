@@ -682,3 +682,22 @@
   their versioned bidirectional-pipe migration remains explicitly deferred and
   is not mixed into this release-blocker fix. Successful major-2 orbital sample
   arrays do not travel through JSON or Cube files.
+- Exact fix commit `a949da6` passed MatterViz GUI run
+  [`29418052737`](https://github.com/Stardust0831/Multiwfn/actions/runs/29418052737),
+  build `29418052564`, Linux compatibility `29418052623`, core-source protection
+  `29418052553` and legacy GUI release `29418052672`. The independent review's
+  only minor finding, missing direct coverage of the percentage branch, was
+  resolved with a 20-GiB-available case expecting a 4-GiB reserve.
+- Tag workflow [`29419208006`](https://github.com/Stardust0831/Multiwfn/actions/runs/29419208006)
+  passed and published GitHub prerelease
+  [`matterviz-preview-12`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-12)
+  from exact commit `a949da6`. Independently downloaded assets match the
+  published checksums: Linux
+  `f132ea90c40acab41065b5ef7f4fd230343c54d18f2a419610c449bf409d0cc9`
+  (17,865,922 bytes), macOS
+  `08809ddbec302dd3dc52c4110864731588236df174a0817c8637c690bcb66f09`
+  (12,637,244 bytes), and Windows
+  `bf4914f08bc9476502842d376790b207fa9f5cf9ea53e6c2b09ccb7a39ba5f0c`
+  (22,014,120 bytes). All archives contain the Multiwfn executable, Rust host,
+  built frontend and Worker with no Python or 3Dmol runtime path. Development
+  pauses for Windows Preview 12 confirmation.

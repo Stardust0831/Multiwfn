@@ -377,5 +377,8 @@ bundle migration and three-platform acceptance are complete.
   the 2 GiB minimum, configured hard ceiling, existing-volume add-back and
   cumulative geometry budget. Cover the exact reported Windows values and all
   existing low-memory/cgroup cases with Rust tests.
-- [ ] Pass locked three-platform CI, publish the corrected prerelease and repeat
-  Windows orbital/manual lifecycle validation.
+- [x] Pass locked three-platform CI and publish `matterviz-preview-12` from exact
+  commit `a949da6`; independently verify all archive checksums, required native
+  binaries/frontend assets and absence of Python or 3Dmol runtime paths.
+- [ ] Pause implementation pending Windows Preview 12 orbital, memory-admission
+  and lifecycle validation.
