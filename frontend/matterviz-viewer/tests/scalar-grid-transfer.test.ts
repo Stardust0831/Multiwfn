@@ -17,9 +17,9 @@ test.before(async () => {
     onmessage?: (event: MessageEvent) => void
     onerror?: (event: ErrorEvent) => void
     terminate(): void {}
-    postMessage(message: any): void {
+    postMessage(message: any, transfer: Transferable[] = []): void {
       try {
-        const transferred = structuredClone(message, { transfer: [message.grid.data.buffer] })
+        const transferred = structuredClone(message, { transfer })
         const result = marching.marching_cubes_typed(
           transferred.grid,
           transferred.iso_value,
@@ -89,4 +89,33 @@ test('a newer generation wins when requests overlap on one grid', async () => {
   const [first_result, second_result] = await Promise.all([first, second])
   assert.equal(first_result.stale, true)
   assert.equal(second_result.stale, undefined)
+})
+
+test('worker messages normalize proxied grid metadata arrays', async (t) => {
+  if (typeof SharedArrayBuffer === 'undefined') {
+    t.skip('SharedArrayBuffer is unavailable')
+    return
+  }
+  const shared = new SharedArrayBuffer(8 * Float32Array.BYTES_PER_ELEMENT)
+  const data = new Float32Array(shared)
+  data.set([0, 1, 1, 0, 1, 0, 0, 1])
+  const proxied = (values: number[]) => new Proxy(values, {})
+  const grid = {
+    data,
+    dimensions: proxied([2, 2, 2]),
+    order: 'x-fastest' as const,
+  }
+  const lattice = new Proxy([
+    proxied([1, 0, 0]),
+    proxied([0, 1, 0]),
+    proxied([0, 0, 1]),
+  ], {})
+  const result = await geometry.request_isosurface_geometry(
+    grid,
+    0.5,
+    lattice,
+    new Proxy({ periodic: false, centered: false, normals: true }, {}),
+  )
+  assert.ok(result.positions.length > 0)
+  assert.equal(grid.data.buffer, shared)
 })

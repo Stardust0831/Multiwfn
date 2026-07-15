@@ -382,3 +382,14 @@ bundle migration and three-platform acceptance are complete.
   binaries/frontend assets and absence of Python or 3Dmol runtime paths.
 - [ ] Pause implementation pending Windows Preview 12 orbital, memory-admission
   and lifecycle validation.
+- [x] Reproduce the Preview 12 Worker failure with proxied `dimensions` and
+  `lattice`: the TypedArray/SAB was cloneable, but Svelte `$state` proxy arrays
+  caused `postMessage` to throw `DataCloneError: [object Array] could not be
+  cloned` before marching cubes started.
+- [x] Pin MatterViz r18 and normalize only Worker-bound grid metadata to plain
+  tuples/options. Preserve the original TypedArray/SAB, byte offset, transfer
+  behavior, geometry budget and marching-cubes inputs; cover the shared-buffer
+  Proxy case with a red/green regression.
+- [ ] Pass independent review and locked three-platform CI, publish the corrected
+  prerelease, verify its assets and repeat Windows orbital rendering/lifecycle
+  validation.

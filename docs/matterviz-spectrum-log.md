@@ -701,3 +701,27 @@
   (22,014,120 bytes). All archives contain the Multiwfn executable, Rust host,
   built frontend and Worker with no Python or 3Dmol runtime path. Development
   pauses for Windows Preview 12 confirmation.
+
+## 2026-07-15 Preview 12 Worker structured-clone blocker
+
+- Windows validation progressed through binary transport, shared-buffer decode
+  and memory admission, then failed when starting marching cubes with `Failed
+  to execute 'postMessage' on 'Worker': [object Array] could not be cloned.`
+  The volume TypedArray and `SharedArrayBuffer` were valid; assigning the
+  `VolumetricData` object into Svelte `$state` proxied its ordinary nested
+  `dimensions` and `lattice` arrays, and browser structured clone rejects Proxy
+  objects.
+- A focused test passes proxied grid dimensions and nested lattice rows with a
+  real `SharedArrayBuffer` through the Worker coordinator. It reproduces the
+  exact `DataCloneError` against r17. MatterViz r18 rebuilds only the
+  Worker-bound 3-vector, 3x3 lattice and scalar options as plain data. The grid
+  TypedArray and backing SAB/transfer ownership remain unchanged, so no
+  volume-sized copy is introduced.
+- The r18 archive differs from r17 only in `dist/isosurface/geometry.js` and the
+  package version. Its SHA-256 is
+  `787172c86cae9e959a10041be8f58e1d0adac33eb5a69dc7d9f85354d7c1d84e`;
+  the frozen pnpm integrity is
+  `sha512-OACzfVXZ9UFTivwT3eo5uyygK1Z1ME/9DdaV6fKAWKF6ZKwkAEWF4RxBlTd7KzkG6l+KX/lEyePEtgTMW4SL4Q==`.
+  All 97 frontend tests, Svelte diagnostics with zero errors/warnings and the
+  production build pass. Cross-platform package CI and manual WebView2 replay
+  remain release gates.
