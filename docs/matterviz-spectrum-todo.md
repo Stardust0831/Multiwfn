@@ -369,3 +369,13 @@ bundle migration and three-platform acceptance are complete.
   byte comparison and all archives contain no Python or 3Dmol runtime path.
 - [ ] Pause implementation pending the original Windows Preview 11
   file/orbital/large-grid/camera/Return confirmation cycle.
+- [x] Diagnose the Preview 11 zero-byte active-volume limit from the reported
+  snapshot: 9.42 GiB was available, but the old policy reserved 20% of the
+  61.56 GiB total (12.31 GiB), so saturating subtraction rejected even a
+  0.96 MiB orbital.
+- [x] Base the 20% adaptive reserve on currently available memory while keeping
+  the 2 GiB minimum, configured hard ceiling, existing-volume add-back and
+  cumulative geometry budget. Cover the exact reported Windows values and all
+  existing low-memory/cgroup cases with Rust tests.
+- [ ] Pass locked three-platform CI, publish the corrected prerelease and repeat
+  Windows orbital/manual lifecycle validation.

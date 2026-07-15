@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
 const MIN_RESERVE_BYTES: u64 = 2 * GIB;
-const RESERVE_PERCENT: u64 = 20;
+const AVAILABLE_RESERVE_PERCENT: u64 = 20;
 const LIMIT_ENV: &str = "MULTIWFN_MATTERVIZ_MAX_ACTIVE_VOLUME_BYTES";
 
 #[cfg(test)]
@@ -61,8 +61,8 @@ fn calculate_budget(
 ) -> MemoryBudget {
     let reserve_bytes = MIN_RESERVE_BYTES.max(
         snapshot
-            .total_bytes
-            .saturating_mul(RESERVE_PERCENT)
+            .available_bytes
+            .saturating_mul(AVAILABLE_RESERVE_PERCENT)
             .saturating_div(100),
     );
     let automatic = snapshot
@@ -450,7 +450,7 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn automatic_budget_reserves_system_memory_and_reuses_active_bytes() {
+    fn automatic_budget_reserves_available_memory_and_reuses_active_bytes() {
         let budget = calculate_budget(
             MemorySnapshot {
                 total_bytes: 16 * GIB,
@@ -459,11 +459,37 @@ mod tests {
             512 * MIB,
             None,
         );
-        assert_eq!(budget.reserve_bytes, 16 * GIB / 5);
-        assert_eq!(
-            budget.active_limit_bytes,
-            10 * GIB - 16 * GIB / 5 + 512 * MIB
+        assert_eq!(budget.reserve_bytes, 2 * GIB);
+        assert_eq!(budget.active_limit_bytes, 10 * GIB - 2 * GIB + 512 * MIB);
+    }
+
+    #[test]
+    fn large_host_with_usable_memory_does_not_get_a_zero_active_limit() {
+        let requested_volume = 1_006_880;
+        let budget = calculate_budget(
+            MemorySnapshot {
+                total_bytes: 66_094_223_360,
+                available_bytes: 10_116_157_440,
+            },
+            0,
+            None,
         );
+        assert_eq!(budget.reserve_bytes, 2 * GIB);
+        assert!(budget.active_limit_bytes >= requested_volume);
+    }
+
+    #[test]
+    fn high_availability_uses_the_percentage_reserve() {
+        let budget = calculate_budget(
+            MemorySnapshot {
+                total_bytes: 64 * GIB,
+                available_bytes: 20 * GIB,
+            },
+            0,
+            None,
+        );
+        assert_eq!(budget.reserve_bytes, 4 * GIB);
+        assert_eq!(budget.active_limit_bytes, 16 * GIB);
     }
 
     #[test]

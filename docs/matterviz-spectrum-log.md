@@ -656,3 +656,29 @@
   compiled magic byte array `[77,87,70,78,86,79,76,0]`; its volume decoder uses
   byte comparison and does not contain the reported shared-view error path.
   Development pauses for Windows Preview 11 confirmation.
+
+## 2026-07-15 Preview 11 active-memory admission blocker
+
+- Windows manual validation then rejected a 1,006,880-byte orbital with an
+  active limit of zero despite 10,116,157,440 bytes being available. The old
+  policy reserved `max(2 GiB, 20% of total physical memory)`; on the reported
+  approximately 61.56 GiB host that reserve was 13,218,844,672 bytes, larger
+  than current availability, so saturating subtraction produced zero.
+- The adaptive percentage now uses current available memory while retaining a
+  2 GiB minimum reserve. For the reported snapshot this leaves about 7.42 GiB
+  for active volumes and exact preflighted geometry instead of rejecting a
+  0.96 MiB frame. Existing active volumes remain added back to avoid charging
+  them twice, and `MULTIWFN_MATTERVIZ_MAX_ACTIVE_VOLUME_BYTES` remains a hard
+  ceiling rather than an allocation promise.
+- A regression with the exact reported total, available and requested byte
+  counts fails against the old 12.31 GiB reserve and passes with the 2 GiB
+  adaptive reserve. Direct Rust compilation passes all 14 memory-budget tests,
+  including the 20%-of-available branch, sub-2-GiB rejection and Linux cgroup
+  hierarchy constraints.
+- Session JSON remains intentional and separate from the binary data plane:
+  `manifest.json` declares capabilities/artifacts and `structure.json` carries
+  native periodic or molecular topology. `response_<id>.json` plus
+  `gui_request.txt`/`gui_stop.flag` still form the compatibility control plane;
+  their versioned bidirectional-pipe migration remains explicitly deferred and
+  is not mixed into this release-blocker fix. Successful major-2 orbital sample
+  arrays do not travel through JSON or Cube files.
