@@ -40,6 +40,7 @@ const MAX_BODY_BYTES = 12_000_000n
 const MAX_FRAME_BYTES = 12_000_304n
 const BOHR_TO_ANGSTROM = 0.529177249
 const NATIVE_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
+const VOLUME_MAGIC = [0x4d, 0x57, 0x46, 0x4e, 0x56, 0x4f, 0x4c, 0x00] as const
 
 const CRC32C_TABLE = (() => {
   const table = new Uint32Array(256)
@@ -55,6 +56,13 @@ const CRC32C_TABLE = (() => {
 
 function invalid(reason: string): never {
   throw new Error(`Invalid MatterViz volume frame: ${reason}`)
+}
+
+function has_volume_magic(bytes: Uint8Array): boolean {
+  for (let index = 0; index < VOLUME_MAGIC.length; index += 1) {
+    if (bytes[index] !== VOLUME_MAGIC[index]) return false
+  }
+  return true
 }
 
 export async function read_matterviz_volume_response(response: Response): Promise<ArrayBufferLike> {
@@ -151,8 +159,7 @@ export function decode_matterviz_volume(input: ArrayBufferLike | Uint8Array): Ma
   if (bytes.byteLength < PRELUDE_BYTES) invalid('truncated prelude')
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 
-  const magic = new TextDecoder().decode(bytes.subarray(0, 8))
-  if (magic !== 'MWFNVOL\0') invalid('bad magic')
+  if (!has_volume_magic(bytes)) invalid('bad magic')
   const major = view.getUint16(8, true)
   if (major !== 1 && major !== 2) invalid(`unsupported major version ${major}`)
   const minor = view.getUint16(10, true)

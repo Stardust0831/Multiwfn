@@ -232,6 +232,46 @@ test('decodes a major-2 frame beyond the v1 point limit without copying samples'
   assert.equal(decoded.samples.byteOffset, HEADER_BYTES)
 })
 
+test('decodes a major-2 SharedArrayBuffer without passing it to TextDecoder', async (t) => {
+  if (typeof SharedArrayBuffer === 'undefined') {
+    t.skip('SharedArrayBuffer is unavailable')
+    return
+  }
+  const source = await golden_frame()
+  new DataView(source.buffer, source.byteOffset, source.byteLength).setUint16(8, 2, true)
+  repair_header_crc(source)
+  const shared = new SharedArrayBuffer(source.byteLength)
+  new Uint8Array(shared).set(source)
+
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'TextDecoder')
+  class StrictTextDecoder extends TextDecoder {
+    override decode(input?: AllowSharedBufferSource, options?: TextDecodeOptions): string {
+      if (ArrayBuffer.isView(input) && input.buffer instanceof SharedArrayBuffer) {
+        throw new TypeError('The provided ArrayBufferView value must not be shared')
+      }
+      return super.decode(input, options)
+    }
+  }
+  Object.defineProperty(globalThis, 'TextDecoder', {
+    configurable: true,
+    writable: true,
+    value: StrictTextDecoder,
+  })
+  try {
+    const decoded = decode_matterviz_volume(shared)
+    assert.equal(decoded.protocol_major, 2)
+    assert.equal(decoded.samples.buffer, shared)
+    assert.equal(decoded.samples.byteOffset, HEADER_BYTES)
+
+    const bad_magic = shared.slice(0)
+    new Uint8Array(bad_magic)[0] = 0
+    assert.throws(() => decode_matterviz_volume(bad_magic), /bad magic/)
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'TextDecoder', descriptor)
+    else Reflect.deleteProperty(globalThis, 'TextDecoder')
+  }
+})
+
 test('fills one preallocated response buffer from fragmented stream chunks', async () => {
   const frame = await golden_frame()
   const response = new Response(new ReadableStream({

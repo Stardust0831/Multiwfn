@@ -357,6 +357,12 @@ bundle migration and three-platform acceptance are complete.
   macOS and Windows assets match `SHA256SUMS.txt`; packages contain the native
   Multiwfn executable, Rust host and built MatterViz frontend with no Python or
   legacy 3Dmol runtime entry.
-- [ ] Pause implementation pending manual Preview 10 confirmation on Windows of
-  file selection, orbital alignment/switching, large-grid behavior,
-  quality/isovalue controls, camera reset and Return.
+- [x] Record the Preview 10 Windows blocker: cross-origin isolation selected a
+  `SharedArrayBuffer` for the major-2 response, but the volume decoder passed
+  its magic-byte view to `TextDecoder`, which WebView2 correctly rejects.
+- [x] Replace text decoding of the fixed `MWFNVOL\0` magic with byte comparison
+  and cover the strict WebView2 behavior, zero-copy shared samples, the real
+  304-byte sample offset and damaged magic with a focused regression test.
+- [ ] Pass the locked three-platform workflow and independent read-only review,
+  publish Preview 11, verify its checksums/package contents, then pause for the
+  original Windows file/orbital/large-grid/camera/Return confirmation cycle.

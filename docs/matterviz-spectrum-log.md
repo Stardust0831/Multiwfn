@@ -615,3 +615,23 @@
   (22,013,534 bytes). Each archive contains the native Multiwfn executable,
   Rust host and built MatterViz frontend and contains no Python, `.py` or 3Dmol
   runtime entry. Development pauses for manual Preview 10 confirmation.
+
+## 2026-07-15 Preview 10 SharedArrayBuffer decoder blocker
+
+- Windows manual validation reached the native major-2 orbital response but
+  failed before header validation with `Failed to execute 'decode' on
+  'TextDecoder': The provided ArrayBufferView value must not be shared.` The
+  Rust service deliberately serves COOP/COEP headers, so WebView2 enables
+  cross-origin isolation and the frontend allocates one `SharedArrayBuffer` for
+  the streamed response. `decode_matterviz_volume` then passed the first eight
+  shared bytes to `TextDecoder`; Chromium rejects shared views for that API.
+- Replaced `TextDecoder` with an exact byte comparison for the fixed
+  `MWFNVOL\0` magic. The volume body remains on the original shared allocation,
+  and its `Float64Array` still starts at the protocol's 304-byte offset; there
+  is no response-sized copy, ordinary-buffer fallback or protocol change.
+- Added a regression that substitutes Chromium-strict `TextDecoder` behavior,
+  decodes a major-2 frame from `SharedArrayBuffer`, proves buffer identity and
+  offset preservation, and still rejects damaged magic. The test fails at the
+  reported call site before the fix and passes afterward. All 96 frontend tests,
+  Svelte diagnostics with zero errors/warnings and the production build pass;
+  three-platform package CI and a corrected prerelease remain required.
