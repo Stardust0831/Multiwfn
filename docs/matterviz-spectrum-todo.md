@@ -393,8 +393,8 @@ bundle migration and three-platform acceptance are complete.
 - [x] Pass independent review and locked three-platform CI and publish Preview
   13 from exact commit `c5db71c`. Tag run `29426781920` completed successfully
   and uploaded Linux, macOS and Windows packages plus `SHA256SUMS.txt`.
-- [ ] Independently audit Preview 13 checksums/package contents and repeat the
-  Windows orbital rendering/lifecycle validation.
+- [x] Supersede Preview 13 with the independently audited Preview 14; do not ask
+  for manual validation of the obsolete package.
 
 ## Frontend volume-cache lifecycle
 
@@ -424,5 +424,6 @@ bundle migration and three-platform acceptance are complete.
   important finding, force-recompute failure selecting a preceding visible
   non-orbital layer, is fixed by role-aware orbital restoration and covered by
   a regression test.
-- [ ] After review fixes, pass locked three-platform PR CI, publish the next
-  prerelease, audit all assets and pause for Windows manual lifecycle testing.
+- [x] After review fixes, pass locked three-platform PR CI, publish Preview 14
+  from exact commit `def456c`, and audit all assets. Pause implementation for
+  Windows manual orbital-switch and memory-lifecycle confirmation.

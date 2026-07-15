@@ -772,3 +772,24 @@
   index; a regression covers a visible density layer preceding MO12. Review
   also prompted narrowing the TODO's test claims to distinguish pure lifecycle
   tests from the separate browser request replay.
+- Exact commit `def456c` passed push MatterViz run `29431208734`, PR MatterViz
+  run `29431213279`, build `29431213124`, Linux compatibility `29431213336`,
+  core protection `29431213042` and legacy GUI run `29431212765`. The first
+  PR/macOS attempt had two transient HTTP test failures from truncated/reset
+  local socket responses while the same commit's push/macOS run passed all 44
+  Rust tests; the isolated rerun passed without source changes.
+- Tag workflow `29433975758` passed frontend/Rust plus Linux, macOS and Windows
+  packaging and published
+  [`matterviz-preview-14`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-14)
+  from exact commit `def456cfea53bb26bfc8237d70a8769ec72e83a1`.
+  Independently downloaded assets match `SHA256SUMS.txt`: Linux
+  `b6123ac576c8e0310f265b5f5078d71c6149a305b95742689a4edd19c17c9524`
+  (17,871,442 bytes), macOS
+  `320cf8d21190dc2d11c30097d60d66446dc200cb76bf27cf19f763a683c9e9b6`
+  (12,641,628 bytes), and Windows
+  `705385b82776c0775ab603cd042ea2fb0ccb50f2d2386668c3209056a124c6e3`
+  (22,018,270 bytes). All packages contain the native Multiwfn executable,
+  Rust host, built frontend and Worker; path scans find no Python, 3Dmol or
+  staged Cube artifact. The Windows source map and bundle contain r19 release
+  epochs, Worker cancellation, immediate volume-identity geometry disposal and
+  the cache compactor. Development pauses for Windows manual confirmation.
