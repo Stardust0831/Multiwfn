@@ -551,3 +551,18 @@ behavior requires the explicit diagnostic environment flag.
 - [x] Keep local-only MatterViz upstream issue/PR drafts in
   `docs/matterviz-upstream-drafts.md`. Do not publish them before manual
   prerelease acceptance and a clean rebase onto current upstream.
+
+## PR #26 final merge gate
+
+- [x] Fix the post-release macOS memory snapshot, finite-grid extent and ESP
+  provenance defects, then address all current CodeRabbit correctness findings.
+- [x] Resolve all 19 PR review threads and confirm the required-conversation
+  merge rule no longer blocks PR #26.
+- [x] Associate PR #26 with issue #11 using `Addresses #11`, preserving the
+  broader issue as open instead of auto-closing it.
+- [x] Pass the complete latest-head CI matrix for commit `699680b`: both
+  MatterViz workflows, build, GUI demo/package, glibc compatibility and core
+  source protection completed successfully on Linux, macOS and Windows.
+- [ ] Obtain approval from a different authorized reviewer. The branch is
+  mergeable, but GitHub correctly reports `REVIEW_REQUIRED`; the PR author
+  cannot satisfy this protection rule by self-approval.
