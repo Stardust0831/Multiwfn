@@ -56,6 +56,8 @@ test('resolves auto/manual ranges, reversed bounds, constants, and invalid value
   assert.deepEqual(resolve_slice_range([1, Number.NaN, 5]), [1, 5])
   assert.deepEqual(resolve_slice_range([1, 2], 8, 3), [3, 8])
   assert.deepEqual(resolve_slice_range([1, 2], '', ''), [1, 2])
+  assert.deepEqual(resolve_slice_range([1, 2], null, undefined), [1, 2])
+  assert.deepEqual(resolve_slice_range([null, 4] as unknown as number[]), [4, 4])
   assert.deepEqual(resolve_slice_range([Number.NaN]), [0, 1])
   assert.deepEqual(resolve_slice_range([4, 4]), [4, 4])
 })

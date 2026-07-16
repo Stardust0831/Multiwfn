@@ -28,6 +28,9 @@ RUST_CARGO = (ROOT / "frontend" / "matterviz-desktop" / "Cargo.toml").read_text(
 VIEWER_APP = (ROOT / "frontend" / "matterviz-viewer" / "src" / "App.svelte").read_text(
     encoding="utf-8"
 )
+ESP_LEGEND = (
+    ROOT / "frontend" / "matterviz-viewer" / "src" / "EspLegend.svelte"
+).read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github" / "workflows" / "matterviz-gui.yml").read_text(encoding="utf-8")
 WINDOWS_ASYNC = (ROOT / "tests" / "windows" / "test_matterviz_async_launch.ps1").read_text(
     encoding="utf-8"
@@ -163,6 +166,11 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("if (!esp_pair()) clear_esp_tools()", compact)
         self.assertIn("{#if espExtremaOpen && esp_pair()}", VIEWER_APP)
         self.assertIn("{#if espLegendOpen && esp_pair()}", VIEWER_APP)
+
+    def test_mobile_esp_legend_keeps_tick_label_width(self):
+        mobile = ESP_LEGEND.split("@media (max-width: 520px)", 1)[1]
+        self.assertIn(".legend-gradient { width: 20px; }", mobile)
+        self.assertNotIn(".legend-gradient, .legend-ticks { width: 20px", mobile)
 
     def test_packaged_windows_requests_a_real_native_orbital(self):
         self.assertIn("matterviz-real-orbital-Co5Cr.fch.gz", WINDOWS_ASYNC)

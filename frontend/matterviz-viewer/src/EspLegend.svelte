@@ -209,7 +209,8 @@
   @media (max-width: 520px) {
     .esp-legend { width: min(156px, calc(100% - 12px)); padding: 8px; }
     .legend-scale { grid-template-columns: 20px minmax(0, 1fr); gap: 8px; height: 132px; margin-top: 8px; }
-    .legend-gradient, .legend-ticks { width: 20px; height: 132px; }
+    .legend-gradient { width: 20px; }
+    .legend-gradient, .legend-ticks { height: 132px; }
     .legend-header strong { font-size: 11px; }
   }
 </style>

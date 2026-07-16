@@ -170,6 +170,21 @@ export const volume_shape = volume_dimensions
 const volume_periodic = (volume: unknown): boolean =>
   (volume as { periodic?: unknown })?.periodic === true
 
+const finite_vec3 = (value: unknown): Vec3 | undefined => {
+  if (!Array.isArray(value) && !ArrayBuffer.isView(value)) return undefined
+  const numbers = Array.from(value as ArrayLike<unknown>).slice(0, 3).map(Number)
+  return numbers.length === 3 && numbers.every(Number.isFinite) ? numbers as Vec3 : undefined
+}
+
+const finite_lattice = (value: unknown): [Vec3, Vec3, Vec3] | undefined => {
+  if (!Array.isArray(value) || value.length < 3) return undefined
+  const rows = value.slice(0, 3).map(finite_vec3)
+  return rows.every((row) => row !== undefined) ? rows as [Vec3, Vec3, Vec3] : undefined
+}
+
+const vectors_match = (left: Vec3, right: Vec3, tolerance = 1e-8): boolean =>
+  left.every((value, index) => Math.abs(value - right[index]) <= tolerance)
+
 const grid_value = (volume: unknown, x: number, y: number, z: number): number => {
   const grid = as_grid(volume)
   const value = grid?.[x]?.[y]?.[z]
@@ -179,7 +194,19 @@ const grid_value = (volume: unknown, x: number, y: number, z: number): number =>
 const same_grid = (density: unknown, potential: unknown): boolean => {
   const left = volume_dimensions(density)
   const right = volume_dimensions(potential)
-  return Boolean(left && right && left.every((value, index) => value === right[index]))
+  if (!left || !right || !left.every((value, index) => value === right[index])) return false
+  const densityRecord = density as { origin?: unknown; lattice?: unknown; periodic?: unknown }
+  const potentialRecord = potential as { origin?: unknown; lattice?: unknown; periodic?: unknown }
+  if (typeof densityRecord.periodic !== 'boolean'
+    || typeof potentialRecord.periodic !== 'boolean'
+    || densityRecord.periodic !== potentialRecord.periodic) return false
+  const densityOrigin = finite_vec3(densityRecord.origin)
+  const potentialOrigin = finite_vec3(potentialRecord.origin)
+  const densityLattice = finite_lattice(densityRecord.lattice)
+  const potentialLattice = finite_lattice(potentialRecord.lattice)
+  return Boolean(densityOrigin && potentialOrigin && densityLattice && potentialLattice
+    && vectors_match(densityOrigin, potentialOrigin)
+    && densityLattice.every((row, index) => vectors_match(row, potentialLattice[index])))
 }
 
 const total_cells = (dims: Vec3, periodic: boolean): number =>

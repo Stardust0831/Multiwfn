@@ -440,7 +440,10 @@ const restore_layer = (
   if (snapshot.showNegative !== undefined) layer.show_negative = snapshot.showNegative
   if (snapshot.colormap !== undefined) layer.colormap = snapshot.colormap as IsosurfaceLayer['colormap']
   if (snapshot.colorRange !== undefined) layer.color_range = [...snapshot.colorRange] as IsosurfaceLayer['color_range']
-  if (snapshot.colorVolumeIndex !== undefined && volumeCount > 0) {
+  if (snapshot.colorVolumeIndex !== undefined
+    && Number.isInteger(snapshot.colorVolumeIndex)
+    && snapshot.colorVolumeIndex >= 0
+    && snapshot.colorVolumeIndex < volumeCount) {
     layer.color_volume_idx = clamp_index(snapshot.colorVolumeIndex, volumeCount)
   }
   return layer

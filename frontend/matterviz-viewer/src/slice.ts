@@ -32,6 +32,7 @@ export const AXIS_LABELS: Readonly<Record<SliceAxis, string>> = {
 }
 
 const finite_number = (value: unknown): number | undefined => {
+  if (value === null || value === undefined) return undefined
   if (typeof value === 'string' && value.trim() === '') return undefined
   const number = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(number) ? number : undefined

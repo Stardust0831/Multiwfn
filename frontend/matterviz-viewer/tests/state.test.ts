@@ -107,7 +107,7 @@ test('round-trips camera state and restores appearance by volume index', () => {
   assert.equal(restored.activeVolume, 0)
   assert.equal(restored.isosurfaceSettings.layers?.[0].color, '#123456')
   assert.equal(restored.isosurfaceSettings.layers?.[0].negative_color, '#654321')
-  assert.equal(restored.isosurfaceSettings.layers?.[0].color_volume_idx, 0)
+  assert.equal(restored.isosurfaceSettings.layers?.[0].color_volume_idx, undefined)
   assert.equal(restored.isosurfaceSettings.material, 'pbr')
 })
 

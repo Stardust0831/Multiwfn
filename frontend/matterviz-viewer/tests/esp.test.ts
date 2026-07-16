@@ -82,6 +82,12 @@ test('estimates a symmetric range from MatterViz nested grids', () => {
   assert.ok(Math.abs(range.min + 0.1) < 1e-9)
   assert.ok(Math.abs(range.max - 0.1) < 1e-9)
   assert.ok(range.sampleCount > 0)
+  assert.equal(estimateSymmetricRange(density, { ...esp, origin: [2, 2, 3] }, 1), 0.05)
+  assert.equal(estimateSymmetricRange(density, {
+    ...esp,
+    lattice: [[2, 0, 0], [0, 4, 0], [0, 0, 4]],
+  }, 1), 0.05)
+  assert.equal(estimateSymmetricRange(density, { ...esp, periodic: true }, 1), 0.05)
 })
 
 test('falls back safely for malformed, incompatible, or non-crossing grids', () => {

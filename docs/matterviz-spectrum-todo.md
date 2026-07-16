@@ -301,6 +301,14 @@ behavior requires the explicit diagnostic environment flag.
   Cube parser upstream. The formal native path consumes binary frames and is
   fixed here; the explicit diagnostic Cube path remains an upstream parser
   concern rather than a reason to fork another private vendor archive.
+- [x] Clear the PR conversation-protection blocker: adjudicate all eight old
+  CodeRabbit threads, fix the four still-current findings and resolve the four
+  outdated threads from the removed analysis/spectrum implementation. The
+  current fixes cover null slice values, ESP grid metadata, mobile legend
+  labels and out-of-range restored color-volume references.
+- [x] Associate PR #26 with rendering-backend evaluation issue #11 using an
+  `Addresses #11` cross-reference without automatically closing the broader
+  evaluation issue.
 - [x] Change `/api/orbital` in a transported session to one binary HTTP response
   so Rust can forward the body under backpressure without constructing a full
   frame or waiting for the post-ACK JSON response.

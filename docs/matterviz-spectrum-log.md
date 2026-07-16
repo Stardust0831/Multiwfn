@@ -1151,3 +1151,14 @@
   warnings denied, 115/115 frontend tests, Svelte check, production build and
   47 MatterViz Python contract tests with one platform-only skip. macOS native
   compilation and the three-platform package matrix remain CI gates.
+- PR #26's required-conversation rule exposed eight unresolved CodeRabbit
+  threads. Four targeted the analysis/spectrum files removed during the PR #25
+  scope correction and are obsolete. The four current findings were
+  reproducible and fixed: nullish slice inputs no longer become numeric zero;
+  ESP index sampling requires matching dimensions, origin, lattice and boundary
+  mode; mobile ESP ticks retain label width; and out-of-range restored
+  `colorVolumeIndex` references are discarded instead of clamped to an unrelated
+  volume. The frontend now passes 116/116 tests, zero Svelte diagnostics and a
+  production build with these regressions. PR #26 also cross-references issue
+  #11 as the selected MatterViz implementation without auto-closing that broader
+  backend-evaluation issue.
