@@ -307,10 +307,18 @@ jobs:
             1.000000E-01  2.000000E-01  3.000000E-01  4.000000E-01
             5.000000E-01  6.000000E-01  7.000000E-01  8.000000E-01
           EOF
-          mkdir matterviz-smoke/session
+          mkdir -p matterviz-smoke/session matterviz-smoke/noop-home/tools
+          cat > matterviz-smoke/noop-home/tools/matterviz-desktop <<'EOF'
+          #!/bin/sh
+          test -n "${MULTIWFN_MATTERVIZ_SESSION:-}" || exit 2
+          : > "$MULTIWFN_MATTERVIZ_SESSION/gui_stop.flag"
+          EOF
+          chmod +x matterviz-smoke/noop-home/tools/matterviz-desktop
           (
             cd matterviz-smoke
             MULTIWFN_MATTERVIZ_SESSION="$PWD/session" \
+              MULTIWFN_MATTERVIZ_HOME="$PWD/noop-home" \
+              MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1 \
               "$root/Multiwfn_MatterVizGUI" tiny.cube <<'EOF' > multiwfn.out
           13
           -2
@@ -318,6 +326,10 @@ jobs:
           q
           EOF
           )
+          if grep -q 'MatterViz GUI launch failed' matterviz-smoke/multiwfn.out; then
+            cat matterviz-smoke/multiwfn.out >&2
+            exit 1
+          fi
           test -f matterviz-smoke/session/manifest.json
           python3 - <<'PY'
           import json

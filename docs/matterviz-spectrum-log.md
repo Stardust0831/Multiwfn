@@ -1045,3 +1045,21 @@
   enter CI; prerelease remains conditional on full Fortran/Tauri/MinGW builds,
   packaged Linux/Windows zero-artifact orbital gates and the documented manual
   desktop checks.
+- Candidate `e1fa00f` entered CI but did not pass, and no prerelease was
+  published. Both PR/push MatterViz workflows exposed the same three root
+  causes: production `clippy -D warnings` rejected test-only codec aliases and
+  decoders as dead code; the Windows service tests lacked their control-frame
+  reader because its helper was Unix-only; and the Linux package's preliminary
+  diagnostic-artifact generator unintentionally launched GTK without Xvfb.
+  Core protection, noGUI and legacy GUI/package jobs passed.
+- The corrective change removes unused aliases, compiles decoder-only picker
+  code and the blocking control reader only for tests, makes the shared service
+  frame reader available on Unix and Windows, and runs preliminary file-artifact
+  generation as explicit `MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1` diagnostic
+  mode through a lifecycle stub that writes the diagnostic stop flag and whose
+  launch is checked explicitly. The subsequent extracted Rust Host and real-orbital
+  zero-disk gates remain unchanged. Local reruns pass 82/82 Rust integration,
+  strict C, harness clippy/formatting and 38 Python contracts; full Tauri and
+  platform package confirmation returns to CI. A follow-up read-only review
+  found no critical, important or minor issue in the corrected Rust cfg or
+  diagnostic lifecycle stub and approved the patch for commit/CI.

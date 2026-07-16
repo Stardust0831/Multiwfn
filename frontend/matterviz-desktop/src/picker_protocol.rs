@@ -21,6 +21,7 @@ pub enum PickerStatus {
 }
 
 impl PickerStatus {
+    #[cfg(test)]
     fn from_wire(value: u16) -> Result<Self, PickerError> {
         match value {
             0 => Ok(Self::Cancel),
@@ -32,6 +33,7 @@ impl PickerStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 pub struct PickerHeader {
     pub status: PickerStatus,
     pub flags: u16,
@@ -41,6 +43,7 @@ pub struct PickerHeader {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub struct PickerFrame {
     pub header: PickerHeader,
     pub body: Vec<u8>,
@@ -48,14 +51,22 @@ pub struct PickerFrame {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickerError {
+    #[cfg(test)]
     Truncated,
+    #[cfg(test)]
     TrailingBytes,
+    #[cfg(test)]
     InvalidMagic,
+    #[cfg(test)]
     UnsupportedVersion,
+    #[cfg(test)]
     InvalidStatus,
+    #[cfg(test)]
     InvalidFlags,
+    #[cfg(test)]
     InvalidHeader,
     LimitExceeded,
+    #[cfg(test)]
     InvalidCrc,
     InvalidUtf8,
     InvalidBody,
@@ -68,14 +79,22 @@ pub enum PickerError {
 impl fmt::Display for PickerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
+            #[cfg(test)]
             Self::Truncated => "truncated picker result frame",
+            #[cfg(test)]
             Self::TrailingBytes => "trailing bytes after picker result frame",
+            #[cfg(test)]
             Self::InvalidMagic => "invalid picker result magic",
+            #[cfg(test)]
             Self::UnsupportedVersion => "unsupported picker result version",
+            #[cfg(test)]
             Self::InvalidStatus => "invalid picker result status",
+            #[cfg(test)]
             Self::InvalidFlags => "invalid picker result flags",
+            #[cfg(test)]
             Self::InvalidHeader => "invalid picker result header",
             Self::LimitExceeded => "picker result body exceeds maximum size",
+            #[cfg(test)]
             Self::InvalidCrc => "picker result CRC32C mismatch",
             Self::InvalidUtf8 => "picker result body is not UTF-8",
             Self::InvalidBody => "invalid picker result body",
@@ -138,10 +157,6 @@ pub fn encode(status: PickerStatus, body: &[u8]) -> Result<Vec<u8>, PickerError>
     Ok(frame)
 }
 
-pub fn encode_frame(status: PickerStatus, body: &[u8]) -> Result<Vec<u8>, PickerError> {
-    encode(status, body)
-}
-
 pub fn encode_selected(path: &str) -> Result<Vec<u8>, PickerError> {
     encode(PickerStatus::Selected, path.as_bytes())
 }
@@ -154,6 +169,7 @@ pub fn encode_error(message: &str) -> Result<Vec<u8>, PickerError> {
     encode(PickerStatus::Error, message.as_bytes())
 }
 
+#[cfg(test)]
 pub fn decode_header(bytes: &[u8]) -> Result<PickerHeader, PickerError> {
     if bytes.len() < HEADER_BYTES {
         return Err(PickerError::Truncated);
@@ -195,6 +211,7 @@ pub fn decode_header(bytes: &[u8]) -> Result<PickerHeader, PickerError> {
     })
 }
 
+#[cfg(test)]
 pub fn decode(frame: &[u8]) -> Result<PickerFrame, PickerError> {
     let header = decode_header(frame)?;
     let expected_len = checked_frame_len(header.body_bytes)?;
@@ -210,10 +227,6 @@ pub fn decode(frame: &[u8]) -> Result<PickerFrame, PickerError> {
         return Err(PickerError::InvalidCrc);
     }
     Ok(PickerFrame { header, body })
-}
-
-pub fn decode_frame(frame: &[u8]) -> Result<PickerFrame, PickerError> {
-    decode(frame)
 }
 
 pub struct ResultPipeWriter {
@@ -256,10 +269,12 @@ fn validate_body(status: PickerStatus, body: &[u8]) -> Result<(), PickerError> {
     Ok(())
 }
 
+#[cfg(test)]
 fn u16_at(bytes: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
 }
 
+#[cfg(test)]
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("fixed offset"))
 }

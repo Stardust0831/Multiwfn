@@ -6,8 +6,6 @@ use serde_json::Value;
 
 pub const HEADER_BYTES: usize = 48;
 pub const MAX_BODY_BYTES: u64 = 64 * 1024 * 1024;
-pub const CONTROL_HEADER_BYTES: usize = HEADER_BYTES;
-pub const CONTROL_MAX_BODY_BYTES: u64 = MAX_BODY_BYTES;
 pub const PROTOCOL_MAJOR: u16 = 1;
 pub const PROTOCOL_MINOR: u16 = 0;
 pub const HEADER_CRC_FLAG: u16 = 0x0001;
@@ -25,8 +23,6 @@ pub enum MessageType {
     Error = 5,
     Shutdown = 6,
 }
-
-pub type ControlMessageType = MessageType;
 
 impl MessageType {
     pub fn from_wire(value: u16) -> Result<Self, ControlError> {
@@ -215,10 +211,6 @@ pub fn decode_header(bytes: &[u8]) -> Result<ControlHeader, ControlError> {
     })
 }
 
-pub fn decode_control_header(bytes: &[u8]) -> Result<ControlHeader, ControlError> {
-    decode_header(bytes)
-}
-
 /// Decode a complete frame, validating length, CRCs and the JSON envelope.
 pub fn decode_frame(frame: &[u8]) -> Result<ControlFrame, ControlError> {
     let header = decode_header(frame)?;
@@ -244,10 +236,6 @@ pub fn decode_frame(frame: &[u8]) -> Result<ControlFrame, ControlError> {
         header,
         body: Some(value),
     })
-}
-
-pub fn decode_control_frame(frame: &[u8]) -> Result<ControlFrame, ControlError> {
-    decode_frame(frame)
 }
 
 /// Encode a frame from a JSON value. Hello is header-only and must pass `None`.
@@ -276,14 +264,6 @@ pub fn encode_frame(
         }
     };
     encode_body_bytes(message_type, request_id, &body_bytes)
-}
-
-pub fn encode_control_frame(
-    message_type: MessageType,
-    request_id: u64,
-    body: Option<&Value>,
-) -> Result<Vec<u8>, ControlError> {
-    encode_frame(message_type, request_id, body)
 }
 
 fn encode_body_bytes(

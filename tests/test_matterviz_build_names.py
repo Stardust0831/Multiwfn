@@ -103,6 +103,10 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("MWFN_CONTROL_FRAME_TIMEOUT_MS", SPAWN)
         self.assertIn("extract_matterviz_command(body,request_id", FORTRAN)
         self.assertIn("if (trim(body)/=trim(expected)) return", FORTRAN)
+        self.assertIn(
+            "#[cfg(any(unix, windows))]\n    fn read_control_frame",
+            RUST_SERVICE,
+        )
         self.assertIn('"format": "mwfn-volume-v2"', FORTRAN)
         self.assertNotIn("launch_status,launch_matterviz_process", FORTRAN)
         self.assertNotIn("#ifdef _WIN32", FORTRAN)
@@ -165,6 +169,10 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("tests/linux/test_matterviz_real_orbital.py", WORKFLOW)
         self.assertNotIn("--force-cube-fallback", WORKFLOW)
         self.assertIn("bash tests/c/run_matterviz_stream_test.sh", WORKFLOW)
+        self.assertIn("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1", WORKFLOW)
+        self.assertIn("matterviz-smoke/noop-home/tools/matterviz-desktop", WORKFLOW)
+        self.assertIn('$MULTIWFN_MATTERVIZ_SESSION/gui_stop.flag', WORKFLOW)
+        self.assertIn("grep -q 'MatterViz GUI launch failed'", WORKFLOW)
 
     def test_matterviz_file_dialog_uses_rust_host(self):
         block = FORTRAN.split("subroutine select_file_with_dialog", 1)[1].split(

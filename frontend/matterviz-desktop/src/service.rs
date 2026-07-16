@@ -53,6 +53,7 @@ pub struct HttpService {
 }
 
 impl HttpService {
+    #[cfg(test)]
     pub fn start(config: AppConfig) -> Result<Self, String> {
         Self::start_with_control(config, None)
     }
@@ -2209,7 +2210,7 @@ mod tests {
         (read, write)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn read_control_frame(reader: &mut std::fs::File) -> Vec<u8> {
         let mut header_bytes = [0_u8; HEADER_BYTES];
         reader.read_exact(&mut header_bytes).unwrap();

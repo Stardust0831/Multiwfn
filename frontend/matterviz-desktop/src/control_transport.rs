@@ -115,6 +115,7 @@ impl ControlTransport {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn read_frame(&mut self) -> Result<ControlFrame, ControlTransportError> {
         let reader = self.reader.as_mut().ok_or(ControlTransportError::Closed)?;
         let mut header = [0_u8; HEADER_BYTES];
@@ -164,6 +165,7 @@ impl Drop for ControlTransport {
     }
 }
 
+#[cfg(test)]
 fn read_exact<R: Read>(reader: &mut R, bytes: &mut [u8]) -> Result<(), ControlTransportError> {
     let mut offset = 0;
     while offset < bytes.len() {
@@ -402,7 +404,9 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::control_protocol::MessageType;
+    #[cfg(unix)]
     use serde_json::json;
     #[cfg(unix)]
     use std::os::fd::FromRawFd;

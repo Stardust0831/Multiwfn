@@ -206,7 +206,9 @@ change, block, or expand the current camera implementation and validation.
   end-to-end coverage for request/response,
   Return/close, failure cleanup and concurrent sessions. After every successful
   normal session, assert that no runtime intermediate file or session temporary
-  directory was created.
+  directory was created. Candidate `e1fa00f` failed before these gates completed;
+  its production dead-code lint, Windows-only test-helper cfg and headless Linux
+  diagnostic-launch issues are fixed locally and require a new committed SHA.
 - [x] Complete the final local zero-disk regression pass after lifecycle review
   fixes: strict native C control/picker tests, 82/82 C-to-Rust integration tests,
   `clippy -D warnings`, Rust formatting, 103/103 frontend tests, Svelte check,
