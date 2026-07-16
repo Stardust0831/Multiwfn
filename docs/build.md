@@ -17,35 +17,40 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The artifact-based 3Dmol GUI backend is also available through CMake. To build
-the native Qt shell by default:
+The native MatterViz GUI backend is also available through CMake. Build
+the frontend first, then the Rust host, then Multiwfn:
 
 ```sh
-cmake -S . -B build-qt-gui \
+pnpm --dir frontend/matterviz-viewer install --frozen-lockfile
+pnpm --dir frontend/matterviz-viewer build
+cargo build --manifest-path frontend/matterviz-desktop/Cargo.toml --release --locked
+cmake -S . -B build-matterviz-webview \
   -DCMAKE_BUILD_TYPE=Release \
-  -DMULTIWFN_GUI_BACKEND=3dmol \
-  -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt
-cmake --build build-qt-gui --parallel
+  -DMULTIWFN_GUI_BACKEND=matterviz
+cmake --build build-matterviz-webview --parallel
 ```
 
-This produces `Multiwfn_QtGUI`, copies `settings.ini` beside the executable,
-and stages its Python launchers plus web frontend under
-`build-qt-gui/resources/`. This is a development build layout, not a
-self-contained release package. The executable can be run directly from the
-build directory when its development runtime dependencies are available.
+This produces `Multiwfn_MatterVizGUI`, copies `settings.ini` beside the
+executable, and stages the Rust `matterviz-desktop` host plus the frontend under
+`build-matterviz-webview/resources/`. MatterViz resources do not stage the
+legacy 3Dmol frontend, Qt shell, or Python adapters. The executable can be run
+directly from the build directory when its native WebView dependencies are
+available; the package runtime does not require Python.
 
-Both 3Dmol shells require Python 3. The browser shell uses only the Python
-standard library plus the system's default browser. The Qt shell additionally
-requires PyQt6, and its embedded 3D viewer requires PyQt6-WebEngine. CMake
-checks these imports with the Python interpreter found at configure time and
-prints a warning when the selected shell's dependencies are unavailable. At
-runtime, set `MULTIWFN_3DMOL_PYTHON` to use a Python interpreter other than
-`python3` from `PATH`.
+The Fortran GUI/session adapter launches the Host with inherited `MWFNCTL` and
+`MWFNVOL` pipes. Manifest, structure, control messages and scalar volumes are
+transferred from memory; the stable `/session/*` and `/api/*` frontend URLs are
+served by Rust without creating a normal-session directory. `/api/return`
+sends a versioned shutdown message back to the adapter and closes the service.
+The native file picker similarly returns its result over `MWFNPICK` rather than
+writing a selection file.
 
-A browser-default build uses `MULTIWFN_3DMOL_DEFAULT_SHELL=browser` and
-produces `Multiwfn_3DmolGUI` with the same staged configuration and resources.
-Formal release packages use a separately tested, self-contained runtime and
-must not rely on this development staging layout.
+File-backed session and Cube behavior is retained only for explicit diagnostics
+with `MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1`. It is not the packaged formal
+runtime and a pipe failure does not silently select it. See
+[`matterviz-control-protocol.md`](matterviz-control-protocol.md) and
+[`matterviz-volume-protocol.md`](matterviz-volume-protocol.md) for the current
+runtime contract.
 
 The original DISLIN/Motif GUI remains outside the CMake build; use the upstream
 `Makefile` when that legacy backend is required.

@@ -1,0 +1,26 @@
+{
+  "name": "multiwfn-matterviz-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.11.1"
+  },
+  "scripts": {
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "dev": "vite --host 127.0.0.1",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r23.tgz",
+    "svelte": "^5.56.4"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "svelte-check": "^4.7.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.4"
+  },
+  "packageManager": "pnpm@11.5.0"
+}

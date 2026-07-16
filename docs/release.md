@@ -44,6 +44,20 @@ git push origin v2026.6.2-nogui.1
 The release remains noGUI-only. The original DISLIN/Motif GUI path is not part
 of the CMake release build.
 
+The separate MatterViz workflow publishes its first-class GUI packages from
+`v<Multiwfn-version>-matterviz.<revision>` tags. For example:
+
+```sh
+git tag -a v2026.7.10-matterviz.1 -m "Multiwfn 2026.7.10 MatterViz GUI"
+git push origin v2026.7.10-matterviz.1
+```
+
+That tag rebuilds and tests the Rust Host, MatterViz frontend and native
+Multiwfn executable on Linux, macOS and Windows, then publishes a formal Latest
+release. `matterviz-preview-*` tags continue to publish prereleases. Both paths
+reject Python/3Dmol runtime files and use the same real-orbital and zero-runtime-
+artifact package gates.
+
 Windows noGUI executables embed `Multiwfn.ico` through `Multiwfn.rc`. The icon
 asset follows the upstream Multiwfn visual identity and is carried with the same
 source/release license obligations as the rest of this redistributed Multiwfn

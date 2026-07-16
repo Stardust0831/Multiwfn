@@ -1,0 +1,16 @@
+{
+  "structure": {
+    "path": "structure.json",
+    "format": "json"
+  },
+  "cubes": [],
+  "periodic": {
+    "enabled": true,
+    "showUnitCell": true,
+    "ranges": {
+      "a": [0, 1],
+      "b": [0, 1],
+      "c": [0, 1]
+    }
+  }
+}

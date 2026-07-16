@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 /path/to/Multiwfn_3DmolGUI" >&2
+  echo "Usage: $0 /path/to/Multiwfn_MatterVizGUI" >&2
   exit 2
 fi
 
@@ -33,9 +33,9 @@ EOF
 mkdir -p "$workdir/session"
 (
   cd "$workdir"
-  MULTIWFN_3DMOL_SESSION="$workdir/session" \
-  MULTIWFN_3DMOL_SHELL=browser \
-  MULTIWFN_3DMOL_PYTHON="$(command -v true)" \
+  MULTIWFN_MATTERVIZ_SESSION="$workdir/session" \
+  MULTIWFN_MATTERVIZ_SHELL=browser \
+  MULTIWFN_MATTERVIZ_PYTHON="$(command -v true)" \
     "$exe" tiny.cube <<'EOF' > multiwfn.out
 13
 -2
@@ -45,9 +45,9 @@ EOF
 )
 
 cube="$workdir/session/cubmat.cube"
-xyz="$workdir/session/structure.xyz"
+structure="$workdir/session/structure.json"
 test -f "$cube"
-test -f "$xyz"
+test -f "$structure"
 
 awk '
   NR == 3 && ($1 != 1 || $2 != 2.0 || $3 != -1.0 || $4 != 0.5) { exit 1 }
@@ -57,12 +57,18 @@ awk '
   NR == 7 && ($1 != 8 || $3 != 1.25 || $4 != -0.75 || $5 != 0.5) { exit 1 }
 ' "$cube"
 
-awk '
-  NR == 3 {
-    tolerance = 0.000001
-    if ($1 != "O" || ($2 - 0.6614715)^2 > tolerance^2 || \
-        ($3 + 0.3968829)^2 > tolerance^2 || ($4 - 0.2645886)^2 > tolerance^2) exit 1
-  }
-' "$xyz"
+python3 - "$structure" <<'PY'
+import json
+import math
+import sys
 
-echo "3Dmol cube coordinate unit test passed"
+structure = json.load(open(sys.argv[1], encoding="utf-8"))
+assert len(structure["sites"]) == 1
+site = structure["sites"][0]
+assert site["species"][0]["element"] == "O"
+expected = (0.6614715, -0.3968829, 0.2645886)
+assert all(math.isclose(actual, target, abs_tol=1e-6) for actual, target in zip(site["xyz"], expected))
+assert structure["properties"]["bonds"] == []
+PY
+
+echo "MatterViz cube and structure JSON unit test passed"

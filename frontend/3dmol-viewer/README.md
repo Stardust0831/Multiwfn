@@ -65,9 +65,9 @@ isosurface, and colors that surface by a separate ESP-like cube. It is not a
 physical calculation result.
 
 The workbench does not run wavefunction calculations itself. In the current
-GUI-demo build, `noGUI/GUI_3dmol.f90` is compiled as Multiwfn's `module GUI`;
+GUI-demo build, `noGUI/GUI_matterviz.f90` is compiled as Multiwfn's `module GUI`;
 when a GUI entry point is invoked, Multiwfn writes structure/cube artifacts and
-a manifest, then starts `tools/multiwfn_3dmol_server.py` so this frontend can
+a manifest, then starts `tools/multiwfn_matterviz_server.py` so this frontend can
 load the generated session.
 
 Example manifest:

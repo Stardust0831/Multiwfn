@@ -16,8 +16,9 @@ comparison against official Multiwfn output.
 - Report build, packaging, runtime, or numerical reproducibility issues.
 - Add compact public test fixtures for functional and performance checks.
 - Improve CI, CMake, release packaging, and dependency handling.
-- Improve the 3Dmol/Qt GUI prototype while keeping it compatible with the
-  original Multiwfn GUI workflows.
+- Improve the MatterViz GUI and native WebView shell while keeping them
+  compatible with the original Multiwfn GUI workflows. The older 3Dmol/Qt
+  prototype is retained only as legacy reference material.
 - Document platform-specific build and runtime behavior.
 
 ## Issues
@@ -56,7 +57,7 @@ also applies to official-source synchronization pull requests.
 For GUI work, prefer an adapter-style design. The long-term goal is frontend and
 backend separation: replace the legacy DISLIN GUI backend without rewriting
 computational modules. GUI changes should normally live in `frontend/`, `tools/`,
-documentation, or dedicated GUI adapter files such as `noGUI/GUI_3dmol.f90`.
+documentation, or dedicated GUI adapter files such as `noGUI/GUI_matterviz.f90`.
 
 ## GUI Integration Principles
 

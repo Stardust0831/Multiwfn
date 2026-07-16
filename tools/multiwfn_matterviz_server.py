@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Local HTTP service for the Multiwfn 3Dmol GUI demo."""
+"""Local HTTP service for the Multiwfn MatterViz GUI."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import http.server
 import json
 import math
@@ -29,6 +30,10 @@ FBO_REQUEST_TIMEOUT = 900.0
 ESP_REQUEST_TIMEOUT = 900.0
 BACKEND_REQUEST_POLL_INTERVAL = 0.2
 MAX_DYNAMIC_ORBITAL_CUBES = 12
+ORBITAL_GRID_MIN = 25000
+ORBITAL_GRID_MAX = 1500000
+ORBITAL_ISOVALUE_MIN = 0.0
+ORBITAL_ISOVALUE_MAX = 1.0
 BOND_METHODS = frozenset(("mayer", "gwbo", "wiberg_lowdin", "mulliken", "fbo"))
 ESP_QUALITY_LEVELS = frozenset((25000, 50000, 120000, 300000, 500000, 1000000, 1500000))
 LAST_REQUEST_ID = 0
@@ -37,17 +42,15 @@ BACKEND_UNAVAILABLE_MESSAGE = (
 )
 
 
-def find_free_port(host: str, preferred: int) -> int:
-    if preferred > 0:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            try:
-                probe.bind((host, preferred))
-                return preferred
-            except OSError:
-                pass
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind((host, 0))
-        return int(probe.getsockname()[1])
+class OrbitalRequestError(ValueError):
+    """A client supplied an invalid orbital request."""
+
+
+@dataclass(frozen=True)
+class OrbitalRequest:
+    index: int
+    quality: int
+    isovalue: float
 
 
 def send_file(handler: http.server.BaseHTTPRequestHandler, path: Path) -> None:
@@ -72,6 +75,19 @@ def send_json(handler: http.server.BaseHTTPRequestHandler, payload: dict, status
     handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
     handler.wfile.write(data)
+
+
+def workbench_query(*, state: Path | None = None) -> str:
+    """Build the frontend query while keeping the fixed session routes opaque."""
+    query = {"manifest": "/session/manifest.json"}
+    if state is not None:
+        query["state"] = "/session/workbench-state.json"
+    return urllib.parse.urlencode(query, safe="/")
+
+
+def build_workbench_url(host: str, port: int, *, state: Path | None = None) -> str:
+    url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return f"http://{url_host}:{port}/index.html?{workbench_query(state=state)}"
 
 
 def cleanup_session_files(session_dir: Path, *, startup: bool = False) -> None:
@@ -150,11 +166,23 @@ def request_backend(
                 except (OSError, json.JSONDecodeError):
                     pass
 
+            if stop.is_file():
+                if not consumed:
+                    try:
+                        pending = request.read_text(encoding="utf-8")
+                    except FileNotFoundError:
+                        consumed = True
+                    else:
+                        if pending.startswith(f"{reqid} "):
+                            try:
+                                request.unlink()
+                            except FileNotFoundError:
+                                pass
+                return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
+
             if not consumed:
                 if not request.is_file():
                     consumed = True
-                elif stop.is_file():
-                    return {"ok": False, "message": BACKEND_UNAVAILABLE_MESSAGE}
                 elif time.monotonic() >= consume_deadline:
                     try:
                         pending = request.read_text(encoding="utf-8")
@@ -174,13 +202,78 @@ def request_backend(
         return {"ok": False, "message": timeout_message}
 
 
-def request_orbital(session_dir: Path, query: dict[str, list[str]]) -> dict:
-    index = int(query.get("index", ["0"])[0] or 0)
-    quality = int(query.get("quality", ["0"])[0] or 0)
-    isovalue = float(query.get("isovalue", ["0.0"])[0] or 0.0)
+def manifest_orbital_count(manifest: Path | None) -> int | None:
+    """Read a trustworthy orbital count without making manifest failures fatal."""
+    if manifest is None:
+        return None
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    orbitals = payload.get("orbitals") if isinstance(payload, dict) else None
+    multiwfn_gui = payload.get("multiwfnGui") if isinstance(payload, dict) else None
+    gui_state = multiwfn_gui.get("state") if isinstance(multiwfn_gui, dict) else None
+    candidates = (
+        orbitals.get("count") if isinstance(orbitals, dict) else None,
+        gui_state.get("orbitalCount") if isinstance(gui_state, dict) else None,
+    )
+    for candidate in candidates:
+        if isinstance(candidate, bool):
+            continue
+        if isinstance(candidate, int) and candidate >= 0:
+            return candidate
+        if isinstance(candidate, float) and math.isfinite(candidate) and candidate.is_integer() and candidate >= 0:
+            return int(candidate)
+    return None
+
+
+def _query_scalar(query: dict[str, list[str]], name: str, default: str) -> str:
+    values = query.get(name)
+    if values is None:
+        return default
+    if not isinstance(values, list) or len(values) != 1:
+        raise OrbitalRequestError(f"Orbital {name} must be provided once")
+    value = values[0]
+    if not isinstance(value, str):
+        raise OrbitalRequestError(f"Orbital {name} must be text")
+    return value.strip() or default
+
+
+def parse_orbital_request(
+    query: dict[str, list[str]], *, orbital_count: int | None = None
+) -> OrbitalRequest:
+    """Parse and bound an orbital request before touching the backend request file."""
+    try:
+        index = int(_query_scalar(query, "index", "0"), 10)
+        quality = int(_query_scalar(query, "quality", "0"), 10)
+        isovalue = float(_query_scalar(query, "isovalue", "0.0"))
+    except OrbitalRequestError:
+        raise
+    except (TypeError, ValueError):
+        raise OrbitalRequestError("Orbital index and quality must be integers; isovalue must be numeric") from None
+
+    if index < 0 or (orbital_count is not None and index > orbital_count):
+        if orbital_count is None:
+            raise OrbitalRequestError("Orbital index must be a non-negative integer")
+        raise OrbitalRequestError(f"Orbital index must be between 0 and {orbital_count}")
+    if quality != 0 and not ORBITAL_GRID_MIN <= quality <= ORBITAL_GRID_MAX:
+        raise OrbitalRequestError(
+            f"Orbital quality must be 0 or between {ORBITAL_GRID_MIN} and {ORBITAL_GRID_MAX} grid points"
+        )
+    if not math.isfinite(isovalue) or not ORBITAL_ISOVALUE_MIN <= isovalue <= ORBITAL_ISOVALUE_MAX:
+        raise OrbitalRequestError(
+            f"Orbital isovalue must be finite and between {ORBITAL_ISOVALUE_MIN:g} and {ORBITAL_ISOVALUE_MAX:g}"
+        )
+    return OrbitalRequest(index=index, quality=quality, isovalue=isovalue)
+
+
+def request_orbital(
+    session_dir: Path, query: dict[str, list[str]], *, manifest: Path | None = None
+) -> dict:
+    request = parse_orbital_request(query, orbital_count=manifest_orbital_count(manifest))
     payload = request_backend(
         session_dir,
-        f"orbital {index} {quality} {isovalue:.10g}",
+        f"orbital {request.index} {request.quality} {request.isovalue:.10g}",
         timeout=ORBITAL_REQUEST_TIMEOUT,
         timeout_message="Timed out waiting for Multiwfn orbital grid",
     )
@@ -273,15 +366,35 @@ def try_open_url(url: str) -> bool:
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
+    allow_reuse_address = False
+    allow_reuse_port = False
+
+    def server_bind(self) -> None:
+        # On Windows SO_REUSEADDR permits multiple live servers to bind the
+        # same address. A later WebView can then reach an older session even
+        # though both launchers report the same URL.
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
-def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
-    class Multiwfn3DmolHandler(http.server.SimpleHTTPRequestHandler):
+def bind_http_server(host: str, preferred_port: int, handler):
+    """Bind once, falling back to an OS-assigned port when preferred is busy."""
+    try:
+        return ThreadingHTTPServer((host, preferred_port), handler)
+    except OSError:
+        if preferred_port == 0:
+            raise
+        return ThreadingHTTPServer((host, 0), handler)
+
+
+def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path, state: Path | None = None):
+    class MultiwfnMatterVizHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(frontend_dir), **kwargs)
 
         def log_message(self, fmt: str, *args) -> None:
-            sys.stderr.write("[multiwfn-3dmol] " + fmt % args + "\n")
+            sys.stderr.write("[multiwfn-matterviz] " + fmt % args + "\n")
 
         def do_HEAD(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
@@ -298,7 +411,7 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
             query = urllib.parse.parse_qs(parsed.query)
 
             if request_path in ("", "/"):
-                target = "/index.html?manifest=/session/manifest.json"
+                target = f"/index.html?{workbench_query(state=state)}"
                 self.send_response(302)
                 self.send_header("Location", target)
                 self.end_headers()
@@ -311,7 +424,9 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
 
             if request_path == "/api/orbital":
                 try:
-                    send_json(self, request_orbital(session_dir, query))
+                    send_json(self, request_orbital(session_dir, query, manifest=manifest))
+                except OrbitalRequestError as exc:
+                    send_json(self, {"ok": False, "message": str(exc)}, status=400)
                 except Exception as exc:
                     send_json(self, {"ok": False, "message": str(exc)}, status=500)
                 return
@@ -340,6 +455,13 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
                 send_file(self, manifest)
                 return
 
+            if request_path == "/session/workbench-state.json":
+                if state is None:
+                    self.send_error(404, "Workbench state not found")
+                else:
+                    send_file(self, state)
+                return
+
             if request_path.startswith("/session/"):
                 rel = request_path[len("/session/") :]
                 candidate = (session_dir / rel).resolve()
@@ -353,14 +475,23 @@ def make_handler(frontend_dir: Path, session_dir: Path, manifest: Path):
 
             super().do_GET()
 
-    return Multiwfn3DmolHandler
+    return MultiwfnMatterVizHandler
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Serve the Multiwfn 3Dmol GUI demo")
-    parser.add_argument("--frontend", default="frontend/3dmol-viewer", help="Path to the 3Dmol frontend directory")
-    parser.add_argument("--session", default="multiwfn_3dmol_session", help="Path to the generated GUI session")
+    parser = argparse.ArgumentParser(description="Serve the Multiwfn MatterViz visualization frontend")
+    parser.add_argument(
+        "--frontend",
+        default="frontend/matterviz-viewer/dist",
+        help="Path to the MatterViz frontend directory",
+    )
+    parser.add_argument(
+        "--session",
+        default="multiwfn_matterviz_session",
+        help="Path to the generated MatterViz GUI session",
+    )
     parser.add_argument("--manifest", default=None, help="Path to the generated manifest")
+    parser.add_argument("--state", default=None, help="Optional path to a workbench state JSON file")
     parser.add_argument("--host", default="127.0.0.1", help="HTTP bind address")
     parser.add_argument("--port", type=int, default=8765, help="Preferred HTTP port")
     parser.add_argument("--open", action="store_true", help="Open the frontend in the default browser")
@@ -371,6 +502,7 @@ def main() -> int:
     frontend_dir = Path(args.frontend).expanduser().resolve()
     session_dir = Path(args.session).expanduser().resolve()
     manifest = Path(args.manifest).expanduser().resolve() if args.manifest else session_dir / "manifest.json"
+    state = Path(args.state).expanduser().resolve() if args.state else None
     cleanup_session_files(session_dir, startup=True)
 
     if not frontend_dir.is_dir():
@@ -379,13 +511,20 @@ def main() -> int:
     if not manifest.is_file():
         print(f"Manifest not found: {manifest}", file=sys.stderr)
         return 2
+    if state is not None and not state.is_file():
+        print(f"Workbench state not found: {state}", file=sys.stderr)
+        return 2
 
-    port = find_free_port(args.host, args.port)
-    handler = make_handler(frontend_dir, session_dir, manifest)
-    server = ThreadingHTTPServer((args.host, port), handler)
-    url = f"http://{args.host}:{port}/index.html?manifest=/session/manifest.json"
+    handler = make_handler(frontend_dir, session_dir, manifest, state)
+    try:
+        server = bind_http_server(args.host, args.port, handler)
+    except OSError as exc:
+        print(f"Could not bind MatterViz GUI service: {exc}", file=sys.stderr)
+        return 2
+    port = int(server.server_address[1])
+    url = build_workbench_url(args.host, port, state=state)
 
-    print(f"Multiwfn 3Dmol GUI service: {url}")
+    print(f"Multiwfn MatterViz GUI service: {url}")
     if args.open and not args.no_open:
         def open_or_report() -> None:
             if not try_open_url(url):
@@ -398,7 +537,7 @@ def main() -> int:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            input("Press ENTER to stop the 3Dmol GUI service...")
+            input("Press ENTER to stop the MatterViz GUI service...")
         finally:
             server.shutdown()
         return 0
@@ -406,7 +545,7 @@ def main() -> int:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping Multiwfn 3Dmol GUI service.")
+        print("\nStopping Multiwfn MatterViz GUI service.")
     finally:
         server.server_close()
     return 0

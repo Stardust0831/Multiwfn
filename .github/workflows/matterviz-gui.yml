@@ -1,0 +1,607 @@
+name: matterviz-gui
+
+on:
+  push:
+    branches:
+      - feature/matterviz-gui
+    tags:
+      - 'matterviz-preview-*'
+      - 'v*-matterviz.*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - CMakeLists.txt
+      - noGUI/GUI_matterviz.f90
+      - noGUI/matterviz_spawn.c
+      - frontend/matterviz-desktop/**
+      - tests/test_gui_session_paths.py
+      - tests/test_matterviz_build_names.py
+      - tests/matterviz-volume-e2e/**
+      - tests/fixtures/**
+      - tests/linux/**
+      - tests/windows/test_matterviz_async_launch.ps1
+      - frontend/matterviz-viewer/**
+      - docs/matterviz-webview.md
+      - .github/workflows/matterviz-gui.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: matterviz-gui-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: MatterViz frontend and Rust host
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.11.1
+          cache: pnpm
+          cache-dependency-path: frontend/matterviz-viewer/pnpm-lock.yaml
+
+      - name: Check and build MatterViz frontend
+        working-directory: frontend/matterviz-viewer
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm check
+          pnpm build
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88.0'
+          components: rustfmt, clippy
+
+      - name: Install Multiwfn and WebView build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            gfortran cmake ninja-build libblas-dev liblapack-dev \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            libdbus-1-dev libwayland-dev patchelf
+
+      - name: Validate MatterViz WebView configuration
+        run: python3 frontend/matterviz-desktop/scripts/validate-config.py
+
+      - name: Test MatterViz Rust host
+        working-directory: frontend/matterviz-desktop
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked
+          cargo check --locked
+          cargo clippy --locked -- -D warnings
+          cargo build --release --locked
+
+      - name: Test C-to-Rust binary volume transport
+        run: |
+          cargo fmt --manifest-path tests/matterviz-volume-e2e/Cargo.toml -- --check
+          cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
+          cargo clippy --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked -- -D warnings
+          bash tests/c/run_matterviz_stream_test.sh
+
+      - name: Test MatterViz build contract
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py
+
+      - name: Build Multiwfn with MatterViz frontend
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-matterviz-gui -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMULTIWFN_GUI_BACKEND=matterviz \
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
+          cmake --build build-matterviz-gui --parallel 2
+          test -x build-matterviz-gui/Multiwfn_MatterVizGUI
+          test -x build-matterviz-gui/resources/tools/matterviz-desktop
+          test -f build-matterviz-gui/resources/frontend/matterviz-viewer/dist/index.html
+
+  package:
+    name: Package MatterViz WebView (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: Linux
+          - os: macos-latest
+            platform: macOS
+          - os: windows-latest
+            platform: Windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.11.1
+          cache: pnpm
+          cache-dependency-path: frontend/matterviz-viewer/pnpm-lock.yaml
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88.0'
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            gfortran cmake ninja-build libblas-dev liblapack-dev \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            libdbus-1-dev libwayland-dev patchelf xvfb dbus-x11
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install gcc cmake ninja dylibbundler
+          echo "FC=$(ls $(brew --prefix)/bin/gfortran-* | sort -V | tail -n 1)" >> "$GITHUB_ENV"
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc-fortran
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-openblas
+
+      - name: Build MatterViz frontend
+        working-directory: frontend/matterviz-viewer
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Build MatterViz desktop shell
+        working-directory: frontend/matterviz-desktop
+        run: |
+          cargo test --locked
+          cargo check --locked
+          cargo build --release --locked
+
+      - name: Test C-to-Rust binary volume transport
+        run: cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
+
+      - name: Test native control and picker IPC on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/c/run_matterviz_stream_test.sh
+
+      - name: Build Multiwfn MatterViz executable
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            rpath=''
+          else
+            rpath='$ORIGIN/resources/lib'
+          fi
+          cmake -S . -B build-matterviz-package -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_RPATH="$rpath" \
+            -DMULTIWFN_GUI_BACKEND=matterviz \
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
+          cmake --build build-matterviz-package --parallel 2
+
+      - name: Build Multiwfn MatterViz executable on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-matterviz-package -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMULTIWFN_GUI_BACKEND=matterviz \
+            -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
+          cmake --build build-matterviz-package --parallel 2
+
+      - name: Prepare package layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_REF_NAME:-ci}"
+          ref="${ref//\//-}"
+          pkg="Multiwfn-MatterViz-${ref}-${{ matrix.platform }}"
+          echo "PKG=$pkg" >> "$GITHUB_ENV"
+          mkdir -p "package/$pkg/resources/tools" "package/$pkg/resources/frontend/matterviz-viewer" "package/$pkg/resources/lib"
+          cp LICENSE.txt "package/$pkg/LICENSE.txt"
+          cp settings.ini "package/$pkg/settings.ini"
+          cp -R frontend/matterviz-viewer/dist "package/$pkg/resources/frontend/matterviz-viewer/"
+          cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
+          MatterViz WebView package
+
+          Run Multiwfn_MatterVizGUI (Multiwfn_MatterVizGUI.exe on Windows). GUI entry
+          points start the bundled Rust MatterViz host and WebView.
+
+          Requirements:
+          - Windows: Microsoft Edge WebView2 Runtime
+          - Linux: glibc 2.35 or newer and a desktop session with WebKitGTK 4.1
+
+          The package is self-contained and does not require Python.
+
+          This is a prerelease for manual parity validation, not a final release.
+          EOF
+          test -f "package/$pkg/resources/frontend/matterviz-viewer/dist/index.html"
+
+      - name: Package Linux preview
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp build-matterviz-package/Multiwfn_MatterVizGUI "package/$PKG/Multiwfn_MatterVizGUI"
+          cp frontend/matterviz-desktop/target/release/matterviz-desktop \
+            "package/$PKG/resources/tools/matterviz-desktop"
+          for binary in build-matterviz-package/Multiwfn_MatterVizGUI frontend/matterviz-desktop/target/release/matterviz-desktop; do
+            if objdump -T "$binary" | grep -Eq 'GLIBC_(2\.(3[6-9]|[4-9][0-9])|[3-9]\.)'; then
+              echo "Found a GLIBC dependency newer than the declared 2.35 floor in $binary" >&2
+              exit 1
+            fi
+          done
+          ldd build-matterviz-package/Multiwfn_MatterVizGUI | awk '/=> \// {print $3}' | while read -r lib; do
+            base="$(basename "$lib")"
+            case "$base" in
+              libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|ld-linux-*.so.*|libmvec.so.*|librt.so.*|libresolv.so.*)
+                ;;
+              *)
+                cp -L -n "$lib" "package/$PKG/resources/lib/$base"
+                ;;
+            esac
+          done
+          chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
+          find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
+          mkdir -p dist
+          tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
+
+      - name: Test extracted Linux WebView package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf clean-test matterviz-smoke
+          mkdir clean-test matterviz-smoke
+          tar -xzf "dist/$PKG.tar.gz" -C clean-test
+          root="$PWD/clean-test/$PKG"
+          cat > matterviz-smoke/tiny.cube <<'EOF'
+          MatterViz package smoke
+          Coordinates are in Bohr
+              1    0.000000    0.000000    0.000000
+              2    0.400000    0.000000    0.000000
+              2    0.000000    0.400000    0.000000
+              2    0.000000    0.000000    0.400000
+              8    0.000000    0.000000    0.000000    0.000000
+            1.000000E-01  2.000000E-01  3.000000E-01  4.000000E-01
+            5.000000E-01  6.000000E-01  7.000000E-01  8.000000E-01
+          EOF
+          mkdir -p matterviz-smoke/session matterviz-smoke/noop-home/tools
+          cat > matterviz-smoke/noop-home/tools/matterviz-desktop <<'EOF'
+          #!/bin/sh
+          test -n "${MULTIWFN_MATTERVIZ_SESSION:-}" || exit 2
+          : > "$MULTIWFN_MATTERVIZ_SESSION/gui_stop.flag"
+          EOF
+          chmod +x matterviz-smoke/noop-home/tools/matterviz-desktop
+          (
+            cd matterviz-smoke
+            MULTIWFN_MATTERVIZ_SESSION="$PWD/session" \
+              MULTIWFN_MATTERVIZ_HOME="$PWD/noop-home" \
+              MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1 \
+              "$root/Multiwfn_MatterVizGUI" tiny.cube <<'EOF' > multiwfn.out
+          13
+          -2
+          -1
+          q
+          EOF
+          )
+          if grep -q 'MatterViz GUI launch failed' matterviz-smoke/multiwfn.out; then
+            cat matterviz-smoke/multiwfn.out >&2
+            exit 1
+          fi
+          test -f matterviz-smoke/session/manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          session = Path("matterviz-smoke/session")
+          manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+          assert manifest["structure"] == {"path": "structure.json", "format": "json"}
+          structure = json.loads((session / "structure.json").read_text(encoding="utf-8"))
+          assert len(structure["sites"]) == 1
+          assert structure["sites"][0]["species"][0]["element"] == "O"
+          assert structure["properties"]["bonds"] == []
+          PY
+          rm -f matterviz-smoke/session/gui_stop.flag
+          dbus-run-session -- xvfb-run -a env \
+            GDK_BACKEND=x11 \
+            NO_AT_BRIDGE=1 \
+            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+            "$root/resources/tools/matterviz-desktop" \
+              --frontend "$root/resources/frontend/matterviz-viewer/dist" \
+              --session "$PWD/matterviz-smoke/session" \
+              --manifest "$PWD/matterviz-smoke/session/manifest.json" \
+              --port 18765 \
+              --startup-timeout 60 >matterviz-smoke/host.log 2>&1 &
+          host_pid=$!
+          ready=0
+          for _ in $(seq 1 140); do
+            if curl -fsS http://127.0.0.1:18765/session/manifest.json >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            kill -0 "$host_pid" 2>/dev/null || break
+            sleep 0.5
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat matterviz-smoke/host.log >&2
+            exit 1
+          fi
+          capability="$(sed -n 's/.*[?&]cap=\([0-9a-f]\{64\}\).*/\1/p' matterviz-smoke/host.log | tail -n 1)"
+          test -n "$capability"
+          return_payload="$(curl -fsS "http://127.0.0.1:18765/api/return?cap=$capability")"
+          test "$return_payload" = '{"ok":true}'
+          wait "$host_pid"
+          test -f matterviz-smoke/session/gui_stop.flag
+          dbus-run-session -- xvfb-run -a env \
+            GDK_BACKEND=x11 \
+            NO_AT_BRIDGE=1 \
+            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+            python3 tests/linux/test_matterviz_real_orbital.py \
+              --executable "$root/Multiwfn_MatterVizGUI"
+      - name: Package macOS preview
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp build-matterviz-package/Multiwfn_MatterVizGUI "package/$PKG/Multiwfn_MatterVizGUI"
+          cp frontend/matterviz-desktop/target/release/matterviz-desktop \
+            "package/$PKG/resources/tools/matterviz-desktop"
+          chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
+          otool -l "package/$PKG/Multiwfn_MatterVizGUI" \
+            | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' > /tmp/multiwfn-rpaths.txt
+          while IFS= read -r rpath; do
+            [ -z "$rpath" ] || install_name_tool -delete_rpath "$rpath" "package/$PKG/Multiwfn_MatterVizGUI"
+          done < /tmp/multiwfn-rpaths.txt
+          dylibbundler -od -b \
+            -x "package/$PKG/Multiwfn_MatterVizGUI" \
+            -d "package/$PKG/resources/lib" \
+            -p @executable_path/resources/lib
+          if otool -L "package/$PKG/Multiwfn_MatterVizGUI" | grep -E '/(opt/homebrew|usr/local)/'; then
+            echo "Unrelocated Homebrew dependency remains in Multiwfn" >&2
+            exit 1
+          fi
+          if otool -L "package/$PKG/resources/tools/matterviz-desktop" | grep -E '/(opt/homebrew|usr/local)/'; then
+            echo "Unexpected Homebrew dependency remains in MatterViz Desktop" >&2
+            exit 1
+          fi
+          for binary in "package/$PKG/Multiwfn_MatterVizGUI" package/"$PKG"/resources/lib/*.dylib; do
+            duplicates="$(otool -l "$binary" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | sort | uniq -d)"
+            if [ -n "$duplicates" ]; then
+              echo "Duplicate LC_RPATH in $binary: $duplicates" >&2
+              exit 1
+            fi
+          done
+          find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
+          mkdir -p dist
+          tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
+
+      - name: Test extracted macOS package
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf clean-test
+          mkdir clean-test
+          tar -xzf "dist/$PKG.tar.gz" -C clean-test
+          root="$PWD/clean-test/$PKG"
+          bash tests/functional/run_nogui_tests.sh "$root/Multiwfn_MatterVizGUI"
+
+      - name: Package Windows preview
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
+          cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
+            "package/$PKG/resources/tools/matterviz-desktop.exe"
+          : > windows-dlls.log
+          processed=""
+          while :; do
+            changed=0
+            for binary in "package/$PKG/Multiwfn_MatterVizGUI.exe" \
+              "package/$PKG/resources/tools/matterviz-desktop.exe" \
+              package/"$PKG"/*.dll package/"$PKG"/resources/tools/*.dll; do
+              [ -e "$binary" ] || continue
+              case " $processed " in *" $binary "*) continue ;; esac
+              processed="$processed $binary"
+              for dll in $(objdump -p "$binary" | awk '/DLL Name:/ {print $3}'); do
+                dll_lower="$(printf '%s' "$dll" | tr '[:upper:]' '[:lower:]')"
+                case "$dll_lower" in
+                  kernel32.dll|kernelbase.dll|ntdll.dll|msvcrt.dll|ucrtbase.dll|user32.dll|advapi32.dll|shell32.dll|shlwapi.dll|ws2_32.dll|bcrypt.dll|bcryptprimitives.dll|gdi32.dll|gdi32full.dll|ole32.dll|oleaut32.dll|comdlg32.dll|comctl32.dll|userenv.dll|winmm.dll|version.dll|imm32.dll|rpcrt4.dll|crypt32.dll|cryptbase.dll|secur32.dll|setupapi.dll|dwmapi.dll|uxtheme.dll|normaliz.dll|propsys.dll|wtsapi32.dll|d3d11.dll|dxgi.dll|dwrite.dll|iphlpapi.dll|api-ms-win-*.dll) ;;
+                  *)
+                    dll_path="$(command -v "$dll" || true)"
+                    [ -n "$dll_path" ] || [ ! -f "$MINGW_PREFIX/bin/$dll" ] || dll_path="$MINGW_PREFIX/bin/$dll"
+                    [ -n "$dll_path" ] || { echo "Missing runtime DLL: $dll" >&2; exit 1; }
+                    target_dir="$(dirname "$binary")"
+                    [ -f "$target_dir/$dll" ] || { cp "$dll_path" "$target_dir/"; changed=1; }
+                    ;;
+                esac
+              done
+            done
+            [ "$changed" -eq 1 ] || break
+          done
+      - name: Verify Windows shell and create archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem "package/$env:PKG" -Directory -Recurse -Filter __pycache__ | Remove-Item -Recurse -Force
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "package/$env:PKG/*" -DestinationPath "dist/$env:PKG.zip" -Force
+          Remove-Item -Recurse -Force clean-test -ErrorAction SilentlyContinue
+          Expand-Archive "dist/$env:PKG.zip" -DestinationPath clean-test
+          $env:Path = (($env:Path -split ';') | Where-Object { $_ -notmatch 'msys64' }) -join ';'
+          pwsh -NoProfile -File tests/windows/test_matterviz_async_launch.ps1 `
+            -ExecutablePath "$PWD/clean-test/Multiwfn_MatterVizGUI.exe"
+          if ($LASTEXITCODE -ne 0) { throw "MatterViz asynchronous launch regression failed" }
+          $cleanShell = "clean-test/resources/tools/matterviz-desktop.exe"
+          $work = Join-Path $PWD "clean-test-work"
+          Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $work | Out-Null
+          @"
+          3
+          water
+          O 0 0 0
+          H 0 0 0.96
+          H 0.92 0 -0.24
+          "@ | Set-Content -Path "$work/water.xyz" -Encoding ascii
+          "26`n1`n`nq`n0`nq`n" | & "$PWD/clean-test/Multiwfn_MatterVizGUI.exe" "$work/water.xyz" > "$work/geometry.out"
+          Select-String -Path "$work/geometry.out" -SimpleMatch "Formula: H2 O1" | Out-Null
+          $session = Join-Path $PWD "windows-webview-smoke/session"
+          New-Item -ItemType Directory -Force $session | Out-Null
+          '{"sites":[{"species":[{"element":"H","occu":1,"oxidation_state":0}],"abc":[0,0,0],"xyz":[0,0,0],"label":"H1","properties":{}}],"charge":0,"properties":{"bonds":[]}}' | Set-Content -Path "$session/structure.json" -Encoding ascii
+          '{"structure":{"path":"structure.json","format":"json"},"cubes":[]}' | Set-Content -Path "$session/manifest.json" -Encoding ascii
+          $frontend = Join-Path $PWD "clean-test/resources/frontend/matterviz-viewer/dist"
+          $hostOut = Join-Path $PWD "windows-webview-smoke/host.out"
+          $hostErr = Join-Path $PWD "windows-webview-smoke/host.err"
+          $hostProcess = Start-Process -FilePath $cleanShell -ArgumentList @(
+            "--frontend", $frontend, "--session", $session,
+            "--manifest", "$session/manifest.json", "--port", "18766",
+            "--startup-timeout", "30"
+          ) -RedirectStandardOutput $hostOut -RedirectStandardError $hostErr -PassThru
+          $ready = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            try {
+              $null = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18766/session/manifest.json" -TimeoutSec 2
+              $ready = $true
+              break
+            }
+            catch { }
+            if ($hostProcess.HasExited) { break }
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not $ready) {
+            if (Test-Path $hostOut) { Get-Content $hostOut }
+            if (Test-Path $hostErr) { Get-Content $hostErr }
+            throw "Extracted Windows Rust host did not start its session service"
+          }
+          $hostLog = ((Get-Content $hostErr -Raw) + "`n" + (Get-Content $hostOut -Raw))
+          $capabilityMatch = [regex]::Match($hostLog, '[?&]cap=([0-9a-f]{64})')
+          if (-not $capabilityMatch.Success) { throw "Windows Rust host capability missing" }
+          $capability = $capabilityMatch.Groups[1].Value
+          $returnPayload = Invoke-RestMethod -Uri "http://127.0.0.1:18766/api/return?cap=$capability"
+          if (-not $returnPayload.ok) { throw "Windows Rust host Return request failed" }
+          if (-not $hostProcess.WaitForExit(30000)) {
+            $hostProcess.Kill()
+            throw "Windows Rust host did not stop after /api/return"
+          }
+          if ($hostProcess.ExitCode -ne 0) { throw "Windows Rust host returned $($hostProcess.ExitCode)" }
+          if (-not (Test-Path "$session/gui_stop.flag")) { throw "Windows Rust host stop flag missing" }
+
+      - name: Verify package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "package/$PKG/LICENSE.txt"
+          test -f "package/$PKG/README-MatterViz.txt"
+          test -f "package/$PKG/settings.ini"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            test -f "package/$PKG/resources/tools/matterviz-desktop.exe"
+          else
+            test -x "package/$PKG/resources/tools/matterviz-desktop"
+          fi
+          test -f "package/$PKG/resources/frontend/matterviz-viewer/dist/index.html"
+          test -n "$(find "package/$PKG/resources/frontend/matterviz-viewer/dist/assets" -type f -print -quit)"
+          if find "package/$PKG" \
+            \( -type f \( -name '*.py' -o -name '*.pyc' -o -name '*.pyo' -o -name 'requirements*.txt' \) \
+               -o -type d -name __pycache__ \) -print -quit | grep -q .; then
+            echo "MatterViz package unexpectedly contains a Python runtime artifact" >&2
+            exit 1
+          fi
+
+      - name: Upload MatterViz package
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-package-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish MatterViz release
+    if: startsWith(github.ref, 'refs/tags/matterviz-preview-') || (startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-matterviz.'))
+    needs:
+      - build
+      - package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: matterviz-package-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          test "$(find . -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) | wc -l)" -eq 3
+          release_flags=(--verify-tag)
+          if [[ "$GITHUB_REF_NAME" == matterviz-preview-* ]]; then
+            preview="${GITHUB_REF_NAME#matterviz-preview-}"
+            release_title="MatterViz WebView preview $preview"
+            release_notes="MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS and Windows packages with the MatterViz frontend, native Rust WebView/session host and Multiwfn executable. Python runtime artifacts are rejected from every package. CI verifies formal in-memory session bootstrap on all three platforms and real uncached orbital 43 through native major-2 binary transport without runtime session/control/Cube artifacts on extracted Windows and Linux packages. macOS also runs the native control/picker protocol suite and extracted Multiwfn checks; real WKWebView orbital readiness requires an interactive macOS desktop and remains part of manual preview validation. Cube fallback is diagnostic-only and requires MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment."
+            release_flags+=(--prerelease)
+          else
+            version="${GITHUB_REF_NAME#v}"
+            version="${version%%-matterviz.*}"
+            release_title="Multiwfn $version MatterViz GUI"
+            release_notes="Official MatterViz/WebView GUI package for Multiwfn $version. Includes Linux, macOS and Windows packages with the MatterViz frontend, native Rust Host and Multiwfn executable. The formal runtime uses versioned in-memory control, picker and binary-volume pipes; packages contain no Python or 3Dmol runtime and normal sessions create no manifest, structure, control or dynamic Cube artifacts. CI calculates a real uncached orbital and verifies binary delivery, Return/process shutdown and zero runtime artifacts on extracted Windows and Linux packages. Cube fallback is diagnostic-only and requires MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment."
+            release_flags+=(--latest)
+          fi
+          gh release create "$GITHUB_REF_NAME" ./* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$release_title" \
+            --notes "$release_notes" \
+            "${release_flags[@]}"

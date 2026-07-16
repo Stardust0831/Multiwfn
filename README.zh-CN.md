@@ -19,7 +19,8 @@ Multiwfn 本体由 Tian Lu 开发。本仓库保留官方源码许可证
 - 保留官方 Multiwfn 计算行为，并用功能测试/性能测试检查结果一致性。
 - 在现有基准测试中，当前构建产物相对官方发布包观察到一定计算效率提升。
 - 维护一个可选的官方源码跟踪流程，用于检查上游源码压缩包更新。
-- 探索用 3Dmol.js/Plotly/Qt 替代旧 DISLIN GUI 的跨平台可视化方案。
+- 构建用 MatterViz 替代旧 DISLIN GUI 的跨平台可视化方案。旧版（legacy）
+  3Dmol.js/Plotly 原型仅作为行为参考，不作为兼容目标。
 
 ## 开发原则
 
@@ -31,7 +32,7 @@ GUI、构建系统、CI、打包、测试和文档作为独立工程层维护。
 - `CMakeLists.txt`、CMake 模块和平台构建脚本。
 - `.github/workflows/` 下的 CI、测试和发布流程。
 - `frontend/`、`tools/`、`docs/`、`tests/` 中的工程化代码。
-- GUI adapter 相关文件，例如 `noGUI/GUI_3dmol.f90`。
+- GUI adapter 相关文件，例如 `noGUI/GUI_matterviz.f90`。
 
 通常不应改动计算核心源码。确实需要修改时，应说明原因、影响范围、测试方法，
 并尽量提供和官方版本的数值输出对比。
@@ -44,28 +45,34 @@ Multiwfn 原有 `GUI.f90` 的交互模型。新的前端应接手显示层和交
 
 当前方向包括：
 
-- `frontend/3dmol-viewer`：基于 3Dmol.js/Plotly 的可视化前端。
-- `frontend/qt-multiwfn-gui`：Qt shell 原型，用于替代外部浏览器窗口。
-- `noGUI/GUI_3dmol.f90`：实验性 GUI backend adapter。
-- `tools/multiwfn_3dmol_server.py`：本地 session 服务。
+- `frontend/matterviz-viewer`：MatterViz 可视化前端。
+- `frontend/matterviz-desktop`：原生 Rust session 服务和 WebView host。
+- `noGUI/`：实验性 GUI backend adapter 层。
 
 当前 demo 支持结构显示、多 cube 层、cube 染色、周期性显示控制、cube 切片、
 简单二维图、PNG 导出和 manifest 导出。`Periodic ESP` 例子只是 UI 测试数据，
 不是物理 Multiwfn 计算结果。
 
-构建 3Dmol GUI backend：
+构建 MatterViz GUI backend：
 
 ```sh
-cmake -S . -B build-3dmol-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol
-cmake --build build-3dmol-gui --parallel
+cd frontend/matterviz-desktop && cargo build --release --locked && cd ../..
+cmake -S . -B build-matterviz-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=matterviz
+cmake --build build-matterviz-gui --parallel
 ```
 
-构建默认打开 Qt shell 的版本：
+仅当原生 host 构建在非默认路径时才需要设置
+`MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE`：
 
 ```sh
-cmake -S . -B build-qt-gui -DCMAKE_BUILD_TYPE=Release -DMULTIWFN_GUI_BACKEND=3dmol -DMULTIWFN_3DMOL_DEFAULT_SHELL=qt
-cmake --build build-qt-gui --parallel
+cmake -S . -B build-matterviz-webview -DCMAKE_BUILD_TYPE=Release \
+  -DMULTIWFN_GUI_BACKEND=matterviz \
+  -DMULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE="$PWD/frontend/matterviz-desktop/target/release/matterviz-desktop"
+cmake --build build-matterviz-webview --parallel
 ```
+
+MatterViz 构建产物为 `Multiwfn_MatterVizGUI`，只会 stage MatterViz 前端和
+launcher 资源；不会 stage 旧版 3Dmol 或 Qt 资源。
 
 ## 普通构建
 

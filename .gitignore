@@ -1,6 +1,7 @@
 # Build directories and CMake metadata
 build/
 /build-qt-gui/
+/build-matterviz-gui/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
