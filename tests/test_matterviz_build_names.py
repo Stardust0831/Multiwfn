@@ -19,6 +19,9 @@ RUST_MAIN = (ROOT / "frontend" / "matterviz-desktop" / "src" / "main.rs").read_t
 RUST_TRANSPORT = (
     ROOT / "frontend" / "matterviz-desktop" / "src" / "transport.rs"
 ).read_text(encoding="utf-8")
+RUST_MEMORY_BUDGET = (
+    ROOT / "frontend" / "matterviz-desktop" / "src" / "memory_budget.rs"
+).read_text(encoding="utf-8")
 RUST_CARGO = (ROOT / "frontend" / "matterviz-desktop" / "Cargo.toml").read_text(
     encoding="utf-8"
 )
@@ -135,6 +138,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK", SPAWN)
         self.assertIn("if (native_volume) then", orbital)
         self.assertIn("call write_cube(trim(cubefile),cubmat)", orbital)
+        self.assertIn("span_nx=data_nx-1_c_int32_t", FORTRAN)
+        self.assertNotIn("gridv1(1)*data_nx", FORTRAN)
         self.assertIn("density_native=publish_matterviz_volume", esp)
         self.assertIn("potential_native=publish_matterviz_volume", esp)
         self.assertIn("if (native_pair) then", esp)
@@ -145,6 +150,19 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn('#[cfg(any(unix, windows))]\n    #[test]', RUST_TRANSPORT)
         self.assertIn("CreatePipe(&mut read, &mut write", RUST_TRANSPORT)
         self.assertIn('"Win32_Security"', RUST_CARGO)
+
+    def test_macos_memory_budget_uses_mach_vm_statistics(self):
+        self.assertIn("host_statistics64", RUST_MEMORY_BUDGET)
+        self.assertIn("HOST_VM_INFO64", RUST_MEMORY_BUDGET)
+        self.assertNotIn('macos_sysctl_u64("vm.page_inactive_count")', RUST_MEMORY_BUDGET)
+
+    def test_esp_tools_are_guarded_by_current_explicit_mapping(self):
+        compact = VIEWER_APP.split("const compact_volumes", 1)[1].split(
+            "const remove_volumes", 1
+        )[0]
+        self.assertIn("if (!esp_pair()) clear_esp_tools()", compact)
+        self.assertIn("{#if espExtremaOpen && esp_pair()}", VIEWER_APP)
+        self.assertIn("{#if espLegendOpen && esp_pair()}", VIEWER_APP)
 
     def test_packaged_windows_requests_a_real_native_orbital(self):
         self.assertIn("matterviz-real-orbital-Co5Cr.fch.gz", WINDOWS_ASYNC)

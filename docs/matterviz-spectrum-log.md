@@ -1124,3 +1124,30 @@
   MatterViz frontend, settings, README and license. A combined filename scan
   found no Python, 3Dmol, legacy control/session, manifest/structure JSON or
   Cube runtime artifact.
+- Post-release defect audit confirmed three reports. First, macOS queried the
+  nonexistent `vm.page_inactive_count` sysctl and silently substituted zero;
+  with the fixed 2 GiB reserve this could reduce the active-volume limit to
+  zero on an otherwise healthy low-free/high-inactive system. The Rust Host now
+  reads free and inactive counts from Mach `HOST_VM_INFO64` in one snapshot.
+  A deterministic 16 KiB-page case with 128 MiB free and 6 GiB inactive proves
+  that a normal volume remains admissible.
+- The binary protocol defines sample positions as
+  `origin + i*a + j*b + k*c`, but the adapter and nonperiodic session lattice
+  metadata used `n * voxel_axis` for every grid. MatterViz finite sampling and
+  marching cubes use `n - 1` intervals, producing an `n/(n-1)` spatial scale
+  error. Finite binary grids and their session metadata now use `n - 1`, while
+  periodic grids continue to use `n`; a real `2x2x2` marching-cubes regression
+  places the half-value plane at `x=0.5`. Degenerate singleton finite axes are
+  rejected rather than assigned a fabricated voxel span. The generic MatterViz
+  Cube parser has the same finite-grid issue and is recorded for a separate
+  upstream fix; it is not used by the formal zero-disk native path.
+- Generic compatible cross-volume coloring was rendered correctly but the
+  fallback in `esp_pair()` exposed the ESP legend and extrema analysis for any
+  cross-colored layer. ESP tools now require explicit `esp-density` and
+  `esp-potential` provenance plus the active density-to-potential mapping.
+  Recoloring, deleting/reindexing a paired volume or restoring generic state
+  cannot retain an ESP-labeled legend or stale ESP-extrema panel.
+  Local verification passes 83/83 Rust integration tests, Rust Clippy with
+  warnings denied, 115/115 frontend tests, Svelte check, production build and
+  47 MatterViz Python contract tests with one platform-only skip. macOS native
+  compilation and the three-platform package matrix remain CI gates.

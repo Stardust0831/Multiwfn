@@ -20,6 +20,9 @@
   import {
     estimate_esp_range,
     extract_esp_extrema_async,
+    find_declared_esp_pair,
+    find_mapped_esp_pair,
+    resolve_esp_legend_visibility,
     type EspExtremaResult,
     type LegendPosition,
   } from './esp'
@@ -325,6 +328,7 @@
     volumeEntries = compacted.entries
     isosurfaceSettings = { ...isosurfaceSettings, layers: compacted.layers }
     activeVolumeIdx = compacted.active_volume_idx
+    if (!esp_pair()) clear_esp_tools()
     return compacted.old_to_new
   }
 
@@ -450,6 +454,7 @@
   const set_color_volume = (volumeIdx: number, colorVolumeIdx: number): void => {
     if (colorVolumeIdx < 0) {
       update_layer(volumeIdx, { color_volume_idx: undefined, colormap: undefined, color_range: undefined })
+      if (!esp_pair()) clear_esp_tools()
       return
     }
     const colorVolume = volumetricData?.[colorVolumeIdx]
@@ -466,6 +471,7 @@
       colormap: color.colormap,
       color_range: color.color_range,
     })
+    if (!esp_pair()) clear_esp_tools()
   }
 
   const grids_compatible = (leftIdx: number, rightIdx: number): boolean => {
@@ -475,19 +481,16 @@
   }
 
   const esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined => {
-    const layers = isosurfaceSettings.layers ?? []
-    const densityIdx = volumeEntries.findIndex((entry) => entry.analysisKind === 'esp-density')
-    if (densityIdx >= 0) {
-      const linked = layers.find((layer) => layer.volume_idx === densityIdx)?.color_volume_idx
-      const potentialIdx = linked ?? volumeEntries.findIndex((entry) => entry.analysisKind === 'esp-potential')
-      if (potentialIdx >= 0 && grids_compatible(densityIdx, potentialIdx)) return { densityIdx, potentialIdx }
-    }
-    const linkedLayer = layers.find((layer) => layer.color_volume_idx !== undefined)
-    if (linkedLayer?.volume_idx !== undefined && linkedLayer.color_volume_idx !== undefined
-      && grids_compatible(linkedLayer.volume_idx, linkedLayer.color_volume_idx)) {
-      return { densityIdx: linkedLayer.volume_idx, potentialIdx: linkedLayer.color_volume_idx }
-    }
-    return undefined
+    return find_mapped_esp_pair(volumeEntries, isosurfaceSettings.layers ?? [], grids_compatible)
+  }
+
+  const declared_esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined =>
+    find_declared_esp_pair(volumeEntries, grids_compatible)
+
+  const clear_esp_tools = (): void => {
+    espLegendOpen = false
+    espExtremaOpen = false
+    espExtrema = undefined
   }
 
   const refresh_esp_range = (densityIdx: number, potentialIdx: number): void => {
@@ -598,7 +601,7 @@
     sliceRangeMode = slice?.rangeMode ?? 'auto'
     sliceManualMin = slice?.manualMin === undefined ? '' : String(slice.manualMin)
     sliceManualMax = slice?.manualMax === undefined ? '' : String(slice.manualMax)
-    espLegendOpen = restored.espLegend?.visible ?? Boolean(esp_pair())
+    espLegendOpen = resolve_esp_legend_visibility(restored.espLegend?.visible, esp_pair())
     espLegendPosition = restored.espLegend?.position ?? { left: 16, top: 16 }
     const restoredEspRange = linked_esp_range()
     if (restoredEspRange) espRange = restoredEspRange
@@ -667,7 +670,7 @@
           orbitalIndex = Number(activeOrbitalIndex)
         }
       }
-      const initialEsp = esp_pair()
+      const initialEsp = declared_esp_pair()
       if (initialEsp) {
         set_color_volume(initialEsp.densityIdx, initialEsp.potentialIdx)
         update_layer(initialEsp.potentialIdx, { visible: false })
@@ -1285,7 +1288,7 @@
           bind:manual_max={sliceManualMax}
         />
       {/if}
-      {#if espLegendOpen}
+      {#if espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
         <EspLegend min={legendRange[0]} max={legendRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
@@ -1502,7 +1505,7 @@
     </aside>
   {/if}
 
-  {#if espExtremaOpen}
+  {#if espExtremaOpen && esp_pair()}
     <aside class="esp-extrema-panel" aria-label="Approximate ESP surface extrema">
       <header>
         <strong>Approximate ESP extrema</strong>

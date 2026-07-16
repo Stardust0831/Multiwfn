@@ -1,4 +1,5 @@
-import type { VolumetricData } from 'matterviz'
+import type { IsosurfaceLayer, VolumetricData } from 'matterviz'
+import type { ManifestEntry } from './manifest'
 
 /** Hartree to kcal/mol for one electron. */
 export const KCAL_PER_HARTREE = 627.5094740631
@@ -14,6 +15,49 @@ export const ESP_COLORS = Object.freeze({
 export type Vec3 = [number, number, number]
 export type LegendPosition = { left: number; top: number }
 export type EspVolume = Partial<VolumetricData> | Record<string, unknown>
+export type EspPair = { densityIdx: number; potentialIdx: number }
+type EspLayerLink = Pick<IsosurfaceLayer, 'volume_idx' | 'color_volume_idx'>
+type GridCompatibility = (leftIdx: number, rightIdx: number) => boolean
+
+export const find_declared_esp_pair = (
+  entries: readonly ManifestEntry[],
+  grids_compatible: GridCompatibility,
+): EspPair | undefined => {
+  for (let densityIdx = 0; densityIdx < entries.length; densityIdx += 1) {
+    if (entries[densityIdx]?.analysisKind !== 'esp-density') continue
+    for (let potentialIdx = 0; potentialIdx < entries.length; potentialIdx += 1) {
+      if (entries[potentialIdx]?.analysisKind === 'esp-potential'
+        && grids_compatible(densityIdx, potentialIdx)) return { densityIdx, potentialIdx }
+    }
+  }
+  return undefined
+}
+
+export const find_mapped_esp_pair = (
+  entries: readonly ManifestEntry[],
+  layers: readonly EspLayerLink[],
+  grids_compatible: GridCompatibility,
+): EspPair | undefined => {
+  for (const layer of layers) {
+    const densityIdx = layer.volume_idx
+    const potentialIdx = layer.color_volume_idx
+    if (densityIdx === undefined || potentialIdx === undefined) continue
+    if (entries[densityIdx]?.analysisKind === 'esp-density'
+      && entries[potentialIdx]?.analysisKind === 'esp-potential'
+      && grids_compatible(densityIdx, potentialIdx)) return { densityIdx, potentialIdx }
+  }
+  return undefined
+}
+
+export const findDeclaredEspPair = find_declared_esp_pair
+export const findMappedEspPair = find_mapped_esp_pair
+
+export const resolve_esp_legend_visibility = (
+  requested: boolean | undefined,
+  pair: EspPair | undefined,
+): boolean => pair !== undefined && (requested ?? true)
+
+export const resolveEspLegendVisibility = resolve_esp_legend_visibility
 
 export interface EspRange {
   min: number

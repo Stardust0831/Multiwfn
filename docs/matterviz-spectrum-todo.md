@@ -284,6 +284,23 @@ behavior requires the explicit diagnostic environment flag.
 - [x] Add host/cgroup-aware memory admission. The optional
   `MULTIWFN_MATTERVIZ_MAX_ACTIVE_VOLUME_BYTES` override may only tighten the
   automatically derived budget; it is not a replacement hard maximum.
+- [x] Replace the nonexistent macOS `vm.page_inactive_count` sysctl with one
+  Mach `HOST_VM_INFO64` snapshot. Count free plus inactive pages before the
+  existing reserve policy so ordinary volumes are not rejected merely because
+  macOS keeps few pages on the strictly free list.
+- [x] Correct finite binary grid geometry to span `(n - 1) * voxel_axis` while
+  periodic grids retain `n * voxel_axis`. Keep the wire protocol unchanged,
+  align nonperiodic GUI/session lattice metadata and cover a `2x2x2` half-value
+  plane at physical `x=0.5`. Reject singleton finite axes rather than inventing
+  a nonzero physical span for a degenerate rendering lattice.
+- [x] Restrict ESP legend, range and extrema tools to an explicitly declared
+  `esp-density`/`esp-potential` pair that is currently mapped. Preserve generic
+  compatible cross-volume coloring without relabeling it as electrostatic
+  potential, including recolor, removal/reindexing and restored-state cases.
+- [ ] Propose the same finite-grid `n - 1` correction to the generic MatterViz
+  Cube parser upstream. The formal native path consumes binary frames and is
+  fixed here; the explicit diagnostic Cube path remains an upstream parser
+  concern rather than a reason to fork another private vendor archive.
 - [x] Change `/api/orbital` in a transported session to one binary HTTP response
   so Rust can forward the body under backpressure without constructing a full
   frame or waiting for the post-ACK JSON response.

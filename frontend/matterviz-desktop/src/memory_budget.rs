@@ -394,18 +394,53 @@ fn memory_snapshot() -> Result<MemorySnapshot, String> {
 fn memory_snapshot() -> Result<MemorySnapshot, String> {
     let total_bytes = macos_sysctl_u64("hw.memsize")?;
     let page_size = macos_sysctl_u64("hw.pagesize")?;
-    let free_pages = macos_sysctl_u64("vm.page_free_count")?;
-    let inactive_pages = macos_sysctl_u64("vm.page_inactive_count").unwrap_or(0);
-    let purgeable_pages = macos_sysctl_u64("vm.page_purgeable_count").unwrap_or(0);
+    let (free_pages, inactive_pages) = macos_vm_page_counts()?;
+    Ok(macos_memory_snapshot(
+        total_bytes,
+        page_size,
+        free_pages,
+        inactive_pages,
+    ))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_memory_snapshot(
+    total_bytes: u64,
+    page_size: u64,
+    free_pages: u64,
+    inactive_pages: u64,
+) -> MemorySnapshot {
     let available_bytes = free_pages
         .saturating_add(inactive_pages)
-        .saturating_add(purgeable_pages)
         .saturating_mul(page_size)
         .min(total_bytes);
-    Ok(MemorySnapshot {
+    MemorySnapshot {
         total_bytes,
         available_bytes,
-    })
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_vm_page_counts() -> Result<(u64, u64), String> {
+    let mut statistics: libc::vm_statistics64_data_t = unsafe { std::mem::zeroed() };
+    let mut count = libc::HOST_VM_INFO64_COUNT;
+    let status = unsafe {
+        libc::host_statistics64(
+            libc::mach_host_self(),
+            libc::HOST_VM_INFO64,
+            (&mut statistics as *mut libc::vm_statistics64_data_t).cast::<libc::integer_t>(),
+            &mut count,
+        )
+    };
+    if status != libc::KERN_SUCCESS || count < libc::HOST_VM_INFO64_COUNT {
+        return Err(format!(
+            "could not read macOS HOST_VM_INFO64 (Mach status {status}, count {count})"
+        ));
+    }
+    Ok((
+        u64::from(statistics.free_count),
+        u64::from(statistics.inactive_count),
+    ))
 }
 
 #[cfg(target_os = "macos")]
@@ -437,7 +472,9 @@ fn memory_snapshot() -> Result<MemorySnapshot, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{calculate_budget, parse_byte_limit, MemorySnapshot, GIB, MIB};
+    use super::{
+        calculate_budget, macos_memory_snapshot, parse_byte_limit, MemorySnapshot, GIB, MIB,
+    };
 
     #[cfg(target_os = "linux")]
     use super::{
@@ -476,6 +513,22 @@ mod tests {
         );
         assert_eq!(budget.reserve_bytes, 2 * GIB);
         assert!(budget.active_limit_bytes >= requested_volume);
+    }
+
+    #[test]
+    fn macos_low_free_memory_includes_reclaimable_inactive_pages() {
+        let snapshot = macos_memory_snapshot(16 * GIB, 16 * 1024, 8_192, 393_216);
+        assert_eq!(snapshot.available_bytes, 6 * GIB + 128 * MIB);
+        let budget = calculate_budget(snapshot, 0, None);
+        assert!(budget.active_limit_bytes >= MIB);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reads_live_macos_vm_statistics() {
+        let snapshot = super::memory_snapshot().unwrap();
+        assert!(snapshot.total_bytes > 0);
+        assert!(snapshot.available_bytes <= snapshot.total_bytes);
     }
 
     #[test]

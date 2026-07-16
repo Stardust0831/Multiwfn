@@ -309,9 +309,15 @@ export function adapt_matterviz_volume(volume: MattervizVolumeV1): VolumetricDat
   if (periodic_axis_count !== 0 && periodic_axis_count !== 3) {
     throw new Error('MatterViz does not support partially periodic volumetric grids')
   }
+  if (periodic_axis_count === 0 && volume.dimensions.some((dimension) => dimension < 2)) {
+    throw new Error('Finite MatterViz volume grids require at least two points per axis')
+  }
   const scale = unit_scale(volume.coordinate_unit)
-  const grid_lattice = volume.voxel_axes.map((axis, index) =>
-    scale_vec3(axis, volume.dimensions[index] * scale)) as Matrix3
+  const grid_lattice = volume.voxel_axes.map((axis, index) => {
+    const dimension = volume.dimensions[index]
+    const intervals = volume.periodic_axes[index] ? dimension : dimension - 1
+    return scale_vec3(axis, intervals * scale)
+  }) as Matrix3
   if (grid_lattice.flat().some((value) => !Number.isFinite(value))) {
     throw new Error('MatterViz volume grid lattice must be finite')
   }

@@ -7,8 +7,55 @@ import {
   estimateSymmetricRange,
   espLegendTicks,
   extractEspExtrema,
+  findDeclaredEspPair,
+  findMappedEspPair,
   findSurfaceExtrema,
+  resolveEspLegendVisibility,
 } from '../src/esp.ts'
+
+test('ESP pairing requires explicit density and potential provenance plus the active mapping', () => {
+  const compatible = () => true
+  const genericEntries = [
+    { path: '/api/volume/1', analysisKind: 'density' },
+    { path: '/api/volume/2', analysisKind: 'generic-scalar' },
+  ]
+  const crossColored = [{ volume_idx: 0, color_volume_idx: 1 }]
+  assert.equal(findDeclaredEspPair(genericEntries, compatible), undefined)
+  assert.equal(findMappedEspPair(genericEntries, crossColored, compatible), undefined)
+
+  const espEntries = [
+    { path: '/api/volume/3', analysisKind: 'esp-density' },
+    { path: '/api/volume/4', analysisKind: 'esp-potential' },
+    { path: '/api/volume/5', analysisKind: 'generic-scalar' },
+  ]
+  assert.deepEqual(findDeclaredEspPair(espEntries, compatible), { densityIdx: 0, potentialIdx: 1 })
+  assert.deepEqual(
+    findMappedEspPair(espEntries, [{ volume_idx: 0, color_volume_idx: 1 }], compatible),
+    { densityIdx: 0, potentialIdx: 1 },
+  )
+  assert.equal(
+    findMappedEspPair(espEntries, [{ volume_idx: 0, color_volume_idx: 2 }], compatible),
+    undefined,
+  )
+  assert.equal(resolveEspLegendVisibility(true, undefined), false)
+  assert.equal(resolveEspLegendVisibility(undefined, { densityIdx: 0, potentialIdx: 1 }), true)
+  assert.equal(resolveEspLegendVisibility(false, { densityIdx: 0, potentialIdx: 1 }), false)
+
+  const multipleEspEntries = [
+    { path: '/api/volume/6', analysisKind: 'esp-density' },
+    { path: '/api/volume/7', analysisKind: 'esp-potential' },
+    { path: '/api/volume/8', analysisKind: 'esp-potential' },
+  ]
+  const onlySecondPotentialCompatible = (left: number, right: number) => left === 0 && right === 2
+  assert.deepEqual(
+    findMappedEspPair(
+      multipleEspEntries,
+      [{ volume_idx: 0, color_volume_idx: 2 }],
+      onlySecondPotentialCompatible,
+    ),
+    { densityIdx: 0, potentialIdx: 2 },
+  )
+})
 
 type Grid = number[][][]
 

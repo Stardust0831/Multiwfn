@@ -9,9 +9,12 @@ Updated: 2026-07-14
   `i_fastest_fortran` and `k_fastest_cube` mapping.
 - Cover oblique voxel axes, an independent lattice, signed orbital values, and
   all three quantity/value-unit pairs.
-- Prove that MatterViz grid geometry comes from `voxel_axes * dimensions`, not
-  the independent unit-cell lattice; reject partially periodic adaptation until
-  MatterViz exposes per-axis volumetric boundary conditions.
+- Prove that MatterViz grid geometry comes from `voxel_axes * dimensions` for
+  periodic axes and `voxel_axes * (dimensions - 1)` for finite axes, not the
+  independent unit-cell lattice; reject partially periodic adaptation until
+  MatterViz exposes per-axis volumetric boundary conditions. Reject singleton
+  finite axes because their zero physical span cannot define an invertible 3D
+  rendering lattice.
 - Reject truncation, trailing bytes, bad magic, unsupported major/message type,
   invalid flags/enums, nonzero reserved fields, bad CRC32C, zero dimensions or
   IDs, overflow, inconsistent byte counts/statistics, nonfinite metadata or

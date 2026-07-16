@@ -1498,6 +1498,7 @@ real(c_double) :: origin(3),voxel_axes(9),lattice(9)
 integer(c_int32_t) :: periodic_axes
 integer(c_int64_t) :: sample_count
 integer(c_int32_t) :: data_nx,data_ny,data_nz
+integer(c_int32_t) :: span_nx,span_ny,span_nz
 
 publish_matterviz_volume=.false.
 volume_id=-1
@@ -1507,6 +1508,9 @@ if (reqid<=0) return
 data_nx=int(size(data,1),c_int32_t)
 data_ny=int(size(data,2),c_int32_t)
 data_nz=int(size(data,3),c_int32_t)
+span_nx=data_nx-1_c_int32_t
+span_ny=data_ny-1_c_int32_t
+span_nz=data_nz-1_c_int32_t
 if (ifPBC==1.or.ifPBC==2) then
     call close_matterviz_transport()
     return
@@ -1529,11 +1533,11 @@ if (ifPBC==3) then
         real(cellv3(1),c_double),real(cellv3(2),c_double),real(cellv3(3),c_double)]
 else
     periodic_axes=0_c_int32_t
-    lattice=[real(gridv1(1)*data_nx,c_double),real(gridv1(2)*data_nx,c_double), &
-        real(gridv1(3)*data_nx,c_double),real(gridv2(1)*data_ny,c_double), &
-        real(gridv2(2)*data_ny,c_double),real(gridv2(3)*data_ny,c_double), &
-        real(gridv3(1)*data_nz,c_double),real(gridv3(2)*data_nz,c_double), &
-        real(gridv3(3)*data_nz,c_double)]
+    lattice=[real(gridv1(1)*span_nx,c_double),real(gridv1(2)*span_nx,c_double), &
+        real(gridv1(3)*span_nx,c_double),real(gridv2(1)*span_ny,c_double), &
+        real(gridv2(2)*span_ny,c_double),real(gridv2(3)*span_ny,c_double), &
+        real(gridv3(1)*span_nz,c_double),real(gridv3(2)*span_nz,c_double), &
+        real(gridv3(3)*span_nz,c_double)]
 end if
 sample_count=int(data_nx,c_int64_t)*int(data_ny,c_int64_t)*int(data_nz,c_int64_t)
 if (protocol_major==2) then

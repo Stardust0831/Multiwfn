@@ -220,9 +220,16 @@ test('rejects truncated, bad-CRC, and inconsistent byte-count frames', async () 
 
 test('rejects derived nonfinite grid geometry before nested-grid allocation', async () => {
   const decoded = decode_matterviz_volume(await golden_frame())
-  decoded.voxel_axes[0][0] = Number.MAX_VALUE
+  decoded.voxel_axes[2][2] = Number.MAX_VALUE
   decoded.periodic_axes = [false, false, false]
   assert.throws(() => adapt_matterviz_volume(decoded), /grid lattice must be finite/)
+})
+
+test('rejects singleton finite axes instead of inventing a physical span', async () => {
+  const decoded = decode_matterviz_volume(await golden_frame())
+  decoded.dimensions = [1, 2, 3]
+  decoded.periodic_axes = [false, false, false]
+  assert.throws(() => adapt_matterviz_volume(decoded), /at least two points per axis/)
 })
 
 test('decodes a major-2 frame beyond the v1 point limit without copying samples', async () => {
