@@ -241,6 +241,15 @@ change, block, or expand the current camera implementation and validation.
   fixes. It found no critical, important or minor issue and approved the change
   for commit/CI; prerelease readiness remains conditional on the native package
   gates and interactive platform checks.
+- [x] Publish `matterviz-preview-16` from exact green code commit `371ca63`.
+  Tag run `29502181879` rebuilt and passed the Rust Host plus Linux, macOS and
+  Windows packages and release job. Independently downloaded assets match the
+  published checksums and contain no Python, 3Dmol or runtime session/control/
+  Cube artifacts.
+- [ ] Pause implementation pending manual Preview 16 validation of native file
+  selection, structure/orbital display, orbital switching/recalculation,
+  Return/terminal continuation and confirmation that normal sessions leave no
+  writable temporary session directory.
 
 The formal native path no longer uses control files or writable session paths.
 File/session/Cube behavior remains only in the explicit diagnostic compatibility

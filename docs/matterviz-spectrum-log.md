@@ -1080,3 +1080,18 @@
   assertions. GUI/noGUI, glibc compatibility and core protection runs also
   passed. The formal zero-disk IPC goal is therefore ready for a tagged
   prerelease and manual desktop confirmation.
+- Published GitHub prerelease
+  [`matterviz-preview-16`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-16)
+  from exact green code commit `371ca63ac7afe34314972967d58cc8de34ef5a8f`.
+  Tag workflow [`29502181879`](https://github.com/Stardust0831/Multiwfn/actions/runs/29502181879)
+  passed the Rust Host, Linux, macOS, Windows and publish jobs. Independent
+  downloads match `SHA256SUMS.txt`: Linux 17,961,348 bytes
+  (`8a4e51bfc08c493d4e5cfc34b7daba068d66042569c61db8c3de920a7e0d7582`),
+  macOS 12,720,536 bytes
+  (`7b3d78e67675ec1570361cc8c99661a69f87407763fc3b69665b89edbfd3adf3`)
+  and Windows 22,098,386 bytes
+  (`4d748e895ed2e9b64b17eac0b53a4af4fc6b8e76b040c8126b07cbdf46a0d034`).
+  Every archive contains the native Multiwfn executable, Rust Host, built
+  MatterViz frontend, settings, README and license; filename scans find no
+  Python, 3Dmol, session/control, manifest/structure or Cube runtime artifact.
+  Development pauses for manual Preview 16 confirmation.
