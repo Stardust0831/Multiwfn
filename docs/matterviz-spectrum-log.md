@@ -904,3 +904,26 @@
   right-drag pan changes the scene and double-click Reset restores the inspected
   scene region pixel-for-pixel at both sizes. The real axis-gizmo click still
   changes the Canvas without an error.
+- Exact code commit `98297ceabe2a204628679e86e54c80c87af8d3c2` passed
+  all six PR/push workflow groups. MatterViz PR run `29460398236` and push run
+  `29460395250` each passed frontend/Rust integration plus Linux, macOS and
+  Windows packages; build `29460398179`, Linux compatibility `29460398190`,
+  GUI package matrix `29460398609` and core guard `29460398180` also passed.
+  The final independent read-only review reported no blocker or important
+  finding and verified the real-pan repair and byte-identical r20 Worker/
+  lifecycle files.
+- Published GitHub prerelease
+  [`matterviz-preview-15`](https://github.com/Stardust0831/Multiwfn/releases/tag/matterviz-preview-15)
+  from that exact code commit. Tag workflow
+  [`29461298608`](https://github.com/Stardust0831/Multiwfn/actions/runs/29461298608)
+  passed all build, three-platform package and publish jobs. Independently
+  downloaded assets pass `SHA256SUMS.txt`: Linux 17,914,797 bytes
+  (`5ac6c4165918ce0a8e486cbeab118808ecd236a3df45e240c360bafae9beb75b`),
+  macOS 12,684,765 bytes
+  (`74a86f33d623ee97a4f53982c5454893cb2c76f274cde3f12ab6c0474dfefc52`)
+  and Windows 22,060,561 bytes
+  (`f66d5a59b13c77e423ea2b5936a76ef1c345638bd7b9a31f9e37ef71a73b706a`).
+  Every archive contains the native Multiwfn executable, Rust desktop host,
+  MatterViz frontend, license, settings and README; none contains Python,
+  3Dmol, session/control files or staged Cube/CUB data. Implementation now
+  pauses for Windows manual confirmation before the zero-disk IPC goal begins.

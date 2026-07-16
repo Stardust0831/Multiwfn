@@ -451,7 +451,7 @@ bundle migration and three-platform acceptance are complete.
   Three's public target, private runtime pivot, reset gizmo baseline and camera
   world direction consistent. Cover both baseline seeding and application
   Reset, then confirm pixel-identical browser reset at desktop and 800px.
-- [ ] Package the Arcball changes on top of MatterViz r19 without losing Worker
+- [x] Package the Arcball changes on top of MatterViz r19 without losing Worker
   cancellation or immediate geometry disposal; run frontend test/check/build,
   complete independent read-only review and locked three-platform CI before
   publishing the next prerelease for Windows manual confirmation.
