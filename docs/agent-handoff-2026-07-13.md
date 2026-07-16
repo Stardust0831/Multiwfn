@@ -2,8 +2,15 @@
 
 Date: 2026-07-13
 
-This note records the current repository state and the active work streams so a
-new agent can continue without reconstructing context from the chat history.
+> **Historical snapshot.** This handoff predates the native Rust Host and
+> zero-disk pipe architecture. Its Python server, writable session directory
+> and PR status descriptions are retained only as development history and must
+> not be used as the current implementation contract. See
+> [`matterviz-control-protocol.md`](matterviz-control-protocol.md),
+> [`matterviz-volume-protocol.md`](matterviz-volume-protocol.md) and
+> [`matterviz-webview.md`](matterviz-webview.md) for the current design.
+
+This note records the repository state as it existed on the date above.
 
 ## Repositories and local worktrees
 
@@ -206,4 +213,3 @@ shell. The likely approach is:
 5. When merging any GUI branch into main, verify all required GitHub Actions:
    noGUI all platforms, GUI all platforms, old Linux GUI compatibility, and the
    core source guard.
-

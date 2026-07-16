@@ -246,6 +246,12 @@ change, block, or expand the current camera implementation and validation.
   Windows packages and release job. Independently downloaded assets match the
   published checksums and contain no Python, 3Dmol or runtime session/control/
   Cube artifacts.
+- [x] Complete the architecture-only PR #26 readiness audit. Current docs now
+  describe the in-memory pipe boundary consistently, the 2026-07-13 handoff is
+  marked historical, six unreferenced intermediate MatterViz archives are
+  removed, and the PR description records the origin/main, PR #25, zero-disk
+  and Preview 16 boundaries. Independent re-review found no remaining
+  architecture or scope blocker to opening review.
 - [ ] Pause implementation pending manual Preview 16 validation of native file
   selection, structure/orbital display, orbital switching/recalculation,
   Return/terminal continuation and confirmation that normal sessions leave no

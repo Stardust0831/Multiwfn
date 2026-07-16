@@ -5,11 +5,12 @@ implementation.
 It consumes the same Multiwfn session manifest and serialized backend API, so the Fortran
 calculation modules remain unchanged.
 
-The frontend consumes the prebuilt package in `vendor/`, generated from MatterViz commit
-`c8ca120a8091d9003bfd1247819d204d54d09585` on `feature/rendering-quality`. Keeping the package
-artifact in this repository makes clean installs reproducible and avoids rebuilding a Git-hosted
-dependency inside pnpm's temporary store. The corresponding MatterViz source branch remains the
-authoritative source for rendering changes.
+The frontend consumes the reproducible prebuilt package
+`matterviz-0.4.2-multiwfn.d8719d12.r23.tgz` in `vendor/`. It is based on the
+MatterViz `d8719d12` integration line plus the reviewed Multiwfn rendering,
+flat-grid, Worker, resource-release and Arcball patches recorded in the
+development log. The exact archive is pinned by both `package.json` and
+`pnpm-lock.yaml`; obsolete intermediate archives are not retained.
 
 ## Build
 
@@ -21,14 +22,10 @@ pnpm check
 pnpm build
 ```
 
-Serve `dist/` with the native Rust MatterViz host:
-
-```bash
-frontend/matterviz-desktop/target/release/matterviz-desktop \
-  --frontend frontend/matterviz-viewer/dist \
-  --session multiwfn_matterviz_session \
-  --manifest multiwfn_matterviz_session/manifest.json
-```
+In normal use Multiwfn launches the native Rust Host with inherited control and
+volume pipes. The Host serves the stable session URLs from memory; direct
+file-backed Host invocation is a diagnostic compatibility mode, not the formal
+runtime.
 
 ## Desktop shell
 

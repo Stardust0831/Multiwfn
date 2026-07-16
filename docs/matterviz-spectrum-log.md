@@ -1095,3 +1095,11 @@
   MatterViz frontend, settings, README and license; filename scans find no
   Python, 3Dmol, session/control, manifest/structure or Cube runtime artifact.
   Development pauses for manual Preview 16 confirmation.
+- The final PR #26 architecture audit found no scientific-core intrusion,
+  PR #25 analysis-platform residue, unsupported spectrum declaration, DOM
+  scraping, production Python/3Dmol dependency or formal file-session fallback.
+  Before opening review, current build/visualization/frontend docs were aligned
+  with the in-memory `MWFNCTL`/`MWFNVOL`/`MWFNPICK` boundary, the old handoff was
+  marked historical, and six unreferenced intermediate MatterViz vendor
+  archives were removed so only lockfile-pinned r23 remains. A follow-up
+  independent review found no remaining architecture or scope blocker.

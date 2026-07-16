@@ -17,7 +17,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The artifact-based MatterViz GUI backend is also available through CMake. Build
+The native MatterViz GUI backend is also available through CMake. Build
 the frontend first, then the Rust host, then Multiwfn:
 
 ```sh
@@ -37,25 +37,20 @@ legacy 3Dmol frontend, Qt shell, or Python adapters. The executable can be run
 directly from the build directory when its native WebView dependencies are
 available; the package runtime does not require Python.
 
-The Fortran backend launches the host directly with
-`--frontend`, `--session`, and `--manifest`. The host owns the session HTTP
-service and Tauri window in one process, including `/api/return`, which writes
-`gui_stop.flag` and shuts down the service. For a standalone host smoke:
+The Fortran GUI/session adapter launches the Host with inherited `MWFNCTL` and
+`MWFNVOL` pipes. Manifest, structure, control messages and scalar volumes are
+transferred from memory; the stable `/session/*` and `/api/*` frontend URLs are
+served by Rust without creating a normal-session directory. `/api/return`
+sends a versioned shutdown message back to the adapter and closes the service.
+The native file picker similarly returns its result over `MWFNPICK` rather than
+writing a selection file.
 
-```sh
-frontend=frontend/matterviz-viewer/dist
-session="$PWD/matterviz-smoke/session"
-mkdir -p "$session"
-printf '{"structure":{"path":"structure.json","format":"json"},"cubes":[]}' > "$session/manifest.json"
-frontend/matterviz-desktop/target/release/matterviz-desktop \
-  --frontend "$frontend" \
-  --session "$session" \
-  --manifest "$session/manifest.json" \
-  --port 18765
-```
-
-While the host is running, `GET /session/manifest.json` verifies startup and
-`GET /api/return` requests a clean shutdown.
+File-backed session and Cube behavior is retained only for explicit diagnostics
+with `MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1`. It is not the packaged formal
+runtime and a pipe failure does not silently select it. See
+[`matterviz-control-protocol.md`](matterviz-control-protocol.md) and
+[`matterviz-volume-protocol.md`](matterviz-volume-protocol.md) for the current
+runtime contract.
 
 The original DISLIN/Motif GUI remains outside the CMake build; use the upstream
 `Makefile` when that legacy backend is required.
