@@ -154,6 +154,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("MWFNVOL`0", WINDOWS_ASYNC)
         self.assertIn("Assert-NoRuntimeArtifacts", WINDOWS_ASYNC)
         self.assertIn("Assert-FormalTransport", WINDOWS_ASYNC)
+        self.assertIn("@($stdoutLines.ToArray() | Where-Object", WINDOWS_ASYNC)
+        self.assertNotIn("(@($stdoutLines.ToArray()) | Where-Object", WINDOWS_ASYNC)
         self.assertNotIn('"orbital_43_25000.cube"', WINDOWS_ASYNC)
 
     def test_packaged_linux_requests_a_real_native_orbital(self):

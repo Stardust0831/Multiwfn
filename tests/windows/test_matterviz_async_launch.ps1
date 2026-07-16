@@ -279,11 +279,11 @@ try {
     $process.StandardInput.Flush()
 
     Wait-ForCondition {
-        (@($stdoutLines.ToArray()) | Where-Object {
+        @($stdoutLines.ToArray() | Where-Object {
             $_ -match 'MatterViz GUI backend prepared an in-memory visualization session'
         }).Count -gt 0 -and -not $process.HasExited
     } 30 "Multiwfn did not prepare an in-memory MatterViz session while processing menu 0"
-    if ((@($stdoutLines.ToArray()) | Where-Object {
+    if (@($stdoutLines.ToArray() | Where-Object {
         $_ -match 'MatterViz GUI backend wrote a visualization session:'
     }).Count -gt 0) {
         throw "Formal in-memory MatterViz launch unexpectedly emitted a created session path"

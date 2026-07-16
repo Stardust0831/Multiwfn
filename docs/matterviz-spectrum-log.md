@@ -1063,3 +1063,11 @@
   platform package confirmation returns to CI. A follow-up read-only review
   found no critical, important or minor issue in the corrected Rust cfg or
   diagnostic lifecycle stub and approved the patch for commit/CI.
+- Replacement candidate `f9c9929` passed production Tauri clippy, the Windows
+  C-to-Rust tests, Linux/macOS packages, the Linux diagnostic artifact smoke and
+  packaged real-orbital zero-disk gates. Only the duplicated Windows package
+  jobs failed, after the real Host had already prepared and advertised its
+  in-memory session: under PowerShell StrictMode the startup assertion applied
+  `.Count` to a scalar `Where-Object` result. Both stdout predicates now wrap
+  the entire pipeline in `@(...)`, with a source-contract regression; product
+  runtime code is unchanged.
