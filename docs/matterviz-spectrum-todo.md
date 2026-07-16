@@ -256,10 +256,13 @@ change, block, or expand the current camera implementation and validation.
   selection, structure/orbital display, orbital switching/recalculation,
   Return/terminal continuation and confirmation that normal sessions leave no
   writable temporary session directory.
-- [ ] Publish the user-approved formal release `v2026.7.10-matterviz.1` from
-  the PR #26 branch through the same locked three-platform build and zero-disk
-  package gates; independently verify checksums and archive contents before
-  marking the release complete.
+- [x] Publish the user-approved formal release `v2026.7.10-matterviz.1` from
+  exact PR #26 branch commit `a2bf7d3b2b7c093c3bb211338e815de504ddfa6a`.
+  Tag run `29511412031` passed the Rust Host, Linux, macOS, Windows and formal
+  publish jobs. Independent downloads match every published SHA256 entry and
+  all archives contain the native executable, Rust Host, built frontend,
+  settings, README and license, with no Python, 3Dmol, runtime session/control,
+  manifest/structure JSON or Cube filename.
 
 The formal native path no longer uses control files or writable session paths.
 File/session/Cube behavior remains only in the explicit diagnostic compatibility

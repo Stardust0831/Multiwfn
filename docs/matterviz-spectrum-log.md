@@ -1109,3 +1109,18 @@
   gates, then publish a non-prerelease Latest release with `--verify-tag`;
   `matterviz-preview-*` remains prerelease-only. The first planned formal tag is
   `v2026.7.10-matterviz.1` from the PR #26 branch.
+- Published the non-draft, non-prerelease GitHub Latest release
+  [`v2026.7.10-matterviz.1`](https://github.com/Stardust0831/Multiwfn/releases/tag/v2026.7.10-matterviz.1)
+  from exact PR #26 commit `a2bf7d3b2b7c093c3bb211338e815de504ddfa6a`.
+  Tag workflow [`29511412031`](https://github.com/Stardust0831/Multiwfn/actions/runs/29511412031)
+  passed the Rust Host, Linux, macOS, Windows and publish jobs. Independent
+  downloads match `SHA256SUMS.txt`: Linux 17,960,202 bytes
+  (`a8d09abf153c635ef5de0da5548ca4664cac4f515963d38370dae8da2729ed88`),
+  macOS 12,720,770 bytes
+  (`8c0d5d40031eddef000a6fb4e21c06bbef6a1ab3471093dce104c52ab05a1f23`)
+  and Windows 22,098,383 bytes
+  (`d8269b0eb1164a6881bf89d8f2583f0392ab85765843ca49c5b3cd5a38d67459`).
+  Each archive contains the native Multiwfn executable, Rust Host, built
+  MatterViz frontend, settings, README and license. A combined filename scan
+  found no Python, 3Dmol, legacy control/session, manifest/structure JSON or
+  Cube runtime artifact.
