@@ -65,6 +65,7 @@ fn run(
 ) {
     if writer.write_all(&encode_ready()).is_err() {
         store.clear();
+        stop.store(true, Ordering::Release);
         return;
     }
     while !stop.load(Ordering::Acquire) {
@@ -87,6 +88,7 @@ fn run(
     }
     store.clear();
     broker.fail_all("MatterViz volume transport closed");
+    stop.store(true, Ordering::Release);
 }
 
 fn receive_buffered_volume(
@@ -641,6 +643,7 @@ mod tests {
             transport.join();
             assert!(started.elapsed() < Duration::from_secs(2));
             assert!(store.is_empty());
+            assert!(stop.load(Ordering::Acquire));
         }
     }
 

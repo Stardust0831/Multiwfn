@@ -182,29 +182,71 @@ These items are explicitly **for implementation only after the pole-free
 trackball camera is complete**. They are the next highest priority, but must not
 change, block, or expand the current camera implementation and validation.
 
-- [ ] Replace `gui_request.txt`,
+- [x] Replace `gui_request.txt`,
   `response_<id>.json`, and `gui_stop.flag` with versioned bidirectional pipe
-  messages without changing Multiwfn scientific-core calculation logic.
-- [ ] Deliver manifest, native structure JSON and dynamic volume frames directly
+  messages without changing Multiwfn scientific-core calculation logic. The
+  formal `drawmolgui` path is migrated; explicit diagnostic mode retains files.
+- [x] Implement and freeze `MWFNCTL` v1 codecs with CRC, bounds, correlation,
+  fragmented I/O, timeout, EOF and malformed-frame tests in Rust and C.
+- [x] Add inherited request/response pipe pairs to the native C launcher and
+  replace `selected_file.txt` with a bounded pipe result.
+- [x] Serve manifest, structure and optional workbench state from validated Rust
+  memory while preserving the existing `/session/*` URLs.
+- [x] Convert orbital, bond, ESP, Return and close lifecycle to correlated pipe
+  messages; retain one serialized Fortran scientific request at a time.
+- [x] Deliver manifest, native structure JSON and dynamic volume frames directly
   from memory to the Rust Host. The formal runtime must not create a writable
   session directory, control files, structure/manifest artifacts or Cube files.
-- [ ] Keep Cube fallback only behind an explicit development/diagnostic option.
+  Initial `cubmat`/`cubmattmp` entries use generic scalar metadata over the same
+  native volume channel rather than temporary Cube files.
+- [x] Keep Cube fallback only behind an explicit development/diagnostic option.
   A formal pipe failure must report an explicit error and terminate the invalid
   session instead of silently writing a Cube artifact.
-- [ ] Add Windows, Linux and macOS end-to-end coverage for request/response,
+- [ ] **In progress, pending three-platform CI:** add Windows, Linux and macOS
+  end-to-end coverage for request/response,
   Return/close, failure cleanup and concurrent sessions. After every successful
   normal session, assert that no runtime intermediate file or session temporary
   directory was created.
+- [x] Complete the final local zero-disk regression pass after lifecycle review
+  fixes: strict native C control/picker tests, 82/82 C-to-Rust integration tests,
+  `clippy -D warnings`, Rust formatting, 103/103 frontend tests, Svelte check,
+  generated production assets, desktop configuration validation and 38 Python
+  package/service contracts (one Windows-only socket assertion skipped on
+  Linux). Full Fortran/Tauri compilation and native package execution remain
+  three-platform CI gates.
+- [x] Make protocol/EOF/timeout/correlation failures terminal: revoke the Rust
+  control transport, clear resident volumes, stop the HTTP session and close the
+  formal WebView with a failing exit code. Distinguish an idle poll timeout from
+  a partial-frame completion timeout so a stream is never resumed mid-frame.
+- [x] Make Return-pipe failure terminal, propagate idle volume-pipe EOF into
+  formal host shutdown, accept valid `structure: null` grid-only manifests and
+  validate legacy `layers` entries with the same local-volume URL policy as
+  `cubes`.
+- [x] Validate canonical Rust-to-Fortran request envelopes, including UTF-8,
+  NUL, format/version/kind and matching body/header request IDs, before parsing
+  the closed scientific command vocabulary.
+- [x] Exclude human file-dialog interaction time from `MWFNPICK` transfer
+  deadlines; bound only the result frame after its first byte is readable.
+- [x] Migrate Linux/Windows real-orbital package tests to in-memory HTTP response
+  bytes and full forbidden-artifact snapshots; add noninteractive macOS IPC and
+  concurrency/failure coverage without claiming hosted interactive WKWebView.
+  The package matrix runs Rust in-memory bootstrap tests on all three platforms,
+  Unix native control/picker tests on Linux/macOS, and real packaged formal
+  sessions on Linux/Windows. CI execution is still required before release.
+- [x] Complete the final high-level read-only zero-disk review after lifecycle
+  fixes. It found no critical, important or minor issue and approved the change
+  for commit/CI; prerelease readiness remains conditional on the native package
+  gates and interactive platform checks.
 
-Current compatibility gates preserve the three control-file interfaces. Cube
-fallback remains only on paths that have not yet migrated from v1; it is not
-part of a formal major-2 request.
+The formal native path no longer uses control files or writable session paths.
+File/session/Cube behavior remains only in the explicit diagnostic compatibility
+path and in direct file-mode host tests; it is not a formal native request.
 
-Scope correction for the low-copy v2 increment (2026-07-15): the control-file
-migration remains deferred, but a request that has entered the formal major-2
-orbital stream must not silently fall back to Cube. The retained automatic Cube
-compatibility statement applies only to the still-v1 paths until their own v2
-bundle migration and three-platform acceptance are complete.
+Historical scope correction for the low-copy v2 increment (2026-07-15): a
+request that entered the formal major-2 orbital stream could not silently fall
+back to Cube. The subsequent `MWFNCTL` migration supersedes the temporary
+still-v1 exception: every formal native path is now zero-disk, and Cube/file
+behavior requires the explicit diagnostic environment flag.
 
 ## Low-copy volume transport and flat-grid work
 
@@ -249,8 +291,8 @@ bundle migration and three-platform acceptance are complete.
 - [ ] Define and implement an ordered major-2 volume bundle for ESP density and
   potential. ESP remains on the tested v1 two-volume store until this contract
   is reviewed; do not force two volumes through the single-orbital response.
-- [ ] Remove the now-unused successful orbital `response_<id>.json` artifact as
-  part of the deferred bidirectional control-pipe migration, not through a new
+- [x] Remove the successful orbital `response_<id>.json` artifact from the formal
+  path through the versioned bidirectional control protocol, without adding a
   one-off cleanup protocol.
 - [x] Run Rust test/check/clippy in CI and complete Linux/macOS/Windows package
   plus real uncached orbital verification. Exact commit `1f0b060` passed the

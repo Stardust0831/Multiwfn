@@ -10,7 +10,10 @@ use std::thread;
 use std::time::Duration;
 
 use crate::backend;
+use crate::control_protocol::MessageType;
+use crate::control_transport::{ControlTransport, ControlTransportConfig};
 use crate::memory_budget;
+use crate::session_data::SessionData;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::transport::{TransportConfig, VolumeTransport};
 #[cfg(test)]
@@ -42,42 +45,70 @@ pub struct HttpService {
     stream_broker: Arc<VolumeStreamBroker>,
     streaming_volume_enabled: bool,
     transport: Mutex<Option<VolumeTransport>>,
+    control_transport: Arc<Mutex<Option<ControlTransport>>>,
+    session_data: Option<SessionData>,
+    in_memory_session: bool,
+    return_signaled: Arc<AtomicBool>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 impl HttpService {
     pub fn start(config: AppConfig) -> Result<Self, String> {
+        Self::start_with_control(config, None)
+    }
+
+    pub fn start_with_control(
+        config: AppConfig,
+        control_config: Option<ControlTransportConfig>,
+    ) -> Result<Self, String> {
+        let in_memory_session = control_config.is_some();
         let frontend = config
             .frontend
             .canonicalize()
             .map_err(|error| format!("frontend directory not found: {error}"))?;
-        let session = config
-            .session
-            .canonicalize()
-            .map_err(|error| format!("session directory not found: {error}"))?;
-        let manifest = config
-            .manifest
-            .unwrap_or_else(|| session.join("manifest.json"))
-            .canonicalize()
-            .map_err(|error| format!("manifest not found: {error}"))?;
-        let state = config
-            .state
-            .map(|path| {
-                path.canonicalize()
-                    .map_err(|error| format!("state not found: {error}"))
-            })
-            .transpose()?;
+        let session = if in_memory_session {
+            config.session.clone()
+        } else {
+            config
+                .session
+                .canonicalize()
+                .map_err(|error| format!("session directory not found: {error}"))?
+        };
+        let manifest = if in_memory_session {
+            None
+        } else {
+            Some(
+                config
+                    .manifest
+                    .unwrap_or_else(|| session.join("manifest.json"))
+                    .canonicalize()
+                    .map_err(|error| format!("manifest not found: {error}"))?,
+            )
+        };
+        let state = if in_memory_session {
+            None
+        } else {
+            config
+                .state
+                .map(|path| {
+                    path.canonicalize()
+                        .map_err(|error| format!("state not found: {error}"))
+                })
+                .transpose()?
+        };
         if !frontend.is_dir() {
             return Err("frontend path is not a directory".to_owned());
         }
-        if !session.is_dir()
-            || !manifest.is_file()
+        if (!in_memory_session && !session.is_dir())
+            || manifest.as_ref().is_some_and(|path| !path.is_file())
             || state.as_ref().is_some_and(|path| !path.is_file())
         {
             return Err("invalid MatterViz session files".to_owned());
         }
         validate_host(&config.host)?;
-        cleanup(&session);
+        if !in_memory_session {
+            cleanup(&session);
+        }
         let capability = new_capability()?;
         let listener = bind(&config.host, config.port)?;
         listener
@@ -94,11 +125,6 @@ impl HttpService {
             query.push_str("&state=/session/workbench-state.json");
         }
         write!(query, "&cap={capability}").expect("write capability query");
-        let url = format!(
-            "http://{}:{}/index.html?{query}",
-            format_host(&host),
-            address.port()
-        );
         let authority = format!("{}:{}", format_host(&host), address.port());
         let stop = Arc::new(AtomicBool::new(false));
         let volume_store = Arc::new(VolumeStore::new());
@@ -115,6 +141,40 @@ impl HttpService {
                 )
             })
             .transpose()?;
+        let (control_transport, session_data) = control_config
+            .map(|config| {
+                let mut transport = ControlTransport::adopt(config)
+                    .map_err(|error| format!("could not adopt control transport: {error}"))?;
+                transport
+                    .send_hello()
+                    .map_err(|error| format!("could not start control transport: {error}"))?;
+                let frame = transport
+                    .read_frame_timeout(Duration::from_secs(30))
+                    .map_err(|error| format!("could not receive session bootstrap: {error}"))?;
+                let data = SessionData::from_frame(&frame)
+                    .map_err(|error| format!("invalid session bootstrap: {error}"))?;
+                Ok::<_, String>((transport, data))
+            })
+            .transpose()?
+            .map_or((None, None), |(transport, data)| {
+                (Some(transport), Some(data))
+            });
+        let has_state = state.is_some()
+            || session_data
+                .as_ref()
+                .is_some_and(|data| data.state_bytes().is_some());
+        if has_state && !query.contains("state=/session/workbench-state.json") {
+            let capability_suffix = format!("&cap={capability}");
+            query = query.replace(
+                &capability_suffix,
+                &format!("&state=/session/workbench-state.json{capability_suffix}"),
+            );
+        }
+        let url = format!(
+            "http://{}:{}/index.html?{query}",
+            format_host(&host),
+            address.port()
+        );
         let service = Self {
             session,
             stop,
@@ -127,6 +187,10 @@ impl HttpService {
             stream_broker,
             streaming_volume_enabled,
             transport: Mutex::new(transport),
+            control_transport: Arc::new(Mutex::new(control_transport)),
+            session_data,
+            in_memory_session,
+            return_signaled: Arc::new(AtomicBool::new(false)),
             worker: Mutex::new(None),
         };
         let runner = service.clone_for_thread(frontend, manifest, state);
@@ -138,9 +202,20 @@ impl HttpService {
     fn clone_for_thread(
         &self,
         frontend: PathBuf,
-        manifest: PathBuf,
+        manifest: Option<PathBuf>,
         state: Option<PathBuf>,
     ) -> ServiceRunner {
+        let orbital_count = self
+            .session_data
+            .as_ref()
+            .and_then(|data| backend::manifest_orbital_count_bytes(data.manifest_bytes()))
+            .or_else(|| {
+                manifest.as_ref().and_then(|path| {
+                    fs::read(path)
+                        .ok()
+                        .and_then(|bytes| backend::manifest_orbital_count_bytes(&bytes))
+                })
+            });
         ServiceRunner {
             frontend,
             session: self.session.clone(),
@@ -154,6 +229,11 @@ impl HttpService {
             volume_store: self.volume_store.clone(),
             stream_broker: self.stream_broker.clone(),
             streaming_volume_enabled: self.streaming_volume_enabled,
+            session_data: self.session_data.clone(),
+            orbital_count,
+            control_transport: self.control_transport.clone(),
+            in_memory_session: self.in_memory_session,
+            return_signaled: self.return_signaled.clone(),
         }
     }
     pub fn url(&self) -> &str {
@@ -162,11 +242,39 @@ impl HttpService {
     pub fn session_path(&self) -> &Path {
         &self.session
     }
+    pub fn uses_file_lifecycle(&self) -> bool {
+        !self.in_memory_session
+    }
+    pub fn is_shutdown(&self) -> bool {
+        self.stop.load(Ordering::Acquire)
+    }
+    pub fn termination_exit_code(&self) -> i32 {
+        if self.in_memory_session
+            && (!self.return_signaled.load(Ordering::Acquire)
+                || self
+                    .control_transport
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .is_none())
+        {
+            2
+        } else {
+            0
+        }
+    }
     pub fn signal_return(&self) -> Result<(), String> {
-        fs::write(self.session.join("gui_stop.flag"), "return\n")
-            .map_err(|error| format!("could not signal Multiwfn Return: {error}"))?;
+        let result = signal_return(
+            self.in_memory_session,
+            &self.return_signaled,
+            &self.control_transport,
+            &self.session,
+        );
         self.volume_store.clear();
-        Ok(())
+        if result.is_err() && self.in_memory_session {
+            terminate_control_session(&self.control_transport, &self.stop, &self.volume_store);
+            wake_listener(&self.listener);
+        }
+        result
     }
     #[cfg(test)]
     pub fn insert_volume<B>(&self, frame: B) -> Result<u64, InsertError>
@@ -193,7 +301,7 @@ impl HttpService {
 struct ServiceRunner {
     frontend: PathBuf,
     session: PathBuf,
-    manifest: PathBuf,
+    manifest: Option<PathBuf>,
     state: Option<PathBuf>,
     listener: TcpListener,
     stop: Arc<AtomicBool>,
@@ -203,6 +311,11 @@ struct ServiceRunner {
     volume_store: Arc<VolumeStore>,
     stream_broker: Arc<VolumeStreamBroker>,
     streaming_volume_enabled: bool,
+    session_data: Option<SessionData>,
+    orbital_count: Option<i64>,
+    control_transport: Arc<Mutex<Option<ControlTransport>>>,
+    in_memory_session: bool,
+    return_signaled: Arc<AtomicBool>,
 }
 impl ServiceRunner {
     fn run(self) {
@@ -239,6 +352,11 @@ impl ServiceRunner {
             volume_store: self.volume_store.clone(),
             stream_broker: self.stream_broker.clone(),
             streaming_volume_enabled: self.streaming_volume_enabled,
+            session_data: self.session_data.clone(),
+            orbital_count: self.orbital_count,
+            control_transport: self.control_transport.clone(),
+            in_memory_session: self.in_memory_session,
+            return_signaled: self.return_signaled.clone(),
         }
     }
     fn handle(&self, mut stream: TcpStream) {
@@ -368,22 +486,22 @@ impl ServiceRunner {
             return;
         }
         let value = match path.as_str() {
-            "/api/orbital" if method == "GET" => Some(backend::request_orbital(
-                &self.session,
-                &query,
-                &self.manifest,
-                &self.backend_lock,
-            )),
-            "/api/bond" if method == "GET" => Some(backend::request_bond(
-                &self.session,
-                &query,
-                &self.backend_lock,
-            )),
-            "/api/esp" if method == "GET" => Some(backend::request_esp(
-                &self.session,
-                &query,
-                &self.backend_lock,
-            )),
+            "/api/orbital" if method == "GET" => Some(match self.manifest.as_ref() {
+                Some(manifest) => {
+                    backend::request_orbital(&self.session, &query, manifest, &self.backend_lock)
+                }
+                None => json!({"ok": false, "message": backend::BACKEND_UNAVAILABLE}),
+            }),
+            "/api/bond" if method == "GET" => Some(if self.session_data.is_some() {
+                self.request_control_bond(&query)
+            } else {
+                backend::request_bond(&self.session, &query, &self.backend_lock)
+            }),
+            "/api/esp" if method == "GET" => Some(if self.session_data.is_some() {
+                self.request_control_esp(&query)
+            } else {
+                backend::request_esp(&self.session, &query, &self.backend_lock)
+            }),
             _ => None,
         };
         if method == "HEAD" && path.starts_with("/api/") {
@@ -405,11 +523,41 @@ impl ServiceRunner {
             return;
         }
         if path == "/session/manifest.json" {
-            serve_file(&mut stream, &self.manifest, method == "HEAD");
+            if let Some(data) = &self.session_data {
+                respond(
+                    &mut stream,
+                    200,
+                    "application/json",
+                    data.manifest_bytes(),
+                    method == "HEAD",
+                );
+            } else if let Some(manifest) = &self.manifest {
+                serve_file(&mut stream, manifest, method == "HEAD");
+            } else {
+                respond(
+                    &mut stream,
+                    404,
+                    "text/plain",
+                    b"Not Found",
+                    method == "HEAD",
+                );
+            }
             return;
         }
         if path == "/session/workbench-state.json" {
-            if let Some(state) = &self.state {
+            if let Some(bytes) = self
+                .session_data
+                .as_ref()
+                .and_then(SessionData::state_bytes)
+            {
+                respond(
+                    &mut stream,
+                    200,
+                    "application/json",
+                    bytes,
+                    method == "HEAD",
+                );
+            } else if let Some(state) = &self.state {
                 serve_file(&mut stream, state, method == "HEAD");
             } else {
                 respond(
@@ -422,17 +570,62 @@ impl ServiceRunner {
             }
             return;
         }
-        if let Some(relative) = path.strip_prefix("/session/") {
-            match safe_join(&self.session, relative) {
-                Ok(candidate) => serve_file(&mut stream, &candidate, method == "HEAD"),
-                Err(_) => respond(
+        if path == "/session/structure.json" {
+            if let Some(bytes) = self
+                .session_data
+                .as_ref()
+                .and_then(SessionData::structure_bytes)
+            {
+                respond(
                     &mut stream,
-                    403,
-                    "text/plain",
-                    b"Invalid session path",
+                    200,
+                    "application/json",
+                    bytes,
                     method == "HEAD",
-                ),
-            };
+                );
+            } else if self.session_data.is_some() {
+                respond(
+                    &mut stream,
+                    404,
+                    "text/plain",
+                    b"Not Found",
+                    method == "HEAD",
+                );
+            } else {
+                match safe_join(&self.session, "structure.json") {
+                    Ok(candidate) => serve_file(&mut stream, &candidate, method == "HEAD"),
+                    Err(_) => respond(
+                        &mut stream,
+                        403,
+                        "text/plain",
+                        b"Invalid session path",
+                        method == "HEAD",
+                    ),
+                }
+            }
+            return;
+        }
+        if let Some(relative) = path.strip_prefix("/session/") {
+            if self.session_data.is_some() {
+                respond(
+                    &mut stream,
+                    404,
+                    "text/plain",
+                    b"Not Found",
+                    method == "HEAD",
+                );
+            } else {
+                match safe_join(&self.session, relative) {
+                    Ok(candidate) => serve_file(&mut stream, &candidate, method == "HEAD"),
+                    Err(_) => respond(
+                        &mut stream,
+                        403,
+                        "text/plain",
+                        b"Invalid session path",
+                        method == "HEAD",
+                    ),
+                }
+            }
             return;
         }
         match safe_join(&self.frontend, path.trim_start_matches('/')) {
@@ -447,10 +640,18 @@ impl ServiceRunner {
         }
     }
     fn signal_return(&self) -> Result<(), String> {
-        fs::write(self.session.join("gui_stop.flag"), "return\n")
-            .map_err(|error| format!("could not signal Multiwfn Return: {error}"))?;
+        let result = signal_return(
+            self.in_memory_session,
+            &self.return_signaled,
+            &self.control_transport,
+            &self.session,
+        );
         self.volume_store.clear();
-        Ok(())
+        if result.is_err() && self.in_memory_session {
+            terminate_control_session(&self.control_transport, &self.stop, &self.volume_store);
+            wake_listener(&self.listener);
+        }
+        result
     }
 
     fn stream_orbital(&self, stream: &mut TcpStream, query: &[(String, String)]) {
@@ -466,7 +667,7 @@ impl ServiceRunner {
                 return;
             }
         };
-        let request = match backend::prepare_orbital_request(query, &self.manifest) {
+        let request = match backend::parse_orbital_request(query, self.orbital_count) {
             Ok(value) => value,
             Err(message) => {
                 respond_json(
@@ -495,19 +696,43 @@ impl ServiceRunner {
                 return;
             }
         };
-        let mut pending = match backend::start_backend_request(
-            &self.session,
-            request_id,
-            &backend::orbital_request_payload(&request),
-            Duration::from_secs(300),
-            "Timed out waiting for Multiwfn orbital grid",
-        ) {
-            Ok(value) => value,
-            Err(value) => {
-                respond_json(stream, &value, backend_start_status(&value), false);
-                return;
-            }
-        };
+        let command = backend::orbital_request_payload(&request);
+        let mut control_receiver = None;
+        let mut file_pending = None;
+        if self.session_data.is_some() {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let control_transport = self.control_transport.clone();
+            let stop = self.stop.clone();
+            let volume_store = self.volume_store.clone();
+            std::thread::spawn(move || {
+                let result = request_control(
+                    &control_transport,
+                    &stop,
+                    &volume_store,
+                    request_id,
+                    &command,
+                    Duration::from_secs(300),
+                );
+                let _ = sender.send(result);
+            });
+            control_receiver = Some(receiver);
+        } else {
+            file_pending = Some(
+                match backend::start_backend_request(
+                    &self.session,
+                    request_id,
+                    &command,
+                    Duration::from_secs(300),
+                    "Timed out waiting for Multiwfn orbital grid",
+                ) {
+                    Ok(value) => value,
+                    Err(value) => {
+                        respond_json(stream, &value, backend_start_status(&value), false);
+                        return;
+                    }
+                },
+            );
+        }
         let mut started = false;
         loop {
             match registration
@@ -591,7 +816,11 @@ impl ServiceRunner {
                     return;
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    if let Some(value) = pending.poll() {
+                    let completed = control_receiver
+                        .as_ref()
+                        .and_then(|receiver| receiver.try_recv().ok())
+                        .or_else(|| file_pending.as_mut().and_then(|pending| pending.poll()));
+                    if let Some(value) = completed {
                         if started {
                             return;
                         }
@@ -614,6 +843,140 @@ impl ServiceRunner {
             }
         }
     }
+
+    fn request_control_bond(&self, query: &[(String, String)]) -> Value {
+        let _guard = self
+            .backend_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (command, timeout, _) = match backend::prepare_bond_request(query) {
+            Ok(value) => value,
+            Err(message) => return json!({"ok": false, "message": message}),
+        };
+        request_control(
+            &self.control_transport,
+            &self.stop,
+            &self.volume_store,
+            backend::reserve_request_id(),
+            &command,
+            timeout,
+        )
+    }
+
+    fn request_control_esp(&self, query: &[(String, String)]) -> Value {
+        let _guard = self
+            .backend_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let command = match backend::prepare_esp_request(query) {
+            Ok(value) => value,
+            Err(message) => return json!({"ok": false, "message": message}),
+        };
+        request_control(
+            &self.control_transport,
+            &self.stop,
+            &self.volume_store,
+            backend::reserve_request_id(),
+            &command,
+            Duration::from_secs(900),
+        )
+    }
+}
+
+fn signal_return(
+    in_memory_session: bool,
+    return_signaled: &AtomicBool,
+    control: &Arc<Mutex<Option<ControlTransport>>>,
+    session: &Path,
+) -> Result<(), String> {
+    if return_signaled.swap(true, Ordering::AcqRel) {
+        return Ok(());
+    }
+    let result = if in_memory_session {
+        let body = json!({
+            "format": "multiwfn-matterviz-control",
+            "version": 1,
+            "kind": "shutdown",
+        });
+        let guard = control
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_ref() {
+            Some(transport) => transport
+                .send_json(MessageType::Shutdown, 0, &body)
+                .map_err(|error| format!("could not signal Multiwfn Return: {error}")),
+            None => Err("Multiwfn control transport is unavailable".to_owned()),
+        }
+    } else {
+        fs::write(session.join("gui_stop.flag"), "return\n")
+            .map_err(|error| format!("could not signal Multiwfn Return: {error}"))
+    };
+    if result.is_err() {
+        return_signaled.store(false, Ordering::Release);
+    }
+    result
+}
+
+fn request_control(
+    control: &Arc<Mutex<Option<ControlTransport>>>,
+    stop: &AtomicBool,
+    volume_store: &VolumeStore,
+    request_id: u64,
+    command: &str,
+    timeout: Duration,
+) -> Value {
+    let mut guard = control
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(transport) = guard.as_mut() else {
+        return json!({"ok": false, "message": backend::BACKEND_UNAVAILABLE});
+    };
+    let result = transport
+        .send_request(request_id, command)
+        .map_err(|error| format!("Multiwfn control request failed: {error}"))
+        .and_then(|()| {
+            transport
+                .read_frame_timeout(timeout)
+                .map_err(|error| format!("Multiwfn control response failed: {error}"))
+        })
+        .and_then(|frame| {
+            if frame.header.request_id != request_id
+                || !matches!(
+                    frame.header.message_type,
+                    MessageType::Response | MessageType::Error
+                )
+            {
+                Err("Mismatched Multiwfn control response".to_owned())
+            } else {
+                frame
+                    .body
+                    .and_then(|body| body.get("result").cloned())
+                    .ok_or_else(|| "Malformed Multiwfn control response".to_owned())
+            }
+        });
+    match result {
+        Ok(value) => value,
+        Err(message) => {
+            drop(guard);
+            terminate_control_session(control, stop, volume_store);
+            json!({"ok": false, "message": message})
+        }
+    }
+}
+
+fn terminate_control_session(
+    control: &Arc<Mutex<Option<ControlTransport>>>,
+    stop: &AtomicBool,
+    volume_store: &VolumeStore,
+) {
+    let mut guard = control
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(mut transport) = guard.take() {
+        transport.close();
+    }
+    volume_store.clear();
+    stop.store(true, Ordering::Release);
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Result<(String, String), ()> {
@@ -925,15 +1288,446 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8],
 
 #[cfg(test)]
 mod tests {
-    use super::{content_type, decode_path, query_u64, safe_join, AppConfig, HttpService};
+    use super::{
+        content_type, decode_path, query_u64, request_control, safe_join, AppConfig, HttpService,
+    };
+    use crate::control_protocol::{
+        decode_frame, decode_header, encode_frame, MessageType, HEADER_BYTES,
+    };
+    use crate::control_transport::ControlTransportConfig;
     use crate::transport::TransportConfig;
     use crate::volume_protocol::{Crc32c, ACK_HEADER_BYTES, PRELUDE_BYTES, VOLUME_HEADER_BYTES};
     use std::fs;
     use std::io::{ErrorKind, Read, Write};
     use std::net::{TcpListener, TcpStream};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use url::Url;
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn in_memory_bootstrap_serves_session_without_creating_files() {
+        let root = fixture("memory-bootstrap");
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+
+        let (mut hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = read_control_frame(&mut hello_read);
+            assert_eq!(
+                decode_frame(&hello).unwrap().header.message_type,
+                MessageType::Hello
+            );
+            let body = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "session_init",
+                "manifest": {
+                    "format": "multiwfn-matterviz-workbench",
+                    "version": 2,
+                    "orbitals": {"count": 7},
+                    "structure": {"path": "structure.json", "format": "json"},
+                    "cubes": []
+                },
+                "structure": {"sites": [], "charge": 0, "properties": {"bonds": []}},
+                "state": null
+            });
+            let frame = encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap();
+            bootstrap_write.write_all(&frame).unwrap();
+
+            let request = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+            assert_eq!(request.header.message_type, MessageType::Request);
+            assert_eq!(request.body.as_ref().unwrap()["command"], "bond 1 2 mayer");
+            let response = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "response",
+                "request_id": request.header.request_id,
+                "result": {"ok": true, "method": "mayer", "value": 1.25}
+            });
+            let response = encode_frame(
+                MessageType::Response,
+                request.header.request_id,
+                Some(&response),
+            )
+            .unwrap();
+            bootstrap_write.write_all(&response).unwrap();
+
+            let shutdown = read_control_frame(&mut hello_read);
+            assert_eq!(
+                decode_frame(&shutdown).unwrap().header.message_type,
+                MessageType::Shutdown
+            );
+        });
+
+        let service = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session: session.clone(),
+                manifest: Some(root.join("manifest-must-not-exist.json")),
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read),
+                write_pipe: into_raw_pipe(hello_write),
+            }),
+        )
+        .unwrap();
+
+        let manifest = request(service.url(), "GET", "/session/manifest.json");
+        assert!(manifest.starts_with("HTTP/1.1 200 OK"));
+        assert!(manifest.contains("\"multiwfn-matterviz-workbench\""));
+        let structure = request(service.url(), "GET", "/session/structure.json");
+        assert!(structure.starts_with("HTTP/1.1 200 OK"));
+        assert!(structure.contains("\"sites\":[]"));
+        let bond = request(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/bond?atom1=1&atom2=2&method=mayer"),
+        );
+        assert!(bond.starts_with("HTTP/1.1 200 OK"));
+        assert!(bond.ends_with(r#"{"method":"mayer","ok":true,"value":1.25}"#));
+        assert!(!session.exists());
+
+        service.signal_return().unwrap();
+        producer.join().unwrap();
+        service.shutdown();
+        join_service(service);
+        assert!(!session.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn concurrent_in_memory_sessions_keep_data_and_capabilities_isolated() {
+        let root = fixture("memory-concurrent");
+        let (first, first_producer, first_session) =
+            start_memory_session(&root.join("first"), "first");
+        let (second, second_producer, second_session) =
+            start_memory_session(&root.join("second"), "second");
+
+        let first_manifest = request(first.url(), "GET", "/session/manifest.json");
+        let second_manifest = request(second.url(), "GET", "/session/manifest.json");
+        assert!(first_manifest.contains(r#""session":"first""#));
+        assert!(!first_manifest.contains(r#""session":"second""#));
+        assert!(second_manifest.contains(r#""session":"second""#));
+        assert!(!second_manifest.contains(r#""session":"first""#));
+
+        let first_return = authorized_path(first.url(), "/api/return");
+        assert!(request(second.url(), "GET", &first_return).starts_with("HTTP/1.1 403 Forbidden"));
+        assert!(!first_session.exists());
+        assert!(!second_session.exists());
+
+        first.signal_return().unwrap();
+        second.signal_return().unwrap();
+        first_producer.join().unwrap();
+        second_producer.join().unwrap();
+        first.shutdown();
+        second.shutdown();
+        join_service(first);
+        join_service(second);
+        assert!(!first_session.exists());
+        assert!(!second_session.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn rejected_in_memory_bootstrap_leaves_no_session_path() {
+        let root = fixture("memory-rejected");
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        let (mut hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+            assert_eq!(hello.header.message_type, MessageType::Hello);
+            let invalid = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "session_init",
+                "structure": {"sites": []}
+            });
+            bootstrap_write
+                .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&invalid)).unwrap())
+                .unwrap();
+        });
+        let result = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session: session.clone(),
+                manifest: Some(root.join("manifest-must-not-exist.json")),
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read),
+                write_pipe: into_raw_pipe(hello_write),
+            }),
+        );
+        assert!(result.is_err());
+        producer.join().unwrap();
+        assert!(!session.exists());
+        assert!(!root.join("manifest-must-not-exist.json").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn formal_return_pipe_failure_is_terminal() {
+        let root = fixture("memory-return-failure");
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        let (mut hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+            assert_eq!(hello.header.message_type, MessageType::Hello);
+            let body = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "session_init",
+                "manifest": {
+                    "format": "multiwfn-matterviz-workbench",
+                    "version": 2,
+                    "structure": null,
+                    "cubes": []
+                },
+                "structure": null
+            });
+            bootstrap_write
+                .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap())
+                .unwrap();
+        });
+        let service = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session: session.clone(),
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read),
+                write_pipe: into_raw_pipe(hello_write),
+            }),
+        )
+        .unwrap();
+        producer.join().unwrap();
+        assert!(service.signal_return().is_err());
+        assert!(service.is_shutdown());
+        assert_eq!(service.termination_exit_code(), 2);
+        assert!(!session.exists());
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn mismatched_control_response_invalidates_the_session() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        let (mut request_read, request_write) = pipe_pair();
+        let (response_read, mut response_write) = pipe_pair();
+        let control = Arc::new(Mutex::new(Some(
+            crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+                read_pipe: into_raw_pipe(response_read),
+                write_pipe: into_raw_pipe(request_write),
+            })
+            .unwrap(),
+        )));
+        let producer = std::thread::spawn(move || {
+            let request_bytes = read_control_frame(&mut request_read);
+            assert_eq!(
+                std::str::from_utf8(&request_bytes[HEADER_BYTES..]).unwrap(),
+                r#"{"format":"multiwfn-matterviz-control","version":1,"kind":"request","request_id":41,"command":"bond 1 2 mayer"}"#
+            );
+            let request = decode_frame(&request_bytes).unwrap();
+            assert_eq!(request.header.request_id, 41);
+            let wrong_id = 42;
+            let response = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "response",
+                "request_id": wrong_id,
+                "result": {"ok": true}
+            });
+            let frame = encode_frame(MessageType::Response, wrong_id, Some(&response)).unwrap();
+            for chunk in frame.chunks(3) {
+                response_write.write_all(chunk).unwrap();
+            }
+        });
+        let stop = AtomicBool::new(false);
+        let volumes = crate::volume_store::VolumeStore::new();
+        volumes.insert(golden_frame()).unwrap();
+        let response = request_control(
+            &control,
+            &stop,
+            &volumes,
+            41,
+            "bond 1 2 mayer",
+            std::time::Duration::from_secs(1),
+        );
+        producer.join().unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(response["message"].as_str().unwrap().contains("Mismatched"));
+        assert!(stop.load(Ordering::Acquire));
+        assert!(control.lock().unwrap().is_none());
+        assert_eq!(volumes.bytes(), 0);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn control_timeout_invalidates_the_session() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        let (mut request_read, request_write) = pipe_pair();
+        let (response_read, response_write) = pipe_pair();
+        let control = Arc::new(Mutex::new(Some(
+            crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+                read_pipe: into_raw_pipe(response_read),
+                write_pipe: into_raw_pipe(request_write),
+            })
+            .unwrap(),
+        )));
+        let producer = std::thread::spawn(move || {
+            let _response_write = response_write;
+            let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            assert_eq!(request.header.request_id, 51);
+            std::thread::sleep(std::time::Duration::from_millis(80));
+        });
+        let stop = AtomicBool::new(false);
+        let volumes = crate::volume_store::VolumeStore::new();
+        let response = request_control(
+            &control,
+            &stop,
+            &volumes,
+            51,
+            "bond 1 2 mayer",
+            std::time::Duration::from_millis(20),
+        );
+        producer.join().unwrap();
+        assert!(response["message"].as_str().unwrap().contains("timed out"));
+        assert!(stop.load(Ordering::Acquire));
+        assert!(control.lock().unwrap().is_none());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn corrupt_control_response_invalidates_the_session() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        let (mut request_read, request_write) = pipe_pair();
+        let (response_read, mut response_write) = pipe_pair();
+        let control = Arc::new(Mutex::new(Some(
+            crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+                read_pipe: into_raw_pipe(response_read),
+                write_pipe: into_raw_pipe(request_write),
+            })
+            .unwrap(),
+        )));
+        let producer = std::thread::spawn(move || {
+            let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            let response = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "response",
+                "request_id": request.header.request_id,
+                "result": {"ok": true}
+            });
+            let mut frame = encode_frame(
+                MessageType::Response,
+                request.header.request_id,
+                Some(&response),
+            )
+            .unwrap();
+            *frame.last_mut().unwrap() ^= 1;
+            response_write.write_all(&frame).unwrap();
+        });
+        let stop = AtomicBool::new(false);
+        let volumes = crate::volume_store::VolumeStore::new();
+        let response = request_control(
+            &control,
+            &stop,
+            &volumes,
+            61,
+            "bond 1 2 mayer",
+            std::time::Duration::from_secs(1),
+        );
+        producer.join().unwrap();
+        assert!(response["message"].as_str().unwrap().contains("CRC32C"));
+        assert!(stop.load(Ordering::Acquire));
+        assert!(control.lock().unwrap().is_none());
+    }
+
+    #[cfg(any(unix, windows))]
+    fn start_memory_session(
+        root: &Path,
+        marker: &'static str,
+    ) -> (HttpService, std::thread::JoinHandle<()>, PathBuf) {
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        let (mut hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+            assert_eq!(hello.header.message_type, MessageType::Hello);
+            let body = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "session_init",
+                "manifest": {
+                    "format": "multiwfn-matterviz-workbench",
+                    "version": 2,
+                    "session": marker,
+                    "structure": {"path": "structure.json", "format": "json"},
+                    "cubes": []
+                },
+                "structure": {"sites": [], "charge": 0, "properties": {"bonds": []}}
+            });
+            bootstrap_write
+                .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap())
+                .unwrap();
+            let shutdown = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+            assert_eq!(shutdown.header.message_type, MessageType::Shutdown);
+        });
+        let service = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session: session.clone(),
+                manifest: Some(root.join("manifest-must-not-exist.json")),
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read),
+                write_pipe: into_raw_pipe(hello_write),
+            }),
+        )
+        .unwrap();
+        (service, producer, session)
+    }
 
     #[test]
     fn path_decoder_handles_percent_and_rejects_bad_hex() {
@@ -1396,7 +2190,9 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while std::time::Instant::now() < deadline {
             if let Ok(text) = fs::read_to_string(path) {
-                return text;
+                if !text.is_empty() {
+                    return text;
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -1411,6 +2207,17 @@ mod tests {
         let read = unsafe { std::fs::File::from_raw_fd(ends[0]) };
         let write = unsafe { std::fs::File::from_raw_fd(ends[1]) };
         (read, write)
+    }
+
+    #[cfg(unix)]
+    fn read_control_frame(reader: &mut std::fs::File) -> Vec<u8> {
+        let mut header_bytes = [0_u8; HEADER_BYTES];
+        reader.read_exact(&mut header_bytes).unwrap();
+        let header = decode_header(&header_bytes).unwrap();
+        let mut frame = vec![0_u8; HEADER_BYTES + header.body_bytes as usize];
+        frame[..HEADER_BYTES].copy_from_slice(&header_bytes);
+        reader.read_exact(&mut frame[HEADER_BYTES..]).unwrap();
+        frame
     }
 
     #[cfg(windows)]

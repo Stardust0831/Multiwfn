@@ -197,6 +197,11 @@ jobs:
       - name: Test C-to-Rust binary volume transport
         run: cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
 
+      - name: Test native control and picker IPC on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/c/run_matterviz_stream_test.sh
+
       - name: Build Multiwfn MatterViz executable
         if: runner.os != 'Windows'
         run: |
@@ -363,14 +368,6 @@ jobs:
             WEBKIT_DISABLE_COMPOSITING_MODE=1 \
             python3 tests/linux/test_matterviz_real_orbital.py \
               --executable "$root/Multiwfn_MatterVizGUI"
-          dbus-run-session -- xvfb-run -a env \
-            GDK_BACKEND=x11 \
-            NO_AT_BRIDGE=1 \
-            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
-            python3 tests/linux/test_matterviz_real_orbital.py \
-              --executable "$root/Multiwfn_MatterVizGUI" \
-              --force-cube-fallback
-
       - name: Package macOS preview
         if: runner.os == 'macOS'
         shell: bash
@@ -582,4 +579,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "MatterViz WebView preview $preview" \
             --prerelease \
-            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS, and Windows packages with the MatterViz frontend, native Rust WebView/session host, and Multiwfn executable. Python runtime artifacts are rejected from every package. CI verifies real uncached orbital 43 through native major-2 binary transport with no dynamic Cube on extracted Windows and Linux packages; Linux also verifies the explicit diagnostic Cube fallback, enabled only with MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1. macOS dependency relocation and extracted Multiwfn execution pass, while real WKWebView orbital readiness requires an interactive macOS desktop and remains part of manual preview validation. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment."
+            --notes "MatterViz/WebView preview for manual validation of the original Multiwfn GUI parity phase. Includes Linux, macOS and Windows packages with the MatterViz frontend, native Rust WebView/session host and Multiwfn executable. Python runtime artifacts are rejected from every package. CI verifies formal in-memory session bootstrap on all three platforms and real uncached orbital 43 through native major-2 binary transport without runtime session/control/Cube artifacts on extracted Windows and Linux packages. macOS also runs the native control/picker protocol suite and extracted Multiwfn checks; real WKWebView orbital readiness requires an interactive macOS desktop and remains part of manual preview validation. Cube fallback is diagnostic-only and requires MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment."

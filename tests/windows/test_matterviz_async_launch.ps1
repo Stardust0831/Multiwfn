@@ -44,7 +44,6 @@ if (-not (Test-Path -LiteralPath $fixture -PathType Leaf)) {
 
 $root = Join-Path ([IO.Path]::GetTempPath()) ("multiwfn matterviz async " + [Guid]::NewGuid().ToString("N"))
 $work = Join-Path $root "work"
-$session = Join-Path $root "session data"
 $fakeHome = Join-Path $root "fake matterviz home"
 $fakeTools = Join-Path $fakeHome "tools"
 $fakeFrontend = Join-Path $fakeHome "frontend\matterviz-viewer\dist"
@@ -76,18 +75,9 @@ function Show-Diagnostics {
     if ($null -ne $desktopProcess) {
         Write-Host "  MatterViz desktop process ID: $($desktopProcess.Id)"
     }
-    foreach ($path in @(
-        (Join-Path $session "manifest.json"),
-        (Join-Path $session "gui_request.txt"),
-        (Join-Path $session "gui_stop.flag")
-    )) {
-        if (Test-Path -LiteralPath $path) {
-            Write-Host "--- $path ---"
-            Get-Content -LiteralPath $path -Raw | Write-Host
-        }
-    }
-    if (Test-Path -LiteralPath $session) {
-        Get-ChildItem -LiteralPath $session -Force | Select-Object Name, Length | Format-Table | Out-String | Write-Host
+    if (Test-Path -LiteralPath $root) {
+        Get-ChildItem -LiteralPath $root -Force -Recurse |
+            Select-Object FullName, Length | Format-Table | Out-String | Write-Host
     }
     if ($stdoutLines.Count -gt 0) {
         Write-Host "--- Multiwfn stdout ---"
@@ -96,6 +86,58 @@ function Show-Diagnostics {
     if ($stderrLines.Count -gt 0) {
         Write-Host "--- Multiwfn stderr ---"
         [string]::Join([Environment]::NewLine, $stderrLines.ToArray()) | Write-Host
+    }
+}
+
+function Get-TreeSnapshot([string] $Path) {
+    $snapshot = @{}
+    if (-not (Test-Path -LiteralPath $Path)) { return $snapshot }
+    foreach ($item in Get-ChildItem -LiteralPath $Path -Recurse -Force) {
+        $relative = $item.FullName.Substring($Path.Length).TrimStart('\', '/')
+        if ($item.PSIsContainer) {
+            $snapshot[$relative] = "<directory>"
+        } else {
+            $snapshot[$relative] = [int64]$item.Length
+        }
+    }
+    return $snapshot
+}
+
+function Assert-NoRuntimeArtifacts([hashtable] $Before, [string] $Path) {
+    $after = Get-TreeSnapshot $Path
+    $newEntries = @($after.Keys | Where-Object { -not $Before.ContainsKey($_) })
+    if ($newEntries.Count -gt 0) {
+        throw "MatterViz runtime created new entries under the controlled working directory: $([string]::Join(', ', $newEntries))"
+    }
+    $forbidden = @($after.Keys | Where-Object {
+        $_ -match '(?i)(^|[\\/])(gui_request\.txt|gui_stop\.flag|manifest\.json|structure\.json|.*\.cube|.*\.cub|.*\.mwfnvol)$'
+    })
+    if ($forbidden.Count -gt 0) {
+        throw "MatterViz runtime left forbidden artifacts in the controlled working directory: $([string]::Join(', ', $forbidden))"
+    }
+}
+
+function Get-BinaryHttpResponse([string] $Uri) {
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $client = [Net.Http.HttpClient]::new($handler)
+    $response = $null
+    try {
+        $response = $client.GetAsync($Uri).GetAwaiter().GetResult()
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        $headers = @{}
+        foreach ($header in $response.Headers) { $headers[$header.Key] = [string]::Join(', ', $header.Value) }
+        foreach ($header in $response.Content.Headers) { $headers[$header.Key] = [string]::Join(', ', $header.Value) }
+        return [pscustomobject]@{
+            StatusCode = [int]$response.StatusCode
+            Headers = $headers
+            Bytes = [byte[]]$bytes
+        }
+    }
+    finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $client.Dispose()
+        $handler.Dispose()
     }
 }
 
@@ -159,6 +201,21 @@ function Get-ServiceProcess([string] $BaseUrl, [string] $ExpectedPath) {
     return $candidate
 }
 
+function Assert-FormalTransport([Diagnostics.Process] $HostProcess) {
+    $record = Get-CimInstance Win32_Process -Filter "ProcessId = $($HostProcess.Id)"
+    if ($null -eq $record -or [string]::IsNullOrWhiteSpace([string]$record.CommandLine)) {
+        throw "Could not inspect the Rust MatterViz host command line for formal MWFNCTL transport"
+    }
+    $commandLine = [string]$record.CommandLine
+    foreach ($name in @(
+        "--volume-read-pipe", "--volume-ack-pipe", "--control-read-pipe", "--control-write-pipe"
+    )) {
+        if ($commandLine -notmatch [regex]::Escape($name)) {
+            throw "Rust MatterViz host was not launched with required formal transport argument $name"
+        }
+    }
+}
+
 function Get-Crc32C([byte[]] $Bytes) {
     [uint64]$crc = 4294967295
     [uint64]$polynomial = 2197175160
@@ -176,7 +233,7 @@ function Get-Crc32C([byte[]] $Bytes) {
 }
 
 try {
-    New-Item -ItemType Directory -Force -Path $work, $session, $fakeTools, $fakeFrontend | Out-Null
+    New-Item -ItemType Directory -Force -Path $work, $fakeTools, $fakeFrontend | Out-Null
     $inputPath = Join-Path $work "Co5Cr.fch"
     $fixtureStream = [IO.File]::OpenRead($fixture)
     $inputStream = [IO.File]::Create($inputPath)
@@ -204,9 +261,10 @@ try {
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.Arguments = '"' + $inputPath.Replace('"', '\"') + '"'
-    $psi.Environment["MULTIWFN_MATTERVIZ_SESSION"] = $session
     $psi.Environment["MULTIWFN_MATTERVIZ_HOME"] = $fakeHome
     $psi.Environment["MULTIWFN_MATTERVIZ_PORT"] = $hostPort.ToString()
+    [void]$psi.Environment.Remove("MULTIWFN_MATTERVIZ_SESSION")
+    $artifactSnapshotBefore = Get-TreeSnapshot $work
 
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $psi
@@ -221,16 +279,22 @@ try {
     $process.StandardInput.Flush()
 
     Wait-ForCondition {
-        (Test-Path -LiteralPath (Join-Path $session "manifest.json")) -and
-        -not $process.HasExited
-    } 30 "Multiwfn did not publish a MatterViz manifest while processing menu 0"
+        (@($stdoutLines.ToArray()) | Where-Object {
+            $_ -match 'MatterViz GUI backend prepared an in-memory visualization session'
+        }).Count -gt 0 -and -not $process.HasExited
+    } 30 "Multiwfn did not prepare an in-memory MatterViz session while processing menu 0"
+    if ((@($stdoutLines.ToArray()) | Where-Object {
+        $_ -match 'MatterViz GUI backend wrote a visualization session:'
+    }).Count -gt 0) {
+        throw "Formal in-memory MatterViz launch unexpectedly emitted a created session path"
+    }
 
     Wait-ForCondition {
         $candidate = Get-ServiceBaseUrl
         if ([string]::IsNullOrWhiteSpace($candidate)) { return $false }
         try {
-            $null = Invoke-WebRequest -UseBasicParsing `
-                -Uri "$candidate/session/manifest.json" -TimeoutSec 2
+            $response = Get-BinaryHttpResponse "$candidate/session/manifest.json"
+            if ($response.StatusCode -ne 200 -or $response.Bytes.Length -eq 0) { return $false }
             $script:serviceBase = $candidate
             return (-not $process.HasExited)
         }
@@ -240,12 +304,12 @@ try {
         $script:desktopProcess = Get-ServiceProcess $serviceBase (Join-Path $fakeTools "matterviz-desktop.exe")
         return ($null -ne $desktopProcess)
     } 5 "Could not identify the Rust MatterViz host process"
+    Assert-FormalTransport $desktopProcess
     $capability = Get-SessionCapability $serviceBase
 
     $orbitalUrl = "$serviceBase/api/orbital?index=43&quality=25000&isovalue=0.05&cap=$capability"
-    $volumePath = Join-Path $root "orbital-43.mwfnvol"
-    $orbitalResponse = Invoke-WebRequest -UseBasicParsing -Uri $orbitalUrl -OutFile $volumePath -PassThru
-    $volumeBytes = [IO.File]::ReadAllBytes($volumePath)
+    $orbitalResponse = Get-BinaryHttpResponse $orbitalUrl
+    $volumeBytes = $orbitalResponse.Bytes
     if ($orbitalResponse.StatusCode -ne 200 -or
         [string]$orbitalResponse.Headers["Content-Type"] -ne "application/vnd.multiwfn.volume; version=2") {
         throw "Native orbital response did not return the v2 binary content type"
@@ -283,12 +347,6 @@ try {
     if ((Get-Crc32C $body) -ne $expectedBodyCrc) {
         throw "Native orbital volume body CRC32C mismatch"
     }
-    if (Test-Path -LiteralPath (Join-Path $session "orbital_43_25000.cube")) {
-        throw "Successful native orbital publication unexpectedly staged a dynamic Cube"
-    }
-    if (Test-Path -LiteralPath (Join-Path $session "gui_request.txt")) {
-        throw "Rust orbital API left an unconsumed backend request"
-    }
     if ($process.HasExited) { throw "Multiwfn exited before the orbital API response" }
 
     $returnPayload = Invoke-RestMethod -Uri "$serviceBase/api/return?cap=$capability"
@@ -301,6 +359,7 @@ try {
     if (-not [Threading.Tasks.Task]::WaitAll($drainTasks, 10000)) {
         throw "MatterViz desktop did not close its inherited output handles after Return"
     }
+    Assert-NoRuntimeArtifacts $artifactSnapshotBefore $work
     $success = $true
 }
 catch {

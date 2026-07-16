@@ -106,6 +106,7 @@ pub enum QuantityKind {
     Orbital = 1,
     ElectronDensity = 2,
     ElectrostaticPotential = 3,
+    GenericScalar = 4,
 }
 
 impl QuantityKind {
@@ -114,6 +115,7 @@ impl QuantityKind {
             1 => Ok(Self::Orbital),
             2 => Ok(Self::ElectronDensity),
             3 => Ok(Self::ElectrostaticPotential),
+            4 => Ok(Self::GenericScalar),
             _ => Err(VolumeError::InvalidEnum),
         }
     }
@@ -124,6 +126,7 @@ pub enum ValueUnit {
     BohrMinusThreeHalves = 1,
     ElectronPerBohr3 = 2,
     HartreePerElectron = 3,
+    Dimensionless = 4,
 }
 
 impl ValueUnit {
@@ -132,6 +135,7 @@ impl ValueUnit {
             1 => Ok(Self::BohrMinusThreeHalves),
             2 => Ok(Self::ElectronPerBohr3),
             3 => Ok(Self::HartreePerElectron),
+            4 => Ok(Self::Dimensionless),
             _ => Err(VolumeError::InvalidEnum),
         }
     }
@@ -629,6 +633,7 @@ fn units_match(quantity: QuantityKind, value: ValueUnit) -> bool {
                 QuantityKind::ElectrostaticPotential,
                 ValueUnit::HartreePerElectron
             )
+            | (QuantityKind::GenericScalar, ValueUnit::Dimensionless)
     )
 }
 
@@ -927,6 +932,7 @@ mod tests {
                 QuantityKind::ElectrostaticPotential,
                 ValueUnit::HartreePerElectron,
             ),
+            (QuantityKind::GenericScalar, ValueUnit::Dimensionless),
         ] {
             volume.quantity_kind = quantity_kind;
             volume.value_unit = value_unit;
@@ -937,6 +943,26 @@ mod tests {
             assert_eq!(decoded.samples[0], -1.0);
             assert_eq!(decoded.samples[11], -12.0);
         }
+    }
+
+    #[test]
+    fn rejects_generic_scalar_unit_mismatches() {
+        let mut volume = decode_volume(&fixture()).unwrap();
+        for value_unit in [
+            ValueUnit::BohrMinusThreeHalves,
+            ValueUnit::ElectronPerBohr3,
+            ValueUnit::HartreePerElectron,
+        ] {
+            volume.quantity_kind = QuantityKind::GenericScalar;
+            volume.value_unit = value_unit;
+            assert_eq!(encode_volume(&volume), Err(VolumeError::InvalidEnum));
+        }
+
+        let mut frame = fixture();
+        put_u16(&mut frame, 74, QuantityKind::GenericScalar as u16);
+        put_u16(&mut frame, 76, ValueUnit::HartreePerElectron as u16);
+        refresh_header_crc(&mut frame);
+        assert_eq!(decode_volume(&frame), Err(VolumeError::InvalidEnum));
     }
 
     #[test]

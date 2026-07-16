@@ -927,3 +927,121 @@
   MatterViz frontend, license, settings and README; none contains Python,
   3Dmol, session/control files or staged Cube/CUB data. Implementation now
   pauses for Windows manual confirmation before the zero-disk IPC goal begins.
+
+## 2026-07-16 runtime zero-disk IPC
+
+- Windows manual acceptance closed the pole-free camera milestone, so the
+  deferred runtime zero-disk work became active. A read-only source audit mapped
+  every current disk dependency: session directory creation, manifest and
+  structure JSON, initial/preview/dynamic Cube files, request/response/stop
+  control files, cleanup polling and the file picker's `selected_file.txt`.
+- Fixed the architecture boundary before implementation. The existing
+  `MWFNVOL` channel remains dedicated to scalar data and ACK/backpressure. A
+  separate versioned `MWFNCTL` request/response pair carries in-memory session
+  bootstrap, correlated analysis results and shutdown. Rust keeps the existing
+  HTTP URLs but serves session objects from memory; formal failure is terminal,
+  while file/Cube behavior requires the explicit diagnostic environment flag.
+- Added `docs/matterviz-control-protocol.md` with the v1 48-byte header, CRC,
+  JSON envelope, request-ID rules, 64 MiB bootstrap bound, endpoint ownership,
+  lifecycle and three-platform acceptance matrix. No Multiwfn calculation-core
+  file is in the allowed write scope.
+- The test audit found strong reusable major-2 and real-orbital coverage but no
+  existing zero-disk proof. Linux and Windows package tests currently create
+  and wait on session artifacts, Windows stages the downloaded HTTP body, and
+  macOS only verifies noninteractive package linkage. The new gates must assert
+  controlled writable-root snapshots, concurrent isolation, bounded pipe
+  failure without fallback, and diagnostic Cube behavior as a separate mode.
+- Implemented the fixed 48-byte `MWFNCTL` codec in Rust and C, paired inherited
+  request/response pipes on POSIX and Windows, Rust hello validation in the C
+  launcher, and a bounded 64 MiB C memory builder so Fortran can serialize JSON
+  without a scratch file. Strict C11 `-Werror -pedantic` stream tests pass.
+- Added validated Rust `SessionData` storage and changed the formal service to
+  block on `session_init` before opening the WebView. Manifest, structure and
+  optional state retain the existing HTTP URLs but are served from immutable
+  in-memory JSON. A regression starts with nonexistent session/manifest paths,
+  performs an authenticated bond request and shutdown over anonymous pipes,
+  and verifies the path remains absent.
+- Refactored the Fortran manifest and structure writers through one JSON sink,
+  so diagnostic files and in-memory bootstrap share exactly the same serializer.
+  Formal `drawmolgui` now creates only an identity string, sends bootstrap,
+  orbital/bond/ESP responses and Return over control pipes, and keeps scalar
+  volumes on `MWFNVOL`; Cube output remains explicit diagnostic behavior.
+- Installed a disposable Rust 1.88 toolchain under `/tmp` for local checking.
+  A Tauri-native build is blocked locally by missing Wayland/dbus development
+  packages, but a no-Tauri harness compiled the production protocol, transport,
+  service and volume modules and passed 58/58 tests. Full `cargo fmt --check`
+  passes and the strict C stream suite remains green. Non-`drawmolgui` initial
+  volume entries and the native file picker are the next zero-disk gaps.
+- Completed the remaining zero-disk bootstrap gaps. Initial `cubmat` and
+  `cubmattmp` arrays now publish as generic scalar `MWFNVOL` entries before the
+  in-memory `session_init`; non-`drawmolgui` sessions stay in the same serialized
+  control loop until shutdown. Formal sessions therefore do not create a real
+  session path for these GUI entry points.
+- Added bounded control-read deadlines on Unix and Windows and retained one
+  deadline across fragmented header/body reads. Formal orbital, bond, ESP and
+  Return requests now use correlated `MWFNCTL` envelopes; scalar payloads remain
+  on the existing volume channel, and formal transport failure is terminal.
+- Replaced the native file picker's `selected_file.txt` with `MWFNPICK` v1 over
+  one inherited result pipe. Rust writes selected/cancel/error frames; C validates
+  version, header/body CRC, UTF-8, NUL, bounds, trailing bytes and capacity before
+  returning a fixed Fortran buffer. The nonlegacy Fortran branch no longer asks
+  for or creates a session directory when the user presses Enter to select a file.
+- Migrated the Linux and Windows real-orbital package gates to in-memory HTTP
+  response bytes and pre/post writable-tree snapshots. They reject newly created
+  directories as well as manifest, structure, request, response, stop, Cube and
+  staged volume files. Windows additionally asserts all four formal pipe
+  arguments on the Rust Host process. The package matrix runs the in-memory Rust
+  service regression on Linux, macOS and Windows, plus strict native C control/
+  picker tests on Linux and macOS; hosted macOS still does not claim an
+  interactive WKWebView session.
+- Local verification after the final lifecycle fixes passes the strict C
+  stream/control/picker suite, 82/82 production-module and direct C-ABI Rust
+  integration tests, `clippy -D warnings`, both Rust formatting checks, 103/103
+  viewer tests, Svelte check, generated production assets, configuration
+  validation and 38 Python contract/service tests (one Windows-only socket
+  assertion skipped on Linux). The full Tauri and Fortran builds remain CI
+  gates because this WSL environment lacks the required WebKit/Wayland
+  development packages and a Fortran compiler.
+- Remaining release work is deliberately narrow: run formatting/check/build and
+  the locked three-platform package jobs, inspect their zero-artifact evidence,
+  obtain a final high-level read-only review, then publish a prerelease for manual
+  confirmation. No upstream MatterViz draft is published as part of this goal.
+- The first high-level zero-disk review found that control errors were reported
+  but the byte stream remained reusable, the C/Fortran receiver did not enforce
+  the JSON envelope, a 250 ms partial read could lose framing, and the picker
+  counted user interaction against a 15-second transport deadline. These were
+  accepted as release blockers rather than documented away.
+- Runtime control send/read/CRC/timeout/correlation/malformed-result failures now
+  atomically revoke the control transport, clear volumes, stop HTTP and cause the
+  formal WebView host to exit with status 2. Normal Return keeps the transport
+  valid long enough to send shutdown and exits with status 0. Cross-platform
+  tests cover timeout, corrupt CRC, fragmented response and mismatched IDs.
+- C now performs a non-consuming 250 ms idle readiness poll, then applies one
+  30-second completion deadline after the first byte. A partial-frame timeout is
+  a terminal protocol error. It also rejects control-body NUL and invalid UTF-8.
+  Rust emits one canonical request JSON order and Fortran reconstructs that exact
+  envelope with the validated header request ID before executing any command.
+- The picker now waits indefinitely for the human dialog decision and starts its
+  15-second bound only after result bytes become readable. The separate Fortran
+  buffer limit rejects overlong paths instead of truncating them. Formal manifest
+  bootstrap also rejects external structure/volume URLs.
+- The matrix integration crate now calls the compiled C control ABI directly on
+  every platform for round-trip, fragmentation, CRC rejection and idle timeout;
+  Windows therefore no longer relies only on the happy-path packaged orbital for
+  control failure coverage. Interactive native picker behavior remains a manual
+  desktop gate.
+- The follow-up lifecycle review found four final gaps: Return send failure did
+  not terminate the formal host, idle Multiwfn death could leave the host
+  orphaned, valid `structure: null` manifests were rejected, and legacy
+  `layers` paths were not covered by formal URL validation. Return failure now
+  revokes the transport and exits with status 2; volume-pipe EOF sets the shared
+  stop signal; structureless sessions are accepted; and `layers` use the same
+  positive local `/api/volume/<id>` policy as `cubes`. Focused Rust tests cover
+  each lifecycle/bootstrap behavior.
+- The final independent re-review found no critical, important or minor issue.
+  It confirmed terminal Return failure, idle backend EOF shutdown,
+  structureless bootstrap, legacy-layer URL containment, the formal/diagnostic
+  split and the absence of scientific-core changes. The change is ready to
+  enter CI; prerelease remains conditional on full Fortran/Tauri/MinGW builds,
+  packaged Linux/Windows zero-artifact orbital gates and the documented manual
+  desktop checks.

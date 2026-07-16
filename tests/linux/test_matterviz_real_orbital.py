@@ -24,7 +24,7 @@ import tempfile
 import threading
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
@@ -37,6 +37,13 @@ REQUEST_TIMEOUT = 60.0
 SHUTDOWN_TIMEOUT = 30.0
 HOST_SHUTDOWN_TIMEOUT = 15.0
 TAIL_LINES = 120
+FORMAL_SESSION_BANNER = (
+    "MatterViz GUI backend prepared an in-memory visualization session"
+)
+FORBIDDEN_ARTIFACT_PART = re.compile(
+    r"(?:session|control|request|response|stop|manifest|structure|cube|cub|volume|staged)",
+    re.IGNORECASE,
+)
 
 
 class RegressionError(RuntimeError):
@@ -63,6 +70,24 @@ def wait_for(condition, timeout: float, description: str, interval: float = 0.2)
             return value
         time.sleep(interval)
     raise RegressionError(f"timed out after {timeout:g}s waiting for {description}")
+
+
+def wait_for_formal_startup(
+    process: subprocess.Popen[str], stdout: list[str], stderr: list[str]
+) -> None:
+    def ready() -> bool:
+        return any(FORMAL_SESSION_BANNER in line for line in stdout) and process.poll() is None
+
+    try:
+        wait_for(ready, STARTUP_TIMEOUT, "Multiwfn in-memory MatterViz session")
+    except RegressionError as exc:
+        if process.poll() is not None:
+            output = "\n".join((stdout + stderr)[-20:])
+            raise RegressionError(
+                f"Multiwfn exited before the in-memory session was prepared "
+                f"(status {process.returncode}); output tail:\n{output}"
+            ) from exc
+        raise
 
 
 def read_stream(stream, lines: list[str]) -> None:
@@ -159,12 +184,28 @@ def http_get(url: str, timeout: float) -> tuple[int, dict[str, str], bytes]:
 def wait_for_service(base_url: str, timeout: float) -> None:
     def ready() -> bool:
         try:
-            status, _, body = http_get(f"{base_url}/session/manifest.json", 2.0)
-            return status == 200 and bool(body)
+            status, headers, _ = http_get(f"{base_url}/", 2.0)
+            return status in (301, 302, 303, 307, 308) and bool(headers.get("Location"))
         except (OSError, HTTPError, URLError):
             return False
 
     wait_for(ready, timeout, "Rust MatterViz session service")
+
+
+def tree_snapshot(root: Path) -> set[Path]:
+    """Capture names below a controlled writable root without reading contents."""
+    if not root.exists():
+        return set()
+    return {Path(".")} | {path.relative_to(root) for path in root.rglob("*")}
+
+
+def forbidden_artifact_additions(before: set[Path], after: set[Path]) -> list[Path]:
+    additions = sorted(after - before, key=lambda path: path.as_posix())
+    return [
+        path
+        for path in additions
+        if any(FORBIDDEN_ARTIFACT_PART.search(part) for part in path.parts)
+    ]
 
 
 def advertised_service_base(stdout: list[str], stderr: list[str]) -> str | None:
@@ -201,10 +242,12 @@ def get_capability(base_url: str) -> str:
     if status not in (301, 302, 303, 307, 308):
         raise RegressionError(f"Rust host root did not redirect (HTTP {status})")
     location = headers.get("Location", "")
-    match = re.search(r"[?&]cap=([0-9a-f]{64})(?:&|$)", location)
-    if not match:
-        raise RegressionError("Rust host redirect did not advertise a 256-bit capability")
-    return match.group(1)
+    values = parse_qs(urlsplit(location).query, keep_blank_values=True).get("cap", [])
+    if len(values) != 1 or re.fullmatch(r"[0-9a-f]{64}", values[0]) is None:
+        raise RegressionError(
+            f"Rust host redirect did not advertise exactly one 256-bit capability: {location!r}"
+        )
+    return values[0]
 
 
 def request_json(url: str, timeout: float) -> dict[str, object]:
@@ -312,16 +355,6 @@ def diagnostics(
                 f"  Rust host descendants: {matching_host_pids(process.pid, host)}; "
                 f"all matching processes: {all_matching_host_pids(host)}"
             )
-    session = root / "session data"
-    if session.is_dir():
-        chunks.append("  session files: " + ", ".join(sorted(path.name for path in session.iterdir())))
-        for name in ("manifest.json", "gui_request.txt", "gui_stop.flag"):
-            path = session / name
-            if path.is_file():
-                try:
-                    chunks.append(f"--- {path} ---\n{path.read_text(encoding='utf-8', errors='replace')}")
-                except OSError:
-                    pass
     if stdout:
         chunks.append("--- Multiwfn stdout (tail) ---\n" + "\n".join(stdout))
     if stderr:
@@ -329,7 +362,7 @@ def diagnostics(
     return "\n".join(chunks)
 
 
-def run(executable: Path, fixture: Path, force_cube_fallback: bool) -> None:
+def run(executable: Path, fixture: Path) -> None:
     if os.name != "posix" or not Path("/proc").is_dir():
         raise RegressionError("this regression requires Linux /proc process inspection")
     executable = executable.expanduser().resolve()
@@ -349,12 +382,11 @@ def run(executable: Path, fixture: Path, force_cube_fallback: bool) -> None:
 
     root = Path(tempfile.mkdtemp(prefix="multiwfn matterviz linux "))
     work = root / "work area"
-    session = root / "session data"
+    session = root / "in-memory session identity"
     fake_home = root / "fake matterviz home"
     fake_tools = fake_home / "tools"
     fake_frontend = fake_home / "frontend" / "matterviz-viewer" / "dist"
     work.mkdir(parents=True)
-    session.mkdir()
     fake_tools.mkdir(parents=True)
     fake_frontend.mkdir(parents=True)
     input_path = work / "Co5Cr input.fch"
@@ -362,48 +394,12 @@ def run(executable: Path, fixture: Path, force_cube_fallback: bool) -> None:
         shutil.copyfileobj(source, target)
     fake_host = fake_tools / "matterviz-desktop"
     expected_host = fake_host
-    fallback_marker = fake_tools / "transport-rejected"
-    if force_cube_fallback:
-        expected_host = fake_tools / "matterviz-desktop-real"
-        shutil.copy2(packaged_host, expected_host)
-        expected_host.chmod(expected_host.stat().st_mode | 0o111)
-        fake_host.write_text(
-            """#!/bin/sh
-reject_transport=
-for argument do
-    if [ "$argument" = "--volume-read-pipe" ]; then
-        reject_transport=1
-    fi
-done
-if [ -n "$reject_transport" ]; then
-    session=
-    while [ "$#" -gt 0 ]; do
-        if [ "$1" = "--session" ]; then
-            shift
-            session=$1
-            break
-        fi
-        shift
-    done
-    [ -n "$session" ] || exit 2
-    : > "$session/gui_stop.flag"
-    : > "${0%/*}/transport-rejected"
-    exit 0
-fi
-exec "${0%/*}/matterviz-desktop-real" "$@"
-""",
-            encoding="ascii",
-        )
-    else:
-        shutil.copy2(packaged_host, fake_host)
+    shutil.copy2(packaged_host, fake_host)
     fake_host.chmod(fake_host.stat().st_mode | 0o111)
     shutil.copytree(packaged_frontend, fake_frontend, dirs_exist_ok=True)
 
     env = os.environ.copy()
-    if force_cube_fallback:
-        env["MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK"] = "1"
-    else:
-        env.pop("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK", None)
+    env.pop("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK", None)
     env.update(
         {
             "MULTIWFN_MATTERVIZ_SESSION": str(session),
@@ -421,6 +417,7 @@ exec "${0%/*}/matterviz-desktop-real" "$@"
     service_base: str | None = None
     capability: str | None = None
     observed_runtime_pids: set[int] = set()
+    before_runtime = tree_snapshot(root)
     success = False
     try:
         process = subprocess.Popen(
@@ -443,19 +440,13 @@ exec "${0%/*}/matterviz-desktop-real" "$@"
         assert process.stdin is not None
         process.stdin.write("0\nq\n")
         process.stdin.flush()
-        wait_for(lambda: (session / "manifest.json").is_file() and process.poll() is None,
-                 STARTUP_TIMEOUT, "Multiwfn manifest while entering MatterViz")
+        wait_for_formal_startup(process, stdout, stderr)
         service_base = wait_for(
             lambda: advertised_service_base(stdout, stderr),
             STARTUP_TIMEOUT,
             "Rust MatterViz advertised service URL",
         )
         wait_for_service(service_base, STARTUP_TIMEOUT)
-        if force_cube_fallback:
-            if not fallback_marker.is_file():
-                raise RegressionError("test wrapper did not reject the native transport launch")
-            if (session / "gui_stop.flag").exists():
-                raise RegressionError("C adapter did not clear the failed host's stale stop flag")
         host_pids = wait_for(
             lambda: matching_host_pids(process.pid, expected_host),
             10.0,
@@ -467,37 +458,10 @@ exec "${0%/*}/matterviz-desktop-real" "$@"
         orbital_url = (
             f"{service_base}/api/orbital?index=43&quality=25000&isovalue=0.05&cap={capability}"
         )
-        cube_path = session / "orbital_43_25000.cube"
-        if force_cube_fallback:
-            orbital = request_json(orbital_url, REQUEST_TIMEOUT)
-            layer = orbital.get("layer")
-            if orbital.get("ok") is not True or not isinstance(layer, dict):
-                raise RegressionError(f"Cube fallback orbital response was not successful: {orbital}")
-            volume_path = layer.get("path")
-            if layer.get("format") is not None or volume_path != cube_path.name:
-                raise RegressionError(f"unexpected Cube fallback layer: {layer}")
-            if not cube_path.is_file() or cube_path.stat().st_size <= 0:
-                raise RegressionError("Cube fallback response did not stage the orbital grid")
-            status, _, cube_bytes = http_get(
-                f"{service_base}/session/{cube_path.name}?cap={capability}", REQUEST_TIMEOUT
-            )
-            if status != 200 or not cube_bytes.startswith(
-                b"Generated by Multiwfn MatterViz GUI backend\n"
-            ):
-                raise RegressionError(
-                    f"Cube fallback volume was invalid (HTTP {status}, {len(cube_bytes)} bytes)"
-                )
-        else:
-            status, response_headers, volume_bytes = http_get(orbital_url, REQUEST_TIMEOUT)
-            if status != 200:
-                raise RegressionError(f"native orbital stream failed with HTTP {status}")
-            validate_stream_volume(response_headers, volume_bytes)
-            if cube_path.exists():
-                raise RegressionError(
-                    "successful native orbital stream staged orbital_43_25000.cube"
-                )
-        if (session / "gui_request.txt").exists():
-            raise RegressionError("Rust orbital API left an unconsumed backend request")
+        status, volume_headers, volume_bytes = http_get(orbital_url, REQUEST_TIMEOUT)
+        if status != 200:
+            raise RegressionError(f"native orbital stream failed with HTTP {status}")
+        validate_stream_volume(volume_headers, volume_bytes)
         if process.poll() is not None:
             raise RegressionError("Multiwfn exited before the native orbital response completed")
 
@@ -523,8 +487,15 @@ exec "${0%/*}/matterviz-desktop-real" "$@"
             thread.join(timeout=max(0.0, thread_deadline - now()))
         if any(thread.is_alive() for thread in output_threads):
             raise RegressionError("MatterViz descendants retained inherited output handles")
-        if not (session / "gui_stop.flag").is_file():
-            raise RegressionError("Rust MatterViz host did not create gui_stop.flag")
+        after_runtime = tree_snapshot(root)
+        forbidden = forbidden_artifact_additions(before_runtime, after_runtime)
+        if forbidden:
+            rendered = ", ".join(path.as_posix() for path in forbidden[:20])
+            suffix = " ..." if len(forbidden) > 20 else ""
+            raise RegressionError(
+                "formal MatterViz session created forbidden runtime artifacts: "
+                f"{rendered}{suffix}"
+            )
         success = True
     finally:
         if (
@@ -562,19 +533,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True, type=Path, help="packaged Multiwfn_MatterVizGUI")
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE, help="gzipped formatted checkpoint fixture")
-    parser.add_argument(
-        "--force-cube-fallback",
-        action="store_true",
-        help="reject native transport startup and require the packaged Cube fallback",
-    )
     args = parser.parse_args(argv)
     try:
-        run(args.executable, args.fixture, args.force_cube_fallback)
+        run(args.executable, args.fixture)
     except (OSError, RegressionError, subprocess.SubprocessError) as exc:
         print(f"MatterViz Linux real-orbital regression failed: {exc}", file=sys.stderr)
         return 1
-    mode = "Cube fallback" if args.force_cube_fallback else "native volume"
-    print(f"MatterViz Linux real-orbital regression passed ({mode})")
+    print("MatterViz Linux real-orbital regression passed (native volume)")
     return 0
 
 

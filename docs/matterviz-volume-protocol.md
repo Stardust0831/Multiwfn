@@ -91,9 +91,12 @@ For `message_type=4`, bytes 48..303 have this layout:
 | 264 | 8 each | `min`, `max`, `mean`, `abs_max:f64` |
 | 296 | 8 | reserved, zero |
 
-Quantity kinds are `1=orbital`, `2=electron_density`, and
-`3=electrostatic_potential`. Value units are
-`1=bohr^-3/2`, `2=electron/bohr^3`, and `3=hartree/e` respectively. The
+Quantity kinds are `1=orbital`, `2=electron_density`,
+`3=electrostatic_potential`, and `4=generic_scalar`. Value units are
+`1=bohr^-3/2`, `2=electron/bohr^3`, `3=hartree/e`, and `4=dimensionless`
+respectively. Pair 4/4 carries an existing GUI scalar field whose physical
+quantity is not one of the three specialized kinds; it is required to migrate
+initial non-orbital visualization grids without relabeling them as density. The
 quantity/value-unit pair must match. Coordinates and lattice are converted to
 angstrom only in the frontend adapter.
 
@@ -140,19 +143,23 @@ boolean, so frontend adaptation rejects partially periodic grids rather than
 silently treating them as periodic along all three axes.
 
 If native transport is absent, fails negotiation, rejects a frame, exceeds a
-bound, or loses the pipe, the GUI/session publisher writes the existing Cube
-artifact and returns the existing entry. A malformed binary response is not
-silently interpreted as Cube; it is reported as a binary-volume error.
+bound, or loses the pipe, the formal session fails explicitly and closes. It
+does not write or advertise a Cube artifact. File-backed Cube behavior is
+available only when `MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1` explicitly
+selects the isolated development/diagnostic path before launch. A malformed
+binary response is always reported as a binary-volume error.
 
 ## Transport staging
 
-1. Land Rust and TypeScript codecs plus shared golden frames while production
-   traffic remains Cube.
-2. Add a bounded Rust per-session volume store and authenticated binary route.
-3. Add inherited control/data pipes with file request/response fallback.
-4. Publish dynamic orbitals through the native path, then paired ESP volumes.
-5. Remove dynamic Cube staging only after cross-platform equivalence,
-   lifecycle, and packaged nonzero-orbital tests pass.
+1. Rust and TypeScript codecs plus shared golden frames are complete.
+2. The bounded Rust per-session volume store and authenticated binary route are
+   complete for compatibility volumes.
+3. Independent inherited volume and versioned bidirectional control pipes are
+   complete; the formal path has no file request/response fallback.
+4. Dynamic orbitals use direct major-2 streaming. Initial scalar fields and the
+   correlated ESP density/potential pair use validated native volume IDs.
+5. Dynamic Cube staging is removed from the formal path. Three-platform package
+   CI and interactive prerelease validation remain release gates.
 
 Rust owns pipe readers, cache lifetime, HTTP serving, and shutdown. The narrow
 GUI/session C ABI owns inherited pipe ends and complete-frame writes. POSIX must
@@ -170,6 +177,8 @@ int multiwfn_matterviz_spawn(
     const char *manifest_utf8,
     intptr_t *volume_write_out,
     intptr_t *ack_read_out,
+    intptr_t *request_read_out,
+    intptr_t *response_write_out,
     int *transport_error_out);
 
 int multiwfn_matterviz_publish_volume(
@@ -186,11 +195,10 @@ void multiwfn_matterviz_transport_close(
     intptr_t *volume_write_io, intptr_t *ack_read_io);
 ```
 
-The launcher invokes `matterviz-desktop` directly with its existing managed
-arguments plus `--volume-read-pipe` and `--volume-ack-pipe`; it does not use a
-shell or mutate process-global environment. POSIX launch uses a CLOEXEC status
-pipe so a child-side `execv` error is reported before either transport or
-file-only launch can be accepted. On transport setup/ready failure it
-terminates and reaps the attempted child, closes all endpoints, and launches a
-file-only child. A successful launch with fallback still returns success and
-reports invalid pipe handles plus a nonzero transport diagnostic.
+The launcher invokes `matterviz-desktop` directly with its managed arguments
+plus volume read/ACK and control read/write endpoints; it does not use a shell
+or mutate process-global environment. POSIX launch uses a CLOEXEC status pipe
+so a child-side `execv` error is reported before launch can be accepted. On
+transport setup/ready failure it terminates and reaps the attempted child,
+closes all endpoints and returns an explicit error. Explicit diagnostic mode
+starts file-only and never masquerades as a successful formal negotiation.

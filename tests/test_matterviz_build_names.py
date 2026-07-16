@@ -13,6 +13,9 @@ SPAWN = (ROOT / "noGUI" / "matterviz_spawn.c").read_text(encoding="utf-8")
 RUST_SERVICE = (ROOT / "frontend" / "matterviz-desktop" / "src" / "service.rs").read_text(
     encoding="utf-8"
 )
+RUST_MAIN = (ROOT / "frontend" / "matterviz-desktop" / "src" / "main.rs").read_text(
+    encoding="utf-8"
+)
 RUST_TRANSPORT = (
     ROOT / "frontend" / "matterviz-desktop" / "src" / "transport.rs"
 ).read_text(encoding="utf-8")
@@ -79,6 +82,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("mwfn_clear_stop_flag_posix(session_utf8)", SPAWN)
         self.assertIn("mwfn_clear_stop_flag_windows(session_utf8)", SPAWN)
         self.assertIn("SO_EXCLUSIVEADDRUSE", RUST_SERVICE)
+        self.assertIn("while !service.is_shutdown()", RUST_MAIN)
+        self.assertIn("app.exit(service.termination_exit_code())", RUST_MAIN)
         self.assertIn("CP_UTF8, MB_ERR_INVALID_CHARS", SPAWN)
         self.assertNotIn("CP_ACP", SPAWN)
         self.assertIn("CloseHandle(process.hThread)", SPAWN)
@@ -90,7 +95,14 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("DuplicateHandle", SPAWN)
         self.assertIn('CreateFileW(\n        L"NUL"', SPAWN)
         self.assertIn("call launch_matterviz_native", FORTRAN)
-        self.assertIn("publish_matterviz_volume(reqid", FORTRAN)
+        self.assertIn("publish_matterviz_volume(cubmat,reqid", FORTRAN)
+        self.assertIn("multiwfn_matterviz_control_receive", FORTRAN)
+        self.assertIn("multiwfn_matterviz_control_buffer_send", FORTRAN)
+        self.assertIn("MWFNCTL", SPAWN)
+        self.assertIn("mwfn_control_wait_readable", SPAWN)
+        self.assertIn("MWFN_CONTROL_FRAME_TIMEOUT_MS", SPAWN)
+        self.assertIn("extract_matterviz_command(body,request_id", FORTRAN)
+        self.assertIn("if (trim(body)/=trim(expected)) return", FORTRAN)
         self.assertIn('"format": "mwfn-volume-v2"', FORTRAN)
         self.assertNotIn("launch_status,launch_matterviz_process", FORTRAN)
         self.assertNotIn("#ifdef _WIN32", FORTRAN)
@@ -136,20 +148,22 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("application/vnd.multiwfn.volume; version=2", WINDOWS_ASYNC)
         self.assertIn("Get-Crc32C", WINDOWS_ASYNC)
         self.assertIn("MWFNVOL`0", WINDOWS_ASYNC)
-        self.assertIn('"orbital_43_25000.cube"', WINDOWS_ASYNC)
+        self.assertIn("Assert-NoRuntimeArtifacts", WINDOWS_ASYNC)
+        self.assertIn("Assert-FormalTransport", WINDOWS_ASYNC)
+        self.assertNotIn('"orbital_43_25000.cube"', WINDOWS_ASYNC)
 
     def test_packaged_linux_requests_a_real_native_orbital(self):
         self.assertIn("matterviz-real-orbital-Co5Cr.fch.gz", LINUX_REAL_ORBITAL)
         self.assertIn("index=43&quality=25000", LINUX_REAL_ORBITAL)
         self.assertIn('"application/vnd.multiwfn.volume; version=2"', LINUX_REAL_ORBITAL)
         self.assertIn("validate_stream_volume", LINUX_REAL_ORBITAL)
-        self.assertIn("MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK", LINUX_REAL_ORBITAL)
-        self.assertIn('"orbital_43_25000.cube"', LINUX_REAL_ORBITAL)
+        self.assertIn("prepared an in-memory visualization session", LINUX_REAL_ORBITAL)
+        self.assertIn("forbidden_artifact_additions", LINUX_REAL_ORBITAL)
+        self.assertNotIn('"orbital_43_25000.cube"', LINUX_REAL_ORBITAL)
         self.assertIn("advertised_service_base", LINUX_REAL_ORBITAL)
-        self.assertIn("--force-cube-fallback", LINUX_REAL_ORBITAL)
-        self.assertIn('volume_path != cube_path.name', LINUX_REAL_ORBITAL)
+        self.assertNotIn("--force-cube-fallback", LINUX_REAL_ORBITAL)
         self.assertIn("tests/linux/test_matterviz_real_orbital.py", WORKFLOW)
-        self.assertIn("--force-cube-fallback", WORKFLOW)
+        self.assertNotIn("--force-cube-fallback", WORKFLOW)
         self.assertIn("bash tests/c/run_matterviz_stream_test.sh", WORKFLOW)
 
     def test_matterviz_file_dialog_uses_rust_host(self):
@@ -160,7 +174,11 @@ class MatterVizBuildNamingTests(unittest.TestCase):
             "#ifndef MULTIWFN_LEGACY_3DMOL_BACKEND", 1
         )[1].split("#else", 1)[0]
         self.assertIn("multiwfn_matterviz_select_file", native_branch)
+        self.assertIn("picker_status", native_branch)
+        self.assertIn("result_bytes", native_branch)
         self.assertNotIn("execute_command_line", native_branch)
+        self.assertNotIn("get_session_dir", native_branch)
+        self.assertNotIn("selected_file.txt", native_branch)
         self.assertNotIn("python", native_branch.lower())
 
     def test_native_file_dialog_abi_reports_missing_executable(self):
@@ -175,23 +193,25 @@ class MatterVizBuildNamingTests(unittest.TestCase):
                 check=True,
             )
             launch = ctypes.CDLL(str(library)).multiwfn_matterviz_select_file
-            launch.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+            launch.argtypes = [
+                ctypes.c_char_p,
+                ctypes.POINTER(ctypes.c_char),
+                ctypes.c_int64,
+                ctypes.POINTER(ctypes.c_int64),
+                ctypes.POINTER(ctypes.c_int32),
+            ]
             launch.restype = ctypes.c_int
-            executable = Path(tmp) / "fake Rust host with spaces"
-            output = Path(tmp) / "session path with spaces" / "selected_file.txt"
-            output.parent.mkdir()
-            executable.write_text(
-                "#!/bin/sh\n"
-                "[ \"$1\" = \"--select-file\" ] || exit 41\n"
-                "[ \"$2\" = \"--output\" ] || exit 42\n"
-                "printf '%s\\n' '/tmp/selected input.fch' > \"$3\"\n",
-                encoding="ascii",
-            )
-            executable.chmod(0o755)
-            self.assertEqual(launch(str(executable).encode(), str(output).encode()), 0)
-            self.assertEqual(output.read_text(encoding="ascii"), "/tmp/selected input.fch\n")
+            result = ctypes.create_string_buffer(32769)
+            result_bytes = ctypes.c_int64(-1)
+            picker_status = ctypes.c_int32(-1)
             self.assertNotEqual(
-                launch(b"/definitely/missing/matterviz-desktop", b"/tmp/path with spaces/out.txt"),
+                launch(
+                    b"/definitely/missing/matterviz-desktop",
+                    result,
+                    len(result),
+                    ctypes.byref(result_bytes),
+                    ctypes.byref(picker_status),
+                ),
                 0,
             )
 

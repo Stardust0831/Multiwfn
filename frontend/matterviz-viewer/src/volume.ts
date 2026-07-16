@@ -3,9 +3,9 @@ import type { VolumetricData } from 'matterviz/isosurface'
 export type Vec3 = [number, number, number]
 export type Matrix3 = [Vec3, Vec3, Vec3]
 export type VolumeDataOrder = 'i_fastest_fortran' | 'k_fastest_cube'
-export type QuantityKind = 'orbital' | 'electron_density' | 'electrostatic_potential'
+export type QuantityKind = 'orbital' | 'electron_density' | 'electrostatic_potential' | 'generic_scalar'
 export type CoordinateUnit = 'bohr' | 'angstrom'
-export type ValueUnit = 'bohr^-3/2' | 'electron/bohr^3' | 'hartree/e'
+export type ValueUnit = 'bohr^-3/2' | 'electron/bohr^3' | 'hartree/e' | 'dimensionless'
 
 export interface VolumeStatistics {
   min: number
@@ -227,6 +227,9 @@ export function decode_matterviz_volume(input: ArrayBufferLike | Uint8Array): Ma
   } else if (quantity_code === 3 && value_code === 3) {
     quantity_kind = 'electrostatic_potential'
     value_unit = 'hartree/e'
+  } else if (quantity_code === 4 && value_code === 4) {
+    quantity_kind = 'generic_scalar'
+    value_unit = 'dimensionless'
   } else {
     invalid('quantity kind and value unit do not match')
   }

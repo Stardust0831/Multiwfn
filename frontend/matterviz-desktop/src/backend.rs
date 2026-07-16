@@ -111,57 +111,51 @@ pub fn orbital_request_payload(request: &OrbitalRequest) -> String {
 }
 
 pub fn request_bond(session: &Path, query: &[(String, String)], lock: &Mutex<()>) -> Value {
+    let (payload, timeout, timeout_message) = match prepare_bond_request(query) {
+        Ok(value) => value,
+        Err(message) => return json!({"ok": false, "message": message}),
+    };
+    request_backend(session, &payload, timeout, &timeout_message, lock)
+}
+
+pub fn prepare_bond_request(
+    query: &[(String, String)],
+) -> Result<(String, Duration, String), String> {
     let atom1 = match scalar_or_default(query, "atom1", "0").parse::<i64>() {
         Ok(value) => value,
-        Err(_) => return json!({"ok": false, "message": "Atom indices must be integers"}),
+        Err(_) => return Err("Atom indices must be integers".to_owned()),
     };
     let atom2 = match scalar_or_default(query, "atom2", "0").parse::<i64>() {
         Ok(value) => value,
-        Err(_) => return json!({"ok": false, "message": "Atom indices must be integers"}),
+        Err(_) => return Err("Atom indices must be integers".to_owned()),
     };
     let method = scalar_or_default(query, "method", "").to_ascii_lowercase();
     if atom1 <= 0 || atom2 <= 0 || atom1 == atom2 {
-        return json!({"ok": false, "message": "Two distinct positive atom indices are required"});
+        return Err("Two distinct positive atom indices are required".to_owned());
     }
     if !BOND_METHODS.contains(&method.as_str()) {
-        return json!({"ok": false, "message": "Unsupported bond-order method"});
+        return Err("Unsupported bond-order method".to_owned());
     }
     let timeout = if method == "fbo" {
         Duration::from_secs(900)
     } else {
         Duration::from_secs(300)
     };
-    request_backend(
-        session,
-        &format!("bond {atom1} {atom2} {method}"),
+    Ok((
+        format!("bond {atom1} {atom2} {method}"),
         timeout,
-        &format!("Timed out waiting for Multiwfn {method} calculation"),
-        lock,
-    )
+        format!("Timed out waiting for Multiwfn {method} calculation"),
+    ))
 }
 
 pub fn request_esp(session: &Path, query: &[(String, String)], lock: &Mutex<()>) -> Value {
-    let quality = match scalar_or_default(query, "quality", "120000").parse::<i64>() {
+    let payload = match prepare_esp_request(query) {
         Ok(value) => value,
-        Err(_) => {
-            return json!({"ok": false, "message": "ESP quality and isovalue must be numeric"})
-        }
+        Err(message) => return json!({"ok": false, "message": message}),
     };
-    let isovalue = match scalar_or_default(query, "isovalue", "0.001").parse::<f64>() {
-        Ok(value) => value,
-        Err(_) => {
-            return json!({"ok": false, "message": "ESP quality and isovalue must be numeric"})
-        }
-    };
-    if !ESP_QUALITIES.contains(&quality) {
-        return json!({"ok": false, "message": "Unsupported ESP grid quality"});
-    }
-    if !isovalue.is_finite() || isovalue <= 0.0 || isovalue > 0.1 {
-        return json!({"ok": false, "message": "ESP density isovalue must be between 0 and 0.1 a.u."});
-    }
     let result = request_backend(
         session,
-        &format!("esp {quality} {}", significant(isovalue)),
+        &payload,
         Duration::from_secs(900),
         "Timed out waiting for Multiwfn ESP calculation",
         lock,
@@ -170,6 +164,24 @@ pub fn request_esp(session: &Path, query: &[(String, String)], lock: &Mutex<()>)
         prune_esp(session, &result);
     }
     result
+}
+
+pub fn prepare_esp_request(query: &[(String, String)]) -> Result<String, String> {
+    let quality = match scalar_or_default(query, "quality", "120000").parse::<i64>() {
+        Ok(value) => value,
+        Err(_) => return Err("ESP quality and isovalue must be numeric".to_owned()),
+    };
+    let isovalue = match scalar_or_default(query, "isovalue", "0.001").parse::<f64>() {
+        Ok(value) => value,
+        Err(_) => return Err("ESP quality and isovalue must be numeric".to_owned()),
+    };
+    if !ESP_QUALITIES.contains(&quality) {
+        return Err("Unsupported ESP grid quality".to_owned());
+    }
+    if !isovalue.is_finite() || isovalue <= 0.0 || isovalue > 0.1 {
+        return Err("ESP density isovalue must be between 0 and 0.1 a.u.".to_owned());
+    }
+    Ok(format!("esp {quality} {}", significant(isovalue)))
 }
 
 fn request_backend(
@@ -345,7 +357,11 @@ fn orbital_scalar<'a>(
 }
 
 fn manifest_orbital_count(path: &Path) -> Option<i64> {
-    let payload: Value = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
+    manifest_orbital_count_bytes(&fs::read(path).ok()?)
+}
+
+pub(crate) fn manifest_orbital_count_bytes(bytes: &[u8]) -> Option<i64> {
+    let payload: Value = serde_json::from_slice(bytes).ok()?;
     let count = [
         payload.get("orbitals").and_then(|value| value.get("count")),
         payload

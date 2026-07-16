@@ -2,10 +2,16 @@
 pub mod backend;
 #[path = "../../../frontend/matterviz-desktop/src/cli.rs"]
 pub mod cli;
+#[path = "../../../frontend/matterviz-desktop/src/control_protocol.rs"]
+pub mod control_protocol;
+#[path = "../../../frontend/matterviz-desktop/src/control_transport.rs"]
+pub mod control_transport;
 #[path = "../../../frontend/matterviz-desktop/src/memory_budget.rs"]
 pub mod memory_budget;
 #[path = "../../../frontend/matterviz-desktop/src/service.rs"]
 pub mod service;
+#[path = "../../../frontend/matterviz-desktop/src/session_data.rs"]
+pub mod session_data;
 #[path = "../../../frontend/matterviz-desktop/src/stream_broker.rs"]
 pub mod stream_broker;
 #[path = "../../../frontend/matterviz-desktop/src/transport.rs"]
@@ -41,6 +47,8 @@ mod tests {
             manifest: *const c_char,
             volume_write: *mut isize,
             ack_read: *mut isize,
+            request_read: *mut isize,
+            response_write: *mut isize,
             transport_error: *mut c_int,
         ) -> c_int;
 
@@ -66,17 +74,41 @@ mod tests {
         ) -> c_int;
 
         fn multiwfn_matterviz_transport_close(volume_write: *mut isize, ack_read: *mut isize);
+
+        fn multiwfn_matterviz_control_close(request_read: *mut isize, response_write: *mut isize);
+
+        fn multiwfn_matterviz_control_send(
+            response_write: isize,
+            message_type: i32,
+            request_id: i64,
+            body: *const c_char,
+            body_bytes: i64,
+            timeout_ms: u32,
+        ) -> c_int;
+
+        fn multiwfn_matterviz_control_receive(
+            request_read: isize,
+            message_type: *mut i32,
+            request_id: *mut i64,
+            body: *mut c_char,
+            body_capacity: i64,
+            body_bytes: *mut i64,
+            timeout_ms: u32,
+        ) -> c_int;
     }
 
     struct ProducerPipes {
         volume_write: isize,
         ack_read: isize,
+        request_read: isize,
+        response_write: isize,
     }
 
     impl Drop for ProducerPipes {
         fn drop(&mut self) {
             unsafe {
                 multiwfn_matterviz_transport_close(&mut self.volume_write, &mut self.ack_read);
+                multiwfn_matterviz_control_close(&mut self.request_read, &mut self.response_write);
             }
         }
     }
@@ -165,6 +197,128 @@ mod tests {
     }
 
     #[test]
+    fn c_control_protocol_handles_fragmentation_crc_and_timeout() {
+        use crate::control_protocol::{encode_frame, MessageType};
+
+        let (read, write) = pipe_pair();
+        let mut read = into_raw_pipe(read);
+        let mut write = into_raw_pipe(write);
+        let body = CString::new(
+            r#"{"format":"multiwfn-matterviz-control","version":1,"kind":"response","request_id":71,"result":{"ok":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            unsafe {
+                multiwfn_matterviz_control_send(
+                    write,
+                    MessageType::Response as i32,
+                    71,
+                    body.as_ptr(),
+                    body.as_bytes().len() as i64,
+                    1000,
+                )
+            },
+            0
+        );
+        let mut received = vec![0_i8; 512];
+        let mut message_type = 0_i32;
+        let mut request_id = 0_i64;
+        let mut body_bytes = 0_i64;
+        assert_eq!(
+            unsafe {
+                multiwfn_matterviz_control_receive(
+                    read,
+                    &mut message_type,
+                    &mut request_id,
+                    received.as_mut_ptr(),
+                    received.len() as i64,
+                    &mut body_bytes,
+                    1000,
+                )
+            },
+            0
+        );
+        assert_eq!(message_type, MessageType::Response as i32);
+        assert_eq!(request_id, 71);
+        assert_eq!(body_bytes as usize, body.as_bytes().len());
+        unsafe { multiwfn_matterviz_control_close(&mut read, &mut write) };
+
+        let (read, mut write) = pipe_pair();
+        let mut read = into_raw_pipe(read);
+        let request = serde_json::json!({
+            "format": "multiwfn-matterviz-control",
+            "version": 1,
+            "kind": "request",
+            "request_id": 72,
+            "command": "bond 1 2 mayer"
+        });
+        let frame = encode_frame(MessageType::Request, 72, Some(&request)).unwrap();
+        let writer = thread::spawn(move || {
+            for chunk in frame.chunks(5) {
+                write.write_all(chunk).unwrap();
+                thread::sleep(Duration::from_millis(2));
+            }
+        });
+        assert_eq!(
+            unsafe {
+                multiwfn_matterviz_control_receive(
+                    read,
+                    &mut message_type,
+                    &mut request_id,
+                    received.as_mut_ptr(),
+                    received.len() as i64,
+                    &mut body_bytes,
+                    1000,
+                )
+            },
+            0
+        );
+        writer.join().unwrap();
+        let mut unused = -1_isize;
+        unsafe { multiwfn_matterviz_control_close(&mut read, &mut unused) };
+
+        let (read, mut write) = pipe_pair();
+        let mut read = into_raw_pipe(read);
+        let mut corrupt = encode_frame(MessageType::Request, 72, Some(&request)).unwrap();
+        *corrupt.last_mut().unwrap() ^= 1;
+        write.write_all(&corrupt).unwrap();
+        assert_eq!(
+            unsafe {
+                multiwfn_matterviz_control_receive(
+                    read,
+                    &mut message_type,
+                    &mut request_id,
+                    received.as_mut_ptr(),
+                    received.len() as i64,
+                    &mut body_bytes,
+                    1000,
+                )
+            },
+            -1002
+        );
+        drop(write);
+        unsafe { multiwfn_matterviz_control_close(&mut read, &mut unused) };
+
+        let (read, _write) = pipe_pair();
+        let mut read = into_raw_pipe(read);
+        assert_eq!(
+            unsafe {
+                multiwfn_matterviz_control_receive(
+                    read,
+                    &mut message_type,
+                    &mut request_id,
+                    received.as_mut_ptr(),
+                    received.len() as i64,
+                    &mut body_bytes,
+                    20,
+                )
+            },
+            -1003
+        );
+        unsafe { multiwfn_matterviz_control_close(&mut read, &mut unused) };
+    }
+
+    #[test]
     fn nonexistent_host_is_reported_as_launch_failure() {
         let root = temp_dir().join("missing-host");
         fs::create_dir_all(&root).unwrap();
@@ -174,6 +328,8 @@ mod tests {
         let manifest = c_path(&root.join("manifest.json"));
         let mut volume_write = -1_isize;
         let mut ack_read = -1_isize;
+        let mut request_read = -1_isize;
+        let mut response_write = -1_isize;
         let mut transport_error = 0;
         let status = unsafe {
             multiwfn_matterviz_spawn(
@@ -183,12 +339,16 @@ mod tests {
                 manifest.as_ptr(),
                 &mut volume_write,
                 &mut ack_read,
+                &mut request_read,
+                &mut response_write,
                 &mut transport_error,
             )
         };
         assert_ne!(status, 0);
         assert_eq!(volume_write, -1);
         assert_eq!(ack_read, -1);
+        assert_eq!(request_read, -1);
+        assert_eq!(response_write, -1);
         assert_ne!(transport_error, 0);
         let _ = fs::remove_dir_all(root);
     }
@@ -295,8 +455,7 @@ mod tests {
             .unwrap();
         write!(
             stream,
-            "GET {path} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n",
-            host, port
+            "GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
         )
         .unwrap();
         let mut response = Vec::new();
@@ -361,6 +520,8 @@ mod tests {
             ProducerPipes {
                 volume_write: volume_write.into_raw_fd() as isize,
                 ack_read: ack_read.into_raw_fd() as isize,
+                request_read: -1,
+                response_write: -1,
             },
         )
     }
@@ -376,6 +537,12 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn into_raw_pipe(file: fs::File) -> isize {
+        use std::os::fd::IntoRawFd;
+        file.into_raw_fd() as isize
+    }
+
+    #[cfg(unix)]
     fn stalled_pipes() -> (Vec<fs::File>, ProducerPipes) {
         use std::os::fd::IntoRawFd;
         let (volume_read, volume_write) = pipe_pair();
@@ -385,6 +552,8 @@ mod tests {
             ProducerPipes {
                 volume_write: volume_write.into_raw_fd() as isize,
                 ack_read: ack_read.into_raw_fd() as isize,
+                request_read: -1,
+                response_write: -1,
             },
         )
     }
@@ -403,6 +572,8 @@ mod tests {
             ProducerPipes {
                 volume_write: volume_write.into_raw_handle() as isize,
                 ack_read: ack_read.into_raw_handle() as isize,
+                request_read: -1,
+                response_write: -1,
             },
         )
     }
@@ -426,6 +597,12 @@ mod tests {
     }
 
     #[cfg(windows)]
+    fn into_raw_pipe(file: fs::File) -> isize {
+        use std::os::windows::io::IntoRawHandle;
+        file.into_raw_handle() as isize
+    }
+
+    #[cfg(windows)]
     fn stalled_pipes() -> (Vec<fs::File>, ProducerPipes) {
         use std::os::windows::io::IntoRawHandle;
         let (volume_read, volume_write) = pipe_pair();
@@ -435,6 +612,8 @@ mod tests {
             ProducerPipes {
                 volume_write: volume_write.into_raw_handle() as isize,
                 ack_read: ack_read.into_raw_handle() as isize,
+                request_read: -1,
+                response_write: -1,
             },
         )
     }

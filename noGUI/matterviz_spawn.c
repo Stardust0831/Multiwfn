@@ -45,6 +45,20 @@
 #define MWFN_ERR_REJECTED (-1005)
 #define MWFN_ERR_UNSUPPORTED (-1006)
 #define MWFN_STREAM_CHUNK_BYTES 65536U
+#define MWFN_CONTROL_HEADER_BYTES 48U
+#define MWFN_CONTROL_MAX_BODY_BYTES UINT64_C(67108864)
+#define MWFN_CONTROL_FLAG_HEADER_CRC UINT16_C(0x0001)
+#define MWFN_CONTROL_FLAG_BODY_CRC UINT16_C(0x0002)
+#define MWFN_ERR_BUFFER (-1007)
+#define MWFN_PICK_HEADER_BYTES 32U
+#define MWFN_PICK_MAX_BODY_BYTES UINT32_C(32768)
+#define MWFN_PICK_READ_TIMEOUT_MS 15000U
+#define MWFN_CONTROL_FRAME_TIMEOUT_MS 30000U
+#define MWFN_PICK_STATUS_CANCEL UINT16_C(0)
+#define MWFN_PICK_STATUS_SELECTED UINT16_C(1)
+#define MWFN_PICK_STATUS_ERROR UINT16_C(2)
+#define MWFN_PICK_FLAG_HEADER_CRC UINT16_C(0x0001)
+#define MWFN_PICK_FLAG_BODY_CRC UINT16_C(0x0002)
 
 static void mwfn_put_u16(uint8_t *dst, uint16_t value) {
     dst[0] = (uint8_t)(value & 0xffU);
@@ -102,6 +116,118 @@ static uint32_t mwfn_crc32c(const uint8_t *data, size_t length) {
     return ~mwfn_crc32c_update(UINT32_MAX, data, length);
 }
 
+static int mwfn_picker_utf8_valid(const uint8_t *bytes, size_t length) {
+    size_t index = 0;
+    while (index < length) {
+        const uint8_t first = bytes[index++];
+        if (first <= 0x7fU) continue;
+        if (first >= 0xc2U && first <= 0xdfU) {
+            if (index >= length || bytes[index] < 0x80U || bytes[index] > 0xbfU) return 0;
+            ++index;
+            continue;
+        }
+        if (first == 0xe0U) {
+            if (index + 1U >= length || bytes[index] < 0xa0U || bytes[index] > 0xbfU ||
+                bytes[index + 1U] < 0x80U || bytes[index + 1U] > 0xbfU) {
+                return 0;
+            }
+            index += 2U;
+            continue;
+        }
+        if ((first >= 0xe1U && first <= 0xecU) || (first >= 0xeeU && first <= 0xefU)) {
+            if (index + 1U >= length || bytes[index] < 0x80U || bytes[index] > 0xbfU ||
+                bytes[index + 1U] < 0x80U || bytes[index + 1U] > 0xbfU) {
+                return 0;
+            }
+            index += 2U;
+            continue;
+        }
+        if (first == 0xedU) {
+            if (index + 1U >= length || bytes[index] < 0x80U || bytes[index] > 0x9fU ||
+                bytes[index + 1U] < 0x80U || bytes[index + 1U] > 0xbfU) {
+                return 0;
+            }
+            index += 2U;
+            continue;
+        }
+        if (first == 0xf0U) {
+            if (index + 2U >= length || bytes[index] < 0x90U || bytes[index] > 0xbfU ||
+                bytes[index + 1U] < 0x80U || bytes[index + 1U] > 0xbfU ||
+                bytes[index + 2U] < 0x80U || bytes[index + 2U] > 0xbfU) {
+                return 0;
+            }
+            index += 3U;
+            continue;
+        }
+        if (first >= 0xf1U && first <= 0xf3U) {
+            if (index + 2U >= length || bytes[index] < 0x80U || bytes[index] > 0xbfU ||
+                bytes[index + 1U] < 0x80U || bytes[index + 1U] > 0xbfU ||
+                bytes[index + 2U] < 0x80U || bytes[index + 2U] > 0xbfU) {
+                return 0;
+            }
+            index += 3U;
+            continue;
+        }
+        if (first == 0xf4U) {
+            if (index + 2U >= length || bytes[index] < 0x80U || bytes[index] > 0x8fU ||
+                bytes[index + 1U] < 0x80U || bytes[index + 1U] > 0xbfU ||
+                bytes[index + 2U] < 0x80U || bytes[index + 2U] > 0xbfU) {
+                return 0;
+            }
+            index += 3U;
+            continue;
+        }
+        return 0;
+    }
+    return 1;
+}
+
+static int mwfn_picker_header_valid(const uint8_t header[MWFN_PICK_HEADER_BYTES],
+                                    uint16_t *status_out, uint32_t *body_bytes_out) {
+    uint8_t copy[MWFN_PICK_HEADER_BYTES];
+    uint16_t status;
+    uint16_t flags;
+    uint32_t body_bytes;
+    uint16_t expected_flags;
+    if (memcmp(header, "MWFNPICK", 8U) != 0 || mwfn_get_u16(header + 8) != 1U ||
+        mwfn_get_u16(header + 10) != 0U || mwfn_get_u32(header + 16) != MWFN_PICK_HEADER_BYTES) {
+        return 0;
+    }
+    status = mwfn_get_u16(header + 12);
+    if (status > MWFN_PICK_STATUS_ERROR) return 0;
+    flags = mwfn_get_u16(header + 14);
+    body_bytes = mwfn_get_u32(header + 20);
+    if (body_bytes > MWFN_PICK_MAX_BODY_BYTES) return 0;
+    expected_flags = MWFN_PICK_FLAG_HEADER_CRC |
+                     (body_bytes == 0U ? 0U : MWFN_PICK_FLAG_BODY_CRC);
+    if (flags != expected_flags || (body_bytes == 0U && mwfn_get_u32(header + 24) != 0U)) {
+        return 0;
+    }
+    memcpy(copy, header, sizeof(copy));
+    memset(copy + 28, 0, 4U);
+    if (mwfn_crc32c(copy, sizeof(copy)) != mwfn_get_u32(header + 28)) return 0;
+    if ((status == MWFN_PICK_STATUS_CANCEL && body_bytes != 0U) ||
+        (status != MWFN_PICK_STATUS_CANCEL && body_bytes == 0U)) {
+        return 0;
+    }
+    if (status_out != NULL) *status_out = status;
+    if (body_bytes_out != NULL) *body_bytes_out = body_bytes;
+    return 1;
+}
+
+static int mwfn_picker_body_valid(uint16_t status, const uint8_t *body, uint32_t body_bytes,
+                                  uint32_t expected_crc) {
+    uint32_t actual_crc;
+    if (body_bytes > MWFN_PICK_MAX_BODY_BYTES ||
+        (body_bytes > 0U && body == NULL) || memchr(body, 0, body_bytes) != NULL) {
+        return 0;
+    }
+    if (status == MWFN_PICK_STATUS_CANCEL) return body_bytes == 0U;
+    if (body_bytes == 0U || !mwfn_picker_utf8_valid(body, body_bytes)) return 0;
+    actual_crc = mwfn_crc32c(body, body_bytes);
+    return actual_crc == expected_crc;
+}
+
 static int mwfn_valid_ready(const uint8_t *header) {
     uint8_t copy[MWFN_READY_BYTES];
     if (memcmp(header, "MWFNVOL\0", 8U) != 0 || mwfn_get_u16(header + 8) != 1U ||
@@ -146,6 +272,132 @@ static int mwfn_valid_ack(const uint8_t *ack, int64_t request_id, int64_t volume
 
 static int mwfn_valid_stream_ack(const uint8_t *ack, int64_t request_id, int64_t volume_id) {
     return mwfn_valid_ack_fields_major(ack, 2U, request_id, volume_id, 1);
+}
+
+static int mwfn_control_fields_valid(uint16_t message_type, uint16_t flags,
+                                     uint64_t request_id, uint64_t body_bytes) {
+    if (message_type < 1U || message_type > 6U || body_bytes > MWFN_CONTROL_MAX_BODY_BYTES) {
+        return 0;
+    }
+    if (message_type == 1U) {
+        return flags == MWFN_CONTROL_FLAG_HEADER_CRC && request_id == 0U && body_bytes == 0U;
+    }
+    if (flags != (MWFN_CONTROL_FLAG_HEADER_CRC | MWFN_CONTROL_FLAG_BODY_CRC) ||
+        body_bytes == 0U) {
+        return 0;
+    }
+    if (message_type == 3U || message_type == 4U || message_type == 5U) {
+        return request_id != 0U;
+    }
+    return request_id == 0U;
+}
+
+static int mwfn_control_header_valid(const uint8_t header[MWFN_CONTROL_HEADER_BYTES]) {
+    uint8_t copy[MWFN_CONTROL_HEADER_BYTES];
+    if (memcmp(header, "MWFNCTL\0", 8U) != 0 || mwfn_get_u16(header + 8) != 1U ||
+        mwfn_get_u16(header + 10) != 0U ||
+        mwfn_get_u32(header + 16) != MWFN_CONTROL_HEADER_BYTES ||
+        mwfn_get_u32(header + 44) != 0U ||
+        !mwfn_control_fields_valid(mwfn_get_u16(header + 12), mwfn_get_u16(header + 14),
+                                   mwfn_get_u64(header + 20), mwfn_get_u64(header + 28))) {
+        return 0;
+    }
+    memcpy(copy, header, sizeof(copy));
+    memset(copy + 36, 0, 4U);
+    return mwfn_crc32c(copy, sizeof(copy)) == mwfn_get_u32(header + 36);
+}
+
+typedef struct {
+    uint8_t *bytes;
+    size_t length;
+    size_t capacity;
+} mwfn_control_buffer_t;
+
+static void mwfn_control_wipe(void *bytes, size_t length) {
+    volatile uint8_t *cursor = (volatile uint8_t *)bytes;
+    while (length-- > 0) *cursor++ = 0;
+}
+
+int multiwfn_matterviz_control_send(intptr_t response_write, int32_t message_type,
+                                    int64_t request_id, const char *body,
+                                    int64_t body_bytes, uint32_t timeout_ms);
+
+static mwfn_control_buffer_t *mwfn_control_buffer_from_handle(intptr_t handle) {
+    if (handle <= 0) return NULL;
+    return (mwfn_control_buffer_t *)(uintptr_t)handle;
+}
+
+intptr_t multiwfn_matterviz_control_buffer_create(void) {
+    mwfn_control_buffer_t *buffer = (mwfn_control_buffer_t *)calloc(1, sizeof(*buffer));
+    return buffer == NULL ? (intptr_t)-1 : (intptr_t)(uintptr_t)buffer;
+}
+
+int multiwfn_matterviz_control_buffer_append(intptr_t handle, const void *bytes,
+                                              int64_t length) {
+    mwfn_control_buffer_t *buffer = mwfn_control_buffer_from_handle(handle);
+    size_t append_length;
+    size_t needed;
+    size_t capacity;
+    uint8_t *grown;
+    if (buffer == NULL || length < 0 || (length > 0 && bytes == NULL)) return MWFN_ERR_INVALID;
+    append_length = (size_t)length;
+    if (append_length > (size_t)MWFN_CONTROL_MAX_BODY_BYTES - buffer->length) {
+        return MWFN_ERR_BUFFER;
+    }
+    needed = buffer->length + append_length;
+    if (needed > buffer->capacity) {
+        capacity = buffer->capacity == 0 ? 256U : buffer->capacity;
+        while (capacity < needed) {
+            if (capacity > (size_t)MWFN_CONTROL_MAX_BODY_BYTES / 2U) {
+                capacity = (size_t)MWFN_CONTROL_MAX_BODY_BYTES;
+                break;
+            }
+            capacity *= 2U;
+        }
+        grown = (uint8_t *)realloc(buffer->bytes, capacity);
+        if (grown == NULL) return MWFN_ERR_BUFFER;
+        buffer->bytes = grown;
+        buffer->capacity = capacity;
+    }
+    if (append_length > 0) memcpy(buffer->bytes + buffer->length, bytes, append_length);
+    buffer->length = needed;
+    return 0;
+}
+
+int multiwfn_matterviz_control_buffer_clear(intptr_t handle) {
+    mwfn_control_buffer_t *buffer = mwfn_control_buffer_from_handle(handle);
+    if (buffer == NULL) return MWFN_ERR_INVALID;
+    if (buffer->bytes != NULL && buffer->length > 0) mwfn_control_wipe(buffer->bytes, buffer->length);
+    buffer->length = 0;
+    return 0;
+}
+
+int multiwfn_matterviz_control_buffer_send(intptr_t handle, intptr_t response_write,
+                                            int32_t message_type, int64_t request_id,
+                                            uint32_t timeout_ms) {
+    mwfn_control_buffer_t *buffer = mwfn_control_buffer_from_handle(handle);
+    if (buffer == NULL || buffer->length > INT64_MAX) return MWFN_ERR_INVALID;
+    return multiwfn_matterviz_control_send(response_write, message_type, request_id,
+                                           (const char *)buffer->bytes,
+                                           (int64_t)buffer->length, timeout_ms);
+}
+
+void multiwfn_matterviz_control_buffer_destroy(intptr_t *handle_io) {
+    mwfn_control_buffer_t *buffer;
+    if (handle_io == NULL || *handle_io <= 0) {
+        if (handle_io != NULL) *handle_io = (intptr_t)-1;
+        return;
+    }
+    buffer = mwfn_control_buffer_from_handle(*handle_io);
+    if (buffer != NULL) {
+        if (buffer->bytes != NULL) {
+            if (buffer->capacity > 0) mwfn_control_wipe(buffer->bytes, buffer->capacity);
+            free(buffer->bytes);
+        }
+        mwfn_control_wipe(buffer, sizeof(*buffer));
+        free(buffer);
+    }
+    *handle_io = (intptr_t)-1;
 }
 
 static int mwfn_host_is_little_endian(void) {
@@ -196,10 +448,11 @@ static int mwfn_build_volume(uint8_t **frame_out, size_t *frame_bytes_out,
     if (frame_out == NULL || frame_bytes_out == NULL || request_id <= 0 || volume_id <= 0 ||
         nx <= 0 || ny <= 0 || nz <= 0 || data_order < 1 || data_order > 2 ||
         (periodic_axes & ~7) != 0 || (coordinate_unit != 1 && coordinate_unit != 2) ||
-        (quantity_kind < 1 || quantity_kind > 3) ||
+        (quantity_kind < 1 || quantity_kind > 4) ||
         ((quantity_kind == 1 && value_unit != 1) ||
          (quantity_kind == 2 && value_unit != 2) ||
-         (quantity_kind == 3 && value_unit != 3)) || origin == NULL || voxel_axes == NULL ||
+         (quantity_kind == 3 && value_unit != 3) ||
+         (quantity_kind == 4 && value_unit != 4)) || origin == NULL || voxel_axes == NULL ||
         lattice == NULL || samples == NULL || sample_count <= 0) {
         return EINVAL;
     }
@@ -358,6 +611,36 @@ static int mwfn_read_exact_posix(int fd, void *buffer, size_t length,
     return mwfn_read_exact_posix_deadline(fd, buffer, length, mwfn_now_ms() + timeout_ms);
 }
 
+static int mwfn_drain_posix_deadline(int fd, uint64_t deadline, int *had_data_out) {
+    uint8_t buffer[4096];
+    int had_data = 0;
+    for (;;) {
+        struct pollfd descriptor;
+        int poll_result;
+        ssize_t result;
+        const uint64_t now = mwfn_now_ms();
+        int wait_ms;
+        if (now >= deadline) return ETIMEDOUT;
+        wait_ms = (int)(deadline - now > INT_MAX ? INT_MAX : deadline - now);
+        descriptor.fd = fd;
+        descriptor.events = POLLIN;
+        descriptor.revents = 0;
+        poll_result = poll(&descriptor, 1, wait_ms);
+        if (poll_result < 0 && errno == EINTR) continue;
+        if (poll_result < 0) return errno;
+        if (poll_result == 0) return ETIMEDOUT;
+        do {
+            result = read(fd, buffer, sizeof(buffer));
+        } while (result < 0 && errno == EINTR);
+        if (result < 0) return errno;
+        if (result == 0) {
+            if (had_data_out != NULL) *had_data_out = had_data;
+            return 0;
+        }
+        had_data = 1;
+    }
+}
+
 static unsigned int mwfn_remaining_posix_ms(uint64_t deadline) {
     const uint64_t now = mwfn_now_ms();
     const uint64_t remaining = deadline > now ? deadline - now : 0U;
@@ -496,19 +779,26 @@ static int mwfn_register_reaper(pid_t pid) {
 
 static int mwfn_spawn_posix(const char *executable, const char *frontend, const char *session,
                             const char *manifest, int with_transport, pid_t *pid_out,
-                            int *volume_write_out, int *ack_read_out) {
+                            int *volume_write_out, int *ack_read_out,
+                            int *request_read_out, int *response_write_out) {
     int volume_pipe[2] = {-1, -1};
     int ack_pipe[2] = {-1, -1};
+    int request_pipe[2] = {-1, -1};
+    int response_pipe[2] = {-1, -1};
     int exec_pipe[2] = {-1, -1};
     pid_t pid;
     char volume_fd[32];
     char ack_fd[32];
-    char *argv[14];
+    char request_fd[32];
+    char response_fd[32];
+    char *argv[18];
     unsigned int argc = 0;
     int error_code;
     if (mwfn_pipe_cloexec(exec_pipe) != 0 ||
         (with_transport && (mwfn_pipe_cloexec(volume_pipe) != 0 ||
-                            mwfn_pipe_cloexec(ack_pipe) != 0))) {
+                            mwfn_pipe_cloexec(ack_pipe) != 0 ||
+                            mwfn_pipe_cloexec(request_pipe) != 0 ||
+                            mwfn_pipe_cloexec(response_pipe) != 0))) {
         error_code = errno == 0 ? EIO : errno;
         mwfn_close_fd(&exec_pipe[0]);
         mwfn_close_fd(&exec_pipe[1]);
@@ -516,6 +806,10 @@ static int mwfn_spawn_posix(const char *executable, const char *frontend, const 
         mwfn_close_fd(&volume_pipe[1]);
         mwfn_close_fd(&ack_pipe[0]);
         mwfn_close_fd(&ack_pipe[1]);
+        mwfn_close_fd(&request_pipe[0]);
+        mwfn_close_fd(&request_pipe[1]);
+        mwfn_close_fd(&response_pipe[0]);
+        mwfn_close_fd(&response_pipe[1]);
         return error_code;
     }
     argv[argc++] = (char *)executable;
@@ -528,10 +822,16 @@ static int mwfn_spawn_posix(const char *executable, const char *frontend, const 
     if (with_transport) {
         (void)snprintf(volume_fd, sizeof(volume_fd), "%d", volume_pipe[0]);
         (void)snprintf(ack_fd, sizeof(ack_fd), "%d", ack_pipe[1]);
+        (void)snprintf(response_fd, sizeof(response_fd), "%d", response_pipe[0]);
+        (void)snprintf(request_fd, sizeof(request_fd), "%d", request_pipe[1]);
         argv[argc++] = (char *)"--volume-read-pipe";
         argv[argc++] = volume_fd;
         argv[argc++] = (char *)"--volume-ack-pipe";
         argv[argc++] = ack_fd;
+        argv[argc++] = (char *)"--control-read-pipe";
+        argv[argc++] = response_fd;
+        argv[argc++] = (char *)"--control-write-pipe";
+        argv[argc++] = request_fd;
     }
     argv[argc] = NULL;
     pid = fork();
@@ -543,6 +843,10 @@ static int mwfn_spawn_posix(const char *executable, const char *frontend, const 
         mwfn_close_fd(&volume_pipe[1]);
         mwfn_close_fd(&ack_pipe[0]);
         mwfn_close_fd(&ack_pipe[1]);
+        mwfn_close_fd(&request_pipe[0]);
+        mwfn_close_fd(&request_pipe[1]);
+        mwfn_close_fd(&response_pipe[0]);
+        mwfn_close_fd(&response_pipe[1]);
         return error_code;
     }
     if (pid == 0) {
@@ -551,8 +855,12 @@ static int mwfn_spawn_posix(const char *executable, const char *frontend, const 
         if (with_transport) {
             mwfn_close_fd(&volume_pipe[1]);
             mwfn_close_fd(&ack_pipe[0]);
+            mwfn_close_fd(&request_pipe[0]);
+            mwfn_close_fd(&response_pipe[1]);
             (void)mwfn_set_cloexec(volume_pipe[0], 0);
             (void)mwfn_set_cloexec(ack_pipe[1], 0);
+            (void)mwfn_set_cloexec(response_pipe[0], 0);
+            (void)mwfn_set_cloexec(request_pipe[1], 0);
         }
         execv(executable, argv);
         exec_error = errno == 0 ? EIO : errno;
@@ -577,6 +885,10 @@ static int mwfn_spawn_posix(const char *executable, const char *frontend, const 
             mwfn_close_fd(&volume_pipe[1]);
             mwfn_close_fd(&ack_pipe[0]);
             mwfn_close_fd(&ack_pipe[1]);
+            mwfn_close_fd(&request_pipe[0]);
+            mwfn_close_fd(&request_pipe[1]);
+            mwfn_close_fd(&response_pipe[0]);
+            mwfn_close_fd(&response_pipe[1]);
             do {
                 read_bytes = waitpid(pid, &status, 0);
             } while (read_bytes < 0 && errno == EINTR);
@@ -586,8 +898,12 @@ static int mwfn_spawn_posix(const char *executable, const char *frontend, const 
     if (with_transport) {
         mwfn_close_fd(&volume_pipe[0]);
         mwfn_close_fd(&ack_pipe[1]);
+        mwfn_close_fd(&request_pipe[1]);
+        mwfn_close_fd(&response_pipe[0]);
         *volume_write_out = volume_pipe[1];
         *ack_read_out = ack_pipe[0];
+        *request_read_out = request_pipe[0];
+        *response_write_out = response_pipe[1];
     }
     *pid_out = pid;
     return 0;
@@ -598,37 +914,65 @@ static int mwfn_spawn_file_only_posix(const char *executable, const char *fronte
                                       pid_t *pid_out) {
     int unused_volume = -1;
     int unused_ack = -1;
+    int unused_request = -1;
+    int unused_response = -1;
     return mwfn_spawn_posix(executable, frontend, session, manifest, 0, pid_out,
-                            &unused_volume, &unused_ack);
+                            &unused_volume, &unused_ack, &unused_request, &unused_response);
 }
 
-/* Launch the packaged Rust file chooser without involving a shell and wait for it. */
-static int mwfn_select_file_posix(const char *executable, const char *output) {
+/* Launch the packaged Rust file chooser and consume its inherited result pipe before waiting. */
+static int mwfn_select_file_posix(const char *executable, char *result_utf8, int64_t result_capacity,
+                                  int64_t *result_bytes_out, int32_t *picker_status_out) {
     int exec_pipe[2] = {-1, -1};
+    int result_pipe[2] = {-1, -1};
+    char result_fd[32];
     const char *argv[5];
     pid_t pid;
     int status;
     int exec_error = 0;
     ssize_t read_bytes;
-    int error_code;
-    if (executable == NULL || output == NULL || executable[0] == '\0' || output[0] == '\0') {
+    int error_code = 0;
+    int parse_error = 0;
+    uint8_t header[MWFN_PICK_HEADER_BYTES];
+    uint8_t body[MWFN_PICK_MAX_BODY_BYTES];
+    uint16_t picker_status = MWFN_PICK_STATUS_CANCEL;
+    uint32_t body_bytes = 0;
+    int trailing = 0;
+    uint64_t deadline;
+    if (result_bytes_out != NULL) *result_bytes_out = 0;
+    if (picker_status_out != NULL) *picker_status_out = -1;
+    if (executable == NULL || executable[0] == '\0' || result_utf8 == NULL ||
+        result_capacity <= 0 || result_bytes_out == NULL || picker_status_out == NULL) {
         return EINVAL;
     }
-    if (mwfn_pipe_cloexec(exec_pipe) != 0) return errno == 0 ? EIO : errno;
+    result_utf8[0] = '\0';
+    if (mwfn_pipe_cloexec(exec_pipe) != 0 || mwfn_pipe_cloexec(result_pipe) != 0) {
+        error_code = errno == 0 ? EIO : errno;
+        mwfn_close_fd(&exec_pipe[0]);
+        mwfn_close_fd(&exec_pipe[1]);
+        mwfn_close_fd(&result_pipe[0]);
+        mwfn_close_fd(&result_pipe[1]);
+        return error_code;
+    }
+    (void)snprintf(result_fd, sizeof(result_fd), "%d", result_pipe[1]);
     argv[0] = executable;
     argv[1] = "--select-file";
-    argv[2] = "--output";
-    argv[3] = output;
+    argv[2] = "--result-pipe";
+    argv[3] = result_fd;
     argv[4] = NULL;
     pid = fork();
     if (pid < 0) {
         error_code = errno;
         mwfn_close_fd(&exec_pipe[0]);
         mwfn_close_fd(&exec_pipe[1]);
+        mwfn_close_fd(&result_pipe[0]);
+        mwfn_close_fd(&result_pipe[1]);
         return error_code;
     }
     if (pid == 0) {
         mwfn_close_fd(&exec_pipe[0]);
+        mwfn_close_fd(&result_pipe[0]);
+        (void)mwfn_set_cloexec(result_pipe[1], 0);
         execv(executable, (char *const *)argv);
         exec_error = errno == 0 ? EIO : errno;
         while (write(exec_pipe[1], &exec_error, sizeof(exec_error)) < 0 && errno == EINTR) {
@@ -636,18 +980,88 @@ static int mwfn_select_file_posix(const char *executable, const char *output) {
         _exit(127);
     }
     mwfn_close_fd(&exec_pipe[1]);
+    mwfn_close_fd(&result_pipe[1]);
     do {
         read_bytes = read(exec_pipe[0], &exec_error, sizeof(exec_error));
     } while (read_bytes < 0 && errno == EINTR);
     mwfn_close_fd(&exec_pipe[0]);
+    if (read_bytes != 0) {
+        error_code = read_bytes == (ssize_t)sizeof(exec_error) && exec_error != 0
+                         ? exec_error
+                         : EIO;
+        mwfn_close_fd(&result_pipe[0]);
+        mwfn_reap_terminated(pid);
+        return error_code;
+    }
+
+    for (;;) {
+        struct pollfd descriptor;
+        int poll_result;
+        descriptor.fd = result_pipe[0];
+        descriptor.events = POLLIN;
+        descriptor.revents = 0;
+        poll_result = poll(&descriptor, 1, -1);
+        if (poll_result < 0 && errno == EINTR) continue;
+        if (poll_result < 0) {
+            error_code = errno;
+        } else if ((descriptor.revents & POLLNVAL) != 0) {
+            error_code = EBADF;
+        } else if ((descriptor.revents & POLLERR) != 0) {
+            error_code = EIO;
+        }
+        if (error_code != 0 || (descriptor.revents & (POLLIN | POLLHUP)) != 0) break;
+    }
+    if (error_code != 0) {
+        mwfn_close_fd(&result_pipe[0]);
+        mwfn_reap_terminated(pid);
+        return error_code;
+    }
+    deadline = mwfn_now_ms() + MWFN_PICK_READ_TIMEOUT_MS;
+    error_code = mwfn_read_exact_posix_deadline(result_pipe[0], header, sizeof(header), deadline);
+    if (error_code == 0) {
+        if (!mwfn_picker_header_valid(header, &picker_status, &body_bytes)) {
+            parse_error = MWFN_ERR_PROTOCOL;
+        } else if (body_bytes > 0U) {
+            error_code = mwfn_read_exact_posix_deadline(result_pipe[0], body, body_bytes, deadline);
+            if (error_code != 0) {
+                parse_error = error_code == ETIMEDOUT ? MWFN_ERR_TIMEOUT : MWFN_ERR_PROTOCOL;
+            } else if (!mwfn_picker_body_valid(picker_status, body, body_bytes,
+                                               mwfn_get_u32(header + 24))) {
+                parse_error = MWFN_ERR_PROTOCOL;
+            }
+        }
+    } else {
+        parse_error = error_code == ETIMEDOUT ? MWFN_ERR_TIMEOUT : MWFN_ERR_PROTOCOL;
+    }
+    if (error_code == 0 || parse_error == MWFN_ERR_PROTOCOL) {
+        int drain_error = mwfn_drain_posix_deadline(result_pipe[0], deadline, &trailing);
+        if (drain_error == ETIMEDOUT) {
+            error_code = ETIMEDOUT;
+            parse_error = MWFN_ERR_TIMEOUT;
+        } else if (drain_error != 0 && parse_error == 0) {
+            parse_error = MWFN_ERR_PROTOCOL;
+        }
+    }
+    mwfn_close_fd(&result_pipe[0]);
+    if (parse_error == MWFN_ERR_TIMEOUT || error_code == ETIMEDOUT) {
+        mwfn_reap_terminated(pid);
+        return MWFN_ERR_TIMEOUT;
+    }
     do {
         error_code = (int)waitpid(pid, &status, 0);
     } while (error_code < 0 && errno == EINTR);
     if (error_code < 0) return errno == 0 ? ECHILD : errno;
-    if (read_bytes > 0) return read_bytes == (ssize_t)sizeof(exec_error) ? exec_error : EIO;
-    if (WIFEXITED(status)) return WEXITSTATUS(status) == 0 ? 0 : 200 + WEXITSTATUS(status);
-    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
-    return ECHILD;
+    if (parse_error != 0 || trailing) return parse_error != 0 ? parse_error : MWFN_ERR_PROTOCOL;
+    if (!mwfn_picker_body_valid(picker_status, body, body_bytes, mwfn_get_u32(header + 24))) {
+        return MWFN_ERR_PROTOCOL;
+    }
+    *result_bytes_out = (int64_t)body_bytes;
+    *picker_status_out = (int32_t)picker_status;
+    if (result_capacity <= (int64_t)body_bytes) return MWFN_ERR_BUFFER;
+    memcpy(result_utf8, body, body_bytes);
+    result_utf8[body_bytes] = '\0';
+    if (WIFEXITED(status)) return 0;
+    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : ECHILD;
 }
 
 static int mwfn_clear_stop_flag_posix(const char *session) {
@@ -823,6 +1237,37 @@ static int mwfn_read_exact_win(HANDLE handle, void *buffer, DWORD length,
     return mwfn_read_exact_win_deadline(handle, buffer, length, GetTickCount64() + timeout_ms);
 }
 
+static int mwfn_drain_win_deadline(HANDLE handle, ULONGLONG deadline, int *had_data_out) {
+    uint8_t buffer[4096];
+    int had_data = 0;
+    for (;;) {
+        DWORD available = 0;
+        DWORD read_bytes = 0;
+        if (!PeekNamedPipe(handle, NULL, 0, NULL, &available, NULL)) {
+            DWORD error = GetLastError();
+            if (error == ERROR_BROKEN_PIPE) {
+                if (had_data_out != NULL) *had_data_out = had_data;
+                return 0;
+            }
+            return (int)error;
+        }
+        if (available == 0U) {
+            if (GetTickCount64() >= deadline) return ETIMEDOUT;
+            Sleep(1);
+            continue;
+        }
+        if (!ReadFile(handle, buffer, (DWORD)sizeof(buffer), &read_bytes, NULL)) {
+            DWORD error = GetLastError();
+            return error == ERROR_BROKEN_PIPE ? 0 : (int)error;
+        }
+        if (read_bytes == 0U) {
+            if (had_data_out != NULL) *had_data_out = had_data;
+            return 0;
+        }
+        had_data = 1;
+    }
+}
+
 typedef struct {
     HANDLE done_event;
     HANDLE target_thread;
@@ -899,25 +1344,53 @@ static int mwfn_write_all_win(HANDLE handle, const uint8_t *bytes, size_t length
     return error_code;
 }
 
-static int mwfn_select_file_windows(const char *executable, const char *output) {
+static int mwfn_select_file_windows(const char *executable, char *result_utf8,
+                                    int64_t result_capacity, int64_t *result_bytes_out,
+                                    int32_t *picker_status_out) {
     const char *names[4];
+    char result_handle[32];
     wchar_t *wide_values[4] = {NULL, NULL, NULL, NULL};
     wchar_t *command_line = NULL;
     size_t command_length = 0;
     size_t command_capacity = 0;
-    STARTUPINFOW startup = {0};
+    STARTUPINFOEXW startup = {0};
     PROCESS_INFORMATION process = {0};
+    SECURITY_ATTRIBUTES security = {sizeof(SECURITY_ATTRIBUTES), NULL, TRUE};
+    HANDLE result_read = NULL;
+    HANDLE result_write = NULL;
+    HANDLE inherited[1] = {NULL};
+    LPPROC_THREAD_ATTRIBUTE_LIST attributes = NULL;
+    SIZE_T attributes_size = 0;
+    int attributes_initialized = 0;
     DWORD wait_result;
     DWORD exit_code = 0;
     int error_code = 0;
+    int parse_error = 0;
+    int trailing = 0;
+    uint8_t header[MWFN_PICK_HEADER_BYTES];
+    uint8_t body[MWFN_PICK_MAX_BODY_BYTES];
+    uint16_t picker_status = MWFN_PICK_STATUS_CANCEL;
+    uint32_t body_bytes = 0;
+    ULONGLONG deadline;
     unsigned int index;
-    if (executable == NULL || output == NULL || executable[0] == '\0' || output[0] == '\0') {
+    if (result_bytes_out != NULL) *result_bytes_out = 0;
+    if (picker_status_out != NULL) *picker_status_out = -1;
+    if (executable == NULL || executable[0] == '\0' || result_utf8 == NULL ||
+        result_capacity <= 0 || result_bytes_out == NULL || picker_status_out == NULL) {
         return ERROR_INVALID_PARAMETER;
     }
+    result_utf8[0] = '\0';
+    if (!CreatePipe(&result_read, &result_write, &security, 0) ||
+        !SetHandleInformation(result_read, HANDLE_FLAG_INHERIT, 0)) {
+        error_code = (int)GetLastError();
+        goto cleanup;
+    }
+    (void)snprintf(result_handle, sizeof(result_handle), "%llu",
+                   (unsigned long long)(uintptr_t)result_write);
     names[0] = executable;
     names[1] = "--select-file";
-    names[2] = "--output";
-    names[3] = output;
+    names[2] = "--result-pipe";
+    names[3] = result_handle;
     for (index = 0; index < 4U; ++index) {
         wide_values[index] = mwfn_utf8_to_wide(names[index]);
         if (wide_values[index] == NULL) {
@@ -928,10 +1401,73 @@ static int mwfn_select_file_windows(const char *executable, const char *output) 
                                       wide_values[index]);
         if (error_code != 0) goto cleanup;
     }
-    startup.cb = sizeof(startup);
-    if (!CreateProcessW(wide_values[0], command_line, NULL, NULL, FALSE, 0, NULL, NULL,
-                        &startup, &process)) {
+    inherited[0] = result_write;
+    InitializeProcThreadAttributeList(NULL, 1, 0, &attributes_size);
+    attributes = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(attributes_size);
+    if (attributes == NULL || !InitializeProcThreadAttributeList(attributes, 1, 0, &attributes_size)) {
+        error_code = attributes == NULL ? ERROR_NOT_ENOUGH_MEMORY : (int)GetLastError();
+        goto cleanup;
+    }
+    attributes_initialized = 1;
+    if (!UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
+                                   sizeof(inherited), NULL, NULL)) {
         error_code = (int)GetLastError();
+        goto cleanup;
+    }
+    startup.StartupInfo.cb = sizeof(startup.StartupInfo);
+    startup.lpAttributeList = attributes;
+    if (!CreateProcessW(wide_values[0], command_line, NULL, NULL, TRUE,
+                        EXTENDED_STARTUPINFO_PRESENT, NULL, NULL, &startup.StartupInfo,
+                        &process)) {
+        error_code = (int)GetLastError();
+        goto cleanup;
+    }
+    CloseHandle(result_write);
+    result_write = NULL;
+    for (;;) {
+        DWORD available = 0;
+        if (!PeekNamedPipe(result_read, NULL, 0, NULL, &available, NULL)) {
+            error_code = (int)GetLastError();
+            goto cleanup;
+        }
+        if (available > 0U) break;
+        if (WaitForSingleObject(process.hProcess, 20U) == WAIT_FAILED) {
+            error_code = (int)GetLastError();
+            goto cleanup;
+        }
+    }
+    deadline = GetTickCount64() + MWFN_PICK_READ_TIMEOUT_MS;
+    error_code = mwfn_read_exact_win_deadline(result_read, header, sizeof(header), deadline);
+    if (error_code == 0) {
+        if (!mwfn_picker_header_valid(header, &picker_status, &body_bytes)) {
+            parse_error = MWFN_ERR_PROTOCOL;
+        } else if (body_bytes > 0U) {
+            error_code = mwfn_read_exact_win_deadline(result_read, body, body_bytes, deadline);
+            if (error_code != 0) {
+                parse_error = error_code == ETIMEDOUT ? MWFN_ERR_TIMEOUT : MWFN_ERR_PROTOCOL;
+            } else if (!mwfn_picker_body_valid(picker_status, body, body_bytes,
+                                               mwfn_get_u32(header + 24))) {
+                parse_error = MWFN_ERR_PROTOCOL;
+            }
+        }
+    } else {
+        parse_error = error_code == ETIMEDOUT ? MWFN_ERR_TIMEOUT : MWFN_ERR_PROTOCOL;
+    }
+    if (error_code == 0 || parse_error == MWFN_ERR_PROTOCOL) {
+        int drain_error = mwfn_drain_win_deadline(result_read, deadline, &trailing);
+        if (drain_error == ETIMEDOUT) {
+            error_code = ETIMEDOUT;
+            parse_error = MWFN_ERR_TIMEOUT;
+        } else if (drain_error != 0 && parse_error == 0) {
+            parse_error = MWFN_ERR_PROTOCOL;
+        }
+    }
+    CloseHandle(result_read);
+    result_read = NULL;
+    if (parse_error == MWFN_ERR_TIMEOUT || error_code == ETIMEDOUT) {
+        TerminateProcess(process.hProcess, 1U);
+        (void)WaitForSingleObject(process.hProcess, INFINITE);
+        error_code = MWFN_ERR_TIMEOUT;
         goto cleanup;
     }
     wait_result = WaitForSingleObject(process.hProcess, INFINITE);
@@ -943,11 +1479,33 @@ static int mwfn_select_file_windows(const char *executable, const char *output) 
         error_code = (int)GetLastError();
         goto cleanup;
     }
-    error_code = exit_code == 0U ? 0 : (exit_code > 127U ? 127 : (int)exit_code + 200);
+    if (parse_error != 0 || trailing) {
+        error_code = parse_error != 0 ? parse_error : MWFN_ERR_PROTOCOL;
+        goto cleanup;
+    }
+    if (!mwfn_picker_body_valid(picker_status, body, body_bytes, mwfn_get_u32(header + 24))) {
+        error_code = MWFN_ERR_PROTOCOL;
+        goto cleanup;
+    }
+    *result_bytes_out = (int64_t)body_bytes;
+    *picker_status_out = (int32_t)picker_status;
+    if (result_capacity <= (int64_t)body_bytes) {
+        error_code = MWFN_ERR_BUFFER;
+        goto cleanup;
+    }
+    memcpy(result_utf8, body, body_bytes);
+    result_utf8[body_bytes] = '\0';
+    error_code = 0;
 
 cleanup:
     if (process.hThread != NULL) CloseHandle(process.hThread);
     if (process.hProcess != NULL) CloseHandle(process.hProcess);
+    mwfn_close_handle(&result_read);
+    mwfn_close_handle(&result_write);
+    if (attributes_initialized) {
+        DeleteProcThreadAttributeList(attributes);
+    }
+    free(attributes);
     free(command_line);
     for (index = 0; index < 4U; ++index) free(wide_values[index]);
     return error_code;
@@ -955,11 +1513,14 @@ cleanup:
 
 static int mwfn_spawn_windows(const char *executable, const char *frontend, const char *session,
                               const char *manifest, int with_transport, HANDLE *volume_write_out,
-                              HANDLE *ack_read_out, PROCESS_INFORMATION *process_out) {
-    const char *names[11];
+                              HANDLE *ack_read_out, HANDLE *request_read_out,
+                              HANDLE *response_write_out, PROCESS_INFORMATION *process_out) {
+    const char *names[15];
     char volume_handle[32];
     char ack_handle[32];
-    wchar_t *wide_values[11] = {0};
+    char control_read_handle[32];
+    char control_write_handle[32];
+    wchar_t *wide_values[15] = {0};
     wchar_t *command_line = NULL;
     size_t command_length = 0;
     size_t command_capacity = 0;
@@ -969,7 +1530,11 @@ static int mwfn_spawn_windows(const char *executable, const char *frontend, cons
     HANDLE volume_write = NULL;
     HANDLE ack_read = NULL;
     HANDLE ack_write = NULL;
-    HANDLE inherited[5] = {NULL, NULL, NULL, NULL, NULL};
+    HANDLE request_read = NULL;
+    HANDLE request_write = NULL;
+    HANDLE response_read = NULL;
+    HANDLE response_write = NULL;
+    HANDLE inherited[7] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL};
     STARTUPINFOEXW startup = {0};
     PROCESS_INFORMATION process = {0};
     LPPROC_THREAD_ATTRIBUTE_LIST attributes = NULL;
@@ -985,12 +1550,16 @@ static int mwfn_spawn_windows(const char *executable, const char *frontend, cons
     names[count++] = manifest;
     if (with_transport) {
         if (!CreatePipe(&volume_read, &volume_write, &security, 0) ||
-            !CreatePipe(&ack_read, &ack_write, &security, 0)) {
+            !CreatePipe(&ack_read, &ack_write, &security, 0) ||
+            !CreatePipe(&request_read, &request_write, &security, 0) ||
+            !CreatePipe(&response_read, &response_write, &security, 0)) {
             error_code = (int)GetLastError();
             goto cleanup;
         }
         if (!SetHandleInformation(volume_write, HANDLE_FLAG_INHERIT, 0) ||
-            !SetHandleInformation(ack_read, HANDLE_FLAG_INHERIT, 0)) {
+            !SetHandleInformation(ack_read, HANDLE_FLAG_INHERIT, 0) ||
+            !SetHandleInformation(request_read, HANDLE_FLAG_INHERIT, 0) ||
+            !SetHandleInformation(response_write, HANDLE_FLAG_INHERIT, 0)) {
             error_code = (int)GetLastError();
             goto cleanup;
         }
@@ -998,10 +1567,18 @@ static int mwfn_spawn_windows(const char *executable, const char *frontend, cons
                        (unsigned long long)(uintptr_t)volume_read);
         (void)snprintf(ack_handle, sizeof(ack_handle), "%llu",
                        (unsigned long long)(uintptr_t)ack_write);
+        (void)snprintf(control_read_handle, sizeof(control_read_handle), "%llu",
+                       (unsigned long long)(uintptr_t)response_read);
+        (void)snprintf(control_write_handle, sizeof(control_write_handle), "%llu",
+                       (unsigned long long)(uintptr_t)request_write);
         names[count++] = "--volume-read-pipe";
         names[count++] = volume_handle;
         names[count++] = "--volume-ack-pipe";
         names[count++] = ack_handle;
+        names[count++] = "--control-read-pipe";
+        names[count++] = control_read_handle;
+        names[count++] = "--control-write-pipe";
+        names[count++] = control_write_handle;
     }
     for (index = 0; index < count; ++index) {
         wide_values[index] = mwfn_utf8_to_wide(names[index]);
@@ -1023,9 +1600,11 @@ static int mwfn_spawn_windows(const char *executable, const char *frontend, cons
         goto cleanup;
     }
     {
-        const SIZE_T inherited_count = with_transport ? 5U : 3U;
+        const SIZE_T inherited_count = with_transport ? 7U : 3U;
         inherited[3] = with_transport ? volume_read : NULL;
         inherited[4] = with_transport ? ack_write : NULL;
+        inherited[5] = with_transport ? response_read : NULL;
+        inherited[6] = with_transport ? request_write : NULL;
         startup.StartupInfo.hStdInput = inherited[0];
         startup.StartupInfo.hStdOutput = inherited[1];
         startup.StartupInfo.hStdError = inherited[2];
@@ -1056,10 +1635,18 @@ static int mwfn_spawn_windows(const char *executable, const char *frontend, cons
         volume_read = NULL;
         CloseHandle(ack_write);
         ack_write = NULL;
+        CloseHandle(response_read);
+        response_read = NULL;
+        CloseHandle(request_write);
+        request_write = NULL;
         *volume_write_out = volume_write;
         *ack_read_out = ack_read;
+        *request_read_out = request_read;
+        *response_write_out = response_write;
         volume_write = NULL;
         ack_read = NULL;
+        request_read = NULL;
+        response_write = NULL;
     }
     *process_out = process;
     process.hProcess = NULL;
@@ -1073,6 +1660,10 @@ cleanup:
     mwfn_close_handle(&volume_write);
     mwfn_close_handle(&ack_read);
     mwfn_close_handle(&ack_write);
+    mwfn_close_handle(&request_read);
+    mwfn_close_handle(&request_write);
+    mwfn_close_handle(&response_read);
+    mwfn_close_handle(&response_write);
     for (index = 0; index < 3U; ++index) mwfn_close_handle(&inherited[index]);
     if (attributes != NULL) {
         DeleteProcThreadAttributeList(attributes);
@@ -1128,12 +1719,16 @@ static int mwfn_cube_fallback_enabled(void) {
 int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_utf8,
                              const char *session_utf8, const char *manifest_utf8,
                              intptr_t *volume_write_out, intptr_t *ack_read_out,
+                             intptr_t *request_read_out, intptr_t *response_write_out,
                              int *transport_error_out) {
     int transport_error = 0;
     if (volume_write_out != NULL) *volume_write_out = (intptr_t)-1;
     if (ack_read_out != NULL) *ack_read_out = (intptr_t)-1;
+    if (request_read_out != NULL) *request_read_out = (intptr_t)-1;
+    if (response_write_out != NULL) *response_write_out = (intptr_t)-1;
     if (transport_error_out != NULL) *transport_error_out = 0;
-    if (volume_write_out == NULL || ack_read_out == NULL || transport_error_out == NULL ||
+    if (volume_write_out == NULL || ack_read_out == NULL || request_read_out == NULL ||
+        response_write_out == NULL || transport_error_out == NULL ||
         executable_utf8 == NULL || frontend_utf8 == NULL || session_utf8 == NULL ||
         manifest_utf8 == NULL) {
         if (transport_error_out != NULL) *transport_error_out = EINVAL;
@@ -1143,20 +1738,47 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
     {
         HANDLE volume_write = NULL;
         HANDLE ack_read = NULL;
+        HANDLE request_read = NULL;
+        HANDLE response_write = NULL;
         PROCESS_INFORMATION process = {0};
+        if (mwfn_cube_fallback_enabled()) {
+            int diagnostic_error = mwfn_spawn_windows(
+                executable_utf8, frontend_utf8, session_utf8, manifest_utf8, 0,
+                NULL, NULL, NULL, NULL, &process);
+            if (diagnostic_error != 0) {
+                *transport_error_out = diagnostic_error;
+                return -1;
+            }
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+            return 0;
+        }
         int error_code = mwfn_spawn_windows(executable_utf8, frontend_utf8, session_utf8,
                                             manifest_utf8, 1, &volume_write, &ack_read,
-                                            &process);
+                                            &request_read, &response_write, &process);
         if (error_code == 0) {
             uint8_t ready[MWFN_READY_BYTES];
+            uint8_t control_ready[MWFN_CONTROL_HEADER_BYTES];
             transport_error = mwfn_read_exact_win(ack_read, ready, sizeof(ready),
                                                   MWFN_READY_TIMEOUT_MS);
             if (transport_error == 0 && !mwfn_valid_ready(ready)) transport_error = ERROR_INVALID_DATA;
+            if (transport_error == 0) {
+                transport_error = mwfn_read_exact_win(request_read, control_ready,
+                                                      sizeof(control_ready),
+                                                      MWFN_READY_TIMEOUT_MS);
+            }
+            if (transport_error == 0 &&
+                (!mwfn_control_header_valid(control_ready) ||
+                 mwfn_get_u16(control_ready + 12) != 1U)) {
+                transport_error = ERROR_INVALID_DATA;
+            }
             if (transport_error == 0) {
                 CloseHandle(process.hThread);
                 CloseHandle(process.hProcess);
                 *volume_write_out = (intptr_t)(uintptr_t)volume_write;
                 *ack_read_out = (intptr_t)(uintptr_t)ack_read;
+                *request_read_out = (intptr_t)(uintptr_t)request_read;
+                *response_write_out = (intptr_t)(uintptr_t)response_write;
                 return 0;
             }
             TerminateProcess(process.hProcess, 1);
@@ -1165,6 +1787,8 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
             CloseHandle(process.hProcess);
             mwfn_close_handle(&volume_write);
             mwfn_close_handle(&ack_read);
+            mwfn_close_handle(&request_read);
+            mwfn_close_handle(&response_write);
         } else {
             transport_error = error_code;
         }
@@ -1175,7 +1799,7 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
         error_code = mwfn_clear_stop_flag_windows(session_utf8);
         if (error_code == 0) {
             error_code = mwfn_spawn_windows(executable_utf8, frontend_utf8, session_utf8,
-                                        manifest_utf8, 0, NULL, NULL, &process);
+                                        manifest_utf8, 0, NULL, NULL, NULL, NULL, &process);
         }
         if (error_code == 0) {
             CloseHandle(process.hThread);
@@ -1192,23 +1816,52 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
         pid_t fallback_pid = (pid_t)-1;
         int volume_write = -1;
         int ack_read = -1;
+        int request_read = -1;
+        int response_write = -1;
+        if (mwfn_cube_fallback_enabled()) {
+            int diagnostic_error = mwfn_spawn_file_only_posix(
+                executable_utf8, frontend_utf8, session_utf8, manifest_utf8, &fallback_pid);
+            if (diagnostic_error == 0) diagnostic_error = mwfn_register_reaper(fallback_pid);
+            if (diagnostic_error != 0) {
+                if (fallback_pid >= 0) mwfn_reap_terminated(fallback_pid);
+                *transport_error_out = diagnostic_error;
+                return -1;
+            }
+            return 0;
+        }
         int error_code = mwfn_spawn_posix(executable_utf8, frontend_utf8, session_utf8,
-                                          manifest_utf8, 1, &pid, &volume_write, &ack_read);
+                                          manifest_utf8, 1, &pid, &volume_write, &ack_read,
+                                          &request_read, &response_write);
         if (error_code == 0) {
             uint8_t ready[MWFN_READY_BYTES];
+            uint8_t control_ready[MWFN_CONTROL_HEADER_BYTES];
             error_code = mwfn_read_exact_posix(ack_read, ready, sizeof(ready),
                                                MWFN_READY_TIMEOUT_MS);
             if (error_code == 0 && !mwfn_valid_ready(ready)) error_code = EPROTO;
+            if (error_code == 0) {
+                error_code = mwfn_read_exact_posix(request_read, control_ready,
+                                                   sizeof(control_ready),
+                                                   MWFN_READY_TIMEOUT_MS);
+            }
+            if (error_code == 0 &&
+                (!mwfn_control_header_valid(control_ready) ||
+                 mwfn_get_u16(control_ready + 12) != 1U)) {
+                error_code = EPROTO;
+            }
             if (error_code == 0) {
                 error_code = mwfn_register_reaper(pid);
                 if (error_code == 0) {
                     *volume_write_out = (intptr_t)volume_write;
                     *ack_read_out = (intptr_t)ack_read;
+                    *request_read_out = (intptr_t)request_read;
+                    *response_write_out = (intptr_t)response_write;
                     return 0;
                 }
             }
             mwfn_close_fd(&volume_write);
             mwfn_close_fd(&ack_read);
+            mwfn_close_fd(&request_read);
+            mwfn_close_fd(&response_write);
             mwfn_reap_terminated(pid);
             transport_error = error_code;
         } else {
@@ -1235,12 +1888,19 @@ int multiwfn_matterviz_spawn(const char *executable_utf8, const char *frontend_u
 #endif
 }
 
-int multiwfn_matterviz_select_file(const char *executable_utf8, const char *output_utf8) {
-    if (executable_utf8 == NULL || output_utf8 == NULL) return EINVAL;
+int multiwfn_matterviz_select_file(const char *executable_utf8, char *result_utf8,
+                                   int64_t result_capacity, int64_t *result_bytes_out,
+                                   int32_t *picker_status_out) {
+    if (executable_utf8 == NULL || result_utf8 == NULL || result_capacity <= 0 ||
+        result_bytes_out == NULL || picker_status_out == NULL) {
+        return EINVAL;
+    }
 #ifdef _WIN32
-    return mwfn_select_file_windows(executable_utf8, output_utf8);
+    return mwfn_select_file_windows(executable_utf8, result_utf8, result_capacity,
+                                    result_bytes_out, picker_status_out);
 #else
-    return mwfn_select_file_posix(executable_utf8, output_utf8);
+    return mwfn_select_file_posix(executable_utf8, result_utf8, result_capacity,
+                                  result_bytes_out, picker_status_out);
 #endif
 }
 
@@ -1343,10 +2003,11 @@ int multiwfn_matterviz_publish_volume_stream(
     if (!mwfn_host_is_little_endian()) return MWFN_ERR_UNSUPPORTED;
     if (request_id <= 0 || volume_id <= 0 || data_order < 1 || data_order > 2 ||
         (periodic_axes & ~7) != 0 || (coordinate_unit != 1 && coordinate_unit != 2) ||
-        (quantity_kind < 1 || quantity_kind > 3) ||
+        (quantity_kind < 1 || quantity_kind > 4) ||
         ((quantity_kind == 1 && value_unit != 1) ||
          (quantity_kind == 2 && value_unit != 2) ||
-         (quantity_kind == 3 && value_unit != 3)) || origin == NULL ||
+         (quantity_kind == 3 && value_unit != 3) ||
+         (quantity_kind == 4 && value_unit != 4)) || origin == NULL ||
         voxel_axes == NULL || lattice == NULL || samples == NULL) {
         return MWFN_ERR_INVALID;
     }
@@ -1447,6 +2108,174 @@ int multiwfn_matterviz_publish_volume_stream(
         }
     }
     return 0;
+}
+
+static int mwfn_control_read_exact(intptr_t pipe_value, uint8_t *bytes, size_t length,
+                                   mwfn_stream_deadline_t deadline) {
+#ifdef _WIN32
+    HANDLE handle = (HANDLE)(uintptr_t)pipe_value;
+    if (handle == NULL || handle == INVALID_HANDLE_VALUE || length > UINT32_MAX) {
+        return MWFN_ERR_HANDLE;
+    }
+    return mwfn_read_exact_win_deadline(handle, bytes, (DWORD)length, deadline);
+#else
+    if (pipe_value < 0) return MWFN_ERR_HANDLE;
+    return mwfn_read_exact_posix_deadline((int)pipe_value, bytes, length, deadline);
+#endif
+}
+
+static int mwfn_control_wait_readable(intptr_t pipe_value, uint32_t timeout_ms) {
+#ifdef _WIN32
+    HANDLE handle = (HANDLE)(uintptr_t)pipe_value;
+    const ULONGLONG deadline = GetTickCount64() + timeout_ms;
+    if (handle == NULL || handle == INVALID_HANDLE_VALUE) return MWFN_ERR_HANDLE;
+    for (;;) {
+        DWORD available = 0;
+        if (!PeekNamedPipe(handle, NULL, 0, NULL, &available, NULL)) {
+            return (int)GetLastError();
+        }
+        if (available > 0U) return 0;
+        if (GetTickCount64() >= deadline) return ETIMEDOUT;
+        Sleep(5U);
+    }
+#else
+    struct pollfd descriptor;
+    const uint64_t deadline = mwfn_now_ms() + timeout_ms;
+    if (pipe_value < 0) return MWFN_ERR_HANDLE;
+    descriptor.fd = (int)pipe_value;
+    descriptor.events = POLLIN;
+    descriptor.revents = 0;
+    for (;;) {
+        const uint64_t now = mwfn_now_ms();
+        int result;
+        int wait_ms;
+        if (now >= deadline) return ETIMEDOUT;
+        wait_ms = (int)(deadline - now > INT_MAX ? INT_MAX : deadline - now);
+        result = poll(&descriptor, 1, wait_ms);
+        if (result < 0 && errno == EINTR) continue;
+        if (result < 0) return errno;
+        if (result == 0) return ETIMEDOUT;
+        if ((descriptor.revents & POLLNVAL) != 0) return EBADF;
+        if ((descriptor.revents & POLLERR) != 0) return EIO;
+        if ((descriptor.revents & (POLLIN | POLLHUP)) != 0) return 0;
+    }
+#endif
+}
+
+int multiwfn_matterviz_control_send(intptr_t response_write, int32_t message_type,
+                                    int64_t request_id, const char *body,
+                                    int64_t body_bytes, uint32_t timeout_ms) {
+    uint8_t header[MWFN_CONTROL_HEADER_BYTES] = {0};
+    mwfn_stream_deadline_t deadline;
+    uint16_t flags;
+    int error_code;
+    if (message_type < 1 || message_type > 6 || request_id < 0 || body_bytes < 0 ||
+        (body_bytes > 0 && body == NULL) || timeout_ms == 0U) {
+        return MWFN_ERR_INVALID;
+    }
+    flags = body_bytes == 0
+                ? MWFN_CONTROL_FLAG_HEADER_CRC
+                : (MWFN_CONTROL_FLAG_HEADER_CRC | MWFN_CONTROL_FLAG_BODY_CRC);
+    if (!mwfn_control_fields_valid((uint16_t)message_type, flags, (uint64_t)request_id,
+                                   (uint64_t)body_bytes)) {
+        return MWFN_ERR_INVALID;
+    }
+    memcpy(header, "MWFNCTL\0", 8U);
+    mwfn_put_u16(header + 8, 1U);
+    mwfn_put_u16(header + 12, (uint16_t)message_type);
+    mwfn_put_u16(header + 14, flags);
+    mwfn_put_u32(header + 16, MWFN_CONTROL_HEADER_BYTES);
+    mwfn_put_u64(header + 20, (uint64_t)request_id);
+    mwfn_put_u64(header + 28, (uint64_t)body_bytes);
+    if (body_bytes > 0) {
+        mwfn_put_u32(header + 40, mwfn_crc32c((const uint8_t *)body, (size_t)body_bytes));
+    }
+    mwfn_put_u32(header + 36, mwfn_crc32c(header, sizeof(header)));
+    deadline = mwfn_stream_deadline(timeout_ms);
+    error_code = mwfn_stream_write(response_write, header, sizeof(header), deadline);
+    if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+    if (error_code != 0) return error_code;
+    if (body_bytes > 0) {
+        error_code = mwfn_stream_write(response_write, (const uint8_t *)body,
+                                       (size_t)body_bytes, deadline);
+        if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+        if (error_code != 0) return error_code;
+    }
+    return 0;
+}
+
+int multiwfn_matterviz_control_receive(intptr_t request_read, int32_t *message_type_out,
+                                       int64_t *request_id_out, char *body,
+                                       int64_t body_capacity, int64_t *body_bytes_out,
+                                       uint32_t timeout_ms) {
+    uint8_t header[MWFN_CONTROL_HEADER_BYTES];
+    mwfn_stream_deadline_t deadline;
+    uint64_t body_bytes;
+    int error_code;
+    if (message_type_out == NULL || request_id_out == NULL || body_bytes_out == NULL ||
+        body_capacity < 0 || timeout_ms == 0U) {
+        return MWFN_ERR_INVALID;
+    }
+    *message_type_out = 0;
+    *request_id_out = 0;
+    *body_bytes_out = 0;
+    error_code = mwfn_control_wait_readable(request_read, timeout_ms);
+    if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+    if (error_code != 0) return error_code;
+    deadline = mwfn_stream_deadline(MWFN_CONTROL_FRAME_TIMEOUT_MS);
+    error_code = mwfn_control_read_exact(request_read, header, sizeof(header), deadline);
+    if (error_code == ETIMEDOUT) return MWFN_ERR_PROTOCOL;
+    if (error_code != 0) return error_code;
+    if (!mwfn_control_header_valid(header)) return MWFN_ERR_PROTOCOL;
+    body_bytes = mwfn_get_u64(header + 28);
+    if (body_bytes > (uint64_t)INT64_MAX ||
+        (body_bytes > 0U &&
+         (body == NULL || body_capacity <= 0 || body_bytes >= (uint64_t)body_capacity))) {
+        return MWFN_ERR_BUFFER;
+    }
+    if (body_bytes > 0U) {
+        error_code = mwfn_control_read_exact(request_read, (uint8_t *)body,
+                                             (size_t)body_bytes, deadline);
+        if (error_code == ETIMEDOUT) return MWFN_ERR_PROTOCOL;
+        if (error_code != 0) return error_code;
+        if (mwfn_crc32c((const uint8_t *)body, (size_t)body_bytes) !=
+            mwfn_get_u32(header + 40)) {
+            return MWFN_ERR_PROTOCOL;
+        }
+        if (memchr(body, 0, (size_t)body_bytes) != NULL ||
+            !mwfn_picker_utf8_valid((const uint8_t *)body, (size_t)body_bytes)) {
+            return MWFN_ERR_PROTOCOL;
+        }
+        body[body_bytes] = '\0';
+    } else if (body != NULL && body_capacity > 0) {
+        body[0] = '\0';
+    }
+    *message_type_out = (int32_t)mwfn_get_u16(header + 12);
+    *request_id_out = (int64_t)mwfn_get_u64(header + 20);
+    *body_bytes_out = (int64_t)body_bytes;
+    return 0;
+}
+
+void multiwfn_matterviz_control_close(intptr_t *request_read_io,
+                                      intptr_t *response_write_io) {
+    if (request_read_io != NULL) {
+#ifdef _WIN32
+        HANDLE handle = (HANDLE)(uintptr_t)*request_read_io;
+        if (handle != NULL && handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+#else
+        if (*request_read_io >= 0) (void)close((int)*request_read_io);
+#endif
+        *request_read_io = (intptr_t)-1;
+    }
+    if (response_write_io != NULL) {
+#ifdef _WIN32
+        HANDLE handle = (HANDLE)(uintptr_t)*response_write_io;
+        if (handle != NULL && handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+#else
+        if (*response_write_io >= 0) (void)close((int)*response_write_io);
+#endif
+        *response_write_io = (intptr_t)-1;
+    }
 }
 
 void multiwfn_matterviz_transport_close(intptr_t *volume_write_io, intptr_t *ack_read_io) {

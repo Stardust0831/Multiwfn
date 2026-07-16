@@ -118,6 +118,7 @@ test('decodes signed samples and every quantity-unit pair', async () => {
     [1, 1, 'orbital', 'bohr^-3/2'],
     [2, 2, 'electron_density', 'electron/bohr^3'],
     [3, 3, 'electrostatic_potential', 'hartree/e'],
+    [4, 4, 'generic_scalar', 'dimensionless'],
   ] as const
   for (const [quantity, unit, expected_quantity, expected_unit] of pairs) {
     const frame = await golden_frame()
@@ -128,6 +129,24 @@ test('decodes signed samples and every quantity-unit pair', async () => {
     const decoded = decode_matterviz_volume(frame)
     assert.equal(decoded.quantity_kind, expected_quantity)
     assert.equal(decoded.value_unit, expected_unit)
+  }
+
+  for (const [quantity, unit] of [[4, 1], [1, 4], [4, 3], [3, 4]] as const) {
+    const frame = await golden_frame()
+    const pair_view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
+    pair_view.setUint16(74, quantity, true)
+    pair_view.setUint16(76, unit, true)
+    repair_header_crc(frame)
+    assert.throws(() => decode_matterviz_volume(frame), /quantity kind and value unit/)
+  }
+
+  for (const [quantity, unit] of [[0, 0], [5, 5], [4, 5], [5, 4]] as const) {
+    const frame = await golden_frame()
+    const pair_view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
+    pair_view.setUint16(74, quantity, true)
+    pair_view.setUint16(76, unit, true)
+    repair_header_crc(frame)
+    assert.throws(() => decode_matterviz_volume(frame), /quantity kind and value unit/)
   }
 })
 
