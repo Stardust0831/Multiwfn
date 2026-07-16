@@ -189,6 +189,7 @@ jobs:
               fi
 
               tar -czf "dist/$pkg.tar.gz" -C package "$pkg"
+              tar -tzf "dist/$pkg.tar.gz" | grep -Fx "$pkg/LICENSE.txt"
               tar -tzf "dist/$pkg.tar.gz" | grep -Fx "$pkg/ATTRIBUTION.txt"
             ' 2>&1 | tee gui-linux-compat-build.log
           status=${PIPESTATUS[0]}

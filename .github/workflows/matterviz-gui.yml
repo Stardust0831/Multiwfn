@@ -551,8 +551,10 @@ jobs:
           test -f "package/$PKG/resources/frontend/matterviz-viewer/dist/index.html"
           test -n "$(find "package/$PKG/resources/frontend/matterviz-viewer/dist/assets" -type f -print -quit)"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            unzip -Z1 "dist/$PKG.zip" | grep -Fx LICENSE.txt
             unzip -Z1 "dist/$PKG.zip" | grep -Fx ATTRIBUTION.txt
           else
+            tar -tzf "dist/$PKG.tar.gz" | grep -Fx "$PKG/LICENSE.txt"
             tar -tzf "dist/$PKG.tar.gz" | grep -Fx "$PKG/ATTRIBUTION.txt"
           fi
           if find "package/$PKG" \
