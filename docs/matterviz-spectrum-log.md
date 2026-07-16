@@ -1103,3 +1103,9 @@
   marked historical, and six unreferenced intermediate MatterViz vendor
   archives were removed so only lockfile-pinned r23 remains. A follow-up
   independent review found no remaining architecture or scope blocker.
+- At the user's explicit release decision, added a formal MatterViz tag path
+  alongside the unchanged preview path. `v*-matterviz.*` tags use the same
+  three-platform build, real-orbital, Return/process and zero-runtime-artifact
+  gates, then publish a non-prerelease Latest release with `--verify-tag`;
+  `matterviz-preview-*` remains prerelease-only. The first planned formal tag is
+  `v2026.7.10-matterviz.1` from the PR #26 branch.

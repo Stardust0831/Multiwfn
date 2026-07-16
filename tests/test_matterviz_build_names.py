@@ -266,6 +266,14 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("MatterViz package unexpectedly contains a Python runtime artifact", WORKFLOW)
         self.assertIn("-name '*.py'", WORKFLOW)
 
+    def test_matterviz_workflow_supports_preview_and_formal_releases(self):
+        self.assertIn("- 'matterviz-preview-*'", WORKFLOW)
+        self.assertIn("- 'v*-matterviz.*'", WORKFLOW)
+        self.assertIn('release_flags+=(--prerelease)', WORKFLOW)
+        self.assertIn('release_flags+=(--latest)', WORKFLOW)
+        self.assertIn('release_flags=(--verify-tag)', WORKFLOW)
+        self.assertIn('Multiwfn $version MatterViz GUI', WORKFLOW)
+
 
 if __name__ == "__main__":
     unittest.main()

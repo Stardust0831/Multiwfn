@@ -256,6 +256,10 @@ change, block, or expand the current camera implementation and validation.
   selection, structure/orbital display, orbital switching/recalculation,
   Return/terminal continuation and confirmation that normal sessions leave no
   writable temporary session directory.
+- [ ] Publish the user-approved formal release `v2026.7.10-matterviz.1` from
+  the PR #26 branch through the same locked three-platform build and zero-disk
+  package gates; independently verify checksums and archive contents before
+  marking the release complete.
 
 The formal native path no longer uses control files or writable session paths.
 File/session/Cube behavior remains only in the explicit diagnostic compatibility
