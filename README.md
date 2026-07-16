@@ -8,7 +8,11 @@ result-consistency checks, and experimental visualization GUI work.
 
 Multiwfn itself is developed by Tian Lu. This repository preserves the upstream
 source license in `LICENSE.txt`; redistributed source and release artifacts must
-carry that license.
+carry that license. A redistribution or derivative that incorporates
+repository-specific material covered by the supplemental requirement must also
+retain that attribution in `LICENSE.txt` and visibly credit
+https://github.com/Stardust0831/Multiwfn.
+Packaged builds carry the same notice in `ATTRIBUTION.txt`.
 
 ## Goals
 

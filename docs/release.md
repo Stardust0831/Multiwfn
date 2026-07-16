@@ -10,17 +10,19 @@ Current release packaging:
 - `Multiwfn_noGUI-macOS.tar.gz`
 - `Multiwfn_noGUI-Windows.zip`
 - `LICENSE.txt`
+- `ATTRIBUTION.txt`
 - `SHA256SUMS.txt`
 
-Each platform archive includes the noGUI executable, `LICENSE.txt`, and
-`settings.ini`. The Linux archive may also include a `lib/` directory
+Each platform archive includes the noGUI executable, `LICENSE.txt`,
+`ATTRIBUTION.txt`, and `settings.ini`. The Linux archive may also include a `lib/` directory
 containing runtime libraries collected from `ldd`, with the executable rpath set
-to load them from beside the binary. The standalone `LICENSE.txt` asset is also
-uploaded so the release page exposes the original Multiwfn terms directly.
+to load them from beside the binary. Standalone `LICENSE.txt` and
+`ATTRIBUTION.txt` assets are also uploaded so the release page exposes the
+official Multiwfn terms and repository attribution directly.
 
-The release workflow explicitly verifies license packaging before publishing:
-the standalone release license must match the source-tree `LICENSE.txt`, and
-each Linux, macOS, and Windows archive must contain `LICENSE.txt`.
+The release workflow explicitly verifies license and attribution packaging
+before publishing: both standalone files must match the source tree, and each
+Linux, macOS, and Windows archive must contain both files.
 
 Windows releases are intended to be self-contained while preserving OpenMP.
 The upstream Windows binary package was checked only for layout reference: it

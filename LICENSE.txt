@@ -7,3 +7,40 @@ Tian Lu, J. Chem. Phys., 161, 082503 (2024)
 (d) There is no warranty of correctness of the results produced by Multiwfn, the author of Multiwfn does not hold responsibility in any way for any consequences arising from the use of the Multiwfn.
 
 Whenever possible, please mention and cite Multiwfn in main text rather than in supplemental information, otherwise not only Multiwfn will be difficult for readers to notice, but also the paper will not be included in citation statistics.
+
+SUPPLEMENTAL ATTRIBUTION REQUIREMENT FOR THIS REPOSITORY
+
+The terms above remain the license terms for the official Multiwfn source code
+and are not replaced or reduced by this section.
+
+"Repository-specific material covered by this supplemental requirement" means
+source code, build files, graphical user interfaces, adapters, packaging,
+tests, documentation, or other modifications and additions that are not present
+in the corresponding official Multiwfn source distribution and whose applicable
+copyright holder has authorized distribution under this supplemental
+requirement. This includes contributions submitted under the inbound terms in
+CONTRIBUTING.md after this requirement was adopted. The project is:
+
+https://github.com/Stardust0831/Multiwfn
+
+Any source or binary redistribution, fork, modified version, or other derivative
+work that incorporates repository-specific material MUST:
+
+1. retain this complete LICENSE.txt file, including this supplemental section;
+2. preserve existing copyright, authorship, license, and attribution notices;
+3. prominently state that it incorporates work from the project above; and
+4. include the project URL above in its main README, documentation, About or
+   credits view, or another similarly visible attribution location delivered
+   with the derivative work.
+
+If ATTRIBUTION.txt was supplied with the repository-specific material, the
+redistribution must retain that file or reproduce its complete attribution text
+in an equally visible location.
+
+The attribution must not imply endorsement by Tian Lu, the official Multiwfn
+project, this repository, or its contributors.
+
+This supplemental requirement applies only when repository-specific material is
+used. A copy or derivative made solely from the official Multiwfn distribution,
+without material from this repository, remains governed by the official terms
+above and is not subject to this repository attribution requirement.
