@@ -880,3 +880,27 @@
   `70136670` on `agent/camera-up-zoom-api`. It was not pushed and no upstream
   issue or PR was created; the unrelated `windows-preview/` directory remains
   untouched and untracked.
+- The final release review found one remaining real-pan reset mismatch: Three
+  r185 translates its private Arcball gizmo during pan without updating
+  `_currentTarget`, so assigning the original public target could be mistaken
+  for a no-op and `saveState()` could pair the original camera with the panned
+  pivot. Local MatterViz commit `3e2c1754` now rebases the change detector on
+  the actual pivot, preserves the private reset matrix while restoring a live
+  pose, and centralizes baseline seeding. The focused source suite passes
+  17/17, including private-pivot and world-direction assertions after a real
+  native pan.
+- Rebuilt the consumer package as
+  `matterviz-0.4.2-multiwfn.d8719d12.r23.tgz` (SHA-256
+  `b025200c6f6b476dd9bfa07c765418bea7ed8badfb407bc55363a15a09918f55`,
+  frozen SHA-512
+  `6bF9c5+SbhY12UK5eQDTOgmw+reUQ1aApDxtqn5TeWptX/Pt8/oN+/Bs+3vAnWm9wR0ONz6FVX8x3SeRPWHRxA==`).
+  It overlays only the reset/runtime and navigation-tip files on r20; the r19
+  Worker, geometry disposal and `on_geometry_error` relay remain intact. A
+  clean pnpm 11.5 frozen install resolves r23; the viewer passes 113/113 tests,
+  `svelte-check` with zero diagnostics and a 1,377-module production build.
+- Production browser reruns pass at 1440x900 and 800x700: seven consecutive
+  pole-crossing drags, pan, circular roll, no inertia, all six toolbar buttons,
+  zero overflow and zero page errors remain valid. After closing overlay UI,
+  right-drag pan changes the scene and double-click Reset restores the inspected
+  scene region pixel-for-pixel at both sizes. The real axis-gizmo click still
+  changes the Canvas without an error.

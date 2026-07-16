@@ -10,6 +10,33 @@ Multiwfn validation work. Upstream submissions should be reconstructed as the
 small, ordered changes below and must exclude Multiwfn HTTP/session protocols,
 capability tokens, orbital endpoints and release packaging.
 
+## Local change inventory
+
+This inventory is a reconstruction guide, not a list of commits to push. Each
+upstream branch must start from current MatterViz upstream and carry only the
+generic part named in the last column.
+
+| Local commits | Current purpose | Upstream disposition |
+| --- | --- | --- |
+| `d3f12bff`..`5d864347` | Multi-volume sampling, cross-volume coloring, import/demo hardening | Re-audit independently. Do not include in the camera or scalar-grid PR series; split core sampling from demo/import fixes if still wanted upstream. |
+| `c8ca120a` | Multiwfn-oriented material and molecular control tuning | Keep local unless each setting is demonstrated as a generic MatterViz default or opt-in API. |
+| `33b1c219`..`2f2dc280` | Declarative camera up/zoom, control rekey and reset stability | Reconstruct as proposed PR 3 with generic camera tests and no Multiwfn toolbar code. |
+| `13a8149a` | Preserve raw periodic structure snapshots | Reconstruct only the generic model/lifecycle fix in proposed PR 5. |
+| `d8719d12` | Preserve labeled zero-charge centers used by Multiwfn | Generalize to ghost/dummy sites with neutral fixtures before proposed PR 5; do not expose a Multiwfn-specific structure type. |
+| `70136670`, `3e2c1754` | Opt-in Arcball camera mode, real-pivot reset repair and compatibility fixes | Reconstruct as proposed PR 4 after declarative camera state; retain Orbit as the default and keep the r185 private-pivot regression. |
+
+The Multiwfn vendored r19/r20 work for flat typed grids, Worker meshing,
+SharedArrayBuffer transport and immediate volume release is not represented by
+the `matterviz-rendering` commit list above. Only the generic storage, meshing
+and lifecycle portions belong in proposed PRs 1 and 2. The following remain
+Multiwfn-only and must never enter an upstream MatterViz PR:
+
+- Rust Host, C/Fortran publisher and bidirectional process IPC;
+- `/api/orbital`, capability tokens, session manifests and release packaging;
+- Multiwfn request IDs, active-volume admission policy and backend
+  recomputation rules;
+- diagnostic Cube fallback and any runtime temporary-file compatibility path.
+
 ## Proposed PR series
 
 ### 1. Flat scalar grids
