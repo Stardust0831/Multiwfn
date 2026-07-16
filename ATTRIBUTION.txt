@@ -1,0 +1,12 @@
+Multiwfn is developed by Tian Lu. The official Multiwfn license and required
+scientific citations are preserved in LICENSE.txt.
+
+This distribution also incorporates cross-platform build, packaging, testing,
+GUI, adapter, documentation, or other project-specific work from:
+
+https://github.com/Stardust0831/Multiwfn
+
+Redistributions and derivative works that use this repository-specific material
+must retain LICENSE.txt, retain this attribution, and visibly credit the project
+URL above. See the supplemental attribution requirement in LICENSE.txt for the
+complete terms and scope.

@@ -59,6 +59,7 @@ jobs:
               mkdir -p package/Multiwfn_noGUI-Linux/lib dist
               cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
               cp LICENSE.txt package/Multiwfn_noGUI-Linux/LICENSE.txt
+              cp ATTRIBUTION.txt package/Multiwfn_noGUI-Linux/ATTRIBUTION.txt
               cp settings.ini package/Multiwfn_noGUI-Linux/settings.ini
               ldd package/Multiwfn_noGUI-Linux/Multiwfn_noGUI | tee package/Multiwfn_noGUI-Linux/ldd.txt
               awk '\''/=> \// {print $3}'\'' package/Multiwfn_noGUI-Linux/ldd.txt | while read -r lib; do
@@ -188,6 +189,7 @@ jobs:
           mkdir -p package/Multiwfn_noGUI-Windows
           cp build/Multiwfn_noGUI.exe package/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe
           cp LICENSE.txt package/Multiwfn_noGUI-Windows/LICENSE.txt
+          cp ATTRIBUTION.txt package/Multiwfn_noGUI-Windows/ATTRIBUTION.txt
           cp settings.ini package/Multiwfn_noGUI-Windows/settings.ini
           : > package/Multiwfn_noGUI-Windows/windows-dlls.log
           processed=""
@@ -245,6 +247,7 @@ jobs:
           mkdir -p package/Multiwfn_noGUI-macOS dist
           cp build/Multiwfn_noGUI package/Multiwfn_noGUI-macOS/Multiwfn_noGUI
           cp LICENSE.txt package/Multiwfn_noGUI-macOS/LICENSE.txt
+          cp ATTRIBUTION.txt package/Multiwfn_noGUI-macOS/ATTRIBUTION.txt
           cp settings.ini package/Multiwfn_noGUI-macOS/settings.ini
           otool -L package/Multiwfn_noGUI-macOS/Multiwfn_noGUI | tee package/Multiwfn_noGUI-macOS/otool.txt
           tar -czf dist/Multiwfn_noGUI-macOS.tar.gz -C package Multiwfn_noGUI-macOS
@@ -318,6 +321,7 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
           cp LICENSE.txt release-assets/LICENSE.txt
+          cp ATTRIBUTION.txt release-assets/ATTRIBUTION.txt
           cp release-artifacts/Multiwfn_noGUI-package-Linux/Multiwfn_noGUI-Linux.tar.gz release-assets/
           cp release-artifacts/Multiwfn_noGUI-package-macOS/Multiwfn_noGUI-macOS.tar.gz release-assets/
           cp release-artifacts/Multiwfn_noGUI-package-Windows/Multiwfn_noGUI-Windows.zip release-assets/
@@ -327,7 +331,7 @@ jobs:
           printf 'Cross-platform noGUI build of Multiwfn %s.\n\n' "$version" > RELEASE_NOTES.md
           cat >> RELEASE_NOTES.md <<'EOF'
           This release keeps the upstream Fortran source behavior and adds a minimal CMake/GitHub Actions build path for noGUI binaries.
-          The upstream Multiwfn license is included as LICENSE.txt in this release and inside each platform archive.
+          The Multiwfn license and this repository's supplemental attribution are included as LICENSE.txt and ATTRIBUTION.txt in this release and inside each platform archive.
 
           Validation in CI:
           - Linux, macOS, and Windows release-candidate packages built with GNU Fortran.
@@ -349,12 +353,17 @@ jobs:
           set -euo pipefail
           test -s LICENSE.txt
           test -s release-assets/LICENSE.txt
+          test -s release-assets/ATTRIBUTION.txt
           cmp LICENSE.txt release-assets/LICENSE.txt
+          cmp ATTRIBUTION.txt release-assets/ATTRIBUTION.txt
           tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/ATTRIBUTION.txt
           tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/settings.ini
           tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/LICENSE.txt
+          tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/ATTRIBUTION.txt
           tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/settings.ini
           unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx LICENSE.txt
+          unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx ATTRIBUTION.txt
           unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx settings.ini
 
       - name: Create GitHub release

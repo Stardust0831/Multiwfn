@@ -113,6 +113,18 @@ remove it from source distributions or release packages.
 If Multiwfn is used in academic work, follow the citation requirements in
 `LICENSE.txt`.
 
+Redistributions and derivative works that incorporate repository-specific
+material covered by the supplemental requirement must follow `LICENSE.txt`:
+retain the complete license and visibly credit
+https://github.com/Stardust0831/Multiwfn. This supplemental requirement does not
+claim to cover copies derived solely from the official upstream distribution.
+
+By submitting a contribution to this repository, you represent that you have
+the right to submit it and agree that the contribution may be distributed under
+the applicable official Multiwfn terms together with the supplemental
+attribution requirement in `LICENSE.txt`. This inbound agreement applies only to
+your contribution and does not grant rights in unrelated third-party material.
+
 ## Contributor Recognition
 
 GitHub automatically lists contributors based on merged commits and commit

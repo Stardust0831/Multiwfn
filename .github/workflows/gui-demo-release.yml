@@ -195,6 +195,7 @@ jobs:
           echo "PKG=$pkg" >> "$GITHUB_ENV"
           mkdir -p "package/${pkg}/resources/lib" "package/${pkg}/resources/tools" "package/${pkg}/resources/frontend"
           cp LICENSE.txt "package/${pkg}/LICENSE.txt"
+          cp ATTRIBUTION.txt "package/${pkg}/ATTRIBUTION.txt"
           cp settings.ini "package/${pkg}/settings.ini"
           cp tools/multiwfn_matterviz_server.py "package/${pkg}/resources/tools/"
           cp tools/multiwfn_matterviz_file_dialog.py "package/${pkg}/resources/tools/"
@@ -303,6 +304,18 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "package/$env:PKG/*" -DestinationPath "dist/$env:PKG.zip" -Force
+
+      - name: Verify attribution in GUI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            unzip -Z1 "dist/$PKG.zip" | grep -Fx LICENSE.txt
+            unzip -Z1 "dist/$PKG.zip" | grep -Fx ATTRIBUTION.txt
+          else
+            tar -tzf "dist/$PKG.tar.gz" | grep -Fx "$PKG/LICENSE.txt"
+            tar -tzf "dist/$PKG.tar.gz" | grep -Fx "$PKG/ATTRIBUTION.txt"
+          fi
 
       - name: Upload GUI package
         uses: actions/upload-artifact@v4

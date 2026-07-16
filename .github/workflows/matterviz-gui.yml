@@ -240,6 +240,7 @@ jobs:
           echo "PKG=$pkg" >> "$GITHUB_ENV"
           mkdir -p "package/$pkg/resources/tools" "package/$pkg/resources/frontend/matterviz-viewer" "package/$pkg/resources/lib"
           cp LICENSE.txt "package/$pkg/LICENSE.txt"
+          cp ATTRIBUTION.txt "package/$pkg/ATTRIBUTION.txt"
           cp settings.ini "package/$pkg/settings.ini"
           cp -R frontend/matterviz-viewer/dist "package/$pkg/resources/frontend/matterviz-viewer/"
           cat > "package/$pkg/README-MatterViz.txt" <<'EOF'
@@ -255,6 +256,9 @@ jobs:
           The package is self-contained and does not require Python.
 
           This is a prerelease for manual parity validation, not a final release.
+
+          Project attribution:
+          https://github.com/Stardust0831/Multiwfn
           EOF
           test -f "package/$pkg/resources/frontend/matterviz-viewer/dist/index.html"
 
@@ -536,6 +540,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f "package/$PKG/LICENSE.txt"
+          test -f "package/$PKG/ATTRIBUTION.txt"
           test -f "package/$PKG/README-MatterViz.txt"
           test -f "package/$PKG/settings.ini"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
@@ -545,6 +550,13 @@ jobs:
           fi
           test -f "package/$PKG/resources/frontend/matterviz-viewer/dist/index.html"
           test -n "$(find "package/$PKG/resources/frontend/matterviz-viewer/dist/assets" -type f -print -quit)"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            unzip -Z1 "dist/$PKG.zip" | grep -Fx LICENSE.txt
+            unzip -Z1 "dist/$PKG.zip" | grep -Fx ATTRIBUTION.txt
+          else
+            tar -tzf "dist/$PKG.tar.gz" | grep -Fx "$PKG/LICENSE.txt"
+            tar -tzf "dist/$PKG.tar.gz" | grep -Fx "$PKG/ATTRIBUTION.txt"
+          fi
           if find "package/$PKG" \
             \( -type f \( -name '*.py' -o -name '*.pyc' -o -name '*.pyo' -o -name 'requirements*.txt' \) \
                -o -type d -name __pycache__ \) -print -quit | grep -q .; then

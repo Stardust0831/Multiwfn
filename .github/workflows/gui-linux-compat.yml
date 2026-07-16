@@ -123,6 +123,7 @@ jobs:
               mkdir -p "package/$pkg/resources/lib" "package/$pkg/resources/tools" "package/$pkg/resources/frontend" dist
               cp build-gui-linux-compat/Multiwfn_QtGUI "package/$pkg/Multiwfn_QtGUI"
               cp LICENSE.txt "package/$pkg/LICENSE.txt"
+              cp ATTRIBUTION.txt "package/$pkg/ATTRIBUTION.txt"
               cp settings.ini "package/$pkg/settings.ini"
               cp tools/multiwfn_matterviz_server.py "package/$pkg/resources/tools/"
               cp tools/multiwfn_matterviz_file_dialog.py "package/$pkg/resources/tools/"
@@ -188,6 +189,8 @@ jobs:
               fi
 
               tar -czf "dist/$pkg.tar.gz" -C package "$pkg"
+              tar -tzf "dist/$pkg.tar.gz" | grep -Fx "$pkg/LICENSE.txt"
+              tar -tzf "dist/$pkg.tar.gz" | grep -Fx "$pkg/ATTRIBUTION.txt"
             ' 2>&1 | tee gui-linux-compat-build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
