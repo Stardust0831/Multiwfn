@@ -202,15 +202,15 @@ change, block, or expand the current camera implementation and validation.
 - [x] Keep Cube fallback only behind an explicit development/diagnostic option.
   A formal pipe failure must report an explicit error and terminate the invalid
   session instead of silently writing a Cube artifact.
-- [ ] **In progress, pending three-platform CI:** add Windows, Linux and macOS
+- [x] Add Windows, Linux and macOS
   end-to-end coverage for request/response,
   Return/close, failure cleanup and concurrent sessions. After every successful
   normal session, assert that no runtime intermediate file or session temporary
-  directory was created. Candidate `e1fa00f` failed before these gates completed;
-  its production dead-code lint, Windows-only test-helper cfg and headless Linux
-  diagnostic-launch issues are fixed. Candidate `f9c9929` passed those gates and
-  all non-Windows-package checks; its Windows test-only StrictMode scalar
-  `.Count` failure is fixed locally and requires a new committed SHA.
+  directory was created. Final candidate `371ca63` passed all 21 check contexts:
+  17 successes and four intentionally skipped release/publish jobs. Both
+  Windows package jobs completed the real-orbital, Return/process-tree and
+  zero-runtime-artifact assertions; Linux/macOS packages, production Tauri
+  clippy, GUI/noGUI, glibc compatibility and core protection also passed.
 - [x] Complete the final local zero-disk regression pass after lifecycle review
   fixes: strict native C control/picker tests, 82/82 C-to-Rust integration tests,
   `clippy -D warnings`, Rust formatting, 103/103 frontend tests, Svelte check,

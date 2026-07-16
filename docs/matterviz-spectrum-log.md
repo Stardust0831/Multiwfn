@@ -1071,3 +1071,12 @@
   `.Count` to a scalar `Where-Object` result. Both stdout predicates now wrap
   the entire pipeline in `@(...)`, with a source-contract regression; product
   runtime code is unchanged.
+- Final code candidate `371ca63ac7afe34314972967d58cc8de34ef5a8f` passed all
+  21 branch/PR check contexts: 17 successes and four intentionally skipped
+  release/publish jobs. MatterViz runs `29500247805` and `29500241767` passed
+  the production Rust/Tauri host plus Linux, macOS and Windows package jobs.
+  Both Windows archive-verification jobs completed the formal real-orbital
+  request, binary response, Return/process-tree shutdown and no-runtime-artifact
+  assertions. GUI/noGUI, glibc compatibility and core protection runs also
+  passed. The formal zero-disk IPC goal is therefore ready for a tagged
+  prerelease and manual desktop confirmation.
