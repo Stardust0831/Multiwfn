@@ -532,7 +532,9 @@ impl ServiceRunner {
             return;
         }
         if let Some(value) = value {
-            let status = if path == "/api/orbital"
+            let status = if self.session_data.is_some() {
+                backend_response_status(&value)
+            } else if path == "/api/orbital"
                 && value
                     .get("message")
                     .and_then(Value::as_str)
@@ -971,10 +973,20 @@ fn request_control(
             {
                 Err("Mismatched Multiwfn control response".to_owned())
             } else {
-                frame
+                let result = frame
                     .body
                     .and_then(|body| body.get("result").cloned())
-                    .ok_or_else(|| "Malformed Multiwfn control response".to_owned())
+                    .ok_or_else(|| "Malformed Multiwfn control response".to_owned())?;
+                if result
+                    .as_object()
+                    .and_then(|object| object.get("ok"))
+                    .and_then(Value::as_bool)
+                    .is_none()
+                {
+                    Err("Malformed Multiwfn control response".to_owned())
+                } else {
+                    Ok(result)
+                }
             }
         });
     match result {
@@ -1312,7 +1324,8 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8],
 #[cfg(test)]
 mod tests {
     use super::{
-        content_type, decode_path, query_u64, request_control, safe_join, AppConfig, HttpService,
+        backend_response_status, content_type, decode_path, query_u64, request_control, safe_join,
+        AppConfig, HttpService,
     };
     use crate::control_protocol::{
         decode_frame, decode_header, encode_frame, MessageType, HEADER_BYTES,
@@ -1698,6 +1711,185 @@ mod tests {
         assert!(stop.load(Ordering::Acquire));
         assert!(control.lock().unwrap().is_none());
         assert_eq!(volumes.bytes(), 0);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn control_result_requires_an_object_with_boolean_ok() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        let cases = [
+            ("missing result", None, false),
+            ("null result", Some(serde_json::Value::Null), false),
+            ("string result", Some(serde_json::json!("ok")), false),
+            ("array result", Some(serde_json::json!([])), false),
+            ("number result", Some(serde_json::json!(1)), false),
+            ("missing ok", Some(serde_json::json!({})), false),
+            (
+                "non-boolean ok",
+                Some(serde_json::json!({"ok": "true"})),
+                false,
+            ),
+            (
+                "valid success",
+                Some(serde_json::json!({"ok": true, "value": 1.25})),
+                true,
+            ),
+            (
+                "valid failure",
+                Some(serde_json::json!({"ok": false, "message": "rejected"})),
+                true,
+            ),
+        ];
+
+        for (index, (name, result, valid)) in cases.into_iter().enumerate() {
+            let (mut request_read, request_write) = pipe_pair();
+            let (response_read, mut response_write) = pipe_pair();
+            let control = Arc::new(Mutex::new(Some(
+                crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+                    read_pipe: into_raw_pipe(response_read),
+                    write_pipe: into_raw_pipe(request_write),
+                })
+                .unwrap(),
+            )));
+            let request_id = 70 + index as u64;
+            let producer = std::thread::spawn(move || {
+                let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+                assert_eq!(request.header.request_id, request_id);
+                let mut response = serde_json::json!({
+                    "format": "multiwfn-matterviz-control",
+                    "version": 1,
+                    "kind": "response",
+                    "request_id": request_id,
+                });
+                if let Some(result) = result {
+                    response["result"] = result;
+                }
+                let frame =
+                    encode_frame(MessageType::Response, request_id, Some(&response)).unwrap();
+                response_write.write_all(&frame).unwrap();
+            });
+            let stop = AtomicBool::new(false);
+            let volumes = crate::volume_store::VolumeStore::new();
+            volumes.insert(golden_frame()).unwrap();
+            let response = request_control(
+                &control,
+                &stop,
+                &volumes,
+                request_id,
+                "bond 1 2 mayer",
+                std::time::Duration::from_secs(1),
+            );
+            producer.join().unwrap();
+
+            if valid {
+                assert!(
+                    response
+                        .get("ok")
+                        .and_then(serde_json::Value::as_bool)
+                        .is_some(),
+                    "{name}"
+                );
+                assert!(!stop.load(Ordering::Acquire), "{name}");
+                assert!(control.lock().unwrap().is_some(), "{name}");
+                assert_ne!(volumes.bytes(), 0, "{name}");
+            } else {
+                assert_eq!(response["ok"], false, "{name}");
+                assert!(
+                    response["message"].as_str().unwrap().contains("Malformed"),
+                    "{name}"
+                );
+                assert_ne!(backend_response_status(&response), 200, "{name}");
+                assert!(stop.load(Ordering::Acquire), "{name}");
+                assert!(control.lock().unwrap().is_none(), "{name}");
+                assert_eq!(volumes.bytes(), 0, "{name}");
+            }
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn malformed_control_result_returns_http_error_and_stops_session() {
+        let root = fixture("malformed-control-result");
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+
+        let (mut request_read, request_write) = pipe_pair();
+        let (response_read, mut response_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            assert_eq!(hello.header.message_type, MessageType::Hello);
+            let session_init = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "session_init",
+                "manifest": {
+                    "format": "multiwfn-matterviz-workbench",
+                    "version": 2,
+                    "structure": {"path": "structure.json", "format": "json"},
+                    "cubes": []
+                },
+                "structure": {"sites": [], "charge": 0, "properties": {"bonds": []}}
+            });
+            response_write
+                .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&session_init)).unwrap())
+                .unwrap();
+
+            let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            assert_eq!(request.header.message_type, MessageType::Request);
+            let response = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "response",
+                "request_id": request.header.request_id,
+                "result": null
+            });
+            response_write
+                .write_all(
+                    &encode_frame(
+                        MessageType::Response,
+                        request.header.request_id,
+                        Some(&response),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+        });
+
+        let service = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session,
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(response_read),
+                write_pipe: into_raw_pipe(request_write),
+            }),
+        )
+        .unwrap();
+        service.insert_volume(golden_frame()).unwrap();
+        let response = request(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/bond?atom1=1&atom2=2&method=mayer"),
+        );
+
+        producer.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        assert!(response.contains("Malformed Multiwfn control response"));
+        assert!(service.is_shutdown());
+        assert_eq!(service.volume_store.bytes(), 0);
+        assert_eq!(service.termination_exit_code(), 2);
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(any(unix, windows))]
