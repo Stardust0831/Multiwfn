@@ -51,3 +51,19 @@ test('rejects a failed readiness acknowledgement', async () => {
     /HTTP 404/,
   )
 })
+
+test('rejects readiness when the backend rejects an HTTP 200 acknowledgement', async () => {
+  const request: ReadyFetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ ok: false }),
+  })
+
+  await assert.rejects(
+    signal_frontend_ready(
+      new URL('http://127.0.0.1:8765/index.html?cap=session-secret'),
+      request,
+    ),
+    /MatterViz readiness request was rejected/,
+  )
+})

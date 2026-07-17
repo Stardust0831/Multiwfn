@@ -248,6 +248,7 @@ impl HttpService {
                     .read_frame_startup(
                         session_bootstrap_wait_timeout(bootstrap_stage_timeout),
                         bootstrap_stage_timeout,
+                        shutdown.flag(),
                     )
                     .map_err(|error| format!("could not receive session bootstrap: {error}"))?;
                 let data = SessionData::from_frame(&frame)
@@ -442,6 +443,7 @@ impl ServiceRunner {
                 }
                 Err(_) => {
                     self.volume_store.clear();
+                    self.shutdown.request();
                     break;
                 }
             }
@@ -1608,6 +1610,62 @@ mod tests {
             assert!(!session.exists());
             let _ = fs::remove_dir_all(root);
         }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn volume_shutdown_cancels_session_bootstrap() {
+        let root = fixture("cancelled-bootstrap");
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+
+        let (volume_read, volume_write) = pipe_pair();
+        let (mut ack_read, ack_write) = pipe_pair();
+        let (mut hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, bootstrap_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+            assert_eq!(hello.header.message_type, MessageType::Hello);
+            let mut ready = [0_u8; PRELUDE_BYTES];
+            ack_read.read_exact(&mut ready).unwrap();
+            drop(volume_write);
+        });
+
+        let started = std::time::Instant::now();
+        let result = HttpService::start_with_control_stage_timeout(
+            AppConfig {
+                frontend,
+                session: session.clone(),
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: Some(TransportConfig {
+                    volume_read_pipe: into_raw_pipe(volume_read),
+                    volume_ack_pipe: into_raw_pipe(ack_write),
+                }),
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read),
+                write_pipe: into_raw_pipe(hello_write),
+            }),
+            Duration::from_secs(5),
+        );
+        let Err(error) = result else {
+            panic!("bootstrap unexpectedly succeeded");
+        };
+        assert!(
+            error.contains("control transport read cancelled"),
+            "unexpected bootstrap error: {error}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        drop(bootstrap_write);
+        producer.join().unwrap();
+        assert!(!session.exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(any(unix, windows))]

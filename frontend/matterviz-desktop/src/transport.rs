@@ -19,6 +19,7 @@ pub struct TransportConfig {
 
 pub struct VolumeTransport {
     worker: Mutex<Option<thread::JoinHandle<()>>>,
+    shutdown: ShutdownSignal,
 }
 
 impl VolumeTransport {
@@ -46,12 +47,14 @@ impl VolumeTransport {
             .map_err(|error| format!("could not adopt volume read pipe: {error}"))?;
         let writer = platform::PipeWriter::adopt(config.volume_ack_pipe)
             .map_err(|error| format!("could not adopt volume ACK pipe: {error}"))?;
+        let worker_shutdown = shutdown.clone();
         let worker = thread::Builder::new()
             .name("matterviz-volume-reader".to_owned())
-            .spawn(move || run(reader, writer, store, broker, shutdown))
+            .spawn(move || run(reader, writer, store, broker, worker_shutdown))
             .map_err(|error| format!("could not start volume reader: {error}"))?;
         Ok(Self {
             worker: Mutex::new(Some(worker)),
+            shutdown,
         })
     }
 
@@ -59,6 +62,13 @@ impl VolumeTransport {
         if let Some(worker) = self.worker.lock().expect("transport worker lock").take() {
             let _ = worker.join();
         }
+    }
+}
+
+impl Drop for VolumeTransport {
+    fn drop(&mut self) {
+        self.shutdown.request();
+        self.join();
     }
 }
 
@@ -676,6 +686,28 @@ mod tests {
             assert!(store.is_empty());
             assert!(shutdown.is_requested());
         }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn dropping_transport_requests_shutdown_and_joins_worker() {
+        let (volume_read, _volume_write) = pipe_pair();
+        let (mut ack_read, ack_write) = pipe_pair();
+        let config = TransportConfig {
+            volume_read_pipe: into_raw_pipe(volume_read),
+            volume_ack_pipe: into_raw_pipe(ack_write),
+        };
+        let shutdown = ShutdownSignal::detached();
+        let transport =
+            VolumeTransport::start(config, Arc::new(VolumeStore::new()), shutdown.clone()).unwrap();
+        let mut ready = [0_u8; PRELUDE_BYTES];
+        ack_read.read_exact(&mut ready).unwrap();
+
+        let started = Instant::now();
+        drop(transport);
+
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(shutdown.is_requested());
     }
 
     #[cfg(unix)]

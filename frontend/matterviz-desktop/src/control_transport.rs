@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::io::{self, Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -25,6 +26,7 @@ pub enum ControlTransportError {
     Codec(ControlError),
     Closed,
     Timeout,
+    Cancelled,
 }
 
 impl fmt::Display for ControlTransportError {
@@ -35,6 +37,7 @@ impl fmt::Display for ControlTransportError {
             Self::Codec(error) => write!(f, "invalid control frame: {error}"),
             Self::Closed => f.write_str("control transport is closed"),
             Self::Timeout => f.write_str("control transport read timed out"),
+            Self::Cancelled => f.write_str("control transport read cancelled"),
         }
     }
 }
@@ -146,13 +149,13 @@ impl ControlTransport {
             .checked_add(timeout)
             .ok_or(ControlTransportError::Timeout)?;
         let mut header = [0_u8; HEADER_BYTES];
-        read_exact_timeout(reader, &mut header, deadline)?;
+        read_exact_timeout(reader, &mut header, deadline, None)?;
         let parsed = decode_header(&header)?;
         let total = checked_frame_len(parsed.body_bytes)?;
         let mut frame = vec![0_u8; total];
         frame[..HEADER_BYTES].copy_from_slice(&header);
         if total > HEADER_BYTES {
-            read_exact_timeout(reader, &mut frame[HEADER_BYTES..], deadline)?;
+            read_exact_timeout(reader, &mut frame[HEADER_BYTES..], deadline, None)?;
         }
         Ok(decode_frame(&frame)?)
     }
@@ -163,6 +166,7 @@ impl ControlTransport {
         &self,
         start_timeout: Duration,
         completion_timeout: Duration,
+        stop: &AtomicBool,
     ) -> Result<ControlFrame, ControlTransportError> {
         let mut guard = self
             .reader
@@ -173,18 +177,26 @@ impl ControlTransport {
             .checked_add(start_timeout)
             .ok_or(ControlTransportError::Timeout)?;
         let mut header = [0_u8; HEADER_BYTES];
-        read_exact_timeout(reader, &mut header[..1], start_deadline)?;
+        read_exact_timeout(reader, &mut header[..1], start_deadline, Some(stop))?;
 
         let completion_deadline = Instant::now()
             .checked_add(completion_timeout)
             .ok_or(ControlTransportError::Timeout)?;
-        read_exact_timeout(reader, &mut header[1..], completion_deadline)?;
+        read_exact_timeout(reader, &mut header[1..], completion_deadline, Some(stop))?;
         let parsed = decode_header(&header)?;
         let total = checked_frame_len(parsed.body_bytes)?;
         let mut frame = vec![0_u8; total];
         frame[..HEADER_BYTES].copy_from_slice(&header);
         if total > HEADER_BYTES {
-            read_exact_timeout(reader, &mut frame[HEADER_BYTES..], completion_deadline)?;
+            read_exact_timeout(
+                reader,
+                &mut frame[HEADER_BYTES..],
+                completion_deadline,
+                Some(stop),
+            )?;
+        }
+        if stop.load(Ordering::Acquire) {
+            return Err(ControlTransportError::Cancelled);
         }
         Ok(decode_frame(&frame)?)
     }
@@ -228,18 +240,39 @@ fn read_exact_timeout(
     reader: &mut platform::PipeReader,
     bytes: &mut [u8],
     deadline: Instant,
+    stop: Option<&AtomicBool>,
 ) -> Result<(), ControlTransportError> {
+    const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(50);
     let mut offset = 0;
     while offset < bytes.len() {
-        let count = reader
-            .read_until(deadline, &mut bytes[offset..])
-            .map_err(|error| {
-                if error.kind() == io::ErrorKind::TimedOut {
-                    ControlTransportError::Timeout
-                } else {
-                    error.into()
-                }
-            })?;
+        if stop.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            return Err(ControlTransportError::Cancelled);
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(ControlTransportError::Timeout);
+        }
+        let read_deadline = if stop.is_some() {
+            now.checked_add(CANCELLATION_POLL_INTERVAL)
+                .unwrap_or(deadline)
+                .min(deadline)
+        } else {
+            deadline
+        };
+        let count = match reader.read_until(read_deadline, &mut bytes[offset..]) {
+            Ok(count) => count,
+            Err(error)
+                if error.kind() == io::ErrorKind::TimedOut
+                    && stop.is_some()
+                    && Instant::now() < deadline =>
+            {
+                continue
+            }
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                return Err(ControlTransportError::Timeout)
+            }
+            Err(error) => return Err(error.into()),
+        };
         if count == 0 {
             return Err(ControlTransportError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -645,10 +678,43 @@ mod tests {
             std::thread::sleep(Duration::from_millis(40));
             let _ = input.write_all(&hello[1..]);
         });
+        let stop = AtomicBool::new(false);
         assert!(matches!(
-            transport.read_frame_startup(Duration::from_millis(100), Duration::from_millis(20)),
+            transport.read_frame_startup(
+                Duration::from_millis(100),
+                Duration::from_millis(20),
+                &stop,
+            ),
             Err(ControlTransportError::Timeout)
         ));
         writer.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_read_observes_cancellation_before_its_deadline() {
+        let (read_in, write_in) = pipe();
+        let (read_out, write_out) = pipe();
+        let _input = unsafe { std::fs::File::from_raw_fd(write_in) };
+        let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
+        let transport = ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: read_in as u64,
+            write_pipe: write_out as u64,
+        })
+        .unwrap();
+        let stop = AtomicBool::new(false);
+        let started = Instant::now();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(25));
+                stop.store(true, Ordering::Release);
+            });
+            assert!(matches!(
+                transport
+                    .read_frame_startup(Duration::from_secs(5), Duration::from_secs(5), &stop,),
+                Err(ControlTransportError::Cancelled)
+            ));
+        });
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 }
