@@ -14,6 +14,8 @@ pub mod memory_budget;
 pub mod service;
 #[path = "../../../frontend/matterviz-desktop/src/session_data.rs"]
 pub mod session_data;
+#[path = "../../../frontend/matterviz-desktop/src/shutdown.rs"]
+pub mod shutdown;
 #[path = "../../../frontend/matterviz-desktop/src/stream_broker.rs"]
 pub mod stream_broker;
 #[path = "../../../frontend/matterviz-desktop/src/transport.rs"]

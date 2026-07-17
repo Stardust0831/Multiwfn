@@ -9,6 +9,7 @@ mod memory_budget;
 mod picker_protocol;
 mod service;
 mod session_data;
+mod shutdown;
 mod stream_broker;
 mod transport;
 pub mod volume_protocol;

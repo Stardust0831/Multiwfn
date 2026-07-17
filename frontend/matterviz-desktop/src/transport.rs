@@ -3,6 +3,7 @@ use std::sync::mpsc::{SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use crate::shutdown::ShutdownSignal;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::volume_protocol::{
     declared_volume_frame_len, decode_stream_volume_header, encode_ack, encode_ready,
@@ -25,16 +26,21 @@ impl VolumeTransport {
     pub fn start(
         config: TransportConfig,
         store: Arc<VolumeStore>,
-        stop: Arc<AtomicBool>,
+        shutdown: ShutdownSignal,
     ) -> Result<Self, String> {
-        Self::start_with_broker(config, store, Arc::new(VolumeStreamBroker::default()), stop)
+        Self::start_with_broker(
+            config,
+            store,
+            Arc::new(VolumeStreamBroker::default()),
+            shutdown,
+        )
     }
 
     pub fn start_with_broker(
         config: TransportConfig,
         store: Arc<VolumeStore>,
         broker: Arc<VolumeStreamBroker>,
-        stop: Arc<AtomicBool>,
+        shutdown: ShutdownSignal,
     ) -> Result<Self, String> {
         let reader = platform::PipeReader::adopt(config.volume_read_pipe)
             .map_err(|error| format!("could not adopt volume read pipe: {error}"))?;
@@ -42,7 +48,7 @@ impl VolumeTransport {
             .map_err(|error| format!("could not adopt volume ACK pipe: {error}"))?;
         let worker = thread::Builder::new()
             .name("matterviz-volume-reader".to_owned())
-            .spawn(move || run(reader, writer, store, broker, stop))
+            .spawn(move || run(reader, writer, store, broker, shutdown))
             .map_err(|error| format!("could not start volume reader: {error}"))?;
         Ok(Self {
             worker: Mutex::new(Some(worker)),
@@ -61,16 +67,16 @@ fn run(
     mut writer: platform::PipeWriter,
     store: Arc<VolumeStore>,
     broker: Arc<VolumeStreamBroker>,
-    stop: Arc<AtomicBool>,
+    shutdown: ShutdownSignal,
 ) {
     if writer.write_all(&encode_ready()).is_err() {
         store.clear();
-        stop.store(true, Ordering::Release);
+        shutdown.request();
         return;
     }
-    while !stop.load(Ordering::Acquire) {
+    while !shutdown.is_requested() {
         let mut prelude = [0_u8; PRELUDE_BYTES];
-        if read_exact(&mut reader, &mut prelude, &stop).is_err() {
+        if read_exact(&mut reader, &mut prelude, shutdown.flag()).is_err() {
             break;
         }
         let major = match protocol_major(&prelude) {
@@ -78,9 +84,9 @@ fn run(
             Err(_) => break,
         };
         let result = if major == STREAM_MAJOR {
-            receive_stream_volume(&mut reader, &mut writer, &broker, &stop, prelude)
+            receive_stream_volume(&mut reader, &mut writer, &broker, shutdown.flag(), prelude)
         } else {
-            receive_buffered_volume(&mut reader, &mut writer, &store, &stop, prelude)
+            receive_buffered_volume(&mut reader, &mut writer, &store, shutdown.flag(), prelude)
         };
         if result.is_err() {
             break;
@@ -88,7 +94,7 @@ fn run(
     }
     store.clear();
     broker.fail_all("MatterViz volume transport closed");
-    stop.store(true, Ordering::Release);
+    shutdown.request();
 }
 
 fn receive_buffered_volume(
@@ -499,9 +505,9 @@ mod tests {
         let store = Arc::new(VolumeStore::new());
         let broker = Arc::new(VolumeStreamBroker::default());
         let registration = broker.register(42).unwrap();
-        let stop = Arc::new(AtomicBool::new(false));
+        let shutdown = ShutdownSignal::detached();
         let transport =
-            VolumeTransport::start_with_broker(config, store.clone(), broker.clone(), stop)
+            VolumeTransport::start_with_broker(config, store.clone(), broker.clone(), shutdown)
                 .unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
@@ -554,9 +560,9 @@ mod tests {
         };
         let store = Arc::new(VolumeStore::new());
         let broker = Arc::new(VolumeStreamBroker::default());
-        let stop = Arc::new(AtomicBool::new(false));
+        let shutdown = ShutdownSignal::detached();
         let transport =
-            VolumeTransport::start_with_broker(config, store, broker.clone(), stop).unwrap();
+            VolumeTransport::start_with_broker(config, store, broker.clone(), shutdown).unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
 
@@ -598,8 +604,8 @@ mod tests {
             volume_ack_pipe: into_raw_pipe(ack_write),
         };
         let store = Arc::new(VolumeStore::new());
-        let stop = Arc::new(AtomicBool::new(false));
-        let transport = VolumeTransport::start(config, store.clone(), stop.clone()).unwrap();
+        let shutdown = ShutdownSignal::detached();
+        let transport = VolumeTransport::start(config, store.clone(), shutdown).unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
         crate::volume_protocol::decode_ready(&ready).unwrap();
@@ -650,8 +656,9 @@ mod tests {
                 volume_ack_pipe: into_raw_pipe(ack_write),
             };
             let store = Arc::new(VolumeStore::new());
-            let stop = Arc::new(AtomicBool::new(false));
-            let transport = VolumeTransport::start(config, store.clone(), stop.clone()).unwrap();
+            let shutdown = ShutdownSignal::detached();
+            let transport =
+                VolumeTransport::start(config, store.clone(), shutdown.clone()).unwrap();
             let mut ready = [0_u8; PRELUDE_BYTES];
             ack_read.read_exact(&mut ready).unwrap();
             crate::volume_protocol::decode_ready(&ready).unwrap();
@@ -660,14 +667,14 @@ mod tests {
                 volume_write.write_all(&fixture()[..length]).unwrap();
                 drop(volume_write);
             } else {
-                stop.store(true, Ordering::Release);
+                shutdown.request();
             }
 
             let started = Instant::now();
             transport.join();
             assert!(started.elapsed() < Duration::from_secs(2));
             assert!(store.is_empty());
-            assert!(stop.load(Ordering::Acquire));
+            assert!(shutdown.is_requested());
         }
     }
 
