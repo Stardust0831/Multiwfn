@@ -6,12 +6,16 @@ pub mod cli;
 pub mod control_protocol;
 #[path = "../../../frontend/matterviz-desktop/src/control_transport.rs"]
 pub mod control_transport;
+#[path = "../../../frontend/matterviz-desktop/src/inherited_pipe.rs"]
+pub mod inherited_pipe;
 #[path = "../../../frontend/matterviz-desktop/src/memory_budget.rs"]
 pub mod memory_budget;
 #[path = "../../../frontend/matterviz-desktop/src/service.rs"]
 pub mod service;
 #[path = "../../../frontend/matterviz-desktop/src/session_data.rs"]
 pub mod session_data;
+#[path = "../../../frontend/matterviz-desktop/src/shutdown.rs"]
+pub mod shutdown;
 #[path = "../../../frontend/matterviz-desktop/src/stream_broker.rs"]
 pub mod stream_broker;
 #[path = "../../../frontend/matterviz-desktop/src/transport.rs"]

@@ -3,11 +3,13 @@ mod cli;
 mod control_protocol;
 mod control_transport;
 mod file_dialog;
+mod inherited_pipe;
 mod lifecycle;
 mod memory_budget;
 mod picker_protocol;
 mod service;
 mod session_data;
+mod shutdown;
 mod stream_broker;
 mod transport;
 pub mod volume_protocol;
@@ -146,6 +148,8 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
     let window_service = service.clone();
     let cleanup_service = service.clone();
     let stop_service = service.clone();
+    let ready_service = service.clone();
+    let navigation_reports_ready = service.is_none();
     let result = tauri::Builder::default()
         .setup(move |app| {
             let callback_status = setup_status.clone();
@@ -155,7 +159,9 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
                     .inner_size(1400.0, 900.0)
                     .resizable(true)
                     .on_page_load(move |_window, payload| {
-                        if matches!(payload.event(), PageLoadEvent::Finished) {
+                        if navigation_reports_ready
+                            && matches!(payload.event(), PageLoadEvent::Finished)
+                        {
                             callback_status.ready();
                         }
                     })
@@ -164,6 +170,18 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
                 let message = format!("could not create MatterViz window: {error}");
                 setup_status.error(&message);
                 return Err(std::io::Error::other(message).into());
+            }
+            if let Some(service) = ready_service.clone() {
+                let ready_status = setup_status.clone();
+                thread::spawn(move || {
+                    while !service.is_shutdown() {
+                        if service.frontend_ready() {
+                            ready_status.ready();
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                });
             }
             lifecycle::spawn_startup_timeout(app.handle().clone(), setup_status.clone(), timeout);
             if let Some(service) = stop_service.clone() {

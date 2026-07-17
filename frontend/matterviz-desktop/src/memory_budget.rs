@@ -422,11 +422,15 @@ fn macos_memory_snapshot(
 
 #[cfg(target_os = "macos")]
 fn macos_vm_page_counts() -> Result<(u64, u64), String> {
+    unsafe extern "C" {
+        fn mach_host_self() -> libc::mach_port_t;
+    }
+
     let mut statistics: libc::vm_statistics64_data_t = unsafe { std::mem::zeroed() };
     let mut count = libc::HOST_VM_INFO64_COUNT;
     let status = unsafe {
         libc::host_statistics64(
-            libc::mach_host_self(),
+            mach_host_self(),
             libc::HOST_VM_INFO64,
             (&mut statistics as *mut libc::vm_statistics64_data_t).cast::<libc::integer_t>(),
             &mut count,

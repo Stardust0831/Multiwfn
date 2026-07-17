@@ -14,6 +14,7 @@ use crate::control_protocol::MessageType;
 use crate::control_transport::{ControlTransport, ControlTransportConfig};
 use crate::memory_budget;
 use crate::session_data::SessionData;
+use crate::shutdown::ShutdownSignal;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::transport::{TransportConfig, VolumeTransport};
 #[cfg(test)]
@@ -21,6 +22,13 @@ use crate::volume_store::InsertError;
 use crate::volume_store::VolumeStore;
 use serde_json::{json, Value};
 use socket2::{Domain, Protocol, Socket, Type};
+
+const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(30);
+const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
+
+fn session_bootstrap_wait_timeout(stage_timeout: Duration) -> Duration {
+    stage_timeout.saturating_mul(SESSION_BOOTSTRAP_STAGES)
+}
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
@@ -35,7 +43,7 @@ pub struct AppConfig {
 
 pub struct HttpService {
     session: PathBuf,
-    stop: Arc<AtomicBool>,
+    shutdown: ShutdownSignal,
     listener: TcpListener,
     url: String,
     backend_lock: Arc<Mutex<()>>,
@@ -45,11 +53,78 @@ pub struct HttpService {
     stream_broker: Arc<VolumeStreamBroker>,
     streaming_volume_enabled: bool,
     transport: Mutex<Option<VolumeTransport>>,
-    control_transport: Arc<Mutex<Option<ControlTransport>>>,
+    control_session: Option<Arc<ControlSession>>,
     session_data: Option<SessionData>,
     in_memory_session: bool,
-    return_signaled: Arc<AtomicBool>,
+    frontend_ready: Arc<AtomicBool>,
+    return_signaled: Arc<Mutex<bool>>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
+struct ControlSession {
+    transport: Arc<Mutex<Option<Arc<ControlTransport>>>>,
+    shutdown: ShutdownSignal,
+    volume_store: Arc<VolumeStore>,
+}
+
+impl ControlSession {
+    fn new(
+        transport: ControlTransport,
+        shutdown: ShutdownSignal,
+        volume_store: Arc<VolumeStore>,
+    ) -> Self {
+        Self {
+            transport: Arc::new(Mutex::new(Some(Arc::new(transport)))),
+            shutdown,
+            volume_store,
+        }
+    }
+
+    fn is_available(&self) -> bool {
+        self.transport
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
+    }
+
+    fn request(&self, request_id: u64, command: &str, timeout: Duration) -> Value {
+        request_control(
+            &self.transport,
+            &self.shutdown,
+            &self.volume_store,
+            request_id,
+            command,
+            timeout,
+        )
+    }
+
+    fn signal_return(&self) -> Result<(), String> {
+        let body = json!({
+            "format": "multiwfn-matterviz-control",
+            "version": 1,
+            "kind": "shutdown",
+        });
+        let transport = self
+            .transport
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .cloned();
+        let result = match transport {
+            Some(transport) => transport
+                .send_json(MessageType::Shutdown, 0, &body)
+                .map_err(|error| format!("could not signal Multiwfn Return: {error}")),
+            None => Err("Multiwfn control transport is unavailable".to_owned()),
+        };
+        if result.is_err() {
+            self.invalidate();
+        }
+        result
+    }
+
+    fn invalidate(&self) {
+        terminate_control_session(&self.transport, &self.shutdown, &self.volume_store);
+    }
 }
 
 impl HttpService {
@@ -61,6 +136,18 @@ impl HttpService {
     pub fn start_with_control(
         config: AppConfig,
         control_config: Option<ControlTransportConfig>,
+    ) -> Result<Self, String> {
+        Self::start_with_control_stage_timeout(
+            config,
+            control_config,
+            SESSION_BOOTSTRAP_STAGE_TIMEOUT,
+        )
+    }
+
+    fn start_with_control_stage_timeout(
+        config: AppConfig,
+        control_config: Option<ControlTransportConfig>,
+        bootstrap_stage_timeout: Duration,
     ) -> Result<Self, String> {
         let in_memory_session = control_config.is_some();
         let frontend = config
@@ -100,6 +187,13 @@ impl HttpService {
         if !frontend.is_dir() {
             return Err("frontend path is not a directory".to_owned());
         }
+        let entry_document = frontend.join("index.html");
+        if !entry_document.is_file() {
+            return Err("frontend entry document index.html was not found".to_owned());
+        }
+        fs::File::open(&entry_document).map_err(|error| {
+            format!("frontend entry document index.html is not readable: {error}")
+        })?;
         if (!in_memory_session && !session.is_dir())
             || manifest.as_ref().is_some_and(|path| !path.is_file())
             || state.as_ref().is_some_and(|path| !path.is_file())
@@ -127,7 +221,8 @@ impl HttpService {
         }
         write!(query, "&cap={capability}").expect("write capability query");
         let authority = format!("{}:{}", format_host(&host), address.port());
-        let stop = Arc::new(AtomicBool::new(false));
+        let shutdown = ShutdownSignal::new(address);
+        let frontend_ready = Arc::new(AtomicBool::new(false));
         let volume_store = Arc::new(VolumeStore::new());
         let stream_broker = Arc::new(VolumeStreamBroker::default());
         let streaming_volume_enabled = config.transport.is_some();
@@ -138,19 +233,23 @@ impl HttpService {
                     transport,
                     volume_store.clone(),
                     stream_broker.clone(),
-                    stop.clone(),
+                    shutdown.clone(),
                 )
             })
             .transpose()?;
-        let (control_transport, session_data) = control_config
+        let (control_session, session_data) = control_config
             .map(|config| {
-                let mut transport = ControlTransport::adopt(config)
+                let transport = ControlTransport::adopt(config)
                     .map_err(|error| format!("could not adopt control transport: {error}"))?;
                 transport
                     .send_hello()
                     .map_err(|error| format!("could not start control transport: {error}"))?;
                 let frame = transport
-                    .read_frame_timeout(Duration::from_secs(30))
+                    .read_frame_startup(
+                        session_bootstrap_wait_timeout(bootstrap_stage_timeout),
+                        bootstrap_stage_timeout,
+                        shutdown.flag(),
+                    )
                     .map_err(|error| format!("could not receive session bootstrap: {error}"))?;
                 let data = SessionData::from_frame(&frame)
                     .map_err(|error| format!("invalid session bootstrap: {error}"))?;
@@ -158,7 +257,14 @@ impl HttpService {
             })
             .transpose()?
             .map_or((None, None), |(transport, data)| {
-                (Some(transport), Some(data))
+                (
+                    Some(Arc::new(ControlSession::new(
+                        transport,
+                        shutdown.clone(),
+                        volume_store.clone(),
+                    ))),
+                    Some(data),
+                )
             });
         let has_state = state.is_some()
             || session_data
@@ -178,7 +284,7 @@ impl HttpService {
         );
         let service = Self {
             session,
-            stop,
+            shutdown,
             listener,
             url,
             backend_lock: Arc::new(Mutex::new(())),
@@ -188,10 +294,11 @@ impl HttpService {
             stream_broker,
             streaming_volume_enabled,
             transport: Mutex::new(transport),
-            control_transport: Arc::new(Mutex::new(control_transport)),
+            control_session,
             session_data,
             in_memory_session,
-            return_signaled: Arc::new(AtomicBool::new(false)),
+            frontend_ready,
+            return_signaled: Arc::new(Mutex::new(false)),
             worker: Mutex::new(None),
         };
         let runner = service.clone_for_thread(frontend, manifest, state);
@@ -223,7 +330,7 @@ impl HttpService {
             manifest,
             state,
             listener: self.listener.try_clone().expect("listener clone"),
-            stop: self.stop.clone(),
+            shutdown: self.shutdown.clone(),
             backend_lock: self.backend_lock.clone(),
             capability: self.capability.clone(),
             authority: self.authority.clone(),
@@ -232,8 +339,9 @@ impl HttpService {
             streaming_volume_enabled: self.streaming_volume_enabled,
             session_data: self.session_data.clone(),
             orbital_count,
-            control_transport: self.control_transport.clone(),
+            control_session: self.control_session.clone(),
             in_memory_session: self.in_memory_session,
+            frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
         }
     }
@@ -243,20 +351,25 @@ impl HttpService {
     pub fn session_path(&self) -> &Path {
         &self.session
     }
+    pub fn frontend_ready(&self) -> bool {
+        self.frontend_ready.load(Ordering::Acquire)
+    }
     pub fn uses_file_lifecycle(&self) -> bool {
         !self.in_memory_session
     }
     pub fn is_shutdown(&self) -> bool {
-        self.stop.load(Ordering::Acquire)
+        self.shutdown.is_requested()
     }
     pub fn termination_exit_code(&self) -> i32 {
         if self.in_memory_session
-            && (!self.return_signaled.load(Ordering::Acquire)
-                || self
-                    .control_transport
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .is_none())
+            && (!*self
+                .return_signaled
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                || !self
+                    .control_session
+                    .as_ref()
+                    .is_some_and(|session| session.is_available()))
         {
             2
         } else {
@@ -267,14 +380,10 @@ impl HttpService {
         let result = signal_return(
             self.in_memory_session,
             &self.return_signaled,
-            &self.control_transport,
+            self.control_session.as_deref(),
             &self.session,
         );
         self.volume_store.clear();
-        if result.is_err() && self.in_memory_session {
-            terminate_control_session(&self.control_transport, &self.stop, &self.volume_store);
-            wake_listener(&self.listener);
-        }
         result
     }
     #[cfg(test)]
@@ -286,8 +395,7 @@ impl HttpService {
     }
     pub fn shutdown(&self) {
         self.volume_store.clear();
-        self.stop.store(true, Ordering::Release);
-        wake_listener(&self.listener);
+        self.shutdown.request();
     }
     pub fn join(&self) {
         if let Some(worker) = self.worker.lock().expect("service worker lock").take() {
@@ -305,7 +413,7 @@ struct ServiceRunner {
     manifest: Option<PathBuf>,
     state: Option<PathBuf>,
     listener: TcpListener,
-    stop: Arc<AtomicBool>,
+    shutdown: ShutdownSignal,
     backend_lock: Arc<Mutex<()>>,
     capability: String,
     authority: String,
@@ -314,16 +422,17 @@ struct ServiceRunner {
     streaming_volume_enabled: bool,
     session_data: Option<SessionData>,
     orbital_count: Option<i64>,
-    control_transport: Arc<Mutex<Option<ControlTransport>>>,
+    control_session: Option<Arc<ControlSession>>,
     in_memory_session: bool,
-    return_signaled: Arc<AtomicBool>,
+    frontend_ready: Arc<AtomicBool>,
+    return_signaled: Arc<Mutex<bool>>,
 }
 impl ServiceRunner {
     fn run(self) {
-        while !self.stop.load(Ordering::Acquire) {
+        while !self.shutdown.is_requested() {
             match self.listener.accept() {
                 Ok((stream, _)) => {
-                    if self.stop.load(Ordering::Acquire) {
+                    if self.shutdown.is_requested() {
                         break;
                     }
                     let runner = self.clone_for_request();
@@ -334,6 +443,7 @@ impl ServiceRunner {
                 }
                 Err(_) => {
                     self.volume_store.clear();
+                    self.shutdown.request();
                     break;
                 }
             }
@@ -346,7 +456,7 @@ impl ServiceRunner {
             manifest: self.manifest.clone(),
             state: self.state.clone(),
             listener: self.listener.try_clone().expect("listener clone"),
-            stop: self.stop.clone(),
+            shutdown: self.shutdown.clone(),
             backend_lock: self.backend_lock.clone(),
             capability: self.capability.clone(),
             authority: self.authority.clone(),
@@ -355,8 +465,9 @@ impl ServiceRunner {
             streaming_volume_enabled: self.streaming_volume_enabled,
             session_data: self.session_data.clone(),
             orbital_count: self.orbital_count,
-            control_transport: self.control_transport.clone(),
+            control_session: self.control_session.clone(),
             in_memory_session: self.in_memory_session,
+            frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
         }
     }
@@ -377,7 +488,7 @@ impl ServiceRunner {
         let mut parts = first.split_whitespace();
         let method = parts.next().unwrap_or("");
         let target = parts.next().unwrap_or("/");
-        if method != "GET" && method != "HEAD" {
+        if method != "GET" && method != "HEAD" && method != "POST" {
             respond(
                 &mut stream,
                 405,
@@ -436,6 +547,25 @@ impl ServiceRunner {
             );
             return;
         }
+        if path == "/api/ready" {
+            if method != "POST" {
+                respond(
+                    &mut stream,
+                    405,
+                    "text/plain",
+                    b"Method Not Allowed",
+                    method == "HEAD",
+                );
+                return;
+            }
+            self.frontend_ready.store(true, Ordering::Release);
+            respond_json(&mut stream, &json!({"ok": true}), 200, false);
+            return;
+        }
+        if method == "POST" {
+            respond(&mut stream, 405, "text/plain", b"Method Not Allowed", false);
+            return;
+        }
         if path == "/api/return" {
             if method != "GET" {
                 respond(&mut stream, 405, "text/plain", b"Method Not Allowed", true);
@@ -452,8 +582,7 @@ impl ServiceRunner {
             }
             respond_json(&mut stream, &json!({"ok": true}), 200, false);
             self.volume_store.clear();
-            self.stop.store(true, Ordering::Release);
-            wake_listener(&self.listener);
+            self.shutdown.request();
             return;
         }
         if let Some(volume_id) = path.strip_prefix("/api/volume/") {
@@ -510,7 +639,9 @@ impl ServiceRunner {
             return;
         }
         if let Some(value) = value {
-            let status = if path == "/api/orbital"
+            let status = if self.session_data.is_some() {
+                backend_response_status(&value)
+            } else if path == "/api/orbital"
                 && value
                     .get("message")
                     .and_then(Value::as_str)
@@ -644,14 +775,10 @@ impl ServiceRunner {
         let result = signal_return(
             self.in_memory_session,
             &self.return_signaled,
-            &self.control_transport,
+            self.control_session.as_deref(),
             &self.session,
         );
         self.volume_store.clear();
-        if result.is_err() && self.in_memory_session {
-            terminate_control_session(&self.control_transport, &self.stop, &self.volume_store);
-            wake_listener(&self.listener);
-        }
         result
     }
 
@@ -702,18 +829,14 @@ impl ServiceRunner {
         let mut file_pending = None;
         if self.session_data.is_some() {
             let (sender, receiver) = std::sync::mpsc::channel();
-            let control_transport = self.control_transport.clone();
-            let stop = self.stop.clone();
-            let volume_store = self.volume_store.clone();
+            let control_session = self
+                .control_session
+                .as_ref()
+                .expect("in-memory session control")
+                .clone();
             std::thread::spawn(move || {
-                let result = request_control(
-                    &control_transport,
-                    &stop,
-                    &volume_store,
-                    request_id,
-                    &command,
-                    Duration::from_secs(300),
-                );
+                let result =
+                    control_session.request(request_id, &command, Duration::from_secs(300));
                 let _ = sender.send(result);
             });
             control_receiver = Some(receiver);
@@ -854,14 +977,10 @@ impl ServiceRunner {
             Ok(value) => value,
             Err(message) => return json!({"ok": false, "message": message}),
         };
-        request_control(
-            &self.control_transport,
-            &self.stop,
-            &self.volume_store,
-            backend::reserve_request_id(),
-            &command,
-            timeout,
-        )
+        self.control_session
+            .as_ref()
+            .expect("in-memory session control")
+            .request(backend::reserve_request_id(), &command, timeout)
     }
 
     fn request_control_esp(&self, query: &[(String, String)]) -> Value {
@@ -873,63 +992,57 @@ impl ServiceRunner {
             Ok(value) => value,
             Err(message) => return json!({"ok": false, "message": message}),
         };
-        request_control(
-            &self.control_transport,
-            &self.stop,
-            &self.volume_store,
-            backend::reserve_request_id(),
-            &command,
-            Duration::from_secs(900),
-        )
+        self.control_session
+            .as_ref()
+            .expect("in-memory session control")
+            .request(
+                backend::reserve_request_id(),
+                &command,
+                Duration::from_secs(900),
+            )
     }
 }
 
 fn signal_return(
     in_memory_session: bool,
-    return_signaled: &AtomicBool,
-    control: &Arc<Mutex<Option<ControlTransport>>>,
+    return_signaled: &Mutex<bool>,
+    control_session: Option<&ControlSession>,
     session: &Path,
 ) -> Result<(), String> {
-    if return_signaled.swap(true, Ordering::AcqRel) {
+    let mut returned = return_signaled
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *returned {
         return Ok(());
     }
     let result = if in_memory_session {
-        let body = json!({
-            "format": "multiwfn-matterviz-control",
-            "version": 1,
-            "kind": "shutdown",
-        });
-        let guard = control
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match guard.as_ref() {
-            Some(transport) => transport
-                .send_json(MessageType::Shutdown, 0, &body)
-                .map_err(|error| format!("could not signal Multiwfn Return: {error}")),
-            None => Err("Multiwfn control transport is unavailable".to_owned()),
-        }
+        control_session
+            .ok_or_else(|| "Multiwfn control transport is unavailable".to_owned())?
+            .signal_return()
     } else {
         fs::write(session.join("gui_stop.flag"), "return\n")
             .map_err(|error| format!("could not signal Multiwfn Return: {error}"))
     };
-    if result.is_err() {
-        return_signaled.store(false, Ordering::Release);
+    if result.is_ok() {
+        *returned = true;
     }
     result
 }
 
 fn request_control(
-    control: &Arc<Mutex<Option<ControlTransport>>>,
-    stop: &AtomicBool,
+    control: &Arc<Mutex<Option<Arc<ControlTransport>>>>,
+    shutdown: &ShutdownSignal,
     volume_store: &VolumeStore,
     request_id: u64,
     command: &str,
     timeout: Duration,
 ) -> Value {
-    let mut guard = control
+    let transport = control
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let Some(transport) = guard.as_mut() else {
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .cloned();
+    let Some(transport) = transport else {
         return json!({"ok": false, "message": backend::BACKEND_UNAVAILABLE});
     };
     let result = transport
@@ -949,35 +1062,42 @@ fn request_control(
             {
                 Err("Mismatched Multiwfn control response".to_owned())
             } else {
-                frame
+                let result = frame
                     .body
                     .and_then(|body| body.get("result").cloned())
-                    .ok_or_else(|| "Malformed Multiwfn control response".to_owned())
+                    .ok_or_else(|| "Malformed Multiwfn control response".to_owned())?;
+                if result
+                    .as_object()
+                    .and_then(|object| object.get("ok"))
+                    .and_then(Value::as_bool)
+                    .is_none()
+                {
+                    Err("Malformed Multiwfn control response".to_owned())
+                } else {
+                    Ok(result)
+                }
             }
         });
     match result {
         Ok(value) => value,
         Err(message) => {
-            drop(guard);
-            terminate_control_session(control, stop, volume_store);
+            terminate_control_session(control, shutdown, volume_store);
             json!({"ok": false, "message": message})
         }
     }
 }
 
 fn terminate_control_session(
-    control: &Arc<Mutex<Option<ControlTransport>>>,
-    stop: &AtomicBool,
+    control: &Arc<Mutex<Option<Arc<ControlTransport>>>>,
+    shutdown: &ShutdownSignal,
     volume_store: &VolumeStore,
 ) {
     let mut guard = control
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(mut transport) = guard.take() {
-        transport.close();
-    }
+    guard.take();
     volume_store.clear();
-    stop.store(true, Ordering::Release);
+    shutdown.request();
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Result<(String, String), ()> {
@@ -1039,12 +1159,6 @@ fn bind(host: &str, port: u16) -> Result<TcpListener, String> {
     }
     socket.listen(128).map_err(|error| error.to_string())?;
     Ok(socket.into())
-}
-
-fn wake_listener(listener: &TcpListener) {
-    if let Ok(address) = listener.local_addr() {
-        let _ = TcpStream::connect_timeout(&address, Duration::from_millis(100));
-    }
 }
 
 fn new_socket(address: IpAddr) -> Result<Socket, String> {
@@ -1290,18 +1404,25 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8],
 #[cfg(test)]
 mod tests {
     use super::{
-        content_type, decode_path, query_u64, request_control, safe_join, AppConfig, HttpService,
+        backend_response_status, content_type, decode_path, query_u64, safe_join, AppConfig,
+        ControlSession, HttpService,
     };
     use crate::control_protocol::{
         decode_frame, decode_header, encode_frame, MessageType, HEADER_BYTES,
     };
     use crate::control_transport::ControlTransportConfig;
+    use crate::shutdown::ShutdownSignal;
     use crate::transport::TransportConfig;
-    use crate::volume_protocol::{Crc32c, ACK_HEADER_BYTES, PRELUDE_BYTES, VOLUME_HEADER_BYTES};
+    use crate::volume_protocol::{
+        decode_ack, decode_volume, encode_volume, Crc32c, ACK_HEADER_BYTES, PRELUDE_BYTES,
+        VOLUME_HEADER_BYTES,
+    };
     use std::fs;
     use std::io::{ErrorKind, Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::Duration;
 
     use url::Url;
 
@@ -1400,6 +1521,149 @@ mod tests {
         producer.join().unwrap();
         service.shutdown();
         join_service(service);
+        assert!(!session.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn delayed_initial_volumes_complete_before_session_bootstrap() {
+        // One volume completes within a stage; two exceed one stage but fit the three-stage window.
+        const STAGE_TIMEOUT: Duration = Duration::from_secs(1);
+        const CHUNK_DELAY: Duration = Duration::from_millis(150);
+
+        for volume_count in 1_u64..=2 {
+            let root = fixture(&format!("delayed-bootstrap-{volume_count}"));
+            let frontend = root.join("frontend");
+            let session = root.join("session-must-not-exist");
+            fs::create_dir_all(&frontend).unwrap();
+            fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+
+            let (volume_read, mut volume_write) = pipe_pair();
+            let (mut ack_read, ack_write) = pipe_pair();
+            let (mut hello_read, hello_write) = pipe_pair();
+            let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+            let producer = std::thread::spawn(move || {
+                let hello = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+                assert_eq!(hello.header.message_type, MessageType::Hello);
+                let mut ready = [0_u8; PRELUDE_BYTES];
+                ack_read.read_exact(&mut ready).unwrap();
+
+                for offset in 0..volume_count {
+                    let mut volume = decode_volume(&golden_frame()).unwrap();
+                    volume.request_id += offset;
+                    volume.volume_id += offset;
+                    let frame = encode_volume(&volume).unwrap();
+                    let chunk_len = frame.len().div_ceil(4);
+                    for chunk in frame.chunks(chunk_len) {
+                        std::thread::sleep(CHUNK_DELAY);
+                        volume_write.write_all(chunk).unwrap();
+                    }
+                    let mut ack = [0_u8; ACK_HEADER_BYTES];
+                    ack_read.read_exact(&mut ack).unwrap();
+                    assert_eq!(decode_ack(&ack).unwrap().2, 0);
+                }
+
+                let body = serde_json::json!({
+                    "format": "multiwfn-matterviz-control",
+                    "version": 1,
+                    "kind": "session_init",
+                    "manifest": {
+                        "format": "multiwfn-matterviz-workbench",
+                        "version": 2,
+                        "structure": null,
+                        "cubes": []
+                    },
+                    "structure": null
+                });
+                bootstrap_write
+                    .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap())
+                    .unwrap();
+                let shutdown = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+                assert_eq!(shutdown.header.message_type, MessageType::Shutdown);
+            });
+
+            let service = HttpService::start_with_control_stage_timeout(
+                AppConfig {
+                    frontend,
+                    session: session.clone(),
+                    manifest: None,
+                    state: None,
+                    host: "127.0.0.1".to_owned(),
+                    port: 0,
+                    transport: Some(TransportConfig {
+                        volume_read_pipe: into_raw_pipe(volume_read),
+                        volume_ack_pipe: into_raw_pipe(ack_write),
+                    }),
+                },
+                Some(ControlTransportConfig {
+                    read_pipe: into_raw_pipe(bootstrap_read),
+                    write_pipe: into_raw_pipe(hello_write),
+                }),
+                STAGE_TIMEOUT,
+            )
+            .unwrap();
+            service.signal_return().unwrap();
+            service.shutdown();
+            service.join();
+            producer.join().unwrap();
+            assert!(!session.exists());
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn volume_shutdown_cancels_session_bootstrap() {
+        let root = fixture("cancelled-bootstrap");
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+
+        let (volume_read, volume_write) = pipe_pair();
+        let (mut ack_read, ack_write) = pipe_pair();
+        let (mut hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, bootstrap_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+            assert_eq!(hello.header.message_type, MessageType::Hello);
+            let mut ready = [0_u8; PRELUDE_BYTES];
+            ack_read.read_exact(&mut ready).unwrap();
+            drop(volume_write);
+        });
+
+        let started = std::time::Instant::now();
+        let result = HttpService::start_with_control_stage_timeout(
+            AppConfig {
+                frontend,
+                session: session.clone(),
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: Some(TransportConfig {
+                    volume_read_pipe: into_raw_pipe(volume_read),
+                    volume_ack_pipe: into_raw_pipe(ack_write),
+                }),
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read),
+                write_pipe: into_raw_pipe(hello_write),
+            }),
+            Duration::from_secs(5),
+        );
+        let Err(error) = result else {
+            panic!("bootstrap unexpectedly succeeded");
+        };
+        assert!(
+            error.contains("control transport read cancelled"),
+            "unexpected bootstrap error: {error}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        drop(bootstrap_write);
+        producer.join().unwrap();
         assert!(!session.exists());
         let _ = fs::remove_dir_all(root);
     }
@@ -1540,18 +1804,13 @@ mod tests {
     #[cfg(any(unix, windows))]
     #[test]
     fn mismatched_control_response_invalidates_the_session() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::{Arc, Mutex};
-
         let (mut request_read, request_write) = pipe_pair();
         let (response_read, mut response_write) = pipe_pair();
-        let control = Arc::new(Mutex::new(Some(
-            crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
-                read_pipe: into_raw_pipe(response_read),
-                write_pipe: into_raw_pipe(request_write),
-            })
-            .unwrap(),
-        )));
+        let transport = crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: into_raw_pipe(response_read),
+            write_pipe: into_raw_pipe(request_write),
+        })
+        .unwrap();
         let producer = std::thread::spawn(move || {
             let request_bytes = read_control_frame(&mut request_read);
             assert_eq!(
@@ -1573,77 +1832,284 @@ mod tests {
                 response_write.write_all(chunk).unwrap();
             }
         });
-        let stop = AtomicBool::new(false);
-        let volumes = crate::volume_store::VolumeStore::new();
+        let shutdown = ShutdownSignal::detached();
+        let volumes = Arc::new(crate::volume_store::VolumeStore::new());
         volumes.insert(golden_frame()).unwrap();
-        let response = request_control(
-            &control,
-            &stop,
-            &volumes,
-            41,
-            "bond 1 2 mayer",
-            std::time::Duration::from_secs(1),
-        );
+        let control = ControlSession::new(transport, shutdown.clone(), volumes.clone());
+        let response = control.request(41, "bond 1 2 mayer", std::time::Duration::from_secs(1));
         producer.join().unwrap();
         assert_eq!(response["ok"], false);
         assert!(response["message"].as_str().unwrap().contains("Mismatched"));
-        assert!(stop.load(Ordering::Acquire));
-        assert!(control.lock().unwrap().is_none());
+        assert!(shutdown.is_requested());
+        assert!(!control.is_available());
         assert_eq!(volumes.bytes(), 0);
     }
 
     #[cfg(any(unix, windows))]
     #[test]
-    fn control_timeout_invalidates_the_session() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::{Arc, Mutex};
+    fn return_is_not_blocked_by_a_pending_control_response() {
+        use std::sync::{mpsc, Arc, Mutex};
+        use std::time::{Duration, Instant};
 
         let (mut request_read, request_write) = pipe_pair();
-        let (response_read, response_write) = pipe_pair();
-        let control = Arc::new(Mutex::new(Some(
-            crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+        let (response_read, mut response_write) = pipe_pair();
+        let transport = crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: into_raw_pipe(response_read),
+            write_pipe: into_raw_pipe(request_write),
+        })
+        .unwrap();
+        let (request_seen, wait_for_request) = mpsc::channel();
+        let producer = std::thread::spawn(move || {
+            let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            request_seen.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(250));
+            let response = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "response",
+                "request_id": request.header.request_id,
+                "result": {"ok": true}
+            });
+            response_write
+                .write_all(
+                    &encode_frame(
+                        MessageType::Response,
+                        request.header.request_id,
+                        Some(&response),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            let shutdown = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            assert_eq!(shutdown.header.message_type, MessageType::Shutdown);
+        });
+        let shutdown = ShutdownSignal::detached();
+        let volumes = Arc::new(crate::volume_store::VolumeStore::new());
+        let control = Arc::new(ControlSession::new(transport, shutdown, volumes));
+        let request_control_handle = control.clone();
+        let requester = std::thread::spawn(move || {
+            request_control_handle.request(91, "bond 1 2 mayer", Duration::from_secs(1))
+        });
+        wait_for_request.recv().unwrap();
+
+        let returned = Mutex::new(false);
+        let started = Instant::now();
+        super::signal_return(true, &returned, Some(&control), Path::new("unused")).unwrap();
+        assert!(started.elapsed() < Duration::from_millis(100));
+
+        assert_eq!(requester.join().unwrap()["ok"], true);
+        producer.join().unwrap();
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn control_result_requires_an_object_with_boolean_ok() {
+        let cases = [
+            ("missing result", None, false),
+            ("null result", Some(serde_json::Value::Null), false),
+            ("string result", Some(serde_json::json!("ok")), false),
+            ("array result", Some(serde_json::json!([])), false),
+            ("number result", Some(serde_json::json!(1)), false),
+            ("missing ok", Some(serde_json::json!({})), false),
+            (
+                "non-boolean ok",
+                Some(serde_json::json!({"ok": "true"})),
+                false,
+            ),
+            (
+                "valid success",
+                Some(serde_json::json!({"ok": true, "value": 1.25})),
+                true,
+            ),
+            (
+                "valid failure",
+                Some(serde_json::json!({"ok": false, "message": "rejected"})),
+                true,
+            ),
+        ];
+
+        for (index, (name, result, valid)) in cases.into_iter().enumerate() {
+            let (mut request_read, request_write) = pipe_pair();
+            let (response_read, mut response_write) = pipe_pair();
+            let transport =
+                crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+                    read_pipe: into_raw_pipe(response_read),
+                    write_pipe: into_raw_pipe(request_write),
+                })
+                .unwrap();
+            let request_id = 70 + index as u64;
+            let producer = std::thread::spawn(move || {
+                let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+                assert_eq!(request.header.request_id, request_id);
+                let mut response = serde_json::json!({
+                    "format": "multiwfn-matterviz-control",
+                    "version": 1,
+                    "kind": "response",
+                    "request_id": request_id,
+                });
+                if let Some(result) = result {
+                    response["result"] = result;
+                }
+                let frame =
+                    encode_frame(MessageType::Response, request_id, Some(&response)).unwrap();
+                response_write.write_all(&frame).unwrap();
+            });
+            let shutdown = ShutdownSignal::detached();
+            let volumes = Arc::new(crate::volume_store::VolumeStore::new());
+            volumes.insert(golden_frame()).unwrap();
+            let control = ControlSession::new(transport, shutdown.clone(), volumes.clone());
+            let response = control.request(
+                request_id,
+                "bond 1 2 mayer",
+                std::time::Duration::from_secs(1),
+            );
+            producer.join().unwrap();
+
+            if valid {
+                assert!(
+                    response
+                        .get("ok")
+                        .and_then(serde_json::Value::as_bool)
+                        .is_some(),
+                    "{name}"
+                );
+                assert!(!shutdown.is_requested(), "{name}");
+                assert!(control.is_available(), "{name}");
+                assert_ne!(volumes.bytes(), 0, "{name}");
+            } else {
+                assert_eq!(response["ok"], false, "{name}");
+                assert!(
+                    response["message"].as_str().unwrap().contains("Malformed"),
+                    "{name}"
+                );
+                assert_ne!(backend_response_status(&response), 200, "{name}");
+                assert!(shutdown.is_requested(), "{name}");
+                assert!(!control.is_available(), "{name}");
+                assert_eq!(volumes.bytes(), 0, "{name}");
+            }
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn malformed_control_result_returns_http_error_and_stops_session() {
+        let root = fixture("malformed-control-result");
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+
+        let (mut request_read, request_write) = pipe_pair();
+        let (response_read, mut response_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            assert_eq!(hello.header.message_type, MessageType::Hello);
+            let session_init = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "session_init",
+                "manifest": {
+                    "format": "multiwfn-matterviz-workbench",
+                    "version": 2,
+                    "structure": {"path": "structure.json", "format": "json"},
+                    "cubes": []
+                },
+                "structure": {"sites": [], "charge": 0, "properties": {"bonds": []}}
+            });
+            response_write
+                .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&session_init)).unwrap())
+                .unwrap();
+
+            let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            assert_eq!(request.header.message_type, MessageType::Request);
+            let response = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "response",
+                "request_id": request.header.request_id,
+                "result": null
+            });
+            response_write
+                .write_all(
+                    &encode_frame(
+                        MessageType::Response,
+                        request.header.request_id,
+                        Some(&response),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+        });
+
+        let service = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session,
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+            },
+            Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(response_read),
                 write_pipe: into_raw_pipe(request_write),
-            })
-            .unwrap(),
-        )));
+            }),
+        )
+        .unwrap();
+        service.insert_volume(golden_frame()).unwrap();
+        let response = request(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/bond?atom1=1&atom2=2&method=mayer"),
+        );
+
+        producer.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        assert!(response.contains("Malformed Multiwfn control response"));
+        assert!(service.is_shutdown());
+        assert_eq!(service.volume_store.bytes(), 0);
+        assert_eq!(service.termination_exit_code(), 2);
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn control_timeout_invalidates_the_session() {
+        let (mut request_read, request_write) = pipe_pair();
+        let (response_read, response_write) = pipe_pair();
+        let transport = crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: into_raw_pipe(response_read),
+            write_pipe: into_raw_pipe(request_write),
+        })
+        .unwrap();
         let producer = std::thread::spawn(move || {
             let _response_write = response_write;
             let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
             assert_eq!(request.header.request_id, 51);
             std::thread::sleep(std::time::Duration::from_millis(80));
         });
-        let stop = AtomicBool::new(false);
-        let volumes = crate::volume_store::VolumeStore::new();
-        let response = request_control(
-            &control,
-            &stop,
-            &volumes,
-            51,
-            "bond 1 2 mayer",
-            std::time::Duration::from_millis(20),
-        );
+        let shutdown = ShutdownSignal::detached();
+        let volumes = Arc::new(crate::volume_store::VolumeStore::new());
+        let control = ControlSession::new(transport, shutdown.clone(), volumes);
+        let response = control.request(51, "bond 1 2 mayer", std::time::Duration::from_millis(20));
         producer.join().unwrap();
         assert!(response["message"].as_str().unwrap().contains("timed out"));
-        assert!(stop.load(Ordering::Acquire));
-        assert!(control.lock().unwrap().is_none());
+        assert!(shutdown.is_requested());
+        assert!(!control.is_available());
     }
 
     #[cfg(any(unix, windows))]
     #[test]
     fn corrupt_control_response_invalidates_the_session() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::{Arc, Mutex};
-
         let (mut request_read, request_write) = pipe_pair();
         let (response_read, mut response_write) = pipe_pair();
-        let control = Arc::new(Mutex::new(Some(
-            crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
-                read_pipe: into_raw_pipe(response_read),
-                write_pipe: into_raw_pipe(request_write),
-            })
-            .unwrap(),
-        )));
+        let transport = crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: into_raw_pipe(response_read),
+            write_pipe: into_raw_pipe(request_write),
+        })
+        .unwrap();
         let producer = std::thread::spawn(move || {
             let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
             let response = serde_json::json!({
@@ -1662,20 +2128,14 @@ mod tests {
             *frame.last_mut().unwrap() ^= 1;
             response_write.write_all(&frame).unwrap();
         });
-        let stop = AtomicBool::new(false);
-        let volumes = crate::volume_store::VolumeStore::new();
-        let response = request_control(
-            &control,
-            &stop,
-            &volumes,
-            61,
-            "bond 1 2 mayer",
-            std::time::Duration::from_secs(1),
-        );
+        let shutdown = ShutdownSignal::detached();
+        let volumes = Arc::new(crate::volume_store::VolumeStore::new());
+        let control = ControlSession::new(transport, shutdown.clone(), volumes);
+        let response = control.request(61, "bond 1 2 mayer", std::time::Duration::from_secs(1));
         producer.join().unwrap();
         assert!(response["message"].as_str().unwrap().contains("CRC32C"));
-        assert!(stop.load(Ordering::Acquire));
-        assert!(control.lock().unwrap().is_none());
+        assert!(shutdown.is_requested());
+        assert!(!control.is_available());
     }
 
     #[cfg(any(unix, windows))]
@@ -1769,6 +2229,84 @@ mod tests {
             "application/wasm"
         );
     }
+
+    #[test]
+    fn service_rejects_a_missing_frontend_entry_document() {
+        let root = fixture("missing-frontend-entry");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+
+        let result = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            transport: None,
+        });
+        match result {
+            Err(error) => assert!(error.contains("index.html"), "{error}"),
+            Ok(service) => {
+                service.shutdown();
+                join_service(service);
+                panic!("service accepted a frontend directory without index.html");
+            }
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn service_requires_a_capability_authenticated_ready_post() {
+        let root = fixture("frontend-ready");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+
+        let service = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            transport: None,
+        })
+        .unwrap();
+        assert!(!service.frontend_ready());
+
+        let missing_capability = request(service.url(), "POST", "/api/ready");
+        assert!(missing_capability.starts_with("HTTP/1.1 403 Forbidden"));
+        let wrong_capability = request(service.url(), "POST", "/api/ready?cap=wrong");
+        assert!(wrong_capability.starts_with("HTTP/1.1 403 Forbidden"));
+        let wrong_method = request(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/ready"),
+        );
+        assert!(wrong_method.starts_with("HTTP/1.1 405 Method Not Allowed"));
+        assert!(!service.frontend_ready());
+
+        let ready = request(
+            service.url(),
+            "POST",
+            &authorized_path(service.url(), "/api/ready"),
+        );
+        assert!(ready.starts_with("HTTP/1.1 200 OK"));
+        assert!(ready.ends_with(r#"{"ok":true}"#));
+        assert!(service.frontend_ready());
+
+        service.shutdown();
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn safe_join_blocks_traversal() {
         let root = tempfile_dir();

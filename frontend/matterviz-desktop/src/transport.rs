@@ -3,6 +3,7 @@ use std::sync::mpsc::{SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use crate::shutdown::ShutdownSignal;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::volume_protocol::{
     declared_volume_frame_len, decode_stream_volume_header, encode_ack, encode_ready,
@@ -18,6 +19,7 @@ pub struct TransportConfig {
 
 pub struct VolumeTransport {
     worker: Mutex<Option<thread::JoinHandle<()>>>,
+    shutdown: ShutdownSignal,
 }
 
 impl VolumeTransport {
@@ -25,27 +27,34 @@ impl VolumeTransport {
     pub fn start(
         config: TransportConfig,
         store: Arc<VolumeStore>,
-        stop: Arc<AtomicBool>,
+        shutdown: ShutdownSignal,
     ) -> Result<Self, String> {
-        Self::start_with_broker(config, store, Arc::new(VolumeStreamBroker::default()), stop)
+        Self::start_with_broker(
+            config,
+            store,
+            Arc::new(VolumeStreamBroker::default()),
+            shutdown,
+        )
     }
 
     pub fn start_with_broker(
         config: TransportConfig,
         store: Arc<VolumeStore>,
         broker: Arc<VolumeStreamBroker>,
-        stop: Arc<AtomicBool>,
+        shutdown: ShutdownSignal,
     ) -> Result<Self, String> {
         let reader = platform::PipeReader::adopt(config.volume_read_pipe)
             .map_err(|error| format!("could not adopt volume read pipe: {error}"))?;
         let writer = platform::PipeWriter::adopt(config.volume_ack_pipe)
             .map_err(|error| format!("could not adopt volume ACK pipe: {error}"))?;
+        let worker_shutdown = shutdown.clone();
         let worker = thread::Builder::new()
             .name("matterviz-volume-reader".to_owned())
-            .spawn(move || run(reader, writer, store, broker, stop))
+            .spawn(move || run(reader, writer, store, broker, worker_shutdown))
             .map_err(|error| format!("could not start volume reader: {error}"))?;
         Ok(Self {
             worker: Mutex::new(Some(worker)),
+            shutdown,
         })
     }
 
@@ -56,21 +65,28 @@ impl VolumeTransport {
     }
 }
 
+impl Drop for VolumeTransport {
+    fn drop(&mut self) {
+        self.shutdown.request();
+        self.join();
+    }
+}
+
 fn run(
     mut reader: platform::PipeReader,
     mut writer: platform::PipeWriter,
     store: Arc<VolumeStore>,
     broker: Arc<VolumeStreamBroker>,
-    stop: Arc<AtomicBool>,
+    shutdown: ShutdownSignal,
 ) {
     if writer.write_all(&encode_ready()).is_err() {
         store.clear();
-        stop.store(true, Ordering::Release);
+        shutdown.request();
         return;
     }
-    while !stop.load(Ordering::Acquire) {
+    while !shutdown.is_requested() {
         let mut prelude = [0_u8; PRELUDE_BYTES];
-        if read_exact(&mut reader, &mut prelude, &stop).is_err() {
+        if read_exact(&mut reader, &mut prelude, shutdown.flag()).is_err() {
             break;
         }
         let major = match protocol_major(&prelude) {
@@ -78,9 +94,9 @@ fn run(
             Err(_) => break,
         };
         let result = if major == STREAM_MAJOR {
-            receive_stream_volume(&mut reader, &mut writer, &broker, &stop, prelude)
+            receive_stream_volume(&mut reader, &mut writer, &broker, shutdown.flag(), prelude)
         } else {
-            receive_buffered_volume(&mut reader, &mut writer, &store, &stop, prelude)
+            receive_buffered_volume(&mut reader, &mut writer, &store, shutdown.flag(), prelude)
         };
         if result.is_err() {
             break;
@@ -88,7 +104,7 @@ fn run(
     }
     store.clear();
     broker.fail_all("MatterViz volume transport closed");
-    stop.store(true, Ordering::Release);
+    shutdown.request();
 }
 
 fn receive_buffered_volume(
@@ -207,9 +223,10 @@ fn frame_identity(frame: &[u8]) -> Option<(u64, u64)> {
 
 #[cfg(unix)]
 mod platform {
+    use crate::inherited_pipe;
     use std::fs::File;
     use std::io::{self, Read, Write};
-    use std::os::fd::{FromRawFd, RawFd};
+    use std::os::fd::AsRawFd;
     use std::thread;
     use std::time::Duration;
 
@@ -224,14 +241,15 @@ mod platform {
 
     impl PipeReader {
         pub fn adopt(raw: u64) -> io::Result<Self> {
-            let raw = RawFd::try_from(raw)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pipe fd is too large"))?;
-            let flags = unsafe { libc::fcntl(raw, libc::F_GETFL) };
-            if flags < 0 || unsafe { libc::fcntl(raw, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+            let file = inherited_pipe::adopt(raw)?;
+            let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+            if flags < 0
+                || unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) }
+                    < 0
             {
                 return Err(io::Error::last_os_error());
             }
-            Ok(Self(unsafe { File::from_raw_fd(raw) }))
+            Ok(Self(file))
         }
 
         pub fn read_available(&mut self, buffer: &mut [u8]) -> io::Result<ReadState> {
@@ -250,9 +268,7 @@ mod platform {
 
     impl PipeWriter {
         pub fn adopt(raw: u64) -> io::Result<Self> {
-            let raw = RawFd::try_from(raw)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pipe fd is too large"))?;
-            Ok(Self(unsafe { File::from_raw_fd(raw) }))
+            inherited_pipe::adopt(raw).map(Self)
         }
 
         pub fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
@@ -263,8 +279,10 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
+    use crate::inherited_pipe;
+    use std::fs::File;
     use std::io;
-    use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
+    use std::os::windows::io::AsRawHandle;
     use std::thread;
     use std::time::Duration;
 
@@ -278,24 +296,12 @@ mod platform {
         Eof,
     }
 
-    pub struct PipeReader(OwnedHandle);
-    pub struct PipeWriter(OwnedHandle);
-
-    fn adopt(raw: u64) -> io::Result<OwnedHandle> {
-        let raw = usize::try_from(raw)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pipe handle is too large"))?;
-        if raw == 0 || raw == usize::MAX {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid pipe handle",
-            ));
-        }
-        Ok(unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) })
-    }
+    pub struct PipeReader(File);
+    pub struct PipeWriter(File);
 
     impl PipeReader {
         pub fn adopt(raw: u64) -> io::Result<Self> {
-            adopt(raw).map(Self)
+            inherited_pipe::adopt(raw).map(Self)
         }
 
         pub fn read_available(&mut self, buffer: &mut [u8]) -> io::Result<ReadState> {
@@ -352,7 +358,7 @@ mod platform {
 
     impl PipeWriter {
         pub fn adopt(raw: u64) -> io::Result<Self> {
-            adopt(raw).map(Self)
+            inherited_pipe::adopt(raw).map(Self)
         }
 
         pub fn write_all(&mut self, mut bytes: &[u8]) -> io::Result<()> {
@@ -383,8 +389,6 @@ mod platform {
             Ok(())
         }
     }
-
-    use std::os::windows::io::AsRawHandle;
 }
 
 #[cfg(test)]
@@ -404,6 +408,42 @@ mod tests {
         let read = unsafe { std::fs::File::from_raw_fd(ends[0]) };
         let write = unsafe { std::fs::File::from_raw_fd(ends[1]) };
         (read, write)
+    }
+
+    #[cfg(unix)]
+    fn clear_close_on_exec(fd: std::os::fd::RawFd) {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) },
+            0
+        );
+    }
+
+    #[cfg(unix)]
+    fn assert_close_on_exec(fd: std::os::fd::RawFd) {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_ne!(flags & libc::FD_CLOEXEC, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adopted_volume_descriptors_are_close_on_exec() {
+        use std::os::fd::IntoRawFd;
+
+        let (read_volume, _write_volume) = pipe_pair();
+        let (_read_ack, write_ack) = pipe_pair();
+        let read_fd = read_volume.into_raw_fd();
+        let write_fd = write_ack.into_raw_fd();
+        clear_close_on_exec(read_fd);
+        clear_close_on_exec(write_fd);
+
+        let _reader = platform::PipeReader::adopt(read_fd as u64).unwrap();
+        let _writer = platform::PipeWriter::adopt(write_fd as u64).unwrap();
+
+        assert_close_on_exec(read_fd);
+        assert_close_on_exec(write_fd);
     }
 
     #[cfg(windows)]
@@ -475,9 +515,9 @@ mod tests {
         let store = Arc::new(VolumeStore::new());
         let broker = Arc::new(VolumeStreamBroker::default());
         let registration = broker.register(42).unwrap();
-        let stop = Arc::new(AtomicBool::new(false));
+        let shutdown = ShutdownSignal::detached();
         let transport =
-            VolumeTransport::start_with_broker(config, store.clone(), broker.clone(), stop)
+            VolumeTransport::start_with_broker(config, store.clone(), broker.clone(), shutdown)
                 .unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
@@ -530,9 +570,9 @@ mod tests {
         };
         let store = Arc::new(VolumeStore::new());
         let broker = Arc::new(VolumeStreamBroker::default());
-        let stop = Arc::new(AtomicBool::new(false));
+        let shutdown = ShutdownSignal::detached();
         let transport =
-            VolumeTransport::start_with_broker(config, store, broker.clone(), stop).unwrap();
+            VolumeTransport::start_with_broker(config, store, broker.clone(), shutdown).unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
 
@@ -574,8 +614,8 @@ mod tests {
             volume_ack_pipe: into_raw_pipe(ack_write),
         };
         let store = Arc::new(VolumeStore::new());
-        let stop = Arc::new(AtomicBool::new(false));
-        let transport = VolumeTransport::start(config, store.clone(), stop.clone()).unwrap();
+        let shutdown = ShutdownSignal::detached();
+        let transport = VolumeTransport::start(config, store.clone(), shutdown).unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
         crate::volume_protocol::decode_ready(&ready).unwrap();
@@ -626,8 +666,9 @@ mod tests {
                 volume_ack_pipe: into_raw_pipe(ack_write),
             };
             let store = Arc::new(VolumeStore::new());
-            let stop = Arc::new(AtomicBool::new(false));
-            let transport = VolumeTransport::start(config, store.clone(), stop.clone()).unwrap();
+            let shutdown = ShutdownSignal::detached();
+            let transport =
+                VolumeTransport::start(config, store.clone(), shutdown.clone()).unwrap();
             let mut ready = [0_u8; PRELUDE_BYTES];
             ack_read.read_exact(&mut ready).unwrap();
             crate::volume_protocol::decode_ready(&ready).unwrap();
@@ -636,15 +677,37 @@ mod tests {
                 volume_write.write_all(&fixture()[..length]).unwrap();
                 drop(volume_write);
             } else {
-                stop.store(true, Ordering::Release);
+                shutdown.request();
             }
 
             let started = Instant::now();
             transport.join();
             assert!(started.elapsed() < Duration::from_secs(2));
             assert!(store.is_empty());
-            assert!(stop.load(Ordering::Acquire));
+            assert!(shutdown.is_requested());
         }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn dropping_transport_requests_shutdown_and_joins_worker() {
+        let (volume_read, _volume_write) = pipe_pair();
+        let (mut ack_read, ack_write) = pipe_pair();
+        let config = TransportConfig {
+            volume_read_pipe: into_raw_pipe(volume_read),
+            volume_ack_pipe: into_raw_pipe(ack_write),
+        };
+        let shutdown = ShutdownSignal::detached();
+        let transport =
+            VolumeTransport::start(config, Arc::new(VolumeStore::new()), shutdown.clone()).unwrap();
+        let mut ready = [0_u8; PRELUDE_BYTES];
+        ack_read.read_exact(&mut ready).unwrap();
+
+        let started = Instant::now();
+        drop(transport);
+
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(shutdown.is_requested());
     }
 
     #[cfg(unix)]

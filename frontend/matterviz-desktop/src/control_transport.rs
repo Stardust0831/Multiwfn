@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::io::{self, Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -21,22 +22,22 @@ pub struct ControlTransportConfig {
 #[derive(Debug)]
 pub enum ControlTransportError {
     InvalidConfig(&'static str),
-    InvalidHandle(&'static str),
     Io(io::Error),
     Codec(ControlError),
     Closed,
     Timeout,
+    Cancelled,
 }
 
 impl fmt::Display for ControlTransportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidConfig(message) => f.write_str(message),
-            Self::InvalidHandle(message) => f.write_str(message),
             Self::Io(error) => write!(f, "control pipe I/O failed: {error}"),
             Self::Codec(error) => write!(f, "invalid control frame: {error}"),
             Self::Closed => f.write_str("control transport is closed"),
             Self::Timeout => f.write_str("control transport read timed out"),
+            Self::Cancelled => f.write_str("control transport read cancelled"),
         }
     }
 }
@@ -56,7 +57,7 @@ impl From<ControlError> for ControlTransportError {
 }
 
 pub struct ControlTransport {
-    reader: Option<platform::PipeReader>,
+    reader: Mutex<Option<platform::PipeReader>>,
     writer: Mutex<Option<platform::PipeWriter>>,
 }
 
@@ -70,7 +71,7 @@ impl ControlTransport {
         let reader = platform::PipeReader::adopt(config.read_pipe)?;
         let writer = platform::PipeWriter::adopt(config.write_pipe)?;
         Ok(Self {
-            reader: Some(reader),
+            reader: Mutex::new(Some(reader)),
             writer: Mutex::new(Some(writer)),
         })
     }
@@ -116,8 +117,12 @@ impl ControlTransport {
     }
 
     #[cfg(test)]
-    pub fn read_frame(&mut self) -> Result<ControlFrame, ControlTransportError> {
-        let reader = self.reader.as_mut().ok_or(ControlTransportError::Closed)?;
+    pub fn read_frame(&self) -> Result<ControlFrame, ControlTransportError> {
+        let mut guard = self
+            .reader
+            .lock()
+            .map_err(|_| ControlTransportError::Closed)?;
+        let reader = guard.as_mut().ok_or(ControlTransportError::Closed)?;
         let mut header = [0_u8; HEADER_BYTES];
         read_exact(reader, &mut header)?;
         let parsed = decode_header(&header)?;
@@ -132,27 +137,74 @@ impl ControlTransport {
 
     /// Read one complete frame, including its header and body, before `timeout` expires.
     pub fn read_frame_timeout(
-        &mut self,
+        &self,
         timeout: Duration,
     ) -> Result<ControlFrame, ControlTransportError> {
-        let reader = self.reader.as_mut().ok_or(ControlTransportError::Closed)?;
+        let mut guard = self
+            .reader
+            .lock()
+            .map_err(|_| ControlTransportError::Closed)?;
+        let reader = guard.as_mut().ok_or(ControlTransportError::Closed)?;
         let deadline = Instant::now()
             .checked_add(timeout)
             .ok_or(ControlTransportError::Timeout)?;
         let mut header = [0_u8; HEADER_BYTES];
-        read_exact_timeout(reader, &mut header, deadline)?;
+        read_exact_timeout(reader, &mut header, deadline, None)?;
         let parsed = decode_header(&header)?;
         let total = checked_frame_len(parsed.body_bytes)?;
         let mut frame = vec![0_u8; total];
         frame[..HEADER_BYTES].copy_from_slice(&header);
         if total > HEADER_BYTES {
-            read_exact_timeout(reader, &mut frame[HEADER_BYTES..], deadline)?;
+            read_exact_timeout(reader, &mut frame[HEADER_BYTES..], deadline, None)?;
         }
         Ok(decode_frame(&frame)?)
     }
 
-    pub fn close(&mut self) {
-        self.reader.take();
+    /// Wait up to `start_timeout` for a frame to begin, then require the complete
+    /// frame to arrive within `completion_timeout` of its first byte.
+    pub fn read_frame_startup(
+        &self,
+        start_timeout: Duration,
+        completion_timeout: Duration,
+        stop: &AtomicBool,
+    ) -> Result<ControlFrame, ControlTransportError> {
+        let mut guard = self
+            .reader
+            .lock()
+            .map_err(|_| ControlTransportError::Closed)?;
+        let reader = guard.as_mut().ok_or(ControlTransportError::Closed)?;
+        let start_deadline = Instant::now()
+            .checked_add(start_timeout)
+            .ok_or(ControlTransportError::Timeout)?;
+        let mut header = [0_u8; HEADER_BYTES];
+        read_exact_timeout(reader, &mut header[..1], start_deadline, Some(stop))?;
+
+        let completion_deadline = Instant::now()
+            .checked_add(completion_timeout)
+            .ok_or(ControlTransportError::Timeout)?;
+        read_exact_timeout(reader, &mut header[1..], completion_deadline, Some(stop))?;
+        let parsed = decode_header(&header)?;
+        let total = checked_frame_len(parsed.body_bytes)?;
+        let mut frame = vec![0_u8; total];
+        frame[..HEADER_BYTES].copy_from_slice(&header);
+        if total > HEADER_BYTES {
+            read_exact_timeout(
+                reader,
+                &mut frame[HEADER_BYTES..],
+                completion_deadline,
+                Some(stop),
+            )?;
+        }
+        if stop.load(Ordering::Acquire) {
+            return Err(ControlTransportError::Cancelled);
+        }
+        Ok(decode_frame(&frame)?)
+    }
+
+    pub fn close(&self) {
+        if let Ok(mut reader) = self.reader.lock() {
+            reader.take();
+        }
         if let Ok(mut writer) = self.writer.lock() {
             writer.take();
         }
@@ -188,18 +240,39 @@ fn read_exact_timeout(
     reader: &mut platform::PipeReader,
     bytes: &mut [u8],
     deadline: Instant,
+    stop: Option<&AtomicBool>,
 ) -> Result<(), ControlTransportError> {
+    const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(50);
     let mut offset = 0;
     while offset < bytes.len() {
-        let count = reader
-            .read_until(deadline, &mut bytes[offset..])
-            .map_err(|error| {
-                if error.kind() == io::ErrorKind::TimedOut {
-                    ControlTransportError::Timeout
-                } else {
-                    error.into()
-                }
-            })?;
+        if stop.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            return Err(ControlTransportError::Cancelled);
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(ControlTransportError::Timeout);
+        }
+        let read_deadline = if stop.is_some() {
+            now.checked_add(CANCELLATION_POLL_INTERVAL)
+                .unwrap_or(deadline)
+                .min(deadline)
+        } else {
+            deadline
+        };
+        let count = match reader.read_until(read_deadline, &mut bytes[offset..]) {
+            Ok(count) => count,
+            Err(error)
+                if error.kind() == io::ErrorKind::TimedOut
+                    && stop.is_some()
+                    && Instant::now() < deadline =>
+            {
+                continue
+            }
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                return Err(ControlTransportError::Timeout)
+            }
+            Err(error) => return Err(error.into()),
+        };
         if count == 0 {
             return Err(ControlTransportError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -214,26 +287,15 @@ fn read_exact_timeout(
 #[cfg(unix)]
 mod platform {
     use super::*;
+    use crate::inherited_pipe;
     use std::fs::File;
-    use std::os::fd::{FromRawFd, RawFd};
 
     pub struct PipeReader(File);
     pub struct PipeWriter(File);
 
     impl PipeReader {
         pub fn adopt(raw: u64) -> Result<Self, ControlTransportError> {
-            let fd = i32::try_from(raw).map_err(|_| {
-                ControlTransportError::InvalidHandle(
-                    "control read pipe is not a POSIX file descriptor",
-                )
-            })?;
-            if fd < 0 {
-                return Err(ControlTransportError::InvalidHandle(
-                    "control read pipe is invalid",
-                ));
-            }
-            // SAFETY: the launcher transfers ownership of this inherited descriptor.
-            Ok(Self(unsafe { File::from_raw_fd(fd as RawFd) }))
+            Ok(Self(inherited_pipe::adopt(raw)?))
         }
 
         pub(super) fn read_until(
@@ -277,18 +339,7 @@ mod platform {
 
     impl PipeWriter {
         pub fn adopt(raw: u64) -> Result<Self, ControlTransportError> {
-            let fd = i32::try_from(raw).map_err(|_| {
-                ControlTransportError::InvalidHandle(
-                    "control write pipe is not a POSIX file descriptor",
-                )
-            })?;
-            if fd < 0 {
-                return Err(ControlTransportError::InvalidHandle(
-                    "control write pipe is invalid",
-                ));
-            }
-            // SAFETY: the launcher transfers ownership of this inherited descriptor.
-            Ok(Self(unsafe { File::from_raw_fd(fd as RawFd) }))
+            Ok(Self(inherited_pipe::adopt(raw)?))
         }
     }
 
@@ -310,27 +361,15 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use super::*;
+    use crate::inherited_pipe;
     use std::fs::File;
-    use std::os::windows::io::FromRawHandle;
 
     pub struct PipeReader(File);
     pub struct PipeWriter(File);
 
-    fn handle(
-        raw: u64,
-        label: &'static str,
-    ) -> Result<*mut std::ffi::c_void, ControlTransportError> {
-        if raw == 0 || raw == u64::MAX {
-            return Err(ControlTransportError::InvalidHandle(label));
-        }
-        Ok(raw as usize as *mut std::ffi::c_void)
-    }
-
     impl PipeReader {
         pub fn adopt(raw: u64) -> Result<Self, ControlTransportError> {
-            let handle = handle(raw, "control read pipe is invalid")?;
-            // SAFETY: the launcher transfers ownership of this inherited handle.
-            Ok(Self(unsafe { File::from_raw_handle(handle) }))
+            Ok(Self(inherited_pipe::adopt(raw)?))
         }
 
         pub(super) fn read_until(
@@ -380,9 +419,7 @@ mod platform {
 
     impl PipeWriter {
         pub fn adopt(raw: u64) -> Result<Self, ControlTransportError> {
-            let handle = handle(raw, "control write pipe is invalid")?;
-            // SAFETY: the launcher transfers ownership of this inherited handle.
-            Ok(Self(unsafe { File::from_raw_handle(handle) }))
+            Ok(Self(inherited_pipe::adopt(raw)?))
         }
     }
 
@@ -433,13 +470,50 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn clear_close_on_exec(fd: i32) {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) },
+            0
+        );
+    }
+
+    #[cfg(unix)]
+    fn assert_close_on_exec(fd: i32) {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_ne!(flags & libc::FD_CLOEXEC, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adopted_control_descriptors_are_close_on_exec() {
+        let (read_in, write_in) = pipe();
+        let (read_out, write_out) = pipe();
+        let _input = unsafe { std::fs::File::from_raw_fd(write_in) };
+        let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
+        clear_close_on_exec(read_in);
+        clear_close_on_exec(write_out);
+
+        let _transport = ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: read_in as u64,
+            write_pipe: write_out as u64,
+        })
+        .unwrap();
+
+        assert_close_on_exec(read_in);
+        assert_close_on_exec(write_out);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn fragmented_and_concatenated_frames() {
         let (read_in, write_in) = pipe();
         let (read_out, write_out) = pipe();
         let mut input = unsafe { std::fs::File::from_raw_fd(write_in) };
         let mut output = unsafe { std::fs::File::from_raw_fd(read_out) };
-        let mut transport = ControlTransport::adopt(ControlTransportConfig {
+        let transport = ControlTransport::adopt(ControlTransportConfig {
             read_pipe: read_in as u64,
             write_pipe: write_out as u64,
         })
@@ -468,7 +542,7 @@ mod tests {
         let (read_out, write_out) = pipe();
         let _input = unsafe { std::fs::File::from_raw_fd(write_in) };
         let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
-        let mut transport = ControlTransport::adopt(ControlTransportConfig {
+        let transport = ControlTransport::adopt(ControlTransportConfig {
             read_pipe: read_in as u64,
             write_pipe: write_out as u64,
         })
@@ -488,7 +562,7 @@ mod tests {
         let (read_out, write_out) = pipe();
         let mut input = unsafe { std::fs::File::from_raw_fd(write_in) };
         let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
-        let mut transport = ControlTransport::adopt(ControlTransportConfig {
+        let transport = ControlTransport::adopt(ControlTransportConfig {
             read_pipe: read_in as u64,
             write_pipe: write_out as u64,
         })
@@ -518,7 +592,7 @@ mod tests {
         let (read_out, write_out) = pipe();
         let mut input = unsafe { std::fs::File::from_raw_fd(write_in) };
         let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
-        let mut transport = ControlTransport::adopt(ControlTransportConfig {
+        let transport = ControlTransport::adopt(ControlTransportConfig {
             read_pipe: read_in as u64,
             write_pipe: write_out as u64,
         })
@@ -551,7 +625,7 @@ mod tests {
         let (read_out, write_out) = pipe();
         let input = unsafe { std::fs::File::from_raw_fd(write_in) };
         let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
-        let mut transport = ControlTransport::adopt(ControlTransportConfig {
+        let transport = ControlTransport::adopt(ControlTransportConfig {
             read_pipe: read_in as u64,
             write_pipe: write_out as u64,
         })
@@ -566,7 +640,7 @@ mod tests {
         let (read_out, write_out) = pipe();
         let mut input = unsafe { std::fs::File::from_raw_fd(write_in) };
         let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
-        let mut transport = ControlTransport::adopt(ControlTransportConfig {
+        let transport = ControlTransport::adopt(ControlTransportConfig {
             read_pipe: read_in as u64,
             write_pipe: write_out as u64,
         })
@@ -583,5 +657,64 @@ mod tests {
         ));
         assert!(started.elapsed() < Duration::from_secs(1));
         writer.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_read_uses_a_separate_completion_deadline() {
+        let (read_in, write_in) = pipe();
+        let (read_out, write_out) = pipe();
+        let mut input = unsafe { std::fs::File::from_raw_fd(write_in) };
+        let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
+        let transport = ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: read_in as u64,
+            write_pipe: write_out as u64,
+        })
+        .unwrap();
+        let hello = encode_frame(MessageType::Hello, 0, None).unwrap();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(40));
+            input.write_all(&hello[..1]).unwrap();
+            std::thread::sleep(Duration::from_millis(40));
+            let _ = input.write_all(&hello[1..]);
+        });
+        let stop = AtomicBool::new(false);
+        assert!(matches!(
+            transport.read_frame_startup(
+                Duration::from_millis(100),
+                Duration::from_millis(20),
+                &stop,
+            ),
+            Err(ControlTransportError::Timeout)
+        ));
+        writer.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_read_observes_cancellation_before_its_deadline() {
+        let (read_in, write_in) = pipe();
+        let (read_out, write_out) = pipe();
+        let _input = unsafe { std::fs::File::from_raw_fd(write_in) };
+        let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
+        let transport = ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: read_in as u64,
+            write_pipe: write_out as u64,
+        })
+        .unwrap();
+        let stop = AtomicBool::new(false);
+        let started = Instant::now();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(25));
+                stop.store(true, Ordering::Release);
+            });
+            assert!(matches!(
+                transport
+                    .read_frame_startup(Duration::from_secs(5), Duration::from_secs(5), &stop,),
+                Err(ControlTransportError::Cancelled)
+            ));
+        });
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 }
