@@ -17,6 +17,12 @@ const CONTROL_VERSION: u64 = 1;
 const SESSION_KIND: &str = "session_init";
 const WORKBENCH_FORMAT: &str = "multiwfn-matterviz-workbench";
 const WORKBENCH_VERSION: u64 = 2;
+const PLOT_FORMAT: &str = "multiwfn-matterviz-plot";
+const PLOT_VERSION: u64 = 1;
+const MAX_PLOT_SERIES: usize = 128;
+const MAX_PLOT_POINTS: usize = 2_000_000;
+const MAX_PLOT_STICKS_POINTS: usize = 100_000;
+const MAX_PLOT_LABELS: usize = 20_000;
 
 /// Errors returned when a control frame cannot be used to bootstrap a
 /// MatterViz session.
@@ -34,6 +40,7 @@ pub(crate) enum SessionDataError {
     InvalidManifestFormat,
     InvalidManifestVersion,
     InvalidManifestEntry,
+    InvalidManifestPlot(&'static str),
     InvalidOptionalObject(&'static str),
     Serialization,
 }
@@ -75,6 +82,9 @@ impl fmt::Display for SessionDataError {
             Self::InvalidManifestEntry => f.write_str(
                 "formal manifest entries must use in-memory session or volume API paths",
             ),
+            Self::InvalidManifestPlot(reason) => {
+                write!(f, "manifest plot is invalid: {reason}")
+            }
             Self::InvalidOptionalObject(field) => {
                 write!(f, "session_init {field} must be a JSON object or null")
             }
@@ -145,6 +155,7 @@ impl SessionData {
             SessionDataError::MissingManifestField("version"),
         )?;
         validate_manifest_entries(manifest_object)?;
+        validate_manifest_plot(manifest_object)?;
 
         let manifest = serialize(manifest)?;
         let structure = optional_object(object, "structure")?;
@@ -214,6 +225,271 @@ fn validate_manifest_entries(
         }
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct PlotLimits {
+    series: usize,
+    points: usize,
+    sticks_points: usize,
+    labels: usize,
+}
+
+impl PlotLimits {
+    fn add_series(
+        &mut self,
+        points: usize,
+        sticks: bool,
+        labels: usize,
+    ) -> Result<(), SessionDataError> {
+        self.series = self
+            .series
+            .checked_add(1)
+            .ok_or(SessionDataError::InvalidManifestPlot("series limit"))?;
+        self.points = self
+            .points
+            .checked_add(points)
+            .ok_or(SessionDataError::InvalidManifestPlot("point limit"))?;
+        self.labels = self
+            .labels
+            .checked_add(labels)
+            .ok_or(SessionDataError::InvalidManifestPlot("label limit"))?;
+        if sticks {
+            self.sticks_points = self
+                .sticks_points
+                .checked_add(points)
+                .ok_or(SessionDataError::InvalidManifestPlot("stick point limit"))?;
+        }
+        if self.series > MAX_PLOT_SERIES {
+            return Err(SessionDataError::InvalidManifestPlot("too many series"));
+        }
+        if self.points > MAX_PLOT_POINTS {
+            return Err(SessionDataError::InvalidManifestPlot("too many points"));
+        }
+        if self.sticks_points > MAX_PLOT_STICKS_POINTS {
+            return Err(SessionDataError::InvalidManifestPlot(
+                "too many sticks points",
+            ));
+        }
+        if self.labels > MAX_PLOT_LABELS {
+            return Err(SessionDataError::InvalidManifestPlot("too many labels"));
+        }
+        Ok(())
+    }
+}
+
+fn validate_manifest_plot(
+    manifest: &serde_json::Map<String, Value>,
+) -> Result<(), SessionDataError> {
+    let Some(plot) = manifest.get("plot") else {
+        return Ok(());
+    };
+    let plot = plot
+        .as_object()
+        .ok_or(SessionDataError::InvalidManifestPlot(
+            "root must be an object",
+        ))?;
+    if plot.get("format").and_then(Value::as_str) != Some(PLOT_FORMAT)
+        || plot.get("version").and_then(Value::as_u64) != Some(PLOT_VERSION)
+    {
+        return Err(SessionDataError::InvalidManifestPlot(
+            "unsupported format or version",
+        ));
+    }
+    let kind = plot
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or(SessionDataError::InvalidManifestPlot("kind"))?;
+    if !matches!(kind, "dos" | "ir" | "raman" | "uvvis" | "nmr") {
+        return Err(SessionDataError::InvalidManifestPlot("kind"));
+    }
+    require_non_empty_string(plot, "title")?;
+    let panels = plot
+        .get("panels")
+        .and_then(Value::as_array)
+        .filter(|panels| !panels.is_empty())
+        .ok_or(SessionDataError::InvalidManifestPlot("panels"))?;
+
+    let mut limits = PlotLimits::default();
+    for panel in panels {
+        validate_plot_panel(panel, &mut limits)?;
+    }
+    Ok(())
+}
+
+fn validate_plot_panel(value: &Value, limits: &mut PlotLimits) -> Result<(), SessionDataError> {
+    let panel = value
+        .as_object()
+        .ok_or(SessionDataError::InvalidManifestPlot("panel"))?;
+    require_non_empty_string(panel, "id")?;
+    if let Some(title) = panel.get("title") {
+        require_non_empty_value_string(title)?;
+    }
+    if let Some(height_weight) = panel.get("heightWeight") {
+        require_finite_number(height_weight)?;
+    }
+    validate_plot_axis(panel.get("xAxis"))?;
+    validate_plot_axis(panel.get("yAxis"))?;
+    if let Some(y2_axis) = panel.get("y2Axis") {
+        validate_plot_axis(Some(y2_axis))?;
+    }
+    let series = panel
+        .get("series")
+        .and_then(Value::as_array)
+        .filter(|series| !series.is_empty())
+        .ok_or(SessionDataError::InvalidManifestPlot("series"))?;
+    for item in series {
+        validate_plot_series(item, limits)?;
+    }
+    if let Some(references) = panel.get("referenceLines") {
+        let references = references
+            .as_array()
+            .ok_or(SessionDataError::InvalidManifestPlot("referenceLines"))?;
+        for reference in references {
+            validate_plot_reference_line(reference)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_plot_axis(value: Option<&Value>) -> Result<(), SessionDataError> {
+    let axis = value
+        .and_then(Value::as_object)
+        .ok_or(SessionDataError::InvalidManifestPlot("axis"))?;
+    require_non_empty_string(axis, "label")?;
+    if let Some(unit) = axis.get("unit") {
+        require_non_empty_value_string(unit)?;
+    }
+    let range = axis
+        .get("range")
+        .and_then(Value::as_array)
+        .filter(|range| range.len() == 2)
+        .ok_or(SessionDataError::InvalidManifestPlot("axis range"))?;
+    for bound in range {
+        require_finite_number(bound)?;
+    }
+    Ok(())
+}
+
+fn validate_plot_series(value: &Value, limits: &mut PlotLimits) -> Result<(), SessionDataError> {
+    let series = value
+        .as_object()
+        .ok_or(SessionDataError::InvalidManifestPlot("series item"))?;
+    let series_type = series
+        .get("type")
+        .and_then(Value::as_str)
+        .filter(|series_type| matches!(*series_type, "line" | "sticks"))
+        .ok_or(SessionDataError::InvalidManifestPlot("series type"))?;
+    require_non_empty_string(series, "id")?;
+    for field in ["label", "color"] {
+        if let Some(value) = series.get(field) {
+            require_non_empty_value_string(value)?;
+        }
+    }
+    if let Some(axis) = series.get("axis") {
+        if !matches!(axis.as_str(), Some("y" | "y2")) {
+            return Err(SessionDataError::InvalidManifestPlot("series axis"));
+        }
+    }
+    if let Some(line_width) = series.get("lineWidth") {
+        require_finite_number(line_width)?;
+    }
+    if let Some(dash) = series.get("dash") {
+        if !matches!(dash.as_str(), Some("solid" | "dash")) {
+            return Err(SessionDataError::InvalidManifestPlot("series dash"));
+        }
+    }
+    if let Some(visible) = series.get("visible") {
+        if !visible.is_boolean() {
+            return Err(SessionDataError::InvalidManifestPlot("series visible"));
+        }
+    }
+    let x = finite_number_array(series.get("x"))?;
+    let y = finite_number_array(series.get("y"))?;
+    if x.len() != y.len() {
+        return Err(SessionDataError::InvalidManifestPlot("series x/y lengths"));
+    }
+    let mut non_null_labels = 0;
+    if let Some(labels) = series.get("labels") {
+        let labels = labels
+            .as_array()
+            .filter(|labels| labels.len() == x.len())
+            .ok_or(SessionDataError::InvalidManifestPlot("series labels"))?;
+        for label in labels {
+            if !label.is_null() {
+                require_non_empty_value_string(label)?;
+                non_null_labels += 1;
+            }
+        }
+    }
+    limits.add_series(x.len(), series_type == "sticks", non_null_labels)
+}
+
+fn validate_plot_reference_line(value: &Value) -> Result<(), SessionDataError> {
+    let reference = value
+        .as_object()
+        .ok_or(SessionDataError::InvalidManifestPlot("reference line"))?;
+    if !matches!(
+        reference.get("axis").and_then(Value::as_str),
+        Some("x" | "y" | "y2")
+    ) {
+        return Err(SessionDataError::InvalidManifestPlot("reference line axis"));
+    }
+    require_finite_number(
+        reference
+            .get("value")
+            .ok_or(SessionDataError::InvalidManifestPlot(
+                "reference line value",
+            ))?,
+    )?;
+    for field in ["label", "color"] {
+        if let Some(value) = reference.get(field) {
+            require_non_empty_value_string(value)?;
+        }
+    }
+    if let Some(dash) = reference.get("dash") {
+        if !matches!(dash.as_str(), Some("solid" | "dash")) {
+            return Err(SessionDataError::InvalidManifestPlot("reference line dash"));
+        }
+    }
+    Ok(())
+}
+
+fn finite_number_array(value: Option<&Value>) -> Result<&[Value], SessionDataError> {
+    let values = value
+        .and_then(Value::as_array)
+        .filter(|values| !values.is_empty())
+        .ok_or(SessionDataError::InvalidManifestPlot("number array"))?;
+    for value in values {
+        require_finite_number(value)?;
+    }
+    Ok(values)
+}
+
+fn require_finite_number(value: &Value) -> Result<(), SessionDataError> {
+    if value.as_f64().is_some_and(|value| value.is_finite()) {
+        Ok(())
+    } else {
+        Err(SessionDataError::InvalidManifestPlot("finite number"))
+    }
+}
+
+fn require_non_empty_string(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<(), SessionDataError> {
+    let value = object
+        .get(field)
+        .ok_or(SessionDataError::InvalidManifestPlot(field))?;
+    require_non_empty_value_string(value)
+}
+
+fn require_non_empty_value_string(value: &Value) -> Result<(), SessionDataError> {
+    if value.as_str().is_some_and(|value| !value.is_empty()) {
+        Ok(())
+    } else {
+        Err(SessionDataError::InvalidManifestPlot("string"))
+    }
 }
 
 fn require_string(
@@ -298,6 +574,29 @@ mod tests {
             },
             "structure": {"atoms": []},
             "state": {"camera": {"zoom": 1}}
+        })
+    }
+
+    fn valid_plot() -> Value {
+        json!({
+            "format": PLOT_FORMAT,
+            "version": PLOT_VERSION,
+            "kind": "dos",
+            "title": "Density of states",
+            "panels": [{
+                "id": "total",
+                "xAxis": {"label": "Energy", "range": [-5.0, 5.0]},
+                "yAxis": {"label": "DOS", "range": [0.0, 10.0]},
+                "y2Axis": {"label": "Projected", "unit": "arb.", "range": [10.0, 0.0]},
+                "series": [{
+                    "id": "up",
+                    "label": "Spin up",
+                    "type": "sticks",
+                    "x": [-1.0, 1.0],
+                    "y": [2.0, 4.0],
+                    "labels": ["left", null]
+                }]
+            }]
         })
     }
 
@@ -402,5 +701,78 @@ mod tests {
         let mut body = valid_body();
         body["manifest"]["structure"] = Value::Null;
         assert!(SessionData::parse(&frame(body)).is_ok());
+    }
+
+    #[test]
+    fn accepts_a_valid_inline_plot() {
+        let mut body = valid_body();
+        body["manifest"]["plot"] = valid_plot();
+        assert!(SessionData::parse(&frame(body)).is_ok());
+    }
+
+    #[test]
+    fn rejects_malformed_inline_plot() {
+        let mut wrong_version = valid_body();
+        wrong_version["manifest"]["plot"] = valid_plot();
+        wrong_version["manifest"]["plot"]["version"] = json!(2);
+        assert!(matches!(
+            SessionData::parse(&frame(wrong_version)),
+            Err(SessionDataError::InvalidManifestPlot(
+                "unsupported format or version"
+            ))
+        ));
+
+        let mut nonfinite = valid_body();
+        nonfinite["manifest"]["plot"] = valid_plot();
+        nonfinite["manifest"]["plot"]["panels"][0]["series"][0]["y"][0] = Value::Null;
+        assert!(matches!(
+            SessionData::parse(&frame(nonfinite)),
+            Err(SessionDataError::InvalidManifestPlot("finite number"))
+        ));
+
+        let mut mismatched = valid_body();
+        mismatched["manifest"]["plot"] = valid_plot();
+        mismatched["manifest"]["plot"]["panels"][0]["series"][0]["y"] = json!([2.0]);
+        assert!(matches!(
+            SessionData::parse(&frame(mismatched)),
+            Err(SessionDataError::InvalidManifestPlot("series x/y lengths"))
+        ));
+    }
+
+    #[test]
+    fn enforces_inline_plot_limits_without_large_allocations() {
+        let mut series = PlotLimits::default();
+        for _ in 0..MAX_PLOT_SERIES {
+            series.add_series(0, false, 0).unwrap();
+        }
+        assert_eq!(
+            series.add_series(0, false, 0),
+            Err(SessionDataError::InvalidManifestPlot("too many series"))
+        );
+
+        let mut points = PlotLimits::default();
+        points.add_series(MAX_PLOT_POINTS, false, 0).unwrap();
+        assert_eq!(
+            points.add_series(1, false, 0),
+            Err(SessionDataError::InvalidManifestPlot("too many points"))
+        );
+
+        let mut sticks = PlotLimits::default();
+        sticks.add_series(MAX_PLOT_STICKS_POINTS, true, 0).unwrap();
+        assert_eq!(
+            sticks.add_series(1, true, 0),
+            Err(SessionDataError::InvalidManifestPlot(
+                "too many sticks points"
+            ))
+        );
+
+        let mut labels = PlotLimits::default();
+        labels
+            .add_series(MAX_PLOT_LABELS, false, MAX_PLOT_LABELS)
+            .unwrap();
+        assert_eq!(
+            labels.add_series(1, false, 1),
+            Err(SessionDataError::InvalidManifestPlot("too many labels"))
+        );
     }
 }

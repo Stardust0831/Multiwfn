@@ -1,5 +1,64 @@
 # MatterViz parity development log
 
+## 2026-07-17: MatterViz upstream scalar-grid PR reconstruction
+
+- Re-audited the Multiwfn MatterViz vendor changes against upstream MatterViz
+  `v0.4.3` (`448bcff8`). Upstream already contains batched Worker meshing,
+  cancellation, multi-volume coloring, explicit bonds and geometry lifecycle
+  handling, so those are excluded from the new contribution.
+- Created clean branch `agent/scalar-grid-kernel` from upstream instead of
+  reusing the older camera/vendor branch. The pre-existing untracked
+  `windows-preview/` directory remains untouched and excluded.
+- Reconstructed only the first compatibility layer: internal flat
+  `ScalarGrid3D` storage with Float32/Float64 data and explicit
+  `x_fastest`/`z_fastest` order, plus marching-cubes support. The public
+  `VolumetricData.grid` contract, parsers, sampling, Worker protocol and
+  Multiwfn transport remain unchanged.
+- Preserved the legacy nested-grid direct-index hot path and added explicit
+  rejection of malformed flat dimensions or data lengths. Tests compare
+  positions, indices and normals across both storage orders and precisions for
+  periodic and finite grids, including buffer output and empty inputs.
+- Focused marching-cubes, sampling and isosurface utility verification passes
+  165/165 tests. Scoped Vite+ lint, `svelte-package` and distribution asset
+  packaging pass.
+  Full `svelte-check` remains blocked by the existing missing optional
+  `d3-contour` and `anywidget/types` modules; formatting cannot run in this WSL
+  install because its Linux oxfmt native binding is absent. `git diff --check`
+  is clean. Independent review found one important runtime-validation gap:
+  unknown storage orders were silently treated as `z_fastest`. The final code
+  rejects unknown orders and non-Float32/Float64 data, adds a hard-coded index
+  sentinel, periodic Float32 and axis-specific degenerate coverage, and passed
+  follow-up review with no blocker. A controlled red/green run confirmed the
+  sentinel fails when the x-fastest formula is deliberately replaced by the
+  z-fastest formula and passes after restoration.
+- Refetched `janosh/matterviz` before finalization; upstream `main` remains
+  `448bcff8`, so no rebase conflict exists. The contribution is maintained on
+  the separate `Stardust0831/matterviz` fork branch
+  `agent/scalar-grid-kernel`; no direct upstream push is permitted.
+- Committed the final three-file diff as `19415f79` and pushed only to the fork
+  branch. The upstream PR has not been opened; the prepared English body and
+  compare URL remain in `docs/matterviz-upstream-drafts.md` for user review.
+- After upstream PR #414 was opened, its first CI run exposed two repository
+  policy failures rather than numerical failures. The `prek` job showed the
+  exact Vite+ formatting diff for the three changed files, while `knip` found
+  the exported but externally unused `ScalarGridArray` helper type. Applied
+  only the formatter-produced line layout and made that helper type internal.
+  The upstream formatter, Knip, scoped lint and all 165 related tests pass
+  locally. Commit `3d8470bd` was pushed to the fork PR branch and replacement
+  CI completed successfully: build, unit tests, all four E2E shards, Dash,
+  Knip, prek, publint, CodeRabbit and GitGuardian pass. Deploy is expectedly
+  skipped and GitHub reports PR #414 as `mergeStateStatus=CLEAN`.
+- CodeRabbit's original review contained one useful correctness finding despite
+  the later incremental review reporting no new action: runtime dimensions with
+  four entries passed validation because only the first three contributed to
+  the expected data length. Added an explicit exact-arity check and malformed
+  tests for missing and extra dimensions. The extra-dimension test failed before
+  the fix and passes afterward; the related suite count is now 167/167. Pushed
+  commit `e87c2c59`, replied with the verification evidence and resolved the
+  inline review thread. The replacement build, four E2E shards, unit tests,
+  Dash, Knip, prek, publint and CodeRabbit all pass; the PR has zero unresolved
+  review threads and GitHub reports `mergeStateStatus=CLEAN`.
+
 ## 2026-07-14: Native Rust host migration started
 
 - Corrected the implementation direction after the Python launcher fixes became a second process-lifecycle layer: MatterViz will use one native Rust host for the local HTTP/session service, WebView creation, API routing, native file selection, port binding and shutdown. Fortran remains the tightly coupled Multiwfn calculation adapter and continues to own the existing request loop; no calculation core was changed.
@@ -1171,3 +1230,86 @@
   all 19 review threads remain resolved. GitHub now reports the branch as
   mergeable but `REVIEW_REQUIRED`; the remaining gate is approval from the
   requested independent reviewer, not an unresolved bot conversation.
+
+## 2026-07-17: non-invasive native 2D plot bridge
+
+- Re-audited the native plot sources after choosing MatterViz `ScatterPlot`.
+  Multiwfn already passes its final sampled curves and discrete lines to the
+  DISLIN Fortran API after broadening, weighting and unit conversion. The
+  implementation therefore captures that existing GUI boundary instead of
+  adding calls to `DOS.f90` or `spectrum.f90`; those scientific files remain
+  byte-for-byte unchanged.
+- Added `noGUI/matterviz_plot_capture.f90` and connected only the MatterViz
+  build's previously empty DISLIN stubs. The capture records axes, panel
+  geometry, style and copied final `CURVE` arrays. Three-point DISLIN spikes are
+  normalized to position/intensity pairs. Unsupported plot kinds are not
+  advertised or launched.
+- The capture is serialized as inline `multiwfn-matterviz-plot` v1 inside the
+  existing in-memory workbench manifest. It uses the established `MWFNCTL`
+  bootstrap and shutdown pipes, so menu 10/11 can open a synchronous plot-only
+  WebView without menu 0, a structure artifact or runtime files.
+- Rust now validates the plot schema and resource limits before retaining the
+  immutable manifest. The frontend maps all panels through one
+  `MultiwfnPlotView`/MatterViz `ScatterPlot` path. Fortran remains authoritative
+  for FWHM, line shape, units, weighting, range and visibility.
+- Local evidence: 30 Python adapter/build tests pass; frontend plot tests and
+  the full frontend suite pass; Svelte check and Vite production build pass;
+  Rust formatting passes. A temporary unpacked GNU Fortran 13 toolchain
+  compiles the capture module, MatterViz stubs and GUI adapter with the
+  MatterViz macro both enabled and disabled. A linked synthetic harness verifies
+  reversed ranges and three-point spike compression. Playwright renders DOS,
+  IR, Raman, UV-Vis and NMR at 1400x900 and 800x700 with nonempty SVG paths, no
+  binding warnings, page errors, horizontal overflow or panel overlap. Full
+  Rust compilation remains blocked locally by missing Wayland `pkg-config`
+  development files; three-platform native builds and real Multiwfn menu
+  workflows remain explicit CI/manual gates.
+- The independent read-only review found that the first label-based classifier
+  also accepted LDOS and VDOS, limits silently returned partial captures,
+  legend text used an unsafe end-offset guess, and `MYLINE`/`RLMESS` semantics
+  were absent. All accepted findings were corrected only in the MatterViz GUI
+  boundary. Regular DOS now requires its exact Y label plus the native
+  `LEGINI` call pattern; LDOS and VDOS fail closed. Series, sampled-point,
+  discrete-stick, label and legend overflows invalidate the whole capture and
+  print a terminal diagnostic instead of launching incomplete scientific data.
+- Legend text is attached at `LEGLIN` time only to still-unlabelled captured
+  series with the active DISLIN color; ambiguous reused colors remain generic
+  rather than being assigned a potentially incorrect identity. Two-point
+  vertical `CURVE` calls become MatterViz reference lines, `MYLINE` preserves
+  their dashed state, and bounded `RLMESS` text is attached to the nearest
+  original point in the same panel/axis state for ScatterPlot point labels.
+  Presentation-only DISLIN superscript/epsilon markup is normalized to plain
+  ASCII while all coordinates and scientific values remain unchanged.
+- CI now invokes `test_matterviz_plot_adapter.py`. Its linked GNU Fortran
+  harness exercises native-order DOS and IR calls, rejects LDOS/VDOS, verifies
+  legend, dash, label and axis-markup capture, and proves that series and stick
+  overflow suppress a WebView launch. GNU Fortran 13 compiles the capture,
+  MatterViz DISLIN stubs and `GUI_matterviz.f90` with the backend macro enabled,
+  and the legacy stub path with it disabled.
+- Final local frontend verification on current `origin/main` passes 125/125
+  tests, zero Svelte
+  diagnostics and the production Vite build. A fresh Playwright replay renders
+  all five minimal native plot artifacts at 1400x900 and 800x700; every view
+  contains nonempty SVG paths with no page/console error, document overflow or
+  header/panel overlap. The replay also confirms a captured point label and
+  dashed reference line remain visible through the ScatterPlot adapter.
+- The post-fix review identified deeper native sequences that the first harness
+  did not cover. A VDOS plot can re-enable its IR/Raman discrete-line panel,
+  and NMR repeats its 14-color palette for system 15. Classification now vetoes
+  the entire capture whenever any panel carries the exact VDOS axis label,
+  before considering otherwise supported secondary labels. Legend resolution
+  is deferred until `DISFIN`; a color is used only when it maps to exactly one
+  captured legend entry, while reused-color systems intentionally keep generic
+  names instead of receiving a false identity.
+- Point labels now use bounded sparse records plus per-series linked indices.
+  This removes the former fixed 160-character allocation for every sampled
+  point, preserves multiple native atom labels on the same NMR stick in order,
+  emits labels in O(points + labels) work, and rejects an oversized individual
+  `RLMESS` value rather than truncating it. The linked harness now reproduces
+  VDOS with a supported-looking secondary panel, repeated NMR colors, repeated
+  labels on one point and oversized-label rejection in addition to the earlier
+  limit cases.
+- The final macro-off compile caught that plot-only serializer helpers were
+  visible without their MatterViz capture type. The complete 2D adapter block
+  is now guarded by `MULTIWFN_MATTERVIZ_BACKEND`. Fresh GNU Fortran 13 builds
+  pass for both the MatterViz macro-on module/GUI/stub set and the macro-off
+  legacy GUI/stub set; the scientific source diff remains empty.

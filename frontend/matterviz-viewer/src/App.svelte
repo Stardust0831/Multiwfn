@@ -15,6 +15,7 @@
   import { onMount } from 'svelte'
   import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
+  import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
   import {
@@ -66,6 +67,7 @@
     orbital_visibility,
     type VolumeCacheOptions,
   } from './volume-cache'
+  import { parse_plot_artifact, type PlotArtifact } from './plot'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -132,6 +134,7 @@
     [key: string]: unknown
   }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
+  let plotArtifact = $state<PlotArtifact | undefined>()
 
   type ApiPayload = {
     ok?: boolean
@@ -633,6 +636,12 @@
       const response = await fetch(url, { cache: 'no-store' })
       if (!response.ok) throw new Error(`Manifest request returned HTTP ${response.status}`)
       manifest = (await response.json()) as MultiwfnManifest
+      const inlinePlot = (manifest as MultiwfnManifest & { plot?: unknown }).plot
+      if (inlinePlot !== undefined) {
+        plotArtifact = parse_plot_artifact(inlinePlot)
+        loading = false
+        return
+      }
       manifestBase = new URL('.', url)
       quality = Number(manifest.espAnalysis?.defaultQuality ?? 120000)
       orbitalIsovalue = normalize_orbital_isovalue(manifest.multiwfnGui?.state?.sur_value_orb, 0.02)
@@ -1075,6 +1084,9 @@
   onMount(load_manifest)
 </script>
 
+{#if plotArtifact}
+  <MultiwfnPlotView artifact={plotArtifact} />
+{:else}
 <main class="workbench" class:has-periodic={Boolean(manifest.periodic?.enabled)}>
   <header class="toolbar">
     <div class="brand">
@@ -1531,3 +1543,4 @@
     </aside>
   {/if}
 </main>
+{/if}

@@ -552,6 +552,42 @@ behavior requires the explicit diagnostic environment flag.
   `docs/matterviz-upstream-drafts.md`. Do not publish them before manual
   prerelease acceptance and a clean rebase onto current upstream.
 
+## MatterViz upstream scalar-grid PR
+
+- [x] Re-audit MatterViz `v0.4.3` and remove already-upstream Worker,
+  multi-volume, explicit-bond and lifecycle work from the proposed contribution.
+- [x] Create clean branch `agent/scalar-grid-kernel` from upstream `448bcff8`.
+- [x] Limit the first PR to internal `ScalarGrid3D` access and marching-cubes
+  parity. Keep `VolumetricData.grid`, parsers, sampling, Worker ownership,
+  budgets and all Multiwfn protocols unchanged.
+- [x] Cover nested, `x_fastest`, `z_fastest`, Float32, Float64, periodic,
+  non-periodic, normals, typed geometry buffers, empty grids and malformed flat
+  dimensions/data lengths.
+- [x] Pass focused MatterViz tests and package build; record the existing
+  optional-dependency and Linux oxfmt-binding limitations without hiding them.
+- [x] Adjudicate the independent read-only review. Add runtime storage-order and
+  typed-array validation plus independent sentinel, periodic Float32 and
+  axis-degenerate tests; the follow-up review reports no remaining blocker.
+- [x] Commit and push the minimal branch only to the separate
+  `Stardust0831/matterviz` fork as `19415f79` on
+  `agent/scalar-grid-kernel`. Do not push directly to `janosh/matterviz`.
+- [x] Open upstream MatterViz PR #414 from the fork branch to
+  `janosh/matterviz:main`; do not add parser/Worker/API changes to this PR.
+- [x] Diagnose the first CI failures as formatter output and an unnecessarily
+  exported internal helper type. Apply the exact Vite+ formatting and make
+  `ScalarGridArray` internal in commit `3d8470bd`.
+- [x] Confirm replacement PR #414 CI is green at `3d8470bd`: build, unit tests,
+  four E2E shards, Dash, Knip, prek, publint, CodeRabbit and GitGuardian all
+  pass. GitHub reports `mergeStateStatus=CLEAN`.
+- [x] Evaluate and implement CodeRabbit's valid dimension-arity finding.
+  `ScalarGrid3D` now rejects missing or extra dimensions; red/green evidence
+  reproduces the four-dimensional acceptance bug before commit `e87c2c59`, and
+  167 related tests pass afterward. Reply to and resolve the inline thread;
+  replacement CI is fully green with zero unresolved threads and CLEAN merge
+  status.
+- [ ] Review any maintainer feedback without expanding the PR beyond the
+  marching-cubes compatibility layer.
+
 ## PR #26 final merge gate
 
 - [x] Fix the post-release macOS memory snapshot, finite-grid extent and ESP
@@ -566,3 +602,47 @@ behavior requires the explicit diagnostic environment flag.
 - [ ] Obtain approval from a different authorized reviewer. The branch is
   mergeable, but GitHub correctly reports `REVIEW_REQUIRED`; the PR author
   cannot satisfy this protection rule by self-approval.
+
+## 2026-07-17 native 2D plot replacement
+
+- [x] Keep `DOS.f90`, `spectrum.f90`, `Multiwfn.f90` and all numerical routines
+  unchanged. Capture final arrays only at the existing Fortran DISLIN GUI API
+  boundary used by the MatterViz noGUI build.
+- [x] Replace selected no-op DISLIN stubs with a bounded GUI capture module for
+  `METAFL`, `DISINI`, axis metadata, style state, `CURVE`, legends and `DISFIN`.
+  Do not parse external program output or inspect a browser/DOM plot.
+- [x] Add versioned inline `multiwfn-matterviz-plot` v1 data to the existing
+  in-memory `session_init`; reuse the current CRC-protected control pipes and
+  synchronous window-close shutdown path without a writable session directory.
+- [x] Add strict Rust validation for DOS, IR, Raman, UV-Vis and NMR artifacts,
+  including finite ranges, matched arrays and limits of 128 series, 2,000,000
+  sampled pairs, 100,000 stick pairs and 20,000 labels.
+- [x] Add one reusable `MultiwfnPlotView` composed from MatterViz
+  `ScatterPlot`; preserve descending axes, dual axes, multiple panels, legend,
+  pan/zoom, fullscreen and discrete sticks without reimplementing broadening.
+- [x] Add regression tests proving the scientific Fortran sources contain no
+  MatterViz plot hooks, validating protocol boundaries, reversed IR/NMR axes,
+  UV-Vis wavelength coordinates and DOS multi-panel sticks.
+- [x] Resolve the independent architecture review without touching scientific
+  sources: fail closed for LDOS/VDOS and capture overflow, enforce the 100,000
+  stick limit, bind legends by captured style rather than array offset, retain
+  `MYLINE` references and `RLMESS` labels, and normalize DISLIN-only axis markup.
+- [x] Add the plot adapter test to CI and run a linked Fortran harness covering
+  accepted DOS/IR sequences, excluded LDOS/VDOS, labels, dashes and both series
+  and stick overflow rejection.
+- [x] Extend fail-closed coverage for native VDOS plus re-enabled discrete
+  lines, NMR palette reuse after 14 systems, and repeated/oversized `RLMESS`
+  labels. Keep ambiguous legends generic and store labels sparsely in bounded
+  O(points + labels) structures.
+- [ ] Complete macOS and Windows compilation in CI. Local GNU Fortran 13
+  compilation now passes for the MatterViz macro-on adapter and macro-off
+  legacy DISLIN path; the linked Linux harness also passes.
+- [ ] Run native menu 10/11 acceptance with real Multiwfn-produced final arrays
+  for DOS/PDOS, IR, Raman, UV-Vis eV/nm and NMR; compare axis ranges, visible
+  series and sticks with the original DISLIN window.
+- [x] Run Playwright at 1400x900 and 800px against captured artifacts and assert
+  nonblank SVG, reversed axes, working legend/zoom and no overlap or page error.
+- [ ] Confirm normal plot close creates no manifest, plot JSON, session
+  directory or other runtime intermediate file on all three platforms.
+- [ ] Keep COHP, LDOS, PES, bands, ECD, VCD and ROA disabled in the first batch;
+  add them only after their GUI semantics are explicitly adapted and tested.

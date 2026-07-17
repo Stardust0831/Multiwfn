@@ -94,9 +94,16 @@
   end subroutine axsers
 
   subroutine axslen(i,j)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_axis_length
+#endif
     implicit none
     integer, intent (in) :: i,j
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_axis_length(i,j)
+#else
     call doesnotexist("axslen")
+#endif
   end subroutine axslen
 
   subroutine axsorg(i,j)
@@ -106,9 +113,16 @@
   end subroutine axsorg
 
   subroutine axspos(i,j)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_axis_position
+#endif
     implicit none
     integer, intent (in) :: i,j
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_axis_position(i,j)
+#else
     call doesnotexist("axspos")
+#endif
   end subroutine axspos
 
   subroutine axsscl(copt,cax)
@@ -405,9 +419,16 @@
   end subroutine clswin
 
   subroutine color(copt)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_color_name
+#endif
     implicit none
     character (len = *), intent (in) :: copt
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_color_name(copt)
+#else
     call doesnotexist("color")
+#endif
   end subroutine color
 
   subroutine colran(i,j)
@@ -687,10 +708,17 @@
   end subroutine csruni
 
   subroutine curve(x,y,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_curve
+#endif
     implicit none
     integer, intent (in) :: n
     double precision, dimension (n), intent (in) :: x,y
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_curve(x,y,n)
+#else
     call doesnotexist("curve")
+#endif
   end subroutine curve
 
   subroutine curve3(x,y,z,n)
@@ -731,7 +759,12 @@
   end subroutine cyli3d
 
   subroutine dash()
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_dash
+    call matterviz_capture_dash(.true.)
+#else
     call doesnotexist("dash")
+#endif
   end subroutine dash
 
   subroutine dashl()
@@ -787,11 +820,28 @@
   end subroutine disenv
 
   subroutine disfin()
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_plot_interactive,matterviz_capture_supported, &
+      matterviz_plot_capture_error,matterviz_capture_error_message,matterviz_capture_resolve_legends
+    if (matterviz_plot_interactive.and.matterviz_plot_capture_error/=0) then
+      write(*,"(a,a)") ' MatterViz plot was not opened: ',trim(matterviz_capture_error_message())
+    else if (matterviz_plot_interactive.and.matterviz_capture_supported()) then
+      call matterviz_capture_resolve_legends()
+      call matterviz_show_captured_plot()
+    end if
+    matterviz_plot_interactive=.false.
+#else
     call doesnotexist("disfin")
+#endif
   end subroutine disfin
 
   subroutine disini()
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_reset
+    call matterviz_capture_reset()
+#else
     call doesnotexist("disini")
+#endif
   end subroutine disini
 
   subroutine disk3d(x,y,z,r1,r2,nsk1,nsk2)
@@ -1428,9 +1478,16 @@
   end subroutine grace
 
   subroutine graf(ax,ex,orx,stepx,ay,ey,ory,stepy)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_graph
+#endif
     implicit none
     double precision, intent (in) :: ax,ex,orx,stepx,ay,ey,ory,stepy
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_graph(ax,ex,ay,ey)
+#else
     call doesnotexist("graf")
+#endif
   end subroutine graf
 
   subroutine graf3(ax,ex,orx,stepx,ay,ey,ory,stepy,az,ez,orz,stepz)
@@ -1981,18 +2038,32 @@
   end subroutine legend
 
   subroutine legini(cbf,nlin,nmax)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_legend_init
+#endif
     implicit none
     character (len = *), intent (in out) :: cbf
     integer, intent (in) :: nlin, nmax
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_legend_init()
+#else
     call doesnotexist("legini")
+#endif
   end subroutine legini
 
   subroutine leglin(cbf,cstr,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_legend
+#endif
     implicit none
     character (len = *), intent (in out) :: cbf
     character (len = *), intent (in) :: cstr
     integer, intent (in) :: n
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_legend(cstr)
+#else
     call doesnotexist("leglin")
+#endif
   end subroutine leglin
 
   subroutine legopt(x1,x2,x3)
@@ -2106,9 +2177,16 @@
   end subroutine lintyp
 
   subroutine linwid(i)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_line_width
+#endif
     implicit none
     integer, intent (in) :: i
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_line_width(i)
+#else
     call doesnotexist("linwid")
+#endif
   end subroutine linwid
 
   subroutine light(copt)
@@ -2274,9 +2352,16 @@
   end subroutine messag
 
   subroutine metafl(ct)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_metafl
+#endif
     implicit none
     character (len = *), intent (in) :: ct
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_metafl(ct)
+#else
     call doesnotexist("metafl")
+#endif
   end subroutine metafl
 
   subroutine mixalf()
@@ -2365,10 +2450,17 @@
   end subroutine mylab
 
   subroutine myline(nray,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_dash
+#endif
     implicit none
     integer, intent (in) :: n
     integer, dimension (n), intent (in) :: nray
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_dash(.true.)
+#else
     call doesnotexist("myline")
+#endif
   end subroutine myline
 
   subroutine mypat(iang,itype,idens,icross)
@@ -2406,9 +2498,16 @@
   end subroutine namdis
 
   subroutine name(cnam,cax)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_name
+#endif
     implicit none
     character (len = *), intent (in) :: cnam,cax
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_name(cnam,cax)
+#else
     call doesnotexist("name")
+#endif
   end subroutine name
 
   subroutine namjus(copt,cax)
@@ -3065,10 +3164,17 @@
   end subroutine rline
 
   subroutine rlmess(cstr,x,y)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_label
+#endif
     implicit none
     character (len = *), intent (in) :: cstr
     double precision, intent (in) :: x,y
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_label(cstr,x,y)
+#else
     call doesnotexist("rlmess")
+#endif
   end subroutine rlmess
 
   subroutine rlnumb(z,ndez,x,y)
@@ -3331,9 +3437,16 @@
   end subroutine setres
 
   subroutine setrgb(xr,xg,xb)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_rgb
+#endif
     implicit none
     double precision, intent (in) :: xr,xg,xb
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_rgb(xr,xg,xb)
+#else
     call doesnotexist("setrgb")
+#endif
   end subroutine setrgb
 
   subroutine setscl(xray,n,cstr)
@@ -3536,7 +3649,12 @@
   end subroutine smxalf
 
   subroutine solid()
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_dash
+    call matterviz_capture_dash(.false.)
+#else
     call doesnotexist("solid")
+#endif
   end subroutine solid
 
   subroutine sortr1(x,n,copt)
