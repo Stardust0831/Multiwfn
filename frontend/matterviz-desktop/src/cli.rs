@@ -8,6 +8,11 @@ use crate::service::AppConfig;
 use crate::transport::TransportConfig;
 
 const DEFAULT_URL: &str = "http://127.0.0.1:8765/index.html?manifest=/session/manifest.json";
+const DEFAULT_MANAGED_HOST: &str = if cfg!(target_os = "macos") {
+    "localhost"
+} else {
+    "127.0.0.1"
+};
 
 #[derive(Clone, Debug)]
 pub enum FileDialogDestination {
@@ -39,18 +44,26 @@ impl Cli {
     where
         I: IntoIterator<Item = String>,
     {
+        Self::parse_with_env(args, |name| std::env::var(name).ok())
+    }
+
+    fn parse_with_env<I, E>(args: I, env_var: E) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = String>,
+        E: Fn(&str) -> Option<String>,
+    {
         let mut frontend = None;
         let mut session = None;
         let mut manifest = None;
         let mut state = None;
         let mut host =
-            std::env::var("MULTIWFN_MATTERVIZ_HOST").unwrap_or_else(|_| "127.0.0.1".to_owned());
+            env_var("MULTIWFN_MATTERVIZ_HOST").unwrap_or_else(|| DEFAULT_MANAGED_HOST.to_owned());
         let mut host_arg = false;
-        let mut port = match std::env::var("MULTIWFN_MATTERVIZ_PORT") {
-            Ok(value) => value
+        let mut port = match env_var("MULTIWFN_MATTERVIZ_PORT") {
+            Some(value) => value
                 .parse()
                 .map_err(|_| "MULTIWFN_MATTERVIZ_PORT must be 0..65535".to_owned())?,
-            Err(_) => 8765_u16,
+            None => 8765_u16,
         };
         let mut port_arg = false;
         let mut url = None;
@@ -134,8 +147,7 @@ impl Cli {
 
         let startup_timeout = startup_timeout
             .or_else(|| {
-                std::env::var("MULTIWFN_MATTERVIZ_STARTUP_TIMEOUT")
-                    .ok()
+                env_var("MULTIWFN_MATTERVIZ_STARTUP_TIMEOUT")
                     .and_then(|value| parse_timeout(&value).ok())
             })
             .unwrap_or_else(|| Duration::from_secs(15));
@@ -211,7 +223,7 @@ impl Cli {
             {
                 return Err("transport pipes require a managed session".to_owned());
             }
-            let url = std::env::var("MATTERVIZ_WEB_URL").unwrap_or_else(|_| DEFAULT_URL.to_owned());
+            let url = env_var("MATTERVIZ_WEB_URL").unwrap_or_else(|| DEFAULT_URL.to_owned());
             validate_url(&url)?;
             return Ok(Self {
                 mode: Mode::DevUrl(url),
@@ -332,11 +344,18 @@ fn usage() -> String {
 mod tests {
     use std::path::Path;
 
-    use super::{Cli, FileDialogDestination, Mode};
+    use super::{Cli, FileDialogDestination, Mode, DEFAULT_MANAGED_HOST};
+
+    fn parse<I>(args: I) -> Result<Cli, String>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        Cli::parse_with_env(args, |_| None)
+    }
 
     #[test]
     fn parses_managed_session_and_defaults_manifest() {
-        let cli = Cli::parse([
+        let cli = parse([
             "--frontend".into(),
             "dist".into(),
             "--session=session".into(),
@@ -344,15 +363,16 @@ mod tests {
             "0".into(),
         ])
         .unwrap();
-        match cli.mode {
-            Mode::Managed(config) => assert_eq!(config.port, 0),
-            Mode::DevUrl(_) => panic!("expected managed mode"),
-        }
+        let Mode::Managed(config) = cli.mode else {
+            panic!("expected managed mode");
+        };
+        assert_eq!(config.host, DEFAULT_MANAGED_HOST);
+        assert_eq!(config.port, 0);
     }
 
     #[test]
     fn parses_paired_managed_volume_pipes() {
-        let cli = Cli::parse([
+        let cli = parse([
             "--frontend=dist".into(),
             "--session=session".into(),
             "--volume-read-pipe=41".into(),
@@ -370,7 +390,7 @@ mod tests {
 
     #[test]
     fn parses_paired_control_pipes() {
-        let cli = Cli::parse([
+        let cli = parse([
             "--frontend=dist".into(),
             "--session=session".into(),
             "--volume-read-pipe=41".into(),
@@ -386,13 +406,13 @@ mod tests {
 
     #[test]
     fn rejects_partial_duplicate_or_nonmanaged_volume_pipes() {
-        assert!(Cli::parse([
+        assert!(parse([
             "--frontend=dist".into(),
             "--session=session".into(),
             "--volume-read-pipe=41".into(),
         ])
         .is_err());
-        assert!(Cli::parse([
+        assert!(parse([
             "--frontend=dist".into(),
             "--session=session".into(),
             "--volume-read-pipe=41".into(),
@@ -400,7 +420,7 @@ mod tests {
             "--control-read-pipe=43".into(),
         ])
         .is_err());
-        assert!(Cli::parse([
+        assert!(parse([
             "--frontend=dist".into(),
             "--session=session".into(),
             "--volume-read-pipe=41".into(),
@@ -409,14 +429,14 @@ mod tests {
             "--control-write-pipe=44".into(),
         ])
         .is_err());
-        assert!(Cli::parse([
+        assert!(parse([
             "--frontend=dist".into(),
             "--session=session".into(),
             "--volume-read-pipe=41".into(),
             "--volume-ack-pipe=41".into(),
         ])
         .is_err());
-        assert!(Cli::parse([
+        assert!(parse([
             "--frontend=dist".into(),
             "--session=session".into(),
             "--volume-read-pipe=41".into(),
@@ -424,13 +444,13 @@ mod tests {
             "--volume-ack-pipe=43".into(),
         ])
         .is_err());
-        assert!(Cli::parse([
+        assert!(parse([
             "--url=http://127.0.0.1:8765".into(),
             "--volume-read-pipe=41".into(),
             "--volume-ack-pipe=42".into(),
         ])
         .is_err());
-        assert!(Cli::parse([
+        assert!(parse([
             "--select-file".into(),
             "--output=x.txt".into(),
             "--control-read-pipe=43".into(),
@@ -441,17 +461,17 @@ mod tests {
 
     #[test]
     fn rejects_non_loopback_http_url() {
-        assert!(Cli::parse(["--url".into(), "http://example.com".into()]).is_err());
+        assert!(parse(["--url".into(), "http://example.com".into()]).is_err());
     }
 
     #[test]
     fn parses_file_dialog_boundary() {
-        let cli = Cli::parse(["--select-file".into(), "--output=x.txt".into()]).unwrap();
+        let cli = parse(["--select-file".into(), "--output=x.txt".into()]).unwrap();
         assert!(matches!(
             cli.file_dialog.map(|args| args.destination),
             Some(FileDialogDestination::Output(path)) if path == Path::new("x.txt")
         ));
-        let cli = Cli::parse(["--select-file".into(), "--result-pipe=41".into()]).unwrap();
+        let cli = parse(["--select-file".into(), "--result-pipe=41".into()]).unwrap();
         assert!(matches!(
             cli.file_dialog.map(|args| args.destination),
             Some(FileDialogDestination::ResultPipe(41))
@@ -460,25 +480,25 @@ mod tests {
 
     #[test]
     fn enforces_file_dialog_destination_and_exclusivity() {
-        assert!(Cli::parse(["--select-file".into()]).is_err());
-        assert!(Cli::parse([
+        assert!(parse(["--select-file".into()]).is_err());
+        assert!(parse([
             "--select-file".into(),
             "--output=x.txt".into(),
             "--result-pipe=41".into(),
         ])
         .is_err());
-        assert!(Cli::parse([
+        assert!(parse([
             "--select-file".into(),
             "--output=x.txt".into(),
             "--output=y.txt".into(),
         ])
         .is_err());
-        assert!(Cli::parse([
+        assert!(parse([
             "--select-file".into(),
             "--result-pipe=41".into(),
             "--url=http://127.0.0.1:8765".into(),
         ])
         .is_err());
-        assert!(Cli::parse(["--result-pipe=41".into()]).is_err());
+        assert!(parse(["--result-pipe=41".into()]).is_err());
     }
 }
