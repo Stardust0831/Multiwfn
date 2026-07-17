@@ -8,6 +8,11 @@ use crate::service::AppConfig;
 use crate::transport::TransportConfig;
 
 const DEFAULT_URL: &str = "http://127.0.0.1:8765/index.html?manifest=/session/manifest.json";
+const DEFAULT_MANAGED_HOST: &str = if cfg!(target_os = "macos") {
+    "localhost"
+} else {
+    "127.0.0.1"
+};
 
 #[derive(Clone, Debug)]
 pub enum FileDialogDestination {
@@ -43,8 +48,8 @@ impl Cli {
         let mut session = None;
         let mut manifest = None;
         let mut state = None;
-        let mut host =
-            std::env::var("MULTIWFN_MATTERVIZ_HOST").unwrap_or_else(|_| "localhost".to_owned());
+        let mut host = std::env::var("MULTIWFN_MATTERVIZ_HOST")
+            .unwrap_or_else(|_| DEFAULT_MANAGED_HOST.to_owned());
         let mut host_arg = false;
         let mut port = match std::env::var("MULTIWFN_MATTERVIZ_PORT") {
             Ok(value) => value
@@ -332,7 +337,7 @@ fn usage() -> String {
 mod tests {
     use std::path::Path;
 
-    use super::{Cli, FileDialogDestination, Mode};
+    use super::{Cli, FileDialogDestination, Mode, DEFAULT_MANAGED_HOST};
 
     #[test]
     fn parses_managed_session_and_defaults_manifest() {
@@ -347,7 +352,7 @@ mod tests {
         let Mode::Managed(config) = cli.mode else {
             panic!("expected managed mode");
         };
-        assert_eq!(config.host, "localhost");
+        assert_eq!(config.host, DEFAULT_MANAGED_HOST);
         assert_eq!(config.port, 0);
     }
 
