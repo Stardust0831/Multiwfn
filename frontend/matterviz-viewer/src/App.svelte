@@ -54,6 +54,7 @@
     type MatterVizWorkbenchState,
     type WorkbenchCameraState,
   } from './state'
+  import { signal_frontend_ready } from './startup'
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
   import {
     adapt_matterviz_volume,
@@ -679,6 +680,7 @@
       }
       set_status(entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
       if (startupState) apply_workbench_state(startupState)
+      await signal_frontend_ready()
     } catch (error) {
       report_error(error)
       status = 'Session loading failed'

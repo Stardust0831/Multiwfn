@@ -55,6 +55,7 @@ pub struct HttpService {
     control_transport: Arc<Mutex<Option<ControlTransport>>>,
     session_data: Option<SessionData>,
     in_memory_session: bool,
+    frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<AtomicBool>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
@@ -119,6 +120,13 @@ impl HttpService {
         if !frontend.is_dir() {
             return Err("frontend path is not a directory".to_owned());
         }
+        let entry_document = frontend.join("index.html");
+        if !entry_document.is_file() {
+            return Err("frontend entry document index.html was not found".to_owned());
+        }
+        fs::File::open(&entry_document).map_err(|error| {
+            format!("frontend entry document index.html is not readable: {error}")
+        })?;
         if (!in_memory_session && !session.is_dir())
             || manifest.as_ref().is_some_and(|path| !path.is_file())
             || state.as_ref().is_some_and(|path| !path.is_file())
@@ -147,6 +155,7 @@ impl HttpService {
         write!(query, "&cap={capability}").expect("write capability query");
         let authority = format!("{}:{}", format_host(&host), address.port());
         let stop = Arc::new(AtomicBool::new(false));
+        let frontend_ready = Arc::new(AtomicBool::new(false));
         let volume_store = Arc::new(VolumeStore::new());
         let stream_broker = Arc::new(VolumeStreamBroker::default());
         let streaming_volume_enabled = config.transport.is_some();
@@ -213,6 +222,7 @@ impl HttpService {
             control_transport: Arc::new(Mutex::new(control_transport)),
             session_data,
             in_memory_session,
+            frontend_ready,
             return_signaled: Arc::new(AtomicBool::new(false)),
             worker: Mutex::new(None),
         };
@@ -256,6 +266,7 @@ impl HttpService {
             orbital_count,
             control_transport: self.control_transport.clone(),
             in_memory_session: self.in_memory_session,
+            frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
         }
     }
@@ -264,6 +275,9 @@ impl HttpService {
     }
     pub fn session_path(&self) -> &Path {
         &self.session
+    }
+    pub fn frontend_ready(&self) -> bool {
+        self.frontend_ready.load(Ordering::Acquire)
     }
     pub fn uses_file_lifecycle(&self) -> bool {
         !self.in_memory_session
@@ -338,6 +352,7 @@ struct ServiceRunner {
     orbital_count: Option<i64>,
     control_transport: Arc<Mutex<Option<ControlTransport>>>,
     in_memory_session: bool,
+    frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<AtomicBool>,
 }
 impl ServiceRunner {
@@ -379,6 +394,7 @@ impl ServiceRunner {
             orbital_count: self.orbital_count,
             control_transport: self.control_transport.clone(),
             in_memory_session: self.in_memory_session,
+            frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
         }
     }
@@ -399,7 +415,7 @@ impl ServiceRunner {
         let mut parts = first.split_whitespace();
         let method = parts.next().unwrap_or("");
         let target = parts.next().unwrap_or("/");
-        if method != "GET" && method != "HEAD" {
+        if method != "GET" && method != "HEAD" && method != "POST" {
             respond(
                 &mut stream,
                 405,
@@ -456,6 +472,25 @@ impl ServiceRunner {
                 403,
                 method == "HEAD",
             );
+            return;
+        }
+        if path == "/api/ready" {
+            if method != "POST" {
+                respond(
+                    &mut stream,
+                    405,
+                    "text/plain",
+                    b"Method Not Allowed",
+                    method == "HEAD",
+                );
+                return;
+            }
+            self.frontend_ready.store(true, Ordering::Release);
+            respond_json(&mut stream, &json!({"ok": true}), 200, false);
+            return;
+        }
+        if method == "POST" {
+            respond(&mut stream, 405, "text/plain", b"Method Not Allowed", false);
             return;
         }
         if path == "/api/return" {
@@ -2069,6 +2104,84 @@ mod tests {
             "application/wasm"
         );
     }
+
+    #[test]
+    fn service_rejects_a_missing_frontend_entry_document() {
+        let root = fixture("missing-frontend-entry");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+
+        let result = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            transport: None,
+        });
+        match result {
+            Err(error) => assert!(error.contains("index.html"), "{error}"),
+            Ok(service) => {
+                service.shutdown();
+                join_service(service);
+                panic!("service accepted a frontend directory without index.html");
+            }
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn service_requires_a_capability_authenticated_ready_post() {
+        let root = fixture("frontend-ready");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+
+        let service = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            transport: None,
+        })
+        .unwrap();
+        assert!(!service.frontend_ready());
+
+        let missing_capability = request(service.url(), "POST", "/api/ready");
+        assert!(missing_capability.starts_with("HTTP/1.1 403 Forbidden"));
+        let wrong_capability = request(service.url(), "POST", "/api/ready?cap=wrong");
+        assert!(wrong_capability.starts_with("HTTP/1.1 403 Forbidden"));
+        let wrong_method = request(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/ready"),
+        );
+        assert!(wrong_method.starts_with("HTTP/1.1 405 Method Not Allowed"));
+        assert!(!service.frontend_ready());
+
+        let ready = request(
+            service.url(),
+            "POST",
+            &authorized_path(service.url(), "/api/ready"),
+        );
+        assert!(ready.starts_with("HTTP/1.1 200 OK"));
+        assert!(ready.ends_with(r#"{"ok":true}"#));
+        assert!(service.frontend_ready());
+
+        service.shutdown();
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn safe_join_blocks_traversal() {
         let root = tempfile_dir();
