@@ -149,6 +149,34 @@ impl ControlTransport {
         Ok(decode_frame(&frame)?)
     }
 
+    /// Wait up to `start_timeout` for a frame to begin, then require the complete
+    /// frame to arrive within `completion_timeout` of its first byte.
+    pub fn read_frame_startup(
+        &mut self,
+        start_timeout: Duration,
+        completion_timeout: Duration,
+    ) -> Result<ControlFrame, ControlTransportError> {
+        let reader = self.reader.as_mut().ok_or(ControlTransportError::Closed)?;
+        let start_deadline = Instant::now()
+            .checked_add(start_timeout)
+            .ok_or(ControlTransportError::Timeout)?;
+        let mut header = [0_u8; HEADER_BYTES];
+        read_exact_timeout(reader, &mut header[..1], start_deadline)?;
+
+        let completion_deadline = Instant::now()
+            .checked_add(completion_timeout)
+            .ok_or(ControlTransportError::Timeout)?;
+        read_exact_timeout(reader, &mut header[1..], completion_deadline)?;
+        let parsed = decode_header(&header)?;
+        let total = checked_frame_len(parsed.body_bytes)?;
+        let mut frame = vec![0_u8; total];
+        frame[..HEADER_BYTES].copy_from_slice(&header);
+        if total > HEADER_BYTES {
+            read_exact_timeout(reader, &mut frame[HEADER_BYTES..], completion_deadline)?;
+        }
+        Ok(decode_frame(&frame)?)
+    }
+
     pub fn close(&mut self) {
         self.reader.take();
         if let Ok(mut writer) = self.writer.lock() {
@@ -581,6 +609,32 @@ mod tests {
             Err(ControlTransportError::Timeout)
         ));
         assert!(started.elapsed() < Duration::from_secs(1));
+        writer.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_read_uses_a_separate_completion_deadline() {
+        let (read_in, write_in) = pipe();
+        let (read_out, write_out) = pipe();
+        let mut input = unsafe { std::fs::File::from_raw_fd(write_in) };
+        let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
+        let mut transport = ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: read_in as u64,
+            write_pipe: write_out as u64,
+        })
+        .unwrap();
+        let hello = encode_frame(MessageType::Hello, 0, None).unwrap();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(40));
+            input.write_all(&hello[..1]).unwrap();
+            std::thread::sleep(Duration::from_millis(40));
+            let _ = input.write_all(&hello[1..]);
+        });
+        assert!(matches!(
+            transport.read_frame_startup(Duration::from_millis(100), Duration::from_millis(20)),
+            Err(ControlTransportError::Timeout)
+        ));
         writer.join().unwrap();
     }
 }

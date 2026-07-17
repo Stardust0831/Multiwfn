@@ -22,6 +22,13 @@ use crate::volume_store::VolumeStore;
 use serde_json::{json, Value};
 use socket2::{Domain, Protocol, Socket, Type};
 
+const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(30);
+const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
+
+fn session_bootstrap_wait_timeout(stage_timeout: Duration) -> Duration {
+    stage_timeout.saturating_mul(SESSION_BOOTSTRAP_STAGES)
+}
+
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub frontend: PathBuf,
@@ -61,6 +68,18 @@ impl HttpService {
     pub fn start_with_control(
         config: AppConfig,
         control_config: Option<ControlTransportConfig>,
+    ) -> Result<Self, String> {
+        Self::start_with_control_stage_timeout(
+            config,
+            control_config,
+            SESSION_BOOTSTRAP_STAGE_TIMEOUT,
+        )
+    }
+
+    fn start_with_control_stage_timeout(
+        config: AppConfig,
+        control_config: Option<ControlTransportConfig>,
+        bootstrap_stage_timeout: Duration,
     ) -> Result<Self, String> {
         let in_memory_session = control_config.is_some();
         let frontend = config
@@ -150,7 +169,10 @@ impl HttpService {
                     .send_hello()
                     .map_err(|error| format!("could not start control transport: {error}"))?;
                 let frame = transport
-                    .read_frame_timeout(Duration::from_secs(30))
+                    .read_frame_startup(
+                        session_bootstrap_wait_timeout(bootstrap_stage_timeout),
+                        bootstrap_stage_timeout,
+                    )
                     .map_err(|error| format!("could not receive session bootstrap: {error}"))?;
                 let data = SessionData::from_frame(&frame)
                     .map_err(|error| format!("invalid session bootstrap: {error}"))?;
@@ -1297,7 +1319,10 @@ mod tests {
     };
     use crate::control_transport::ControlTransportConfig;
     use crate::transport::TransportConfig;
-    use crate::volume_protocol::{Crc32c, ACK_HEADER_BYTES, PRELUDE_BYTES, VOLUME_HEADER_BYTES};
+    use crate::volume_protocol::{
+        decode_ack, decode_volume, encode_volume, Crc32c, ACK_HEADER_BYTES, PRELUDE_BYTES,
+        VOLUME_HEADER_BYTES,
+    };
     use std::fs;
     use std::io::{ErrorKind, Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -1402,6 +1427,89 @@ mod tests {
         join_service(service);
         assert!(!session.exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn delayed_initial_volumes_complete_before_session_bootstrap() {
+        for volume_count in 1_u64..=2 {
+            let root = fixture(&format!("delayed-bootstrap-{volume_count}"));
+            let frontend = root.join("frontend");
+            let session = root.join("session-must-not-exist");
+            fs::create_dir_all(&frontend).unwrap();
+            fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+
+            let (volume_read, mut volume_write) = pipe_pair();
+            let (mut ack_read, ack_write) = pipe_pair();
+            let (mut hello_read, hello_write) = pipe_pair();
+            let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+            let producer = std::thread::spawn(move || {
+                let hello = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+                assert_eq!(hello.header.message_type, MessageType::Hello);
+                let mut ready = [0_u8; PRELUDE_BYTES];
+                ack_read.read_exact(&mut ready).unwrap();
+
+                for offset in 0..volume_count {
+                    let mut volume = decode_volume(&golden_frame()).unwrap();
+                    volume.request_id += offset;
+                    volume.volume_id += offset;
+                    let frame = encode_volume(&volume).unwrap();
+                    let chunk_len = frame.len().div_ceil(4);
+                    for chunk in frame.chunks(chunk_len) {
+                        std::thread::sleep(std::time::Duration::from_millis(45));
+                        volume_write.write_all(chunk).unwrap();
+                    }
+                    let mut ack = [0_u8; ACK_HEADER_BYTES];
+                    ack_read.read_exact(&mut ack).unwrap();
+                    assert_eq!(decode_ack(&ack).unwrap().2, 0);
+                }
+
+                let body = serde_json::json!({
+                    "format": "multiwfn-matterviz-control",
+                    "version": 1,
+                    "kind": "session_init",
+                    "manifest": {
+                        "format": "multiwfn-matterviz-workbench",
+                        "version": 2,
+                        "structure": null,
+                        "cubes": []
+                    },
+                    "structure": null
+                });
+                bootstrap_write
+                    .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap())
+                    .unwrap();
+                let shutdown = decode_frame(&read_control_frame(&mut hello_read)).unwrap();
+                assert_eq!(shutdown.header.message_type, MessageType::Shutdown);
+            });
+
+            let service = HttpService::start_with_control_stage_timeout(
+                AppConfig {
+                    frontend,
+                    session: session.clone(),
+                    manifest: None,
+                    state: None,
+                    host: "127.0.0.1".to_owned(),
+                    port: 0,
+                    transport: Some(TransportConfig {
+                        volume_read_pipe: into_raw_pipe(volume_read),
+                        volume_ack_pipe: into_raw_pipe(ack_write),
+                    }),
+                },
+                Some(ControlTransportConfig {
+                    read_pipe: into_raw_pipe(bootstrap_read),
+                    write_pipe: into_raw_pipe(hello_write),
+                }),
+                std::time::Duration::from_millis(300),
+            )
+            .unwrap();
+            service.signal_return().unwrap();
+            service.shutdown();
+            service.join();
+            producer.join().unwrap();
+            assert!(!session.exists());
+            let _ = fs::remove_dir_all(root);
+        }
     }
 
     #[cfg(any(unix, windows))]
