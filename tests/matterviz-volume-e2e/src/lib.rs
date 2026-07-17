@@ -6,6 +6,8 @@ pub mod cli;
 pub mod control_protocol;
 #[path = "../../../frontend/matterviz-desktop/src/control_transport.rs"]
 pub mod control_transport;
+#[path = "../../../frontend/matterviz-desktop/src/inherited_pipe.rs"]
+pub mod inherited_pipe;
 #[path = "../../../frontend/matterviz-desktop/src/memory_budget.rs"]
 pub mod memory_budget;
 #[path = "../../../frontend/matterviz-desktop/src/service.rs"]

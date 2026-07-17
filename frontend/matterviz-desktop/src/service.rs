@@ -52,11 +52,11 @@ pub struct HttpService {
     stream_broker: Arc<VolumeStreamBroker>,
     streaming_volume_enabled: bool,
     transport: Mutex<Option<VolumeTransport>>,
-    control_transport: Arc<Mutex<Option<ControlTransport>>>,
+    control_transport: Arc<Mutex<Option<Arc<ControlTransport>>>>,
     session_data: Option<SessionData>,
     in_memory_session: bool,
     frontend_ready: Arc<AtomicBool>,
-    return_signaled: Arc<AtomicBool>,
+    return_signaled: Arc<Mutex<bool>>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -172,7 +172,7 @@ impl HttpService {
             .transpose()?;
         let (control_transport, session_data) = control_config
             .map(|config| {
-                let mut transport = ControlTransport::adopt(config)
+                let transport = ControlTransport::adopt(config)
                     .map_err(|error| format!("could not adopt control transport: {error}"))?;
                 transport
                     .send_hello()
@@ -189,7 +189,7 @@ impl HttpService {
             })
             .transpose()?
             .map_or((None, None), |(transport, data)| {
-                (Some(transport), Some(data))
+                (Some(Arc::new(transport)), Some(data))
             });
         let has_state = state.is_some()
             || session_data
@@ -223,7 +223,7 @@ impl HttpService {
             session_data,
             in_memory_session,
             frontend_ready,
-            return_signaled: Arc::new(AtomicBool::new(false)),
+            return_signaled: Arc::new(Mutex::new(false)),
             worker: Mutex::new(None),
         };
         let runner = service.clone_for_thread(frontend, manifest, state);
@@ -287,7 +287,10 @@ impl HttpService {
     }
     pub fn termination_exit_code(&self) -> i32 {
         if self.in_memory_session
-            && (!self.return_signaled.load(Ordering::Acquire)
+            && (!*self
+                .return_signaled
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 || self
                     .control_transport
                     .lock()
@@ -350,10 +353,10 @@ struct ServiceRunner {
     streaming_volume_enabled: bool,
     session_data: Option<SessionData>,
     orbital_count: Option<i64>,
-    control_transport: Arc<Mutex<Option<ControlTransport>>>,
+    control_transport: Arc<Mutex<Option<Arc<ControlTransport>>>>,
     in_memory_session: bool,
     frontend_ready: Arc<AtomicBool>,
-    return_signaled: Arc<AtomicBool>,
+    return_signaled: Arc<Mutex<bool>>,
 }
 impl ServiceRunner {
     fn run(self) {
@@ -945,11 +948,14 @@ impl ServiceRunner {
 
 fn signal_return(
     in_memory_session: bool,
-    return_signaled: &AtomicBool,
-    control: &Arc<Mutex<Option<ControlTransport>>>,
+    return_signaled: &Mutex<bool>,
+    control: &Arc<Mutex<Option<Arc<ControlTransport>>>>,
     session: &Path,
 ) -> Result<(), String> {
-    if return_signaled.swap(true, Ordering::AcqRel) {
+    let mut returned = return_signaled
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *returned {
         return Ok(());
     }
     let result = if in_memory_session {
@@ -958,10 +964,12 @@ fn signal_return(
             "version": 1,
             "kind": "shutdown",
         });
-        let guard = control
+        let transport = control
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match guard.as_ref() {
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .cloned();
+        match transport {
             Some(transport) => transport
                 .send_json(MessageType::Shutdown, 0, &body)
                 .map_err(|error| format!("could not signal Multiwfn Return: {error}")),
@@ -971,24 +979,26 @@ fn signal_return(
         fs::write(session.join("gui_stop.flag"), "return\n")
             .map_err(|error| format!("could not signal Multiwfn Return: {error}"))
     };
-    if result.is_err() {
-        return_signaled.store(false, Ordering::Release);
+    if result.is_ok() {
+        *returned = true;
     }
     result
 }
 
 fn request_control(
-    control: &Arc<Mutex<Option<ControlTransport>>>,
+    control: &Arc<Mutex<Option<Arc<ControlTransport>>>>,
     stop: &AtomicBool,
     volume_store: &VolumeStore,
     request_id: u64,
     command: &str,
     timeout: Duration,
 ) -> Value {
-    let mut guard = control
+    let transport = control
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let Some(transport) = guard.as_mut() else {
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .cloned();
+    let Some(transport) = transport else {
         return json!({"ok": false, "message": backend::BACKEND_UNAVAILABLE});
     };
     let result = transport
@@ -1027,7 +1037,6 @@ fn request_control(
     match result {
         Ok(value) => value,
         Err(message) => {
-            drop(guard);
             terminate_control_session(control, stop, volume_store);
             json!({"ok": false, "message": message})
         }
@@ -1035,16 +1044,14 @@ fn request_control(
 }
 
 fn terminate_control_session(
-    control: &Arc<Mutex<Option<ControlTransport>>>,
+    control: &Arc<Mutex<Option<Arc<ControlTransport>>>>,
     stop: &AtomicBool,
     volume_store: &VolumeStore,
 ) {
     let mut guard = control
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(mut transport) = guard.take() {
-        transport.close();
-    }
+    guard.take();
     volume_store.clear();
     stop.store(true, Ordering::Release);
 }
@@ -1701,13 +1708,13 @@ mod tests {
 
         let (mut request_read, request_write) = pipe_pair();
         let (response_read, mut response_write) = pipe_pair();
-        let control = Arc::new(Mutex::new(Some(
+        let control = Arc::new(Mutex::new(Some(Arc::new(
             crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
                 read_pipe: into_raw_pipe(response_read),
                 write_pipe: into_raw_pipe(request_write),
             })
             .unwrap(),
-        )));
+        ))));
         let producer = std::thread::spawn(move || {
             let request_bytes = read_control_frame(&mut request_read);
             assert_eq!(
@@ -1750,6 +1757,73 @@ mod tests {
 
     #[cfg(any(unix, windows))]
     #[test]
+    fn return_is_not_blocked_by_a_pending_control_response() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::{mpsc, Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        let (mut request_read, request_write) = pipe_pair();
+        let (response_read, mut response_write) = pipe_pair();
+        let control = Arc::new(Mutex::new(Some(Arc::new(
+            crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
+                read_pipe: into_raw_pipe(response_read),
+                write_pipe: into_raw_pipe(request_write),
+            })
+            .unwrap(),
+        ))));
+        let (request_seen, wait_for_request) = mpsc::channel();
+        let producer = std::thread::spawn(move || {
+            let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            request_seen.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(250));
+            let response = serde_json::json!({
+                "format": "multiwfn-matterviz-control",
+                "version": 1,
+                "kind": "response",
+                "request_id": request.header.request_id,
+                "result": {"ok": true}
+            });
+            response_write
+                .write_all(
+                    &encode_frame(
+                        MessageType::Response,
+                        request.header.request_id,
+                        Some(&response),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            let shutdown = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+            assert_eq!(shutdown.header.message_type, MessageType::Shutdown);
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        let volumes = Arc::new(crate::volume_store::VolumeStore::new());
+        let request_control_handle = control.clone();
+        let request_stop = stop.clone();
+        let request_volumes = volumes.clone();
+        let requester = std::thread::spawn(move || {
+            request_control(
+                &request_control_handle,
+                &request_stop,
+                &request_volumes,
+                91,
+                "bond 1 2 mayer",
+                Duration::from_secs(1),
+            )
+        });
+        wait_for_request.recv().unwrap();
+
+        let returned = Mutex::new(false);
+        let started = Instant::now();
+        super::signal_return(true, &returned, &control, Path::new("unused")).unwrap();
+        assert!(started.elapsed() < Duration::from_millis(100));
+
+        assert_eq!(requester.join().unwrap()["ok"], true);
+        producer.join().unwrap();
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
     fn control_result_requires_an_object_with_boolean_ok() {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::{Arc, Mutex};
@@ -1781,13 +1855,13 @@ mod tests {
         for (index, (name, result, valid)) in cases.into_iter().enumerate() {
             let (mut request_read, request_write) = pipe_pair();
             let (response_read, mut response_write) = pipe_pair();
-            let control = Arc::new(Mutex::new(Some(
+            let control = Arc::new(Mutex::new(Some(Arc::new(
                 crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
                     read_pipe: into_raw_pipe(response_read),
                     write_pipe: into_raw_pipe(request_write),
                 })
                 .unwrap(),
-            )));
+            ))));
             let request_id = 70 + index as u64;
             let producer = std::thread::spawn(move || {
                 let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
@@ -1935,13 +2009,13 @@ mod tests {
 
         let (mut request_read, request_write) = pipe_pair();
         let (response_read, response_write) = pipe_pair();
-        let control = Arc::new(Mutex::new(Some(
+        let control = Arc::new(Mutex::new(Some(Arc::new(
             crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
                 read_pipe: into_raw_pipe(response_read),
                 write_pipe: into_raw_pipe(request_write),
             })
             .unwrap(),
-        )));
+        ))));
         let producer = std::thread::spawn(move || {
             let _response_write = response_write;
             let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
@@ -1972,13 +2046,13 @@ mod tests {
 
         let (mut request_read, request_write) = pipe_pair();
         let (response_read, mut response_write) = pipe_pair();
-        let control = Arc::new(Mutex::new(Some(
+        let control = Arc::new(Mutex::new(Some(Arc::new(
             crate::control_transport::ControlTransport::adopt(ControlTransportConfig {
                 read_pipe: into_raw_pipe(response_read),
                 write_pipe: into_raw_pipe(request_write),
             })
             .unwrap(),
-        )));
+        ))));
         let producer = std::thread::spawn(move || {
             let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
             let response = serde_json::json!({
