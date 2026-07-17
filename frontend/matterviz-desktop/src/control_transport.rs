@@ -21,7 +21,6 @@ pub struct ControlTransportConfig {
 #[derive(Debug)]
 pub enum ControlTransportError {
     InvalidConfig(&'static str),
-    InvalidHandle(&'static str),
     Io(io::Error),
     Codec(ControlError),
     Closed,
@@ -32,7 +31,6 @@ impl fmt::Display for ControlTransportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidConfig(message) => f.write_str(message),
-            Self::InvalidHandle(message) => f.write_str(message),
             Self::Io(error) => write!(f, "control pipe I/O failed: {error}"),
             Self::Codec(error) => write!(f, "invalid control frame: {error}"),
             Self::Closed => f.write_str("control transport is closed"),
@@ -214,26 +212,15 @@ fn read_exact_timeout(
 #[cfg(unix)]
 mod platform {
     use super::*;
+    use crate::inherited_pipe;
     use std::fs::File;
-    use std::os::fd::{FromRawFd, RawFd};
 
     pub struct PipeReader(File);
     pub struct PipeWriter(File);
 
     impl PipeReader {
         pub fn adopt(raw: u64) -> Result<Self, ControlTransportError> {
-            let fd = i32::try_from(raw).map_err(|_| {
-                ControlTransportError::InvalidHandle(
-                    "control read pipe is not a POSIX file descriptor",
-                )
-            })?;
-            if fd < 0 {
-                return Err(ControlTransportError::InvalidHandle(
-                    "control read pipe is invalid",
-                ));
-            }
-            // SAFETY: the launcher transfers ownership of this inherited descriptor.
-            Ok(Self(unsafe { File::from_raw_fd(fd as RawFd) }))
+            Ok(Self(inherited_pipe::adopt(raw)?))
         }
 
         pub(super) fn read_until(
@@ -277,18 +264,7 @@ mod platform {
 
     impl PipeWriter {
         pub fn adopt(raw: u64) -> Result<Self, ControlTransportError> {
-            let fd = i32::try_from(raw).map_err(|_| {
-                ControlTransportError::InvalidHandle(
-                    "control write pipe is not a POSIX file descriptor",
-                )
-            })?;
-            if fd < 0 {
-                return Err(ControlTransportError::InvalidHandle(
-                    "control write pipe is invalid",
-                ));
-            }
-            // SAFETY: the launcher transfers ownership of this inherited descriptor.
-            Ok(Self(unsafe { File::from_raw_fd(fd as RawFd) }))
+            Ok(Self(inherited_pipe::adopt(raw)?))
         }
     }
 
@@ -310,27 +286,15 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use super::*;
+    use crate::inherited_pipe;
     use std::fs::File;
-    use std::os::windows::io::FromRawHandle;
 
     pub struct PipeReader(File);
     pub struct PipeWriter(File);
 
-    fn handle(
-        raw: u64,
-        label: &'static str,
-    ) -> Result<*mut std::ffi::c_void, ControlTransportError> {
-        if raw == 0 || raw == u64::MAX {
-            return Err(ControlTransportError::InvalidHandle(label));
-        }
-        Ok(raw as usize as *mut std::ffi::c_void)
-    }
-
     impl PipeReader {
         pub fn adopt(raw: u64) -> Result<Self, ControlTransportError> {
-            let handle = handle(raw, "control read pipe is invalid")?;
-            // SAFETY: the launcher transfers ownership of this inherited handle.
-            Ok(Self(unsafe { File::from_raw_handle(handle) }))
+            Ok(Self(inherited_pipe::adopt(raw)?))
         }
 
         pub(super) fn read_until(
@@ -380,9 +344,7 @@ mod platform {
 
     impl PipeWriter {
         pub fn adopt(raw: u64) -> Result<Self, ControlTransportError> {
-            let handle = handle(raw, "control write pipe is invalid")?;
-            // SAFETY: the launcher transfers ownership of this inherited handle.
-            Ok(Self(unsafe { File::from_raw_handle(handle) }))
+            Ok(Self(inherited_pipe::adopt(raw)?))
         }
     }
 
@@ -430,6 +392,43 @@ mod tests {
         let mut fds = [0; 2];
         assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
         (fds[0], fds[1])
+    }
+
+    #[cfg(unix)]
+    fn clear_close_on_exec(fd: i32) {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) },
+            0
+        );
+    }
+
+    #[cfg(unix)]
+    fn assert_close_on_exec(fd: i32) {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_ne!(flags & libc::FD_CLOEXEC, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adopted_control_descriptors_are_close_on_exec() {
+        let (read_in, write_in) = pipe();
+        let (read_out, write_out) = pipe();
+        let _input = unsafe { std::fs::File::from_raw_fd(write_in) };
+        let _output = unsafe { std::fs::File::from_raw_fd(read_out) };
+        clear_close_on_exec(read_in);
+        clear_close_on_exec(write_out);
+
+        let _transport = ControlTransport::adopt(ControlTransportConfig {
+            read_pipe: read_in as u64,
+            write_pipe: write_out as u64,
+        })
+        .unwrap();
+
+        assert_close_on_exec(read_in);
+        assert_close_on_exec(write_out);
     }
 
     #[cfg(unix)]

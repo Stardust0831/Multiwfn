@@ -207,9 +207,10 @@ fn frame_identity(frame: &[u8]) -> Option<(u64, u64)> {
 
 #[cfg(unix)]
 mod platform {
+    use crate::inherited_pipe;
     use std::fs::File;
     use std::io::{self, Read, Write};
-    use std::os::fd::{FromRawFd, RawFd};
+    use std::os::fd::AsRawFd;
     use std::thread;
     use std::time::Duration;
 
@@ -224,14 +225,15 @@ mod platform {
 
     impl PipeReader {
         pub fn adopt(raw: u64) -> io::Result<Self> {
-            let raw = RawFd::try_from(raw)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pipe fd is too large"))?;
-            let flags = unsafe { libc::fcntl(raw, libc::F_GETFL) };
-            if flags < 0 || unsafe { libc::fcntl(raw, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+            let file = inherited_pipe::adopt(raw)?;
+            let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
+            if flags < 0
+                || unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) }
+                    < 0
             {
                 return Err(io::Error::last_os_error());
             }
-            Ok(Self(unsafe { File::from_raw_fd(raw) }))
+            Ok(Self(file))
         }
 
         pub fn read_available(&mut self, buffer: &mut [u8]) -> io::Result<ReadState> {
@@ -250,9 +252,7 @@ mod platform {
 
     impl PipeWriter {
         pub fn adopt(raw: u64) -> io::Result<Self> {
-            let raw = RawFd::try_from(raw)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pipe fd is too large"))?;
-            Ok(Self(unsafe { File::from_raw_fd(raw) }))
+            inherited_pipe::adopt(raw).map(Self)
         }
 
         pub fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
@@ -263,8 +263,10 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
+    use crate::inherited_pipe;
+    use std::fs::File;
     use std::io;
-    use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
+    use std::os::windows::io::AsRawHandle;
     use std::thread;
     use std::time::Duration;
 
@@ -278,24 +280,12 @@ mod platform {
         Eof,
     }
 
-    pub struct PipeReader(OwnedHandle);
-    pub struct PipeWriter(OwnedHandle);
-
-    fn adopt(raw: u64) -> io::Result<OwnedHandle> {
-        let raw = usize::try_from(raw)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pipe handle is too large"))?;
-        if raw == 0 || raw == usize::MAX {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid pipe handle",
-            ));
-        }
-        Ok(unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) })
-    }
+    pub struct PipeReader(File);
+    pub struct PipeWriter(File);
 
     impl PipeReader {
         pub fn adopt(raw: u64) -> io::Result<Self> {
-            adopt(raw).map(Self)
+            inherited_pipe::adopt(raw).map(Self)
         }
 
         pub fn read_available(&mut self, buffer: &mut [u8]) -> io::Result<ReadState> {
@@ -352,7 +342,7 @@ mod platform {
 
     impl PipeWriter {
         pub fn adopt(raw: u64) -> io::Result<Self> {
-            adopt(raw).map(Self)
+            inherited_pipe::adopt(raw).map(Self)
         }
 
         pub fn write_all(&mut self, mut bytes: &[u8]) -> io::Result<()> {
@@ -383,8 +373,6 @@ mod platform {
             Ok(())
         }
     }
-
-    use std::os::windows::io::AsRawHandle;
 }
 
 #[cfg(test)]
@@ -404,6 +392,42 @@ mod tests {
         let read = unsafe { std::fs::File::from_raw_fd(ends[0]) };
         let write = unsafe { std::fs::File::from_raw_fd(ends[1]) };
         (read, write)
+    }
+
+    #[cfg(unix)]
+    fn clear_close_on_exec(fd: std::os::fd::RawFd) {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) },
+            0
+        );
+    }
+
+    #[cfg(unix)]
+    fn assert_close_on_exec(fd: std::os::fd::RawFd) {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0);
+        assert_ne!(flags & libc::FD_CLOEXEC, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adopted_volume_descriptors_are_close_on_exec() {
+        use std::os::fd::IntoRawFd;
+
+        let (read_volume, _write_volume) = pipe_pair();
+        let (_read_ack, write_ack) = pipe_pair();
+        let read_fd = read_volume.into_raw_fd();
+        let write_fd = write_ack.into_raw_fd();
+        clear_close_on_exec(read_fd);
+        clear_close_on_exec(write_fd);
+
+        let _reader = platform::PipeReader::adopt(read_fd as u64).unwrap();
+        let _writer = platform::PipeWriter::adopt(write_fd as u64).unwrap();
+
+        assert_close_on_exec(read_fd);
+        assert_close_on_exec(write_fd);
     }
 
     #[cfg(windows)]
