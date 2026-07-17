@@ -44,7 +44,7 @@ impl Cli {
         let mut manifest = None;
         let mut state = None;
         let mut host =
-            std::env::var("MULTIWFN_MATTERVIZ_HOST").unwrap_or_else(|_| "127.0.0.1".to_owned());
+            std::env::var("MULTIWFN_MATTERVIZ_HOST").unwrap_or_else(|_| "localhost".to_owned());
         let mut host_arg = false;
         let mut port = match std::env::var("MULTIWFN_MATTERVIZ_PORT") {
             Ok(value) => value
@@ -344,10 +344,11 @@ mod tests {
             "0".into(),
         ])
         .unwrap();
-        match cli.mode {
-            Mode::Managed(config) => assert_eq!(config.port, 0),
-            Mode::DevUrl(_) => panic!("expected managed mode"),
-        }
+        let Mode::Managed(config) = cli.mode else {
+            panic!("expected managed mode");
+        };
+        assert_eq!(config.host, "localhost");
+        assert_eq!(config.port, 0);
     }
 
     #[test]
