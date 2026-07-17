@@ -1382,6 +1382,7 @@ mod tests {
     use std::io::{ErrorKind, Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::path::{Path, PathBuf};
+    use std::time::Duration;
 
     use url::Url;
 
@@ -1487,6 +1488,10 @@ mod tests {
     #[cfg(any(unix, windows))]
     #[test]
     fn delayed_initial_volumes_complete_before_session_bootstrap() {
+        // One volume completes within a stage; two exceed one stage but fit the three-stage window.
+        const STAGE_TIMEOUT: Duration = Duration::from_secs(1);
+        const CHUNK_DELAY: Duration = Duration::from_millis(150);
+
         for volume_count in 1_u64..=2 {
             let root = fixture(&format!("delayed-bootstrap-{volume_count}"));
             let frontend = root.join("frontend");
@@ -1511,7 +1516,7 @@ mod tests {
                     let frame = encode_volume(&volume).unwrap();
                     let chunk_len = frame.len().div_ceil(4);
                     for chunk in frame.chunks(chunk_len) {
-                        std::thread::sleep(std::time::Duration::from_millis(45));
+                        std::thread::sleep(CHUNK_DELAY);
                         volume_write.write_all(chunk).unwrap();
                     }
                     let mut ack = [0_u8; ACK_HEADER_BYTES];
@@ -1555,7 +1560,7 @@ mod tests {
                     read_pipe: into_raw_pipe(bootstrap_read),
                     write_pipe: into_raw_pipe(hello_write),
                 }),
-                std::time::Duration::from_millis(300),
+                STAGE_TIMEOUT,
             )
             .unwrap();
             service.signal_return().unwrap();
