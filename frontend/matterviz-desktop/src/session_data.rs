@@ -19,6 +19,7 @@ const WORKBENCH_FORMAT: &str = "multiwfn-matterviz-workbench";
 const WORKBENCH_VERSION: u64 = 2;
 const PLOT_FORMAT: &str = "multiwfn-matterviz-plot";
 const PLOT_VERSION: u64 = 1;
+const PLOT_V2_VERSION: u64 = 2;
 const MAX_PLOT_SERIES: usize = 128;
 const MAX_PLOT_POINTS: usize = 2_000_000;
 const MAX_PLOT_STICKS_POINTS: usize = 100_000;
@@ -276,6 +277,20 @@ impl PlotLimits {
         }
         Ok(())
     }
+
+    // V2 scene data is admitted by the shared memory budget. Keep only
+    // checked accounting here so malformed numeric totals cannot wrap.
+    fn add_series_v2(&mut self, points: usize) -> Result<(), SessionDataError> {
+        self.series = self
+            .series
+            .checked_add(1)
+            .ok_or(SessionDataError::InvalidManifestPlot("series limit"))?;
+        self.points = self
+            .points
+            .checked_add(points)
+            .ok_or(SessionDataError::InvalidManifestPlot("point limit"))?;
+        Ok(())
+    }
 }
 
 fn validate_manifest_plot(
@@ -290,18 +305,41 @@ fn validate_manifest_plot(
             "root must be an object",
         ))?;
     if plot.get("format").and_then(Value::as_str) != Some(PLOT_FORMAT)
-        || plot.get("version").and_then(Value::as_u64) != Some(PLOT_VERSION)
+        || !matches!(
+            plot.get("version").and_then(Value::as_u64),
+            Some(PLOT_VERSION) | Some(PLOT_V2_VERSION)
+        )
     {
         return Err(SessionDataError::InvalidManifestPlot(
             "unsupported format or version",
         ));
     }
-    let kind = plot
-        .get("kind")
-        .and_then(Value::as_str)
-        .ok_or(SessionDataError::InvalidManifestPlot("kind"))?;
-    if !matches!(kind, "dos" | "ir" | "raman" | "uvvis" | "nmr") {
-        return Err(SessionDataError::InvalidManifestPlot("kind"));
+    let version = plot.get("version").and_then(Value::as_u64).unwrap();
+    if version == PLOT_VERSION {
+        let kind = plot
+            .get("kind")
+            .and_then(Value::as_str)
+            .ok_or(SessionDataError::InvalidManifestPlot("kind"))?;
+        if !matches!(kind, "dos" | "ir" | "raman" | "uvvis" | "nmr") {
+            return Err(SessionDataError::InvalidManifestPlot("kind"));
+        }
+    } else {
+        if let Some(kind) = plot.get("semanticKind").or_else(|| plot.get("kind")) {
+            require_non_empty_value_string(kind)?;
+        }
+        let page = plot
+            .get("page")
+            .and_then(Value::as_object)
+            .ok_or(SessionDataError::InvalidManifestPlot("page"))?;
+        for field in ["width", "height"] {
+            if !page
+                .get(field)
+                .and_then(Value::as_f64)
+                .is_some_and(|value| value.is_finite() && value > 0.0)
+            {
+                return Err(SessionDataError::InvalidManifestPlot("page"));
+            }
+        }
     }
     require_non_empty_string(plot, "title")?;
     let panels = plot
@@ -311,8 +349,192 @@ fn validate_manifest_plot(
         .ok_or(SessionDataError::InvalidManifestPlot("panels"))?;
 
     let mut limits = PlotLimits::default();
+    let mut panel_ids = std::collections::HashSet::new();
     for panel in panels {
-        validate_plot_panel(panel, &mut limits)?;
+        let panel_id = panel
+            .as_object()
+            .and_then(|item| item.get("id"))
+            .and_then(Value::as_str)
+            .ok_or(SessionDataError::InvalidManifestPlot("panel id"))?;
+        if !panel_ids.insert(panel_id) {
+            return Err(SessionDataError::InvalidManifestPlot("duplicate panel id"));
+        }
+        if version == PLOT_V2_VERSION {
+            validate_plot_panel_v2(panel, &mut limits)?;
+        } else {
+            validate_plot_panel(panel, &mut limits)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_plot_panel_v2(value: &Value, limits: &mut PlotLimits) -> Result<(), SessionDataError> {
+    let panel = value
+        .as_object()
+        .ok_or(SessionDataError::InvalidManifestPlot("panel"))?;
+    require_non_empty_string(panel, "id")?;
+    let viewport = panel
+        .get("viewport")
+        .and_then(Value::as_array)
+        .filter(|items| items.len() == 4)
+        .ok_or(SessionDataError::InvalidManifestPlot("viewport"))?;
+    let viewport_values: Vec<f64> = viewport
+        .iter()
+        .map(|item| {
+            item.as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or(SessionDataError::InvalidManifestPlot("viewport"))
+        })
+        .collect::<Result<_, _>>()?;
+    if viewport_values[0] < 0.0
+        || viewport_values[1] < 0.0
+        || viewport_values[2] <= 0.0
+        || viewport_values[3] <= 0.0
+        || viewport_values[0] + viewport_values[2] > 1.0
+        || viewport_values[1] + viewport_values[3] > 1.0
+    {
+        return Err(SessionDataError::InvalidManifestPlot("viewport"));
+    }
+    let axes = panel
+        .get("axes")
+        .and_then(Value::as_object)
+        .ok_or(SessionDataError::InvalidManifestPlot("axes"))?;
+    validate_plot_scene_axis(axes.get("x1"))?;
+    validate_plot_scene_axis(axes.get("y1"))?;
+    if let Some(axis) = axes.get("x2") {
+        validate_plot_scene_axis(Some(axis))?;
+    }
+    if let Some(axis) = axes.get("y2") {
+        validate_plot_scene_axis(Some(axis))?;
+    }
+    let layers = panel
+        .get("layers")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+        .ok_or(SessionDataError::InvalidManifestPlot("layers"))?;
+    let mut layer_ids = std::collections::HashSet::new();
+    for layer in layers {
+        let layer = layer
+            .as_object()
+            .ok_or(SessionDataError::InvalidManifestPlot("layer"))?;
+        require_non_empty_string(layer, "id")?;
+        let id = layer.get("id").and_then(Value::as_str).unwrap();
+        if !layer_ids.insert(id) {
+            return Err(SessionDataError::InvalidManifestPlot("duplicate layer id"));
+        }
+        let kind = layer
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or(SessionDataError::InvalidManifestPlot("layer type"))?;
+        if !matches!(
+            kind,
+            "line"
+                | "scatter"
+                | "line+scatter"
+                | "bars"
+                | "error-bars"
+                | "fill"
+                | "contour"
+        ) {
+            return Err(SessionDataError::InvalidManifestPlot("layer type"));
+        }
+        if let Some(axis) = layer.get("xAxis") {
+            if !matches!(axis.as_str(), Some("x1" | "x2")) {
+                return Err(SessionDataError::InvalidManifestPlot("layer axis"));
+            }
+            if axis.as_str() == Some("x2") && !axes.contains_key("x2") {
+                return Err(SessionDataError::InvalidManifestPlot("missing x2 axis"));
+            }
+        }
+        if let Some(axis) = layer.get("yAxis") {
+            if !matches!(axis.as_str(), Some("y1" | "y2")) {
+                return Err(SessionDataError::InvalidManifestPlot("layer axis"));
+            }
+            if axis.as_str() == Some("y2") && !axes.contains_key("y2") {
+                return Err(SessionDataError::InvalidManifestPlot("missing y2 axis"));
+            }
+        }
+        let has_dataset = layer
+            .get("data")
+            .and_then(Value::as_object)
+            .and_then(|data| data.get("datasetId"))
+            .and_then(Value::as_u64)
+            .is_some_and(|id| id > 0);
+        if !has_dataset {
+            return Err(SessionDataError::InvalidManifestPlot("dataset reference"));
+        }
+        if kind == "contour" {
+            let shape = layer
+                .get("shape")
+                .and_then(Value::as_array)
+                .filter(|items| items.len() == 2)
+                .ok_or(SessionDataError::InvalidManifestPlot("layer dimensions"))?;
+            if shape
+                .iter()
+                .any(|item| item.as_u64().is_none_or(|value| value < 2))
+            {
+                return Err(SessionDataError::InvalidManifestPlot("layer dimensions"));
+            }
+            if layer.get("order").and_then(Value::as_str) != Some("x-fastest") {
+                return Err(SessionDataError::InvalidManifestPlot("layer order"));
+            }
+        }
+        if let Some(filled) = layer.get("filled") {
+            if kind != "contour" || filled.as_bool() != Some(false) {
+                return Err(SessionDataError::InvalidManifestPlot("filled contour"));
+            }
+        }
+        let points = layer
+            .get("count")
+            .and_then(Value::as_u64)
+            .or_else(|| {
+                layer
+                    .get("shape")
+                    .and_then(Value::as_array)
+                    .and_then(|shape| {
+                        shape
+                            .iter()
+                            .try_fold(1_u64, |total, item| total.checked_mul(item.as_u64()?))
+                    })
+            })
+            .unwrap_or(1);
+        if points == 0 || points > usize::MAX as u64 {
+            return Err(SessionDataError::InvalidManifestPlot("layer count"));
+        }
+        limits.add_series_v2(points as usize)?;
+    }
+    Ok(())
+}
+
+fn validate_plot_scene_axis(value: Option<&Value>) -> Result<(), SessionDataError> {
+    let axis = value
+        .and_then(Value::as_object)
+        .ok_or(SessionDataError::InvalidManifestPlot("axis"))?;
+    require_non_empty_string(axis, "label")?;
+    let range = axis
+        .get("range")
+        .and_then(Value::as_array)
+        .filter(|items| items.len() == 2)
+        .ok_or(SessionDataError::InvalidManifestPlot("axis range"))?;
+    let values: Vec<f64> = range
+        .iter()
+        .map(|item| {
+            item.as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or(SessionDataError::InvalidManifestPlot("axis range"))
+        })
+        .collect::<Result<_, _>>()?;
+    if values[0] == values[1] {
+        return Err(SessionDataError::InvalidManifestPlot("axis range"));
+    }
+    let scale = axis
+        .get("scale")
+        .and_then(Value::as_str)
+        .unwrap_or("linear");
+    if !matches!(scale, "linear" | "log")
+        || (scale == "log" && values.iter().any(|value| *value <= 0.0))
+    {
+        return Err(SessionDataError::InvalidManifestPlot("axis scale"));
     }
     Ok(())
 }
@@ -600,6 +822,29 @@ mod tests {
         })
     }
 
+    fn valid_plot_v2() -> Value {
+        json!({
+            "format": PLOT_FORMAT,
+            "version": PLOT_V2_VERSION,
+            "title": "Generic scene",
+            "page": {"width": 1600.0, "height": 900.0},
+            "panels": [{
+                "id": "main",
+                "viewport": [0.0, 0.0, 1.0, 1.0],
+                "axes": {
+                    "x1": {"label": "X", "range": [0.0, 1.0]},
+                    "y1": {"label": "Y", "range": [0.0, 1.0]}
+                },
+                "layers": [{
+                    "id": "line",
+                    "type": "line",
+                    "data": {"datasetId": 1},
+                    "count": 1
+                }]
+            }]
+        })
+    }
+
     #[test]
     fn accepts_valid_session_init_and_retains_objects() {
         let data = SessionData::parse(&frame(valid_body())).unwrap();
@@ -714,7 +959,7 @@ mod tests {
     fn rejects_malformed_inline_plot() {
         let mut wrong_version = valid_body();
         wrong_version["manifest"]["plot"] = valid_plot();
-        wrong_version["manifest"]["plot"]["version"] = json!(2);
+        wrong_version["manifest"]["plot"]["version"] = json!(3);
         assert!(matches!(
             SessionData::parse(&frame(wrong_version)),
             Err(SessionDataError::InvalidManifestPlot(
@@ -737,6 +982,51 @@ mod tests {
             SessionData::parse(&frame(mismatched)),
             Err(SessionDataError::InvalidManifestPlot("series x/y lengths"))
         ));
+    }
+
+    #[test]
+    fn accepts_v2_counts_above_legacy_point_limit() {
+        let mut body = valid_body();
+        body["manifest"]["plot"] = valid_plot_v2();
+        body["manifest"]["plot"]["panels"][0]["layers"][0]["count"] = json!(2_000_001_u64);
+        assert!(SessionData::parse(&frame(body)).is_ok());
+    }
+
+    #[test]
+    fn rejects_v2_annotation_and_invalid_secondary_axes() {
+        let mut annotation = valid_body();
+        annotation["manifest"]["plot"] = valid_plot_v2();
+        annotation["manifest"]["plot"]["panels"][0]["layers"][0]["type"] = json!("annotation");
+        assert!(matches!(
+            SessionData::parse(&frame(annotation)),
+            Err(SessionDataError::InvalidManifestPlot("layer type"))
+        ));
+
+        for (field, value) in [("xAxis", "y1"), ("yAxis", "x1")] {
+            let mut invalid = valid_body();
+            invalid["manifest"]["plot"] = valid_plot_v2();
+            invalid["manifest"]["plot"]["panels"][0]["layers"][0][field] = json!(value);
+            assert!(matches!(
+                SessionData::parse(&frame(invalid)),
+                Err(SessionDataError::InvalidManifestPlot("layer axis"))
+            ));
+        }
+
+        for field in ["xAxis", "yAxis"] {
+            let mut missing = valid_body();
+            missing["manifest"]["plot"] = valid_plot_v2();
+            missing["manifest"]["plot"]["panels"][0]["layers"][0][field] =
+                json!(if field == "xAxis" { "x2" } else { "y2" });
+            let expected = if field == "xAxis" {
+                "missing x2 axis"
+            } else {
+                "missing y2 axis"
+            };
+            assert_eq!(
+                SessionData::parse(&frame(missing)),
+                Err(SessionDataError::InvalidManifestPlot(expected))
+            );
+        }
     }
 
     #[test]

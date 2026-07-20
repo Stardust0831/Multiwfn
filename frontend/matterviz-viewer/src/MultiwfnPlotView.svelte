@@ -3,8 +3,11 @@
   import type { RefLine } from 'matterviz/plot'
   import { untrack } from 'svelte'
   import { to_matterviz_series, type PlotArtifact, type PlotPanel } from './plot'
+  import PlotSceneView from './PlotSceneView.svelte'
+  import type { PlotDataset, PlotDatasetResolver, PlotScene } from './plot'
 
-  let { artifact }: { artifact: PlotArtifact } = $props()
+  let { artifact, resolver, release }: { artifact: PlotArtifact | PlotScene; resolver?: PlotDatasetResolver; release?: (datasetId: number, dataset: PlotDataset) => void } = $props()
+  const v1_artifact = $derived(artifact as PlotArtifact)
 
   const axis_label = (axis: { label: string; unit?: string }): string => axis.unit ? `${axis.label} (${axis.unit})` : axis.label
   const panel_refs = (panel: PlotPanel): RefLine[] => (panel.referenceLines ?? []).map((line) => ({
@@ -16,7 +19,7 @@
     y_axis: line.axis === 'y2' ? 'y2' : 'y1',
   })) as RefLine[]
 
-  let panels = $state(untrack(() => artifact.panels.map((panel) => ({
+  let panels = $state(untrack(() => artifact.version === 1 ? v1_artifact.panels.map((panel) => ({
     panel,
     series: panel.series.map(to_matterviz_series),
     x_axis: { label: axis_label(panel.xAxis), range: panel.xAxis.range },
@@ -24,13 +27,16 @@
     y2_axis: panel.y2Axis ? { label: axis_label(panel.y2Axis), range: panel.y2Axis.range } : {},
     ref_lines: panel_refs(panel),
     display: { x_grid: true, y_grid: true, y2_grid: true },
-  }))))
+  })) : []))
 </script>
 
+{#if artifact.version === 2}
+  <PlotSceneView scene={artifact as PlotScene} {resolver} {release} />
+{:else}
 <main class="plot-only" aria-label="Multiwfn plot viewer">
   <header class="plot-header">
-    <strong>{artifact.title}</strong>
-    <span>{artifact.kind.toUpperCase()}</span>
+    <strong>{v1_artifact.title}</strong>
+    <span>{v1_artifact.kind.toUpperCase()}</span>
   </header>
   <section class="plot-panels">
     {#each panels as view (view.panel.id)}
@@ -54,3 +60,4 @@
     {/each}
   </section>
 </main>
+{/if}

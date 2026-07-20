@@ -38,10 +38,17 @@
   end subroutine arcell
 
   subroutine areaf(ix,iy,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_area
+#endif
     implicit none
     integer, intent (in) :: n
     integer, dimension (n), intent (in) :: ix,iy
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_area(ix,iy,n)
+#else
     call doesnotexist("areaf")
+#endif
   end subroutine areaf
 
   subroutine autres(i,j)
@@ -51,7 +58,12 @@
   end subroutine autres
 
   subroutine ax2grf()
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_axis2graph
+    call matterviz_capture_axis2graph()
+#else
     call doesnotexist("ax2grf")
+#endif
   end subroutine ax2grf
 
   subroutine ax3len(i,j,k)
@@ -126,9 +138,16 @@
   end subroutine axspos
 
   subroutine axsscl(copt,cax)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_axis_scale
+#endif
     implicit none
     character (len = *), intent (in) :: copt,cax
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_axis_scale(copt,cax)
+#else
     call doesnotexist("axsscl")
+#endif
   end subroutine axsscl
 
   subroutine axstyp(copt)
@@ -175,10 +194,17 @@
   end subroutine barpos
 
   subroutine bars(xray,y1ray,y2ray,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_bars
+#endif
     implicit none
     integer, intent (in) :: n
     double precision, intent (in out), dimension (n) :: xray,y1ray,y2ray
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_bars(xray,y1ray,y2ray,n)
+#else
     call doesnotexist("bars")
+#endif
   end subroutine bars
 
   subroutine bars3d(xray,yray,z1ray,z2ray,xwray,ywray,icray,n)
@@ -457,11 +483,18 @@
   end subroutine conclr
 
   subroutine concrv(x,y,n,zlev)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_unsupported
+#endif
     implicit none
     integer, intent (in) :: n
     double precision, dimension (n), intent (in) :: x,y
     double precision, intent (in) :: zlev
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_unsupported('concrv')
+#else
     call doesnotexist("concrv")
+#endif
   end subroutine concrv
 
   subroutine cone3d(x,y,z,r,h1,h2,nsk1,nsk2)
@@ -532,21 +565,35 @@
   end subroutine conpts
 
   subroutine conshd(xray,n,yray,m,zmat,zlev,nlray)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_conshd
+#endif
     implicit none
     integer, intent (in) :: n,m,nlray
     double precision, dimension (n), intent (in) :: xray
     double precision, dimension (m), intent (in) :: yray
     double precision, dimension (nlray), intent (in) :: zlev
     double precision, dimension (n,m), intent (in) :: zmat
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_conshd(xray,n,yray,m,zmat,zlev,nlray)
+#else
     call doesnotexist("conshd")
+#endif
   end subroutine conshd
 
   subroutine conshd2(xmat,ymat,zmat,n,m,zlev,nlray)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_unsupported
+#endif
     implicit none
     integer, intent (in) :: n,m,nlray
     double precision, dimension (n,m), intent (in) :: xmat,ymat,zmat
     double precision, dimension (nlray), intent (in) :: zlev
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_unsupported('conshd2')
+#else
     call doesnotexist("conshd2")
+#endif
   end subroutine conshd2
 
   subroutine conshd3d(xray,n,yray,m,zmat,zlev,nlray)
@@ -569,21 +616,35 @@
   end subroutine contri
 
   subroutine contur(x,n,y,m,z,zlev)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_contur
+#endif
     implicit none
     integer, intent (in) :: n,m
     double precision, dimension (n), intent (in) :: x
     double precision, dimension (m), intent (in) :: y
     double precision, dimension (n,m), intent (in) :: z
     double precision, intent (in) :: zlev
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_contur(x,n,y,m,z,zlev)
+#else
     call doesnotexist("contur")
+#endif
   end subroutine contur
 
   subroutine contur2(x,y,z,n,m,zlev)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_unsupported
+#endif
     implicit none
     integer, intent (in) :: n,m
     double precision, dimension (n,m), intent (in) :: x,y,z
     double precision, intent (in) :: zlev
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_unsupported('contur2')
+#else
     call doesnotexist("contur2")
+#endif
   end subroutine contur2
 
   subroutine cross()
@@ -591,10 +652,17 @@
   end subroutine cross
 
   subroutine crvmat(zmat,ixdim,iydim,ixpts,iypts)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_crvmat
+#endif
     implicit none
     integer, intent (in) :: ixdim,iydim,ixpts,iypts
     double precision, dimension (ixdim,iydim), intent (in) :: zmat
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_crvmat(zmat,ixdim,iydim,ixpts,iypts)
+#else
     call doesnotexist("crvmat")
+#endif
   end subroutine crvmat
 
   subroutine crvqdr(xray,yray,zray,n)
@@ -914,7 +982,12 @@
   end subroutine ellips
 
   subroutine endgrf()
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_end_graph
+    call matterviz_capture_end_graph()
+#else
     call doesnotexist("endgrf")
+#endif
   end subroutine endgrf
 
   subroutine erase()
@@ -922,10 +995,17 @@
   end subroutine erase
 
   subroutine errbar(x,y,err1,err2,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_errbar
+#endif
     implicit none
     integer, intent (in) :: n
     double precision, dimension (n), intent (in) :: x,y,err1,err2
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_errbar(x,y,err1,err2,n)
+#else
     call doesnotexist("errbar")
+#endif
   end subroutine errbar
 
   subroutine errdev(copt)
@@ -965,10 +1045,17 @@
   end subroutine expzlb
 
   subroutine fbars(x,y1,y2,y3,y4,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_fbars
+#endif
     implicit none
     integer, intent (in) :: n
     double precision, dimension (n), intent (in) :: x,y1,y2,y3,y4
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_fbars(x,y1,y2,y3,y4,n)
+#else
     call doesnotexist("fbars")
+#endif
   end subroutine fbars
 
   subroutine fcha(x,ndez,nl,cstr)
@@ -981,10 +1068,17 @@
   end subroutine fcha
 
   subroutine field(xray,yray,uray,vray,n,ivec)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_unsupported
+#endif
     implicit none
     integer, intent (in) :: n,ivec
     double precision, dimension (n), intent (in) :: xray,yray,uray,vray
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_unsupported('field')
+#else
     call doesnotexist("field")
+#endif
   end subroutine field
 
   subroutine field3d(x1ray,y1ray,z1ray,x2ray,y2ray,z2ray,n,ivec)
@@ -1484,17 +1578,24 @@
     implicit none
     double precision, intent (in) :: ax,ex,orx,stepx,ay,ey,ory,stepy
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
-    call matterviz_capture_graph(ax,ex,ay,ey)
+    call matterviz_capture_graph(ax,ex,ay,ey,stepx,stepy)
 #else
     call doesnotexist("graf")
 #endif
   end subroutine graf
 
   subroutine graf3(ax,ex,orx,stepx,ay,ey,ory,stepy,az,ez,orz,stepz)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_graph3
+#endif
     implicit none
     double precision, intent (in) :: ax,ex,orx,stepx,ay,ey,ory,stepy, &
                                      az,ez,orz,stepz
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_graph3(ax,ex,ay,ey,az,ez,stepx,stepy)
+#else
     call doesnotexist("graf3")
+#endif
   end subroutine graf3
 
   subroutine graf3d(ax,ex,orx,stepx,ay,ey,ory,stepy,az,ez,orz,stepz)
@@ -1753,9 +1854,16 @@
   end subroutine hsym3d
 
   subroutine hsymbl(i)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_hsymbol
+#endif
     implicit none
     integer, intent (in) :: i
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_hsymbol(i)
+#else
     call doesnotexist("hsymbl")
+#endif
   end subroutine hsymbl
 
   subroutine htitle(i)
@@ -1856,9 +1964,16 @@
   end subroutine incfil
 
   subroutine incmrk(i)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_marker_interval
+#endif
     implicit none
     integer, intent (in) :: i
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_marker_interval(i)
+#else
     call doesnotexist("incmrk")
+#endif
   end subroutine incmrk
 
   function indrgb(xr,xg,xb)
@@ -1961,10 +2076,17 @@
   end subroutine labclr
 
   subroutine labdig(i,cax)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_label_digits
+#endif
     implicit none
     integer, intent (in) :: i
     character (len = *), intent (in) :: cax
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_label_digits(i,cax)
+#else
     call doesnotexist("labdig")
+#endif
   end subroutine labdig
 
   subroutine labdis(i,cax)
@@ -1975,9 +2097,16 @@
   end subroutine labdis
 
   subroutine labels(copt,cax)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_axis_labels
+#endif
     implicit none
     character (len = *), intent (in) :: copt,cax
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_axis_labels(copt,cax)
+#else
     call doesnotexist("labels")
+#endif
   end subroutine labels
 
   subroutine labjus(copt,cax)
@@ -2060,7 +2189,7 @@
     character (len = *), intent (in) :: cstr
     integer, intent (in) :: n
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
-    call matterviz_capture_legend(cstr)
+    call matterviz_capture_legend(cstr,n)
 #else
     call doesnotexist("leglin")
 #endif
@@ -2318,9 +2447,16 @@
   end subroutine mapsph
 
   subroutine marker(i)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_marker
+#endif
     implicit none
     integer, intent (in) :: i
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_marker(i)
+#else
     call doesnotexist("marker")
+#endif
   end subroutine marker
 
   subroutine matopt(x,copt)
@@ -2345,10 +2481,17 @@
   end subroutine mdfmat
 
   subroutine messag(cstr,nx,ny)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_message
+#endif
     implicit none
     character (len = *), intent (in) :: cstr
     integer, intent (in) :: nx,ny
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_message(cstr,nx,ny)
+#else
     call doesnotexist("messag")
+#endif
   end subroutine messag
 
   subroutine metafl(ct)
@@ -2477,17 +2620,31 @@
   end subroutine mypie
 
   subroutine mysymb(xray,yray,n,isym,iflag)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_unsupported
+#endif
     implicit none
     integer, intent (in) :: n,isym,iflag
     double precision, dimension (n), intent (in) :: xray,yray
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_unsupported('mysymb')
+#else
     call doesnotexist("mysymb")
+#endif
   end subroutine mysymb
 
   subroutine myvlt(xr,xg,xb,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_myvlt
+#endif
     implicit none
     integer, intent (in) :: n
     double precision, dimension (n), intent (in) :: xr,xg,xb
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_myvlt(xr,xg,xb,n)
+#else
     call doesnotexist("myvlt")
+#endif
   end subroutine myvlt
 
   subroutine namdis(i,cax)
@@ -2685,9 +2842,16 @@
   end subroutine origin
 
   subroutine page(nxp,nyp)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_page
+#endif
     implicit none
     integer, intent (in) :: nxp,nyp
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_page(nxp,nyp)
+#else
     call doesnotexist("page")
+#endif
   end subroutine page
 
   subroutine pagera()
@@ -3224,10 +3388,17 @@
   end subroutine rlstrt
 
   subroutine rlsymb(i,x,y)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_symbol
+#endif
     implicit none
     integer, intent (in) :: i
     double precision, intent (in) :: x,y
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_symbol(i,x,y)
+#else
     call doesnotexist("rlsymb")
+#endif
   end subroutine rlsymb
 
   subroutine rlvec(x,y,u,v,ivec)
@@ -3400,9 +3571,16 @@
   end subroutine setfce
 
   subroutine setfil(ct)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_setfile
+#endif
     implicit none
     character (len = *), intent (in) :: ct
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_setfile(ct)
+#else
     call doesnotexist("setfil")
+#endif
   end subroutine setfil
 
   subroutine setgrf(c1,c2,c3,c4)
@@ -3458,9 +3636,16 @@
   end subroutine setscl
 
   subroutine setvlt(ctab)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_setvlt
+#endif
     implicit none
     character (len = *), intent (in) :: ctab
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_setvlt(ctab)
+#else
     call doesnotexist("setvlt")
+#endif
   end subroutine setvlt
 
   subroutine setxid(i,copt)
@@ -3496,11 +3681,18 @@
   end subroutine shdcha
 
   subroutine shdcrv(x1,y1,n1,x2,y2,n2)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_shdcrv
+#endif
     implicit none
     integer, intent (in) :: n1,n2
     double precision, dimension (n1), intent (in) :: x1,y1
     double precision, dimension (n2), intent (in) :: x2,y2
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_shdcrv(x1,y1,n1,x2,y2,n2)
+#else
     call doesnotexist("shdcrv")
+#endif
   end subroutine shdcrv
 
   subroutine shdeur(inat,ishd,iclr,n)
@@ -3758,13 +3950,20 @@
   end subroutine stmval
 
   subroutine stream(xmat,ymat,nx,ny,xp,yp,xs,ys,n)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_stream
+#endif
     implicit none
     integer, intent (in) :: nx,ny,n
     double precision, dimension (nx,ny), intent (in) :: xmat,ymat
     double precision, dimension (nx), intent (in) :: xp
     double precision, dimension (ny), intent (in) :: yp
     double precision, dimension (n),  intent (in) :: xs,ys
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_stream(xmat,ymat,nx,ny,xp,yp,xs,ys,n)
+#else
     call doesnotexist("stream")
+#endif
   end subroutine stream
 
   subroutine stream3d(xv,yv,zv,nx,ny,nz,xp,yp,zp,xs,ys,zs,n)
@@ -3873,12 +4072,19 @@
   end subroutine surshc
 
   subroutine surshd(xray,ixdim,yray,iydim,zmat)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_surshd
+#endif
     implicit none
     integer, intent (in) :: ixdim,iydim
     double precision, dimension (ixdim), intent (in) :: xray
     double precision, dimension (iydim), intent (in) :: yray
     double precision, dimension (ixdim,iydim), intent (in) :: zmat
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_surshd(xray,ixdim,yray,iydim,zmat)
+#else
     call doesnotexist("surshd")
+#endif
   end subroutine surshd
 
   subroutine sursze(ax,ex,ay,ey)
@@ -5065,15 +5271,29 @@
   end subroutine winopt
 
   subroutine winsiz(nw,nh)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_window_size
+#endif
     implicit none
     integer, intent (in) :: nw,nh
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_window_size(nw,nh)
+#else
     call doesnotexist("winsiz")
+#endif
   end subroutine winsiz
 
   subroutine wintit(cstr)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_window_title
+#endif
     implicit none
     character (len = *), intent (in) :: cstr
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_window_title(cstr)
+#else
     call doesnotexist("wintit")
+#endif
   end subroutine wintit
 
   subroutine wintyp(cmod)

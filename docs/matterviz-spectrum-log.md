@@ -1,5 +1,24 @@
 # MatterViz parity development log
 
+## 2026-07-20: scope generalized to native two-dimensional plots
+
+- Re-audited Multiwfn plotting paths and confirmed that IRI, RDG, DORI and
+  related weak-interaction plots pass their native `scatterx/scattery` arrays
+  through `drawscatter` and DISLIN rather than requiring frontend reconstruction.
+- Corrected PR #49's planned architecture from five hard-coded spectrum kinds
+  to a versioned two-dimensional scene composed of explicit DISLIN primitives.
+- Kept all scientific calculations unchanged and restricted capture to the
+  MatterViz GUI/DISLIN adapter boundary.
+- Selected binary Float64 dataset frames for million-point scatter and regular
+  scalar/vector grids. Scene metadata stays in the existing in-memory control
+  bootstrap and no runtime plot file is introduced.
+- Defined the complete two-dimensional scientific subset: XY series, dense
+  scatter, bars, errors, fills, annotations, four axes, multi-panel layout,
+  continuous matrices, contours, streamlines and relief maps. DISLIN 3D, maps,
+  pie charts, device APIs and GUI controls remain out of scope.
+- Chose MatterViz ScatterPlot, BinnedScatterPlot and BarPlot for their native
+  domains, plus a reusable FieldPlot2D overlay for continuous fields.
+
 ## 2026-07-17: MatterViz upstream scalar-grid PR reconstruction
 
 - Re-audited the Multiwfn MatterViz vendor changes against upstream MatterViz
@@ -1313,3 +1332,70 @@
   is now guarded by `MULTIWFN_MATTERVIZ_BACKEND`. Fresh GNU Fortran 13 builds
   pass for both the MatterViz macro-on module/GUI/stub set and the macro-off
   legacy GUI/stub set; the scientific source diff remains empty.
+
+## 2026-07-20: generic PlotScene v2 and binary plot transport
+
+- Replaced the v1-only serializer path with a compatible v2 PlotScene model.
+  The scene describes page/panel layout, axes, layers and annotations; numeric
+  arrays are not embedded in JSON. They travel as immutable multi-role Float64
+  datasets over the existing inherited data pipe and are served only through a
+  capability-authenticated Rust endpoint.
+- Kept the scientific boundary unchanged: final native arrays are captured in
+  `noGUI/dislin_d_empty.f90` and `noGUI/matterviz_plot_capture.f90`. No calls or
+  MatterViz types were added to Multiwfn calculation sources. Unsupported
+  primitives invalidate the scene instead of falling back to external parsing
+  or inferred scientific meanings.
+- Corrected integration semantics found during compile review. DISLIN bars now
+  retain their exact `y1 -> y2` baseline/span, stream fields retain native x/y
+  grid coordinates separately from u/v components, and single `SYMBOL` calls
+  are explicit scatter layers. Field overlays now pass through MatterViz axis
+  scales, including reversed/log coordinates, rather than assuming normalized
+  panel coordinates.
+- Removed the independent 256 MiB plot protocol/store ceilings. The Rust pipe
+  reader now evaluates the declared frame against the shared active
+  volume+plot memory budget before allocating it; rejected bodies are drained
+  through a 64 KiB scratch buffer so the versioned pipe remains synchronized.
+- Added a fragmented `MWFNP2D` transport test that verifies the plot ACK/store
+  and then sends a normal volume frame on the same pipe. Local GNU Fortran 15
+  GUI-adapter compilation and linked capture execution pass, as do 22 Python
+  tests, the C stream test, all 132 frontend tests, zero Svelte diagnostics,
+  the Vite production build, all 105 Rust tests, `cargo check` and strict
+  Clippy. Three-platform CI and real native menu workflows remain acceptance
+  gates.
+
+## 2026-07-20: PlotScene v2 review hardening
+
+- Fixed the v2 entry component so it no longer evaluates v1 `panel.series`
+  state before selecting the v2 renderer. The protocol decoder now checks the
+  header's aggregate element count as well as directory/body byte totals.
+- Added atomic resolve-time validation for role lengths, field shape products,
+  coordinate-vector sizes and positive values on log axes. Field/bar and dense
+  secondary-axis combinations that the selected renderer cannot honor now fail
+  closed instead of silently using x1/y1.
+- Corrected native DISLIN semantics: `INCMRK(-1)` produces point-only scatter,
+  while successive `GRAF` calls with identical `AXSPOS`/`AXSLEN` merge into one
+  panel with x2/y2 metadata and explicit layer routing.
+- Removed the PlotStore 128-entry LRU behavior that could evict an ACKed dataset
+  before its scene manifest arrived. Plot v2 uses checked accounting plus the
+  shared active-byte admission budget, not the legacy v1 2,000,000-point cap.
+- Dataset-backed annotation layers are rejected in favor of panel annotations,
+  which now render inside MatterViz's scaled plot content. Native filled raster,
+  relief and streamline primitives fail closed because their palette, lighting,
+  seed and integration semantics are not yet represented faithfully.
+- Removed the fixed Fortran 268,435,456-value ceiling and report allocation
+  failure directly. DISLIN `STREAM` now invalidates the complete scene because
+  the previous bounded generator ignored native seed/integration semantics.
+- Post-fix local evidence: all 133 frontend tests, Svelte check, Vite build,
+  GNU Fortran 15 linked capture harness and GUI module compilation, 30 Python
+  adapter/build tests, strict C transport tests, 108 Rust tests and strict
+  Clippy pass. The Python runner skipped its duplicate linked harness because
+  its compiler probe does not recognize the conda-prefixed executable; the
+  same harness was compiled and run directly. The follow-up independent review,
+  real menus and three-platform CI remain explicit gates.
+- The follow-up review found a third same-position native `GRAF` range could
+  overwrite an existing secondary axis, and secondary fill/error or aggregate
+  dense-scatter routes could silently render on x1/y1. These combinations now
+  invalidate the scene. The same pass moved annotations into MatterViz's scaled
+  user-content layer, made field shape and log-coordinate checks mandatory,
+  restored marker-size metadata, releases stale async resolutions, and keeps
+  the original cross-platform optional lockfile entries intact.

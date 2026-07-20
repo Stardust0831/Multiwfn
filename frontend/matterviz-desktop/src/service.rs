@@ -13,6 +13,7 @@ use crate::backend;
 use crate::control_protocol::MessageType;
 use crate::control_transport::{ControlTransport, ControlTransportConfig};
 use crate::memory_budget;
+use crate::plot_store::PlotStore;
 use crate::session_data::SessionData;
 use crate::shutdown::ShutdownSignal;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
@@ -50,6 +51,7 @@ pub struct HttpService {
     capability: String,
     authority: String,
     volume_store: Arc<VolumeStore>,
+    plot_store: Arc<PlotStore>,
     stream_broker: Arc<VolumeStreamBroker>,
     streaming_volume_enabled: bool,
     transport: Mutex<Option<VolumeTransport>>,
@@ -65,18 +67,30 @@ struct ControlSession {
     transport: Arc<Mutex<Option<Arc<ControlTransport>>>>,
     shutdown: ShutdownSignal,
     volume_store: Arc<VolumeStore>,
+    plot_store: Option<Arc<PlotStore>>,
 }
 
 impl ControlSession {
+    #[cfg(test)]
     fn new(
         transport: ControlTransport,
         shutdown: ShutdownSignal,
         volume_store: Arc<VolumeStore>,
     ) -> Self {
+        Self::new_with_plot(transport, shutdown, volume_store, None)
+    }
+
+    fn new_with_plot(
+        transport: ControlTransport,
+        shutdown: ShutdownSignal,
+        volume_store: Arc<VolumeStore>,
+        plot_store: Option<Arc<PlotStore>>,
+    ) -> Self {
         Self {
             transport: Arc::new(Mutex::new(Some(Arc::new(transport)))),
             shutdown,
             volume_store,
+            plot_store,
         }
     }
 
@@ -92,6 +106,7 @@ impl ControlSession {
             &self.transport,
             &self.shutdown,
             &self.volume_store,
+            self.plot_store.as_deref(),
             request_id,
             command,
             timeout,
@@ -123,7 +138,12 @@ impl ControlSession {
     }
 
     fn invalidate(&self) {
-        terminate_control_session(&self.transport, &self.shutdown, &self.volume_store);
+        terminate_control_session(
+            &self.transport,
+            &self.shutdown,
+            &self.volume_store,
+            self.plot_store.as_deref(),
+        );
     }
 }
 
@@ -226,6 +246,7 @@ impl HttpService {
         let shutdown = ShutdownSignal::new(address);
         let frontend_ready = Arc::new(AtomicBool::new(false));
         let volume_store = Arc::new(VolumeStore::new());
+        let plot_store = Arc::new(PlotStore::new());
         let stream_broker = Arc::new(VolumeStreamBroker::default());
         let streaming_volume_enabled = config.transport.is_some();
         let transport = config
@@ -234,6 +255,7 @@ impl HttpService {
                 VolumeTransport::start_with_broker(
                     transport,
                     volume_store.clone(),
+                    plot_store.clone(),
                     stream_broker.clone(),
                     shutdown.clone(),
                 )
@@ -260,10 +282,11 @@ impl HttpService {
             .transpose()?
             .map_or((None, None), |(transport, data)| {
                 (
-                    Some(Arc::new(ControlSession::new(
+                    Some(Arc::new(ControlSession::new_with_plot(
                         transport,
                         shutdown.clone(),
                         volume_store.clone(),
+                        Some(plot_store.clone()),
                     ))),
                     Some(data),
                 )
@@ -293,6 +316,7 @@ impl HttpService {
             capability,
             authority,
             volume_store,
+            plot_store,
             stream_broker,
             streaming_volume_enabled,
             transport: Mutex::new(transport),
@@ -337,6 +361,7 @@ impl HttpService {
             capability: self.capability.clone(),
             authority: self.authority.clone(),
             volume_store: self.volume_store.clone(),
+            plot_store: self.plot_store.clone(),
             stream_broker: self.stream_broker.clone(),
             streaming_volume_enabled: self.streaming_volume_enabled,
             session_data: self.session_data.clone(),
@@ -386,6 +411,7 @@ impl HttpService {
             &self.session,
         );
         self.volume_store.clear();
+        self.plot_store.clear();
         result
     }
     #[cfg(test)]
@@ -393,10 +419,18 @@ impl HttpService {
     where
         B: Into<Arc<[u8]>>,
     {
+        let frame: Arc<[u8]> = frame.into();
+        let active = (self.volume_store.bytes() + self.plot_store.bytes()) as u64;
+        let budget =
+            memory_budget::active_data_budget(active).map_err(|_| InsertError::FrameTooLarge)?;
+        if active.saturating_add(frame.len() as u64) > budget.active_limit_bytes {
+            return Err(InsertError::FrameTooLarge);
+        }
         self.volume_store.insert(frame)
     }
     pub fn shutdown(&self) {
         self.volume_store.clear();
+        self.plot_store.clear();
         self.shutdown.request();
     }
     pub fn join(&self) {
@@ -420,6 +454,7 @@ struct ServiceRunner {
     capability: String,
     authority: String,
     volume_store: Arc<VolumeStore>,
+    plot_store: Arc<PlotStore>,
     stream_broker: Arc<VolumeStreamBroker>,
     streaming_volume_enabled: bool,
     session_data: Option<SessionData>,
@@ -445,6 +480,7 @@ impl ServiceRunner {
                 }
                 Err(_) => {
                     self.volume_store.clear();
+                    self.plot_store.clear();
                     self.shutdown.request();
                     break;
                 }
@@ -463,6 +499,7 @@ impl ServiceRunner {
             capability: self.capability.clone(),
             authority: self.authority.clone(),
             volume_store: self.volume_store.clone(),
+            plot_store: self.plot_store.clone(),
             stream_broker: self.stream_broker.clone(),
             streaming_volume_enabled: self.streaming_volume_enabled,
             session_data: self.session_data.clone(),
@@ -590,7 +627,34 @@ impl ServiceRunner {
             }
             respond_json(&mut stream, &json!({"ok": true}), 200, false);
             self.volume_store.clear();
+            self.plot_store.clear();
             self.shutdown.request();
+            return;
+        }
+        if let Some(dataset_id) = path.strip_prefix("/api/plot-data/") {
+            if method != "GET" {
+                respond(&mut stream, 405, "text/plain", b"Method Not Allowed", true);
+                return;
+            }
+            let Ok(parsed_id) = dataset_id.parse::<u64>() else {
+                respond(&mut stream, 400, "text/plain", b"Bad Request", false);
+                return;
+            };
+            if parsed_id == 0 || parsed_id.to_string() != dataset_id {
+                respond(&mut stream, 400, "text/plain", b"Bad Request", false);
+                return;
+            }
+            if let Some(frame) = self.plot_store.get(parsed_id) {
+                respond(
+                    &mut stream,
+                    200,
+                    "application/vnd.multiwfn.matterviz-plot-data-v1",
+                    &frame,
+                    false,
+                );
+            } else {
+                respond(&mut stream, 404, "text/plain", b"Not Found", false);
+            }
             return;
         }
         if let Some(volume_id) = path.strip_prefix("/api/volume/") {
@@ -1041,6 +1105,7 @@ fn request_control(
     control: &Arc<Mutex<Option<Arc<ControlTransport>>>>,
     shutdown: &ShutdownSignal,
     volume_store: &VolumeStore,
+    plot_store: Option<&PlotStore>,
     request_id: u64,
     command: &str,
     timeout: Duration,
@@ -1089,7 +1154,7 @@ fn request_control(
     match result {
         Ok(value) => value,
         Err(message) => {
-            terminate_control_session(control, shutdown, volume_store);
+            terminate_control_session(control, shutdown, volume_store, plot_store);
             json!({"ok": false, "message": message})
         }
     }
@@ -1099,12 +1164,16 @@ fn terminate_control_session(
     control: &Arc<Mutex<Option<Arc<ControlTransport>>>>,
     shutdown: &ShutdownSignal,
     volume_store: &VolumeStore,
+    plot_store: Option<&PlotStore>,
 ) {
     let mut guard = control
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.take();
     volume_store.clear();
+    if let Some(plot_store) = plot_store {
+        plot_store.clear();
+    }
     shutdown.request();
 }
 

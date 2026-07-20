@@ -2,6 +2,17 @@
 
 Updated: 2026-07-16
 
+## PR #49 generic two-dimensional scientific plots
+
+- [x] Freeze `multiwfn-matterviz-plot` v2 and `MWFNP2D` v1 contracts while retaining plot v1 compatibility.
+- [x] Replace spectrum-name classification with an explicit DISLIN two-dimensional scene state machine in the MatterViz adapter.
+- [x] Capture line, scatter, bars, error bars, fills, annotations, four axes, panel geometry and line contours. Keep raster/fill-color, relief and `STREAM` fail-closed until their palette, lighting and integration semantics can be reproduced faithfully.
+- [x] Publish large XY and field arrays through the in-memory binary data pipe; do not emit runtime plot files or expand million-point data into JSON.
+- [x] Render XY, dense scatter and continuous fields with shared MatterViz axes and controls. Plot export remains a separate audited task.
+- [x] Preserve the original interactive entry points without changing Multiwfn calculation or analysis modules. Legacy image-export parity remains unclaimed.
+- [ ] Verify real DOS/spectrum, IRI/RDG/DORI, ordinary curve, CDA, LDOS/electron-hole matrix and 2D plane workflows.
+- [ ] Run frontend, Rust, Fortran/CMake, browser and three-platform package verification followed by independent read-only review.
+
 ## 2026-07-14 Rust host migration
 
 - [x] Stop extending the Python launcher workaround and define the native architecture: Fortran remains the Multiwfn calculation/session adapter; Rust owns the loopback HTTP service, WebView, lifecycle and native file dialog.
@@ -646,3 +657,47 @@ behavior requires the explicit diagnostic environment flag.
   directory or other runtime intermediate file on all three platforms.
 - [ ] Keep COHP, LDOS, PES, bands, ECD, VCD and ROA disabled in the first batch;
   add them only after their GUI semantics are explicitly adapted and tested.
+
+## 2026-07-20 generic native 2D PlotScene v2
+
+- [x] Preserve plot v1 compatibility and add a generic versioned PlotScene v2
+  with normalized multi-panel viewports, explicit/reversed/log axes, layers,
+  annotations and optional semantic metadata.
+- [x] Add the in-memory `MWFNP2D` multi-array Float64 protocol and authenticated
+  Rust `/api/plot-data/<id>` endpoint. Keep static scenes, structure data and
+  numeric plot bodies on the existing control/data pipes with no plot files.
+- [x] Capture line, scatter/symbol, nonzero-baseline bars, error ranges, filled
+  curves and line-contour intent at the DISLIN adapter
+  boundary. Unsupported or incomplete primitives such as `FBARS` and `AREAF`
+  remain fail-closed instead of being drawn with guessed semantics.
+- [x] Route regular and dense points through MatterViz `ScatterPlot` and
+  `BinnedScatterPlot`; reuse MatterViz axes for fields and exact-baseline bar
+  overlays. Preserve native grid coordinates for line contours instead of
+  normalizing scientific coordinates away.
+- [x] Remove the plot protocol/store's duplicate 256 MiB ceilings. Admit a plot
+  frame before allocation using the existing combined active volume+plot
+  memory budget and drain a rejected frame with a bounded scratch buffer.
+- [x] Add fragmented shared-pipe plot/ACK/next-volume transport coverage,
+  binary CRC/offset tests, strict scene parsing, field helpers, dataset release,
+  bars baseline and Fortran capture semantics.
+- [x] Pass the linked GNU Fortran capture harness, GUI adapter compilation, 22
+  Python adapter/build tests, C stream protocol tests, 132 frontend tests,
+  Svelte check, Vite production build, 105 Rust tests, `cargo check` and strict
+  Clippy locally.
+- [x] Resolve the first independent v2 review: lazily initialize the v1 view,
+  recognize native `INCMRK(-1)`, merge same-geometry `GRAF` overlays into
+  x2/y2 axes, retain all ACKed scene datasets, remove v1 point caps from v2,
+  validate dataset shapes/log values, reject unsupported axis routes and
+  dataset-backed annotations, and reject unsupported third-axis overlays.
+- [x] Replace the fixed Fortran array-value ceiling with checked allocation and
+  the Host's shared byte budget. Keep structural layer/label limits for bounded
+  scene complexity.
+- [x] Fail closed for DISLIN `STREAM`; do not substitute a bounded approximate
+  streamline generator that ignores native seed and integration controls.
+- [ ] Pass Linux, Windows and macOS CI for the combined branch.
+- [ ] Run real native Multiwfn menu workflows for representative curve,
+  high-density IRI scatter and line-contour plots; verify
+  data/range parity with DISLIN at desktop and 800px browser viewports.
+- [ ] Add plot export only after native format expectations are audited. Do not
+  claim legacy DISLIN export parity while interactive WebView rendering is the
+  only verified output path.

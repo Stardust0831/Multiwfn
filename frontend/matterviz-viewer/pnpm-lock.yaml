@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      d3-contour:
+        specifier: ^4.0.2
+        version: 4.0.2
       matterviz:
         specifier: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r23.tgz
         version: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r23.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4)
@@ -293,6 +296,10 @@ packages:
 
   d3-color@3.1.0:
     resolution: {integrity: sha512-zg/chbXyeBtMQ1LbD/WSoW2DpC3I0mpmPdW+ynRTj/x2DAWYrIY7qeZIHidozwV24m4iavr15lNwIwLxRmOxhA==}
+    engines: {node: '>=12'}
+
+  d3-contour@4.0.2:
+    resolution: {integrity: sha512-4EzFTRIikzs47RGmdxbeUvLWtGedDUNkTcmzoeyg4sP/dvCexO47AaQL7VKy/gul85TOxw+IBgA8US2xwbToNA==}
     engines: {node: '>=12'}
 
   d3-format@3.1.2:
@@ -928,6 +935,10 @@ snapshots:
       internmap: 2.0.3
 
   d3-color@3.1.0: {}
+
+  d3-contour@4.0.2:
+    dependencies:
+      d3-array: 3.2.4
 
   d3-format@3.1.2: {}
 

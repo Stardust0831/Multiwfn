@@ -36,7 +36,8 @@ class MatterVizPlotAdapterTests(unittest.TestCase):
 
     def test_capture_and_control_limits_are_explicit(self):
         self.assertIn("matterviz_plot_max_series=128", CAPTURE)
-        self.assertIn("matterviz_plot_max_points=2000000", CAPTURE)
+        self.assertNotIn("matterviz_plot_max_values", CAPTURE)
+        self.assertIn("stat=allocation_status", CAPTURE)
         self.assertIn("multiwfn-matterviz-plot", GUI)
         self.assertIn("multiwfn-matterviz-control", GUI)
 

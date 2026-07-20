@@ -18,6 +18,12 @@ int multiwfn_matterviz_publish_volume_stream(
     const double origin[3], const double voxel_axes[9], const double lattice[9],
     const double *samples, int64_t sample_count, uint32_t publish_timeout_ms);
 
+int multiwfn_matterviz_publish_plot_data(
+    intptr_t volume_write, intptr_t ack_read, int64_t request_id, int64_t dataset_id,
+    const int32_t *semantic_roles, const double *array1, const double *array2,
+    const double *array3, const double *array4, const double *array5,
+    const int64_t *element_counts, int32_t array_count, uint32_t publish_timeout_ms);
+
 #define HEADER_BYTES 304U
 #define ACK_BYTES 64U
 #define STREAM_CHUNK 4096U
@@ -37,6 +43,8 @@ typedef struct {
     int read_error;
     int64_t request_id;
     int64_t volume_id;
+    const char *ack_magic;
+    uint16_t ack_major;
 } reader_args;
 
 static void put_u16(uint8_t *dst, uint16_t value) {
@@ -136,15 +144,15 @@ static void *reader_main(void *opaque) {
     }
     if (args->send_ack) {
         uint8_t ack[ACK_BYTES] = {0};
-        memcpy(ack, "MWFNVOL\0", 8U);
-        put_u16(ack + 8, 2U);
+        memcpy(ack, args->ack_magic, 8U);
+        put_u16(ack + 8, args->ack_major);
         put_u16(ack + 12, 8U);
         put_u16(ack + 14, 1U);
         put_u32(ack + 16, ACK_BYTES);
         put_u64(ack + 20, (uint64_t)args->request_id);
         put_u64(ack + 48, (uint64_t)args->volume_id);
         put_u32(ack + 36, crc32c(ack, sizeof(ack)));
-        assert(get_u16(ack + 8) == 2U);
+        assert(get_u16(ack + 8) == args->ack_major);
         assert(get_u16(ack + 12) == 8U);
         assert(get_u32(ack + 56) == 0U);
         if (write_all(args->ack_fd, ack, sizeof(ack)) != 0) args->read_error = errno;
@@ -183,6 +191,8 @@ static int run_stream(const double *samples, int64_t count, int slow, int send_a
     args.capture = capture;
     args.request_id = 42;
     args.volume_id = 1001;
+    args.ack_magic = "MWFNVOL\0";
+    args.ack_major = 2U;
     if (capture) {
         args.frame_capacity = (size_t)args.expected_bytes;
         args.frame = (uint8_t *)malloc(args.frame_capacity);
@@ -292,11 +302,98 @@ static void test_timeout_and_broken_pipe(void) {
     assert(run_stream(&sample, 1, 0, 0, 0, NULL, NULL) == ERR_TIMEOUT);
 }
 
+static void test_plot_data_stream(void) {
+    const int64_t count = 1500001;
+    const uint64_t header_bytes = 80U;
+    int data_pipe[2];
+    int ack_pipe[2];
+    pthread_t reader;
+    reader_args args;
+    double *values = (double *)malloc((size_t)count * sizeof(*values));
+    int result;
+    const int32_t roles[] = {1, 2};
+    const int64_t counts[] = {count, count};
+    int64_t index;
+    assert(values != NULL);
+    for (index = 0; index < count; ++index) values[index] = (double)(index % 97) / 3.0;
+    assert(pipe(data_pipe) == 0 && pipe(ack_pipe) == 0);
+    memset(&args, 0, sizeof(args));
+    args.read_fd = data_pipe[0];
+    args.ack_fd = ack_pipe[1];
+    args.expected_bytes = header_bytes + 64U + 2U * (uint64_t)count * sizeof(double);
+    args.send_ack = 0;
+    args.capture = 1;
+    args.frame_capacity = (size_t)args.expected_bytes;
+    args.frame = (uint8_t *)malloc(args.frame_capacity);
+    assert(args.frame != NULL);
+    args.send_ack = 1;
+    args.request_id = 9001;
+    args.volume_id = 9001;
+    args.ack_magic = "MWFNP2D\0";
+    args.ack_major = 1U;
+    assert(pthread_create(&reader, NULL, reader_main, &args) == 0);
+    result = multiwfn_matterviz_publish_plot_data(
+        data_pipe[1], ack_pipe[0], 9001, 9001, roles, values, values, NULL, NULL, NULL, counts, 2, 5000U);
+    close(data_pipe[1]);
+    close(ack_pipe[0]);
+    assert(pthread_join(reader, NULL) == 0);
+    assert(result == 0);
+    assert(args.frame_length == args.expected_bytes);
+    assert(memcmp(args.frame, "MWFNP2D\0", 8U) == 0);
+    assert(get_u16(args.frame + 8) == 1U && get_u16(args.frame + 12) == 1U);
+    assert(get_u32(args.frame + 16) == header_bytes);
+    assert(get_u64(args.frame + 20) == 9001U);
+    assert(get_u32(args.frame + 28) == 2U);
+    assert(get_u64(args.frame + 36) == 64U);
+    assert(get_u64(args.frame + 44) == 2U * (uint64_t)count * sizeof(double));
+    assert(get_u64(args.frame + 52) == 2U * (uint64_t)count);
+    assert(args.frame[80] == 1U && args.frame[112] == 2U);
+    assert(crc32c(args.frame + header_bytes + 64U, 2U * (size_t)count * sizeof(double)) ==
+           get_u32(args.frame + 64));
+    {
+        uint8_t header[80];
+        memcpy(header, args.frame, sizeof(header));
+        put_u32(header + 60, 0U);
+        assert(crc32c(header, sizeof(header)) == get_u32(args.frame + 60));
+    }
+    free(args.frame);
+    close(data_pipe[0]);
+    close(ack_pipe[1]);
+    free(values);
+}
+
+static void test_plot_data_validation_and_timeout(void) {
+    const double valid = 1.0;
+    const double invalid = NAN;
+    int data_pipe[2];
+    int ack_pipe[2];
+    const int32_t valid_role = 1;
+    const int32_t invalid_role = 9;
+    const double *valid_array = &valid;
+    const double *invalid_array = &invalid;
+    const int64_t count = 1;
+    assert(pipe(data_pipe) == 0 && pipe(ack_pipe) == 0);
+    assert(multiwfn_matterviz_publish_plot_data(
+               data_pipe[1], ack_pipe[0], 1, 1, &valid_role, invalid_array, NULL, NULL, NULL, NULL, &count, 1, 100U) == ERR_INVALID);
+    assert(multiwfn_matterviz_publish_plot_data(
+               data_pipe[1], ack_pipe[0], 0, 1, &valid_role, valid_array, NULL, NULL, NULL, NULL, &count, 1, 100U) == ERR_INVALID);
+    assert(multiwfn_matterviz_publish_plot_data(
+               data_pipe[1], ack_pipe[0], 1, 1, &invalid_role, valid_array, NULL, NULL, NULL, NULL, &count, 1, 100U) == ERR_INVALID);
+    assert(multiwfn_matterviz_publish_plot_data(
+               data_pipe[1], ack_pipe[0], 1, 1, &valid_role, valid_array, NULL, NULL, NULL, NULL, &count, 1, 20U) == ERR_TIMEOUT);
+    close(data_pipe[0]);
+    close(data_pipe[1]);
+    close(ack_pipe[0]);
+    close(ack_pipe[1]);
+}
+
 int main(void) {
     test_exact_frame();
     test_large_stream();
     test_validation();
     test_timeout_and_broken_pipe();
+    test_plot_data_stream();
+    test_plot_data_validation_and_timeout();
     puts("matterviz stream tests passed");
     return 0;
 }

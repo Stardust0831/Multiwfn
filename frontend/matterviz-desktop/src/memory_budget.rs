@@ -29,6 +29,13 @@ pub struct MemoryBudget {
 }
 
 pub fn active_volume_budget(current_active_bytes: u64) -> Result<MemoryBudget, String> {
+    active_data_budget(current_active_bytes)
+}
+
+/// Compute the automatic admission limit for all immutable active datasets.
+/// The legacy volume name is retained as a compatibility wrapper because the
+/// volume transport remains a supported protocol surface.
+pub fn active_data_budget(current_active_bytes: u64) -> Result<MemoryBudget, String> {
     #[cfg(test)]
     {
         let active_limit_bytes = TEST_ACTIVE_LIMIT_BYTES.load(Ordering::Relaxed);

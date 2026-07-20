@@ -67,7 +67,7 @@
     orbital_visibility,
     type VolumeCacheOptions,
   } from './volume-cache'
-  import { parse_plot_artifact, type PlotArtifact } from './plot'
+  import { parse_plot, read_plot_dataset_response, type PlotArtifact, type PlotDataset, type PlotScene } from './plot'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -134,7 +134,7 @@
     [key: string]: unknown
   }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
-  let plotArtifact = $state<PlotArtifact | undefined>()
+  let plotArtifact = $state<PlotArtifact | PlotScene | undefined>()
 
   type ApiPayload = {
     ok?: boolean
@@ -638,7 +638,8 @@
       manifest = (await response.json()) as MultiwfnManifest
       const inlinePlot = (manifest as MultiwfnManifest & { plot?: unknown }).plot
       if (inlinePlot !== undefined) {
-        plotArtifact = parse_plot_artifact(inlinePlot)
+        plotArtifact = parse_plot(inlinePlot)
+        manifestBase = new URL('.', url)
         loading = false
         return
       }
@@ -1085,7 +1086,13 @@
 </script>
 
 {#if plotArtifact}
-  <MultiwfnPlotView artifact={plotArtifact} />
+  <MultiwfnPlotView
+    artifact={plotArtifact}
+    resolver={async (datasetId: number): Promise<PlotDataset> => {
+      const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
+      return read_plot_dataset_response(response, datasetId)
+    }}
+  />
 {:else}
 <main class="workbench" class:has-periodic={Boolean(manifest.periodic?.enabled)}>
   <header class="toolbar">
