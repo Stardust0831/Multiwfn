@@ -698,6 +698,8 @@ behavior requires the explicit diagnostic environment flag.
   signaling, preserve positive `INCMRK` line-plus-marker intent, bind legends
   through curve-series identity, correct `BLACK`, and match the C publisher's
   array-count bound to its five pointer arguments. Add focused regressions.
+- [x] Bound aggregate v1 `referenceLines` across panels in the Rust Host and
+  cover the exact limit plus one-entry-over rejection boundary.
 - [ ] Pass Linux, Windows and macOS CI for the combined branch.
 - [ ] Run real native Multiwfn menu workflows for representative curve,
   high-density IRI scatter and line-contour plots; verify

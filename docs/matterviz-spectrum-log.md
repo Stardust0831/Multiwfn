@@ -1422,3 +1422,6 @@
   its five actual array pointer arguments, emitted marker styling for
   line-plus-scatter layers, and removed duplicate Rust constructor and Fortran
   reset cleanup code. Regression coverage exercises each behavioral change.
+- Rechecked the remaining unresolved v1 compatibility discussion instead of
+  dismissing it as obsolete. Aggregate `referenceLines` now share a Host-side
+  20,000-entry limit across panels and are rejected before per-entry validation.

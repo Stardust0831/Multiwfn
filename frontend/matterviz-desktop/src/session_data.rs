@@ -24,6 +24,7 @@ const MAX_PLOT_SERIES: usize = 128;
 const MAX_PLOT_POINTS: usize = 2_000_000;
 const MAX_PLOT_STICKS_POINTS: usize = 100_000;
 const MAX_PLOT_LABELS: usize = 20_000;
+const MAX_PLOT_REFERENCE_LINES: usize = 20_000;
 
 /// Errors returned when a control frame cannot be used to bootstrap a
 /// MatterViz session.
@@ -234,6 +235,7 @@ struct PlotLimits {
     points: usize,
     sticks_points: usize,
     labels: usize,
+    reference_lines: usize,
 }
 
 impl PlotLimits {
@@ -274,6 +276,21 @@ impl PlotLimits {
         }
         if self.labels > MAX_PLOT_LABELS {
             return Err(SessionDataError::InvalidManifestPlot("too many labels"));
+        }
+        Ok(())
+    }
+
+    fn add_reference_lines(&mut self, count: usize) -> Result<(), SessionDataError> {
+        self.reference_lines = self
+            .reference_lines
+            .checked_add(count)
+            .ok_or(SessionDataError::InvalidManifestPlot(
+                "reference line limit",
+            ))?;
+        if self.reference_lines > MAX_PLOT_REFERENCE_LINES {
+            return Err(SessionDataError::InvalidManifestPlot(
+                "too many reference lines",
+            ));
         }
         Ok(())
     }
@@ -561,6 +578,7 @@ fn validate_plot_panel(value: &Value, limits: &mut PlotLimits) -> Result<(), Ses
         let references = references
             .as_array()
             .ok_or(SessionDataError::InvalidManifestPlot("referenceLines"))?;
+        limits.add_reference_lines(references.len())?;
         for reference in references {
             validate_plot_reference_line(reference)?;
         }
@@ -1057,6 +1075,17 @@ mod tests {
         assert_eq!(
             labels.add_series(1, false, 1),
             Err(SessionDataError::InvalidManifestPlot("too many labels"))
+        );
+
+        let mut references = PlotLimits::default();
+        references
+            .add_reference_lines(MAX_PLOT_REFERENCE_LINES)
+            .unwrap();
+        assert_eq!(
+            references.add_reference_lines(1),
+            Err(SessionDataError::InvalidManifestPlot(
+                "too many reference lines"
+            ))
         );
     }
 }
