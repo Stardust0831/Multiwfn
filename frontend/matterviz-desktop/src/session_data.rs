@@ -428,13 +428,7 @@ fn validate_plot_panel_v2(value: &Value, limits: &mut PlotLimits) -> Result<(), 
             .ok_or(SessionDataError::InvalidManifestPlot("layer type"))?;
         if !matches!(
             kind,
-            "line"
-                | "scatter"
-                | "line+scatter"
-                | "bars"
-                | "error-bars"
-                | "fill"
-                | "contour"
+            "line" | "scatter" | "line+scatter" | "bars" | "error-bars" | "fill" | "contour"
         ) {
             return Err(SessionDataError::InvalidManifestPlot("layer type"));
         }

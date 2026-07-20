@@ -10,6 +10,10 @@ pub mod control_transport;
 pub mod inherited_pipe;
 #[path = "../../../frontend/matterviz-desktop/src/memory_budget.rs"]
 pub mod memory_budget;
+#[path = "../../../frontend/matterviz-desktop/src/plot_protocol.rs"]
+pub mod plot_protocol;
+#[path = "../../../frontend/matterviz-desktop/src/plot_store.rs"]
+pub mod plot_store;
 #[path = "../../../frontend/matterviz-desktop/src/service.rs"]
 pub mod service;
 #[path = "../../../frontend/matterviz-desktop/src/session_data.rs"]

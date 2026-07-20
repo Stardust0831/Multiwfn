@@ -1399,3 +1399,8 @@
   user-content layer, made field shape and log-coordinate checks mandatory,
   restored marker-size metadata, releases stale async resolutions, and keeps
   the original cross-platform optional lockfile entries intact.
+- The first PR #49 CI run failed for two build-integration omissions rather
+  than runtime behavior: the Host needed one rustfmt rewrite, and the separate
+  `matterviz-volume-e2e` crate did not declare the new path-included
+  `plot_protocol` and `plot_store` modules. Added those two module declarations;
+  both manifest-specific format checks and all 109 e2e tests pass locally.
