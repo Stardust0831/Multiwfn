@@ -46,7 +46,9 @@ if (launches/=6) error stop 6
 
 ! ENDGRF separates panels; layers retain order and panel ownership.
 call metafl('xwin'); call disini(); call axspos(10,20); call axslen(300,200); call graf(0D0,1D0,0D0,0.5D0,0D0,1D0,0D0,0.5D0)
-call curve(x(1:2),y(1:2),2); call endgrf(); call axspos(30,40); call graf(0D0,2D0,0D0,1D0,0D0,2D0,0D0,1D0); call curve(x,y,4); call disfin()
+call curve(x(1:2),y(1:2),2); call endgrf(); call axspos(30,40)
+call graf(0D0,2D0,0D0,1D0,0D0,2D0,0D0,1D0)
+call curve(x,y,4); call disfin()
 if (launches/=7) error stop 7
 
 ! Repeated GRAF at the same geometry is a secondary-axis overlay, not a new panel.

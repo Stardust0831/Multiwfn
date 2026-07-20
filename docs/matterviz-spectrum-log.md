@@ -1404,3 +1404,8 @@
   `matterviz-volume-e2e` crate did not declare the new path-included
   `plot_protocol` and `plot_store` modules. Added those two module declarations;
   both manifest-specific format checks and all 109 e2e tests pass locally.
+- The second run passed all Linux/macOS/Windows MatterViz package jobs and left
+  only the Linux build-contract harness failing: GNU Fortran's default
+  132-column free-form limit truncated compact capture statements. Split every
+  overlong capture/harness line without changing behavior. A local compile with
+  explicit `-Werror=line-truncation` and the Python-linked harness both pass.

@@ -337,13 +337,20 @@ matterviz_plot_panels(matterviz_plot_current_panel)%xlow=xlow; matterviz_plot_pa
 matterviz_plot_panels(matterviz_plot_current_panel)%ylow=ylow; matterviz_plot_panels(matterviz_plot_current_panel)%yhigh=yhigh
 matterviz_plot_panels(matterviz_plot_current_panel)%zlow=zlow; matterviz_plot_panels(matterviz_plot_current_panel)%zhigh=zhigh
 matterviz_plot_panels(matterviz_plot_current_panel)%xstep=xstep; matterviz_plot_panels(matterviz_plot_current_panel)%ystep=ystep
-matterviz_plot_panels(matterviz_plot_current_panel)%posx=matterviz_plot_posx; matterviz_plot_panels(matterviz_plot_current_panel)%posy=matterviz_plot_posy
-matterviz_plot_panels(matterviz_plot_current_panel)%lenx=matterviz_plot_lenx; matterviz_plot_panels(matterviz_plot_current_panel)%leny=matterviz_plot_leny
-matterviz_plot_panels(matterviz_plot_current_panel)%page_x=matterviz_plot_page_x; matterviz_plot_panels(matterviz_plot_current_panel)%page_y=matterviz_plot_page_y
-matterviz_plot_panels(matterviz_plot_current_panel)%xlabel=matterviz_plot_xlabel; matterviz_plot_panels(matterviz_plot_current_panel)%ylabel=matterviz_plot_ylabel
-matterviz_plot_panels(matterviz_plot_current_panel)%xlog=matterviz_plot_xlog; matterviz_plot_panels(matterviz_plot_current_panel)%ylog=matterviz_plot_ylog
-matterviz_plot_panels(matterviz_plot_current_panel)%labels_x=matterviz_plot_labels_x; matterviz_plot_panels(matterviz_plot_current_panel)%labels_y=matterviz_plot_labels_y
-matterviz_plot_panels(matterviz_plot_current_panel)%digits_x=matterviz_plot_digits_x; matterviz_plot_panels(matterviz_plot_current_panel)%digits_y=matterviz_plot_digits_y
+matterviz_plot_panels(matterviz_plot_current_panel)%posx=matterviz_plot_posx
+matterviz_plot_panels(matterviz_plot_current_panel)%posy=matterviz_plot_posy
+matterviz_plot_panels(matterviz_plot_current_panel)%lenx=matterviz_plot_lenx
+matterviz_plot_panels(matterviz_plot_current_panel)%leny=matterviz_plot_leny
+matterviz_plot_panels(matterviz_plot_current_panel)%page_x=matterviz_plot_page_x
+matterviz_plot_panels(matterviz_plot_current_panel)%page_y=matterviz_plot_page_y
+matterviz_plot_panels(matterviz_plot_current_panel)%xlabel=matterviz_plot_xlabel
+matterviz_plot_panels(matterviz_plot_current_panel)%ylabel=matterviz_plot_ylabel
+matterviz_plot_panels(matterviz_plot_current_panel)%xlog=matterviz_plot_xlog
+matterviz_plot_panels(matterviz_plot_current_panel)%ylog=matterviz_plot_ylog
+matterviz_plot_panels(matterviz_plot_current_panel)%labels_x=matterviz_plot_labels_x
+matterviz_plot_panels(matterviz_plot_current_panel)%labels_y=matterviz_plot_labels_y
+matterviz_plot_panels(matterviz_plot_current_panel)%digits_x=matterviz_plot_digits_x
+matterviz_plot_panels(matterviz_plot_current_panel)%digits_y=matterviz_plot_digits_y
 matterviz_plot_xstep=xstep; matterviz_plot_ystep=ystep
 end subroutine
 subroutine matterviz_capture_end_graph()
@@ -357,9 +364,15 @@ end subroutine
 subroutine matterviz_capture_color_name(value)
 character(len=*),intent(in) :: value
 select case(trim(adjustl(value)))
-case('RED'); matterviz_plot_color='#d62728'; case('GREEN'); matterviz_plot_color='#2ca02c'; case('BLUE'); matterviz_plot_color='#1f77b4'
-case('CYAN'); matterviz_plot_color='#17becf'; case('YELLOW'); matterviz_plot_color='#bcbd22'; case('ORANGE'); matterviz_plot_color='#ff7f0e'
-case('MAGENTA'); matterviz_plot_color='#e377c2'; case('BLACK'); matterviz_plot_color='#f5f5f5'; case default; matterviz_plot_color='#222222'
+case('RED'); matterviz_plot_color='#d62728'
+case('GREEN'); matterviz_plot_color='#2ca02c'
+case('BLUE'); matterviz_plot_color='#1f77b4'
+case('CYAN'); matterviz_plot_color='#17becf'
+case('YELLOW'); matterviz_plot_color='#bcbd22'
+case('ORANGE'); matterviz_plot_color='#ff7f0e'
+case('MAGENTA'); matterviz_plot_color='#e377c2'
+case('BLACK'); matterviz_plot_color='#f5f5f5'
+case default; matterviz_plot_color='#222222'
 end select
 end subroutine
 subroutine matterviz_capture_rgb(red,green,blue)
@@ -410,11 +423,25 @@ if (present(nx)) layer%nx=nx; if (present(ny)) layer%ny=ny; if (present(nz)) lay
 if (present(x)) then; allocate(layer%x(size(x)),stat=allocation_status); if (allocation_status/=0) goto 900; layer%x=x; end if
 if (present(y)) then; allocate(layer%y(size(y)),stat=allocation_status); if (allocation_status/=0) goto 900; layer%y=y; end if
 if (present(z)) then; allocate(layer%z(size(z)),stat=allocation_status); if (allocation_status/=0) goto 900; layer%z=z; end if
-if (present(aux1)) then; allocate(layer%aux1(size(aux1)),stat=allocation_status); if (allocation_status/=0) goto 900; layer%aux1=aux1; end if
-if (present(aux2)) then; allocate(layer%aux2(size(aux2)),stat=allocation_status); if (allocation_status/=0) goto 900; layer%aux2=aux2; end if
-if (present(levels)) then; allocate(layer%levels(size(levels)),stat=allocation_status); if (allocation_status/=0) goto 900; layer%levels=levels; end if
+if (present(aux1)) then
+    allocate(layer%aux1(size(aux1)),stat=allocation_status)
+    if (allocation_status/=0) goto 900
+    layer%aux1=aux1
+end if
+if (present(aux2)) then
+    allocate(layer%aux2(size(aux2)),stat=allocation_status)
+    if (allocation_status/=0) goto 900
+    layer%aux2=aux2
+end if
+if (present(levels)) then
+    allocate(layer%levels(size(levels)),stat=allocation_status)
+    if (allocation_status/=0) goto 900
+    layer%levels=levels
+end if
 matterviz_plot_panels(matterviz_plot_current_panel)%layer_count=matterviz_plot_panels(matterviz_plot_current_panel)%layer_count+1
-if (matterviz_plot_panels(matterviz_plot_current_panel)%layer_first==0) matterviz_plot_panels(matterviz_plot_current_panel)%layer_first=matterviz_plot_layer_count
+if (matterviz_plot_panels(matterviz_plot_current_panel)%layer_first==0) then
+    matterviz_plot_panels(matterviz_plot_current_panel)%layer_first=matterviz_plot_layer_count
+end if
 return
 900 call free_layer(layer); matterviz_plot_layer_count=matterviz_plot_layer_count-1; matterviz_plot_capture_error=2
 end subroutine
@@ -428,13 +455,28 @@ if (matterviz_plot_series_count>=matterviz_plot_max_series) then; matterviz_plot
 matterviz_plot_series_count=matterviz_plot_series_count+1; idx=matterviz_plot_series_count
 allocate(matterviz_plot_series(idx)%x(count),matterviz_plot_series(idx)%y(count), &
     matterviz_plot_series(idx)%label_head(count),matterviz_plot_series(idx)%label_tail(count),stat=allocation_status)
-if (allocation_status/=0) then; matterviz_plot_capture_error=2; matterviz_plot_series_count=matterviz_plot_series_count-1; return; end if
-matterviz_plot_series(idx)%x=x; matterviz_plot_series(idx)%y=y; matterviz_plot_series(idx)%label_head=0; matterviz_plot_series(idx)%label_tail=0
-matterviz_plot_series(idx)%count=count; matterviz_plot_series(idx)%xlow=matterviz_plot_xlow; matterviz_plot_series(idx)%xhigh=matterviz_plot_xhigh
-matterviz_plot_series(idx)%ylow=matterviz_plot_ylow; matterviz_plot_series(idx)%yhigh=matterviz_plot_yhigh; matterviz_plot_series(idx)%posx=matterviz_plot_posx
-matterviz_plot_series(idx)%posy=matterviz_plot_posy; matterviz_plot_series(idx)%lenx=matterviz_plot_lenx; matterviz_plot_series(idx)%leny=matterviz_plot_leny
-matterviz_plot_series(idx)%width=matterviz_plot_width; matterviz_plot_series(idx)%xlabel=matterviz_plot_xlabel; matterviz_plot_series(idx)%ylabel=matterviz_plot_ylabel
-matterviz_plot_series(idx)%color=matterviz_plot_color; matterviz_plot_series(idx)%dashed=matterviz_plot_dashed; matterviz_plot_series(idx)%sticks=.false.
+if (allocation_status/=0) then
+    matterviz_plot_capture_error=2
+    matterviz_plot_series_count=matterviz_plot_series_count-1
+    return
+end if
+matterviz_plot_series(idx)%x=x; matterviz_plot_series(idx)%y=y
+matterviz_plot_series(idx)%label_head=0; matterviz_plot_series(idx)%label_tail=0
+matterviz_plot_series(idx)%count=count
+matterviz_plot_series(idx)%xlow=matterviz_plot_xlow
+matterviz_plot_series(idx)%xhigh=matterviz_plot_xhigh
+matterviz_plot_series(idx)%ylow=matterviz_plot_ylow
+matterviz_plot_series(idx)%yhigh=matterviz_plot_yhigh
+matterviz_plot_series(idx)%posx=matterviz_plot_posx
+matterviz_plot_series(idx)%posy=matterviz_plot_posy
+matterviz_plot_series(idx)%lenx=matterviz_plot_lenx
+matterviz_plot_series(idx)%leny=matterviz_plot_leny
+matterviz_plot_series(idx)%width=matterviz_plot_width
+matterviz_plot_series(idx)%xlabel=matterviz_plot_xlabel
+matterviz_plot_series(idx)%ylabel=matterviz_plot_ylabel
+matterviz_plot_series(idx)%color=matterviz_plot_color
+matterviz_plot_series(idx)%dashed=matterviz_plot_dashed
+matterviz_plot_series(idx)%sticks=.false.
 if (matterviz_plot_marker_enabled) then
     call append_layer('scatter',count,x=x,y=y)
 else
@@ -493,24 +535,34 @@ character(len=*),intent(in) :: value; real*8,intent(in) :: x,y
 integer :: idx,point_idx,best_series,best_point
 real*8 :: xspan,yspan,score,best_score
 if (.not.matterviz_plot_interactive.or.matterviz_plot_capture_error/=0.or.len_trim(value)==0) return
-if (matterviz_plot_label_count>=matterviz_plot_max_labels.or.len_trim(value)>matterviz_plot_label_length) then; matterviz_plot_capture_error=4; return; end if
+if (matterviz_plot_label_count>=matterviz_plot_max_labels.or. &
+    len_trim(value)>matterviz_plot_label_length) then
+    matterviz_plot_capture_error=4
+    return
+end if
 matterviz_plot_label_count=matterviz_plot_label_count+1; idx=matterviz_plot_label_count
-matterviz_plot_annotations(idx)%panel=matterviz_plot_current_panel; matterviz_plot_annotations(idx)%x=x; matterviz_plot_annotations(idx)%y=y
+matterviz_plot_annotations(idx)%panel=matterviz_plot_current_panel
+matterviz_plot_annotations(idx)%x=x; matterviz_plot_annotations(idx)%y=y
 matterviz_plot_annotations(idx)%data_coordinates=.true.
 matterviz_plot_annotations(idx)%text=trim(adjustl(value)); matterviz_plot_label_series(idx)=0; matterviz_plot_label_point(idx)=0
 ! Keep the v1 nearest-point index solely for compatibility. The new annotation is independent.
 best_series=0; best_point=0; best_score=huge(1D0)
 do idx=1,matterviz_plot_series_count
     if (matterviz_plot_series(idx)%posx/=matterviz_plot_posx.or.matterviz_plot_series(idx)%posy/=matterviz_plot_posy) cycle
-    xspan=max(abs(matterviz_plot_series(idx)%xhigh-matterviz_plot_series(idx)%xlow),tiny(1D0)); yspan=max(abs(matterviz_plot_series(idx)%yhigh-matterviz_plot_series(idx)%ylow),tiny(1D0))
+    xspan=max(abs(matterviz_plot_series(idx)%xhigh- &
+        matterviz_plot_series(idx)%xlow),tiny(1D0))
+    yspan=max(abs(matterviz_plot_series(idx)%yhigh- &
+        matterviz_plot_series(idx)%ylow),tiny(1D0))
     do point_idx=1,matterviz_plot_series(idx)%count
         score=abs(matterviz_plot_series(idx)%x(point_idx)-x)/xspan+abs(matterviz_plot_series(idx)%y(point_idx)-y)/yspan
         if (score<best_score) then; best_score=score; best_series=idx; best_point=point_idx; end if
     end do
 end do
 if (best_series>0) then
-    matterviz_plot_label_series(matterviz_plot_label_count)=best_series; matterviz_plot_label_point(matterviz_plot_label_count)=best_point
-    if (matterviz_plot_series(best_series)%label_head(best_point)==0) then; matterviz_plot_series(best_series)%label_head(best_point)=matterviz_plot_label_count
+    matterviz_plot_label_series(matterviz_plot_label_count)=best_series
+    matterviz_plot_label_point(matterviz_plot_label_count)=best_point
+    if (matterviz_plot_series(best_series)%label_head(best_point)==0) then
+        matterviz_plot_series(best_series)%label_head(best_point)=matterviz_plot_label_count
     else; matterviz_plot_label_next(matterviz_plot_series(best_series)%label_tail(best_point))=matterviz_plot_label_count; end if
     matterviz_plot_series(best_series)%label_tail(best_point)=matterviz_plot_label_count
 end if
@@ -524,8 +576,13 @@ end subroutine
 subroutine matterviz_capture_message(value,x,y)
 character(len=*),intent(in) :: value; integer,intent(in) :: x,y
 if (matterviz_plot_capture_error/=0) return
-if (matterviz_plot_label_count>=matterviz_plot_max_labels.or.len_trim(value)>matterviz_plot_label_length) then; matterviz_plot_capture_error=4; return; end if
-matterviz_plot_label_count=matterviz_plot_label_count+1; matterviz_plot_annotations(matterviz_plot_label_count)%panel=matterviz_plot_current_panel
+if (matterviz_plot_label_count>=matterviz_plot_max_labels.or. &
+    len_trim(value)>matterviz_plot_label_length) then
+    matterviz_plot_capture_error=4
+    return
+end if
+matterviz_plot_label_count=matterviz_plot_label_count+1
+matterviz_plot_annotations(matterviz_plot_label_count)%panel=matterviz_plot_current_panel
 matterviz_plot_annotations(matterviz_plot_label_count)%x=dble(x); matterviz_plot_annotations(matterviz_plot_label_count)%y=dble(y)
 matterviz_plot_annotations(matterviz_plot_label_count)%data_coordinates=.false.
 matterviz_plot_annotations(matterviz_plot_label_count)%text=trim(adjustl(value))
