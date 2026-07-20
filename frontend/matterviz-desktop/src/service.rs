@@ -210,7 +210,9 @@ impl HttpService {
             .set_nonblocking(true)
             .map_err(|error| error.to_string())?;
         let address = listener.local_addr().map_err(|error| error.to_string())?;
-        let host = if address.ip().is_unspecified() {
+        let host = if config.host.eq_ignore_ascii_case("localhost") {
+            "localhost".to_owned()
+        } else if address.ip().is_unspecified() {
             config.host.clone()
         } else {
             address.ip().to_string()
@@ -472,6 +474,12 @@ impl ServiceRunner {
         }
     }
     fn handle(&self, mut stream: TcpStream) {
+        // BSD platforms can propagate O_NONBLOCK from the listener to accepted
+        // sockets. Responses use blocking write_all, so restore blocking mode
+        // before serving assets that may be larger than the socket send buffer.
+        if stream.set_nonblocking(false).is_err() {
+            return;
+        }
         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
         let (first, host) = match read_http_request(&mut stream) {
@@ -2228,6 +2236,46 @@ mod tests {
             content_type(std::path::Path::new("parser.wasm")),
             "application/wasm"
         );
+    }
+
+    #[test]
+    fn service_serves_large_frontend_assets_completely() {
+        let root = fixture("large-frontend-asset");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+        let asset = vec![0x5a; 2 * 1024 * 1024];
+        fs::write(frontend.join("large.js"), &asset).unwrap();
+
+        let service = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "localhost".to_owned(),
+            port: 0,
+            transport: None,
+        })
+        .unwrap();
+        assert_eq!(
+            Url::parse(service.url()).unwrap().host_str(),
+            Some("localhost")
+        );
+
+        let response = request_bytes(service.url(), "GET", "/large.js");
+        let body_start = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        assert_eq!(&response[body_start..], asset);
+
+        service.shutdown();
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
