@@ -41,6 +41,12 @@ LINUX_REAL_ORBITAL = (
 
 
 class MatterVizBuildNamingTests(unittest.TestCase):
+    def test_inline_plot_session_signals_frontend_ready(self):
+        inline_branch = VIEWER_APP.split("if (inlinePlot !== undefined)", 1)[1].split(
+            "manifestBase = new URL('.', url)", 1
+        )[1].split("return", 1)[0]
+        self.assertIn("await signal_frontend_ready()", inline_branch)
+
     def test_cmake_exposes_a_first_class_matterviz_backend(self):
         self.assertIn("PROPERTY STRINGS dislin 3dmol matterviz", CMAKE)
         self.assertIn('set(MULTIWFN_GUI_SOURCE noGUI/GUI_matterviz.f90)', CMAKE)

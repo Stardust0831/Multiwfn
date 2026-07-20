@@ -372,6 +372,8 @@ static void test_plot_data_validation_and_timeout(void) {
     const double *valid_array = &valid;
     const double *invalid_array = &invalid;
     const int64_t count = 1;
+    const int32_t six_roles[] = {1, 2, 3, 4, 5, 6};
+    const int64_t six_counts[] = {1, 1, 1, 1, 1, 1};
     assert(pipe(data_pipe) == 0 && pipe(ack_pipe) == 0);
     assert(multiwfn_matterviz_publish_plot_data(
                data_pipe[1], ack_pipe[0], 1, 1, &valid_role, invalid_array, NULL, NULL, NULL, NULL, &count, 1, 100U) == ERR_INVALID);
@@ -379,6 +381,9 @@ static void test_plot_data_validation_and_timeout(void) {
                data_pipe[1], ack_pipe[0], 0, 1, &valid_role, valid_array, NULL, NULL, NULL, NULL, &count, 1, 100U) == ERR_INVALID);
     assert(multiwfn_matterviz_publish_plot_data(
                data_pipe[1], ack_pipe[0], 1, 1, &invalid_role, valid_array, NULL, NULL, NULL, NULL, &count, 1, 100U) == ERR_INVALID);
+    assert(multiwfn_matterviz_publish_plot_data(
+               data_pipe[1], ack_pipe[0], 1, 1, six_roles, valid_array, valid_array,
+               valid_array, valid_array, valid_array, six_counts, 6, 100U) == ERR_INVALID);
     assert(multiwfn_matterviz_publish_plot_data(
                data_pipe[1], ack_pipe[0], 1, 1, &valid_role, valid_array, NULL, NULL, NULL, NULL, &count, 1, 20U) == ERR_TIMEOUT);
     close(data_pipe[0]);

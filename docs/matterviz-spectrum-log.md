@@ -12,10 +12,11 @@
 - Selected binary Float64 dataset frames for million-point scatter and regular
   scalar/vector grids. Scene metadata stays in the existing in-memory control
   bootstrap and no runtime plot file is introduced.
-- Defined the complete two-dimensional scientific subset: XY series, dense
-  scatter, bars, errors, fills, annotations, four axes, multi-panel layout,
-  continuous matrices, contours, streamlines and relief maps. DISLIN 3D, maps,
-  pie charts, device APIs and GUI controls remain out of scope.
+- Defined the current two-dimensional scientific subset: XY series, dense
+  scatter, bars, errors, curve fills, annotations, four axes, multi-panel
+  layout and line contours. Filled raster/palette plots, streamlines and relief
+  maps are deferred and fail closed, along with DISLIN 3D, maps, pie charts,
+  device APIs and GUI controls.
 - Chose MatterViz ScatterPlot, BinnedScatterPlot and BarPlot for their native
   domains, plus a reusable FieldPlot2D overlay for continuous fields.
 
@@ -1409,3 +1410,15 @@
   132-column free-form limit truncated compact capture statements. Split every
   overlong capture/harness line without changing behavior. A local compile with
   explicit `-Werror=line-truncation` and the Python-linked harness both pass.
+
+## 2026-07-20: CodeRabbit follow-up
+
+- Evaluated the latest review against PlotScene v2 and applied only findings
+  that remain valid. Plot-only sessions now complete the Rust Host readiness
+  handshake, positive `INCMRK` values retain their line-plus-marker semantics,
+  and legends resolve by native curve-series identity instead of raw layer
+  position when bars or other non-curve primitives precede a curve.
+- Corrected native `BLACK` to `#000000`, constrained the C plot publisher to
+  its five actual array pointer arguments, emitted marker styling for
+  line-plus-scatter layers, and removed duplicate Rust constructor and Fortran
+  reset cleanup code. Regression coverage exercises each behavioral change.

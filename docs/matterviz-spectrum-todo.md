@@ -694,6 +694,10 @@ behavior requires the explicit diagnostic environment flag.
   scene complexity.
 - [x] Fail closed for DISLIN `STREAM`; do not substitute a bounded approximate
   streamline generator that ignores native seed and integration controls.
+- [x] Apply the still-valid CodeRabbit v2 findings: complete plot-only ready
+  signaling, preserve positive `INCMRK` line-plus-marker intent, bind legends
+  through curve-series identity, correct `BLACK`, and match the C publisher's
+  array-count bound to its five pointer arguments. Add focused regressions.
 - [ ] Pass Linux, Windows and macOS CI for the combined branch.
 - [ ] Run real native Multiwfn menu workflows for representative curve,
   high-density IRI scatter and line-contour plots; verify

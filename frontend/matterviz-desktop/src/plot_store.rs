@@ -47,18 +47,6 @@ impl PlotStore {
         Self::with_byte_limit(usize::MAX)
     }
 
-    #[cfg(test)]
-    fn with_byte_limit(max_bytes: usize) -> Self {
-        Self {
-            state: Mutex::new(State {
-                entries: HashMap::new(),
-                bytes: 0,
-            }),
-            max_bytes,
-        }
-    }
-
-    #[cfg(not(test))]
     fn with_byte_limit(max_bytes: usize) -> Self {
         Self {
             state: Mutex::new(State {

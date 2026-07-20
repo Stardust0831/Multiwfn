@@ -38,7 +38,7 @@ end type
 
 type :: matterviz_plot_layer
     character(len=16) :: kind=''
-    integer :: panel=0,count=0,nx=0,ny=0,nz=0
+    integer :: panel=0,count=0,nx=0,ny=0,nz=0,series=0
     integer :: width=1,marker_interval=0,marker_symbol=0,hsymbol=0,legend=0
     logical :: dashed=.false.,marker=.false.
     logical :: use_x2=.false.,use_y2=.false.
@@ -128,9 +128,6 @@ do i=1,matterviz_plot_max_series
     if (allocated(matterviz_plot_series(i)%label_tail)) deallocate(matterviz_plot_series(i)%label_tail)
     matterviz_plot_series(i)=matterviz_captured_series()
 end do
-do i=1,matterviz_plot_max_layers
-    call free_layer(matterviz_plot_layers(i))
-end do
 end subroutine
 
 subroutine free_layer(layer)
@@ -193,7 +190,9 @@ do i=1,matterviz_plot_legend_count
     j=matterviz_plot_legend_indices(i)
     if (j>=1.and.j<=matterviz_plot_series_count) matterviz_plot_series(j)%label=trim(matterviz_plot_legends(i))
     do k=1,matterviz_plot_layer_count
-        if (matterviz_plot_layers(k)%legend==0.and.j==k) matterviz_plot_layers(k)%legend=i
+        if (matterviz_plot_layers(k)%legend==0.and.j==matterviz_plot_layers(k)%series) then
+            matterviz_plot_layers(k)%legend=i
+        end if
     end do
 end do
 end subroutine
@@ -371,7 +370,7 @@ case('CYAN'); matterviz_plot_color='#17becf'
 case('YELLOW'); matterviz_plot_color='#bcbd22'
 case('ORANGE'); matterviz_plot_color='#ff7f0e'
 case('MAGENTA'); matterviz_plot_color='#e377c2'
-case('BLACK'); matterviz_plot_color='#f5f5f5'
+case('BLACK'); matterviz_plot_color='#000000'
 case default; matterviz_plot_color='#222222'
 end select
 end subroutine
@@ -477,12 +476,15 @@ matterviz_plot_series(idx)%ylabel=matterviz_plot_ylabel
 matterviz_plot_series(idx)%color=matterviz_plot_color
 matterviz_plot_series(idx)%dashed=matterviz_plot_dashed
 matterviz_plot_series(idx)%sticks=.false.
-if (matterviz_plot_marker_enabled) then
+if (matterviz_plot_marker_interval<0) then
     call append_layer('scatter',count,x=x,y=y)
+else if (matterviz_plot_marker_interval>0) then
+    call append_layer('line+scatter',count,x=x,y=y)
 else
     call append_layer('line',count,x=x,y=y)
 end if
 if (matterviz_plot_capture_error/=0) return
+matterviz_plot_layers(matterviz_plot_layer_count)%series=idx
 end subroutine
 
 subroutine matterviz_capture_bars(x,y1,y2,n)

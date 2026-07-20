@@ -24,11 +24,13 @@ if (launches/=1) error stop 1
 
 ! A points-only curve is controlled by marker state, never coordinate heuristics.
 call begin_plot(0D0,3D0,0D0,2D0)
-call incmrk(-1); call marker(7); call curve(x,y,4); call disfin()
+call incmrk(-1); call marker(7); call curve(x,y,4)
+call incmrk(1); call curve(x,y,4); call disfin()
 if (launches/=2) error stop 2
 
 call begin_plot(0D0,3D0,0D0,2D0)
-call bars(x,y,e1,4); call disfin()
+call bars(x,y,e1,4); call color('BLACK'); call incmrk(0); call curve(x,y,4)
+call matterviz_capture_legend('curve legend',1); call disfin()
 if (launches/=3) error stop 3
 
 call begin_plot(0D0,3D0,0D0,2D0)
@@ -55,30 +57,30 @@ if (launches/=7) error stop 7
 call metafl('xwin'); call disini(); call axspos(50,60); call axslen(400,300)
 call name('primary','Y'); call graf(0D0,3D0,0D0,1D0,0D0,2D0,0D0,1D0); call curve(x,y,4); call endgrf()
 call name('secondary','Y'); call graf(0D0,3D0,0D0,1D0,10D0,20D0,10D0,5D0); call curve(x,y+10D0,4); call disfin()
-if (launches/=8) error stop 39
+if (launches/=8) error stop 13
 
 ! A third distinct range at the same geometry exceeds the four-axis model.
 call metafl('xwin'); call disini(); call axspos(50,60); call axslen(400,300)
 call graf(0D0,3D0,0D0,1D0,0D0,2D0,0D0,1D0); call curve(x,y,4); call endgrf()
 call graf(0D0,3D0,0D0,1D0,10D0,20D0,10D0,5D0); call curve(x,y+10D0,4); call endgrf()
 call graf(0D0,3D0,0D0,1D0,-2D0,2D0,-2D0,1D0); call curve(x,y,4); call disfin()
-if (launches/=8.or.matterviz_plot_capture_error/=9) error stop 41
+if (launches/=8.or.matterviz_plot_capture_error/=9) error stop 14
 
 call begin_plot(0D0,1D0,0D0,1D0)
 call crvmat(raster,2,2,2,2); call disfin()
-if (launches/=8.or.matterviz_plot_capture_error/=9) error stop 8
+if (launches/=8.or.matterviz_plot_capture_error/=9) error stop 15
 
 call begin_plot(0D0,1D0,0D0,2D0)
 call contur(gridx,2,gridy,3,z,levels(1)); call disfin()
-if (launches/=9) error stop 9
+if (launches/=9) error stop 16
 
 call begin_plot(0D0,1D0,0D0,1D0)
 call stream(xmat,ymat,2,2,xp,yp,xs,ys,2); call disfin()
-if (launches/=9.or.matterviz_plot_capture_error/=9) error stop 10
+if (launches/=9.or.matterviz_plot_capture_error/=9) error stop 17
 
 call begin_plot(0D0,1D0,0D0,1D0)
 call surshd(gridx,2,gridy,2,raster); call disfin()
-if (launches/=9.or.matterviz_plot_capture_error/=9) error stop 11
+if (launches/=9.or.matterviz_plot_capture_error/=9) error stop 18
 
 ! Limits invalidate the entire scene and do not launch a partial plot.
 call begin_plot(0D0,1D0,0D0,1D0)
@@ -86,7 +88,7 @@ do i=1,matterviz_plot_max_series+1
     call curve(x,y,4)
 end do
 call disfin()
-if (launches/=9.or.matterviz_plot_capture_error/=1) error stop 12
+if (launches/=9.or.matterviz_plot_capture_error/=1) error stop 19
 
 write(*,'(a)') 'MATTERVIZ_CAPTURE_OK'
 
@@ -110,10 +112,15 @@ case(1)
     if (matterviz_plot_panels(1)%xlow/=3D0.or.matterviz_plot_panels(1)%xhigh/=0D0) error stop 21
 case(2)
     if (trim(matterviz_plot_layers(1)%kind)/='scatter'.or..not.matterviz_plot_layers(1)%marker) error stop 22
+    if (trim(matterviz_plot_layers(2)%kind)/='line+scatter'.or. &
+        matterviz_plot_layers(2)%marker_interval/=1) error stop 31
 case(3)
     if (trim(matterviz_plot_layers(1)%kind)/='bars') error stop 23
     if (any(abs(matterviz_plot_layers(1)%y-(/0.1D0,0.2D0,0.1D0,0.3D0/))>1D-12).or. &
-        any(abs(matterviz_plot_layers(1)%aux1-(/0D0,2D0,1D0,0D0/))>1D-12)) error stop 36
+        any(abs(matterviz_plot_layers(1)%aux1-(/0D0,2D0,1D0,0D0/))>1D-12)) error stop 32
+    if (trim(matterviz_plot_layers(2)%kind)/='line'.or. &
+        trim(matterviz_plot_layers(2)%color)/='#000000') error stop 34
+    if (matterviz_plot_layers(1)%legend/=0.or.matterviz_plot_layers(2)%legend/=1) error stop 35
 case(4)
     if (trim(matterviz_plot_layers(1)%kind)/='errorbar') error stop 24
 case(5)
@@ -133,6 +140,6 @@ case(8)
 case(9)
     if (trim(matterviz_plot_layers(1)%kind)/='contour'.or.matterviz_plot_layers(1)%nx/=2) error stop 33
 case default
-    error stop 36
+    error stop 37
 end select
 end subroutine

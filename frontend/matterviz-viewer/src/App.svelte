@@ -640,6 +640,7 @@
       if (inlinePlot !== undefined) {
         plotArtifact = parse_plot(inlinePlot)
         manifestBase = new URL('.', url)
+        await signal_frontend_ready()
         loading = false
         return
       }

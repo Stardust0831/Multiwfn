@@ -375,7 +375,7 @@ end subroutine
 logical function matterviz_layer_supported(kind)
 character(len=*),intent(in) :: kind
 select case(trim(kind))
-case('line','scatter','symbol','bars','errorbar','fill','contour')
+case('line','scatter','line+scatter','symbol','bars','errorbar','fill','contour')
     matterviz_layer_supported=.true.
 case default
     matterviz_layer_supported=.false.
@@ -516,7 +516,7 @@ if (allocated(layer%levels).and.size(layer%levels)>0) then
 end if
 write(line,"(a,a,a,i0,a,a,a)") '            "style": { "color": "',trim(layer%color), &
     '", "width": ',max(1,layer%width),', "dash": "',merge('6 4  ','solid',layer%dashed),'"'
-if (trim(scene_kind)=='scatter') then
+if (trim(scene_kind)=='scatter'.or.trim(scene_kind)=='line+scatter') then
     write(line(len_trim(line)+1:),"(a,i0,a,i0)") ', "markerSymbol": ',layer%marker_symbol, &
         ', "markerSize": ',max(1,layer%hsymbol)
 end if
@@ -536,7 +536,7 @@ integer(c_int) :: c_status
 
 dummy=0D0; roles=0; counts=0; array_count=0
 select case(trim(layer%kind))
-case('line','scatter','symbol')
+case('line','scatter','line+scatter','symbol')
     array_count=2; roles(1:2)=[1_c_int32_t,2_c_int32_t]
     counts(1:2)=[int(size(layer%x),c_int64_t),int(size(layer%y),c_int64_t)]
     c_status=multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,request_id, &

@@ -41,6 +41,16 @@ class MatterVizPlotAdapterTests(unittest.TestCase):
         self.assertIn("multiwfn-matterviz-plot", GUI)
         self.assertIn("multiwfn-matterviz-control", GUI)
 
+    def test_line_with_markers_is_supported_and_published_as_xy(self):
+        supported = GUI.split("logical function matterviz_layer_supported", 1)[1].split(
+            "end function", 1
+        )[0]
+        publisher = GUI.split("subroutine publish_matterviz_plot_layer", 1)[1].split(
+            "end subroutine", 1
+        )[0]
+        self.assertIn("'line+scatter'", supported)
+        self.assertIn("case('line','scatter','line+scatter','symbol')", publisher)
+
     def test_linked_capture_boundary_behavior(self):
         compiler = shutil.which("gfortran") or shutil.which("gfortran-13")
         if compiler is None:

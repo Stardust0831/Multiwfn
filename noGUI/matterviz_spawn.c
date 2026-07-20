@@ -2161,7 +2161,7 @@ int multiwfn_matterviz_publish_plot_data(
     if (publish_timeout_ms == 0U) return MWFN_ERR_TIMEOUT;
     if (!mwfn_host_is_little_endian()) return MWFN_ERR_UNSUPPORTED;
     if (request_id <= 0 || dataset_id <= 0 || request_id != dataset_id || semantic_roles == NULL ||
-        element_counts == NULL || array_count <= 0 || array_count > 8) {
+        element_counts == NULL || array_count <= 0 || array_count > 5) {
         return MWFN_ERR_INVALID;
     }
     directory_bytes = (uint64_t)array_count * 32U;
