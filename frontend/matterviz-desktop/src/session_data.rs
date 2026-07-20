@@ -281,12 +281,9 @@ impl PlotLimits {
     }
 
     fn add_reference_lines(&mut self, count: usize) -> Result<(), SessionDataError> {
-        self.reference_lines = self
-            .reference_lines
-            .checked_add(count)
-            .ok_or(SessionDataError::InvalidManifestPlot(
-                "reference line limit",
-            ))?;
+        self.reference_lines = self.reference_lines.checked_add(count).ok_or(
+            SessionDataError::InvalidManifestPlot("reference line limit"),
+        )?;
         if self.reference_lines > MAX_PLOT_REFERENCE_LINES {
             return Err(SessionDataError::InvalidManifestPlot(
                 "too many reference lines",
