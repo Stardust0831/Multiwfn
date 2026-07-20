@@ -41,6 +41,24 @@ class MatterVizPlotAdapterTests(unittest.TestCase):
         self.assertIn("multiwfn-matterviz-plot", GUI)
         self.assertIn("multiwfn-matterviz-control", GUI)
 
+    def test_viewport_and_log_axis_transforms_are_explicit(self):
+        page_height = GUI.split("integer function matterviz_scene_page_height", 1)[1].split(
+            "end function", 1
+        )[0]
+        panel = GUI.split("subroutine emit_matterviz_scene_panel", 1)[1].split(
+            "end subroutine", 1
+        )[0]
+        axis = GUI.split("subroutine emit_matterviz_scene_axis", 1)[1].split(
+            "end subroutine", 1
+        )[0]
+        self.assertIn("if (matterviz_plot_page_y>0)", page_height)
+        self.assertIn("matterviz_viewport_top(panel%posy,panel%leny,page_y)", panel)
+        self.assertIn("matterviz_panel_annotation_y", panel)
+        self.assertIn("matterviz_log_range_to_physical(low,high,axis_low,axis_high)", axis)
+        self.assertIn("axis_low,', ',axis_high", axis)
+        for name in ("'x1'", "'y1'", "'x2'", "'y2'"):
+            self.assertIn(f"emit_matterviz_scene_axis(sink,{name}", panel)
+
     def test_line_with_markers_is_supported_and_published_as_xy(self):
         supported = GUI.split("logical function matterviz_layer_supported", 1)[1].split(
             "end function", 1

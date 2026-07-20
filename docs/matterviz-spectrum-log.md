@@ -1425,3 +1425,12 @@
 - Rechecked the remaining unresolved v1 compatibility discussion instead of
   dismissing it as obsolete. Aggregate `referenceLines` now share a Host-side
   20,000-entry limit across panels and are rejected before per-entry validation.
+- Fixed three subsequent end-to-end review findings. Plot ACKs now use the
+  shared 64-byte control-header CRC field expected by the C producer, with a
+  compiled C-to-Rust regression. Explicit DISLIN page dimensions remain
+  authoritative, lower-left `AXSPOS` coordinates are converted to CSS top,
+  and panel annotations use the same top-edge frame.
+- DISLIN logarithmic `GRAF` bounds are converted from base-10 exponents to
+  finite positive physical values for primary and secondary axes. Unrepresentable
+  exponent ranges fail closed. The linked harness covers negative exponents,
+  secondary log state, overflow/underflow and the 3000x1800 viewport example.

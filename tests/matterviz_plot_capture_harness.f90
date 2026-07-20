@@ -11,11 +11,41 @@ real*8 :: x(4)=(/0D0,1D0,2D0,3D0/),y(4)=(/0D0,2D0,1D0,0D0/)
 real*8 :: e1(4)=(/0.1D0,0.2D0,0.1D0,0.3D0/),e2(4)=(/0.2D0,0.1D0,0.3D0,0.2D0/)
 real*8 :: gridx(2)=(/0D0,1D0/),gridy(3)=(/0D0,1D0,2D0/),z(2,3),levels(2)=(/0.25D0,0.75D0/)
 real*8 :: xmat(2,2),ymat(2,2),xp(2),yp(2),xs(2),ys(2),raster(2,2)
+real*8 :: physical_low,physical_high
 integer :: i
 
 z=reshape((/0D0,1D0,2D0,3D0,4D0,5D0/),(/2,3/)); xmat=reshape((/0D0,1D0,0D0,1D0/),(/2,2/))
 ymat=reshape((/0D0,0D0,1D0,1D0/),(/2,2/)); xp=(/0D0,1D0/); yp=(/0D0,1D0/); xs=(/0.2D0,0.8D0/); ys=(/0.2D0,0.8D0/)
 raster=reshape((/1D0,2D0,3D0,4D0/),(/2,2/))
+
+! Log GRAF limits are exponents; only finite positive physical ranges are valid.
+if (.not.matterviz_log_range_to_physical(-5D0,2D0,physical_low,physical_high)) error stop 41
+if (abs(physical_low-1D-5)>1D-15.or.abs(physical_high-1D2)>1D-12) error stop 42
+if (.not.matterviz_log_range_to_physical(-5D0,1D0,physical_low,physical_high)) error stop 43
+if (physical_low<=0D0.or.physical_high<=0D0) error stop 44
+if (matterviz_log_range_to_physical(400D0,401D0,physical_low,physical_high)) error stop 45
+if (matterviz_log_range_to_physical(-400D0,-399D0,physical_low,physical_high)) error stop 46
+if (abs(matterviz_viewport_top(1640,1500,1800D0)-141D0/1800D0)>1D-12) error stop 50
+if (abs(matterviz_panel_annotation_y(141D0,1640,1500))>1D-12) error stop 51
+if (abs(matterviz_panel_annotation_y(1640D0,1640,1500)-1499D0/1500D0)>1D-12) error stop 52
+
+! A repeated GRAF can carry a secondary log axis without losing its scale flag.
+call metafl('xwin'); call disini(); call axspos(50,60); call axslen(400,300)
+call axsscl('LOG','Y'); call graf(0D0,3D0,0D0,1D0,0D0,1D0,0D0,1D0)
+call curve(x,y,4); call graf(0D0,3D0,0D0,1D0,1D0,2D0,1D0,1D0)
+call curve(x,y+1D0,4)
+if (.not.matterviz_plot_panels(1)%has_y2.or..not.matterviz_plot_panels(1)%y2log) error stop 47
+if (matterviz_plot_panels(1)%y2low/=1D0.or.matterviz_plot_panels(1)%y2high/=2D0) error stop 48
+
+call metafl('xwin'); call disini(); call axspos(50,60); call axslen(400,300)
+call axsscl('LOG','X'); call graf(0D0,1D0,0D0,1D0,0D0,1D0,0D0,1D0)
+call curve(x,y,4); call graf(1D0,2D0,1D0,1D0,0D0,1D0,0D0,1D0)
+call curve(x+1D0,y,4)
+if (.not.matterviz_plot_panels(1)%has_x2.or..not.matterviz_plot_panels(1)%x2log) error stop 53
+
+call metafl('xwin'); call disini(); call axspos(50,60); call axslen(400,300)
+call axsscl('LOG','Y'); call graf(0D0,1D0,0D0,1D0,-400D0,-399D0,-400D0,1D0)
+if (matterviz_plot_capture_error/=10) error stop 54
 
 ! Ordinary curves are line layers, even for triples that resemble sticks.
 call begin_plot(3D0,0D0,2D0,-1D0)

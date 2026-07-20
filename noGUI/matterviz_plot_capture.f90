@@ -1,6 +1,7 @@
 ! MatterViz's DISLIN boundary.  This module records plotting intent; it does
 ! not attempt to infer a scientific meaning from labels or point coordinates.
 module matterviz_plot_capture
+use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
 implicit none
 
 integer,parameter :: matterviz_plot_max_series=128
@@ -237,18 +238,43 @@ call sync_panel()
 end subroutine
 
 subroutine sync_panel()
+real*8 :: physical_low,physical_high
 if (matterviz_plot_current_panel<=0) return
 if (matterviz_plot_current_x2) then
+    if (matterviz_plot_xlog.and..not.matterviz_log_range_to_physical( &
+        matterviz_plot_panels(matterviz_plot_current_panel)%x2low, &
+        matterviz_plot_panels(matterviz_plot_current_panel)%x2high, &
+        physical_low,physical_high)) then
+        matterviz_plot_capture_error=10; return
+    end if
     matterviz_plot_panels(matterviz_plot_current_panel)%x2label=matterviz_plot_xlabel
     matterviz_plot_panels(matterviz_plot_current_panel)%x2log=matterviz_plot_xlog
 else
+    if (matterviz_plot_xlog.and..not.matterviz_log_range_to_physical( &
+        matterviz_plot_panels(matterviz_plot_current_panel)%xlow, &
+        matterviz_plot_panels(matterviz_plot_current_panel)%xhigh, &
+        physical_low,physical_high)) then
+        matterviz_plot_capture_error=10; return
+    end if
     matterviz_plot_panels(matterviz_plot_current_panel)%xlabel=matterviz_plot_xlabel
     matterviz_plot_panels(matterviz_plot_current_panel)%xlog=matterviz_plot_xlog
 end if
 if (matterviz_plot_current_y2) then
+    if (matterviz_plot_ylog.and..not.matterviz_log_range_to_physical( &
+        matterviz_plot_panels(matterviz_plot_current_panel)%y2low, &
+        matterviz_plot_panels(matterviz_plot_current_panel)%y2high, &
+        physical_low,physical_high)) then
+        matterviz_plot_capture_error=10; return
+    end if
     matterviz_plot_panels(matterviz_plot_current_panel)%y2label=matterviz_plot_ylabel
     matterviz_plot_panels(matterviz_plot_current_panel)%y2log=matterviz_plot_ylog
 else
+    if (matterviz_plot_ylog.and..not.matterviz_log_range_to_physical( &
+        matterviz_plot_panels(matterviz_plot_current_panel)%ylow, &
+        matterviz_plot_panels(matterviz_plot_current_panel)%yhigh, &
+        physical_low,physical_high)) then
+        matterviz_plot_capture_error=10; return
+    end if
     matterviz_plot_panels(matterviz_plot_current_panel)%ylabel=matterviz_plot_ylabel
     matterviz_plot_panels(matterviz_plot_current_panel)%ylog=matterviz_plot_ylog
 end if
@@ -294,8 +320,17 @@ call begin_panel(xlow,xhigh,ylow,yhigh,zlow,zhigh,matterviz_plot_xstep,matterviz
 end subroutine
 subroutine begin_panel(xlow,xhigh,ylow,yhigh,zlow,zhigh,xstep,ystep)
 real*8,intent(in) :: xlow,xhigh,ylow,yhigh,zlow,zhigh,xstep,ystep
+real*8 :: physical_low,physical_high
 integer :: existing
 if (matterviz_plot_capture_error/=0) return
+if (matterviz_plot_xlog.and..not.matterviz_log_range_to_physical(xlow,xhigh, &
+    physical_low,physical_high)) then
+    matterviz_plot_capture_error=10; return
+end if
+if (matterviz_plot_ylog.and..not.matterviz_log_range_to_physical(ylow,yhigh, &
+    physical_low,physical_high)) then
+    matterviz_plot_capture_error=10; return
+end if
 existing=0
 if (matterviz_plot_panel_count>0) then
     if (matterviz_plot_panels(matterviz_plot_panel_count)%posx==matterviz_plot_posx.and. &
@@ -308,6 +343,10 @@ if (existing>0) then
     matterviz_plot_current_x2=xlow/=matterviz_plot_panels(existing)%xlow.or.xhigh/=matterviz_plot_panels(existing)%xhigh
     matterviz_plot_current_y2=ylow/=matterviz_plot_panels(existing)%ylow.or.yhigh/=matterviz_plot_panels(existing)%yhigh
     if (matterviz_plot_current_x2) then
+        if (matterviz_plot_xlog.and..not.matterviz_log_range_to_physical(xlow,xhigh, &
+            physical_low,physical_high)) then
+            matterviz_plot_capture_error=10; return
+        end if
         if (matterviz_plot_panels(existing)%has_x2.and. &
             (xlow/=matterviz_plot_panels(existing)%x2low.or.xhigh/=matterviz_plot_panels(existing)%x2high)) then
             matterviz_plot_capture_error=9; return
@@ -317,6 +356,10 @@ if (existing>0) then
         matterviz_plot_panels(existing)%x2log=matterviz_plot_xlog
     end if
     if (matterviz_plot_current_y2) then
+        if (matterviz_plot_ylog.and..not.matterviz_log_range_to_physical(ylow,yhigh, &
+            physical_low,physical_high)) then
+            matterviz_plot_capture_error=10; return
+        end if
         if (matterviz_plot_panels(existing)%has_y2.and. &
             (ylow/=matterviz_plot_panels(existing)%y2low.or.yhigh/=matterviz_plot_panels(existing)%y2high)) then
             matterviz_plot_capture_error=9; return
@@ -617,7 +660,36 @@ case(4); message='too many or oversized annotations (limits 20000 and 160 charac
 case(7); message='too many panels or plot layers (capture aborted)'
 case(8); message='palette exceeds capture limit (256 colors)'
 case(9); message='unsupported data-bearing 2D DISLIN primitive'
+case(10); message='log axis exponent range is not representable as finite positive values'
 case default; message='invalid MatterViz plot capture'
 end select
+end function
+
+logical function matterviz_log_range_to_physical(low,high,physical_low,physical_high)
+real*8,intent(in) :: low,high
+real*8,intent(out) :: physical_low,physical_high
+real*8 :: lower_limit,upper_limit
+
+matterviz_log_range_to_physical=.false.; physical_low=0D0; physical_high=0D0
+if (.not.ieee_is_finite(low).or..not.ieee_is_finite(high)) return
+lower_limit=log10(tiny(1D0)); upper_limit=log10(huge(1D0))
+if (low<lower_limit.or.low>upper_limit.or.high<lower_limit.or.high>upper_limit) return
+physical_low=10D0**low; physical_high=10D0**high
+if (.not.ieee_is_finite(physical_low).or..not.ieee_is_finite(physical_high)) return
+if (physical_low<=0D0.or.physical_high<=0D0) return
+matterviz_log_range_to_physical=.true.
+end function
+
+real*8 function matterviz_viewport_top(posy,leny,page_y)
+integer,intent(in) :: posy,leny
+real*8,intent(in) :: page_y
+matterviz_viewport_top=max(0D0,min(1D0-1D-6, &
+    (dble(posy)-dble(leny)+1D0)/max(1D0,page_y)))
+end function
+
+real*8 function matterviz_panel_annotation_y(value,posy,leny)
+real*8,intent(in) :: value
+integer,intent(in) :: posy,leny
+matterviz_panel_annotation_y=(value-dble(posy)+dble(leny)-1D0)/dble(max(1,leny))
 end function
 end module

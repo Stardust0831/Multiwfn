@@ -279,7 +279,11 @@ end subroutine
 
 integer function matterviz_scene_page_width()
 integer :: panel
-matterviz_scene_page_width=max(1,matterviz_plot_page_x)
+if (matterviz_plot_page_x>0) then
+    matterviz_scene_page_width=matterviz_plot_page_x
+    return
+end if
+matterviz_scene_page_width=1
 do panel=1,matterviz_plot_panel_count
     matterviz_scene_page_width=max(matterviz_scene_page_width, &
         matterviz_plot_panels(panel)%posx+max(1,matterviz_plot_panels(panel)%lenx))
@@ -288,7 +292,11 @@ end function
 
 integer function matterviz_scene_page_height()
 integer :: panel
-matterviz_scene_page_height=max(1,matterviz_plot_page_y)
+if (matterviz_plot_page_y>0) then
+    matterviz_scene_page_height=matterviz_plot_page_y
+    return
+end if
+matterviz_scene_page_height=1
 do panel=1,matterviz_plot_panel_count
     matterviz_scene_page_height=max(matterviz_scene_page_height, &
         matterviz_plot_panels(panel)%posy+max(1,matterviz_plot_panels(panel)%leny))
@@ -390,6 +398,7 @@ logical,intent(in) :: is_log,trailing
 character(len=1024) :: line
 character(len=1) :: suffix
 character(len=:),allocatable :: axis_label,axis_scale
+real*8 :: axis_low,axis_high
 
 suffix=' '
 if (trailing) suffix=','
@@ -400,11 +409,16 @@ else
 end if
 if (is_log) then
     axis_scale='log'
+    if (.not.matterviz_log_range_to_physical(low,high,axis_low,axis_high)) then
+        sink%status=-2
+        return
+    end if
 else
     axis_scale='linear'
+    axis_low=low; axis_high=high
 end if
 write(line,"(a,a,a,es24.16,a,es24.16,a,a,a)") '        "',trim(key), &
-    '": { "label": "'//matterviz_json_escape(axis_label)//'", "range": [',low,', ',high, &
+    '": { "label": "'//matterviz_json_escape(axis_label)//'", "range": [',axis_low,', ',axis_high, &
     '], "scale": "',axis_scale,'" }'//suffix
 call emit_matterviz_json(sink,trim(line))
 end subroutine
@@ -422,7 +436,7 @@ character(len=1024) :: line
 panel=matterviz_plot_panels(panel_idx)
 page_x=dble(matterviz_scene_page_width()); page_y=dble(matterviz_scene_page_height())
 left=max(0D0,min(1D0-1D-6,dble(panel%posx)/page_x))
-top=max(0D0,min(1D0-1D-6,dble(panel%posy)/page_y))
+top=matterviz_viewport_top(panel%posy,panel%leny,page_y)
 width=max(1D-6,min(1D0-left,dble(max(1,panel%lenx))/page_x))
 height=max(1D-6,min(1D0-top,dble(max(1,panel%leny))/page_y))
 call emit_matterviz_json(sink,'      {')
@@ -464,7 +478,8 @@ if (any([(matterviz_plot_annotations(annotation)%panel==panel_idx,annotation=1,m
                 ' }',merge(',',' ',emitted<total)
         else
             annotation_x=(matterviz_plot_annotations(annotation)%x-dble(panel%posx))/dble(max(1,panel%lenx))
-            annotation_y=(matterviz_plot_annotations(annotation)%y-dble(panel%posy))/dble(max(1,panel%leny))
+            annotation_y=matterviz_panel_annotation_y( &
+                matterviz_plot_annotations(annotation)%y,panel%posy,panel%leny)
             write(line,"(a,a,a,es24.16,a,es24.16,a,a)") &
                 '          { "text": "',matterviz_json_escape(trim(matterviz_plot_annotations(annotation)%text)), &
                 '", "coordinateSpace": "panel", "x": ',annotation_x,', "y": ',annotation_y, &

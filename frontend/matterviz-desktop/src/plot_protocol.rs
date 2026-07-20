@@ -146,9 +146,9 @@ pub fn encode_ack(
     put_u64(&mut frame, 20, request_id);
     put_u64(&mut frame, 48, dataset_id);
     put_u32(&mut frame, 56, status);
-    put_u32(&mut frame, 60, 0);
+    put_u32(&mut frame, 36, 0);
     let crc = crc32c(&frame);
-    put_u32(&mut frame, 60, crc);
+    put_u32(&mut frame, 36, crc);
     Ok(frame)
 }
 
@@ -450,6 +450,17 @@ mod tests {
                 ],
             }
         );
+    }
+
+    #[test]
+    fn ack_uses_the_shared_control_header_crc_layout() {
+        let ack = encode_ack(42, 42, 0).unwrap();
+        assert_eq!(&ack[..8], MAGIC);
+        assert_eq!(get_u32(&ack, 60), Ok(0));
+        let expected_crc = get_u32(&ack, 36).unwrap();
+        let mut header = ack;
+        header[36..40].fill(0);
+        assert_eq!(crc32c(&header), expected_crc);
     }
 
     #[test]

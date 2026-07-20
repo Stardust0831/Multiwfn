@@ -81,6 +81,22 @@ mod tests {
             publish_timeout_ms: u32,
         ) -> c_int;
 
+        fn multiwfn_matterviz_publish_plot_data(
+            volume_write: isize,
+            ack_read: isize,
+            request_id: i64,
+            dataset_id: i64,
+            semantic_roles: *const i32,
+            array1: *const f64,
+            array2: *const f64,
+            array3: *const f64,
+            array4: *const f64,
+            array5: *const f64,
+            element_counts: *const i64,
+            array_count: i32,
+            publish_timeout_ms: u32,
+        ) -> c_int;
+
         fn multiwfn_matterviz_transport_close(volume_write: *mut isize, ack_read: *mut isize);
 
         fn multiwfn_matterviz_control_close(request_read: *mut isize, response_write: *mut isize);
@@ -202,6 +218,48 @@ mod tests {
         };
         assert_eq!(status, PUBLISH_TIMEOUT);
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn c_plot_producer_accepts_rust_generated_ack() {
+        let (mut data_read, data_write) = pipe_pair();
+        let (ack_read, mut ack_write) = pipe_pair();
+        let mut data_write = into_raw_pipe(data_write);
+        let mut ack_read = into_raw_pipe(ack_read);
+        let reader = thread::spawn(move || {
+            let mut frame = vec![0_u8; crate::plot_protocol::HEADER_BYTES + 64 + 2 * 3 * 8];
+            data_read.read_exact(&mut frame).unwrap();
+            let view = crate::plot_protocol::validate(&frame).unwrap();
+            assert_eq!(view.dataset_id, 42);
+            let ack = crate::plot_protocol::encode_ack(42, 42, 0).unwrap();
+            ack_write.write_all(&ack).unwrap();
+        });
+        let roles = [1_i32, 2_i32];
+        let x = [0.0_f64, 1.0, 2.0];
+        let y = [2.0_f64, 3.0, 5.0];
+        let counts = [3_i64, 3_i64];
+        let status = unsafe {
+            multiwfn_matterviz_publish_plot_data(
+                data_write,
+                ack_read,
+                42,
+                42,
+                roles.as_ptr(),
+                x.as_ptr(),
+                y.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                counts.as_ptr(),
+                2,
+                5_000,
+            )
+        };
+        unsafe {
+            multiwfn_matterviz_transport_close(&mut data_write, &mut ack_read);
+        }
+        reader.join().unwrap();
+        assert_eq!(status, 0);
     }
 
     #[test]
