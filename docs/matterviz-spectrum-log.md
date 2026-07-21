@@ -1,5 +1,84 @@
 # MatterViz parity development log
 
+## 2026-07-20: scope generalized to native two-dimensional plots
+
+- Re-audited Multiwfn plotting paths and confirmed that IRI, RDG, DORI and
+  related weak-interaction plots pass their native `scatterx/scattery` arrays
+  through `drawscatter` and DISLIN rather than requiring frontend reconstruction.
+- Corrected PR #49's planned architecture from five hard-coded spectrum kinds
+  to a versioned two-dimensional scene composed of explicit DISLIN primitives.
+- Kept all scientific calculations unchanged and restricted capture to the
+  MatterViz GUI/DISLIN adapter boundary.
+- Selected binary Float64 dataset frames for million-point scatter and regular
+  scalar/vector grids. Scene metadata stays in the existing in-memory control
+  bootstrap and no runtime plot file is introduced.
+- Defined the current two-dimensional scientific subset: XY series, dense
+  scatter, bars, errors, curve fills, annotations, four axes, multi-panel
+  layout and line contours. Filled raster/palette plots, streamlines and relief
+  maps are deferred and fail closed, along with DISLIN 3D, maps, pie charts,
+  device APIs and GUI controls.
+- Chose MatterViz ScatterPlot, BinnedScatterPlot and BarPlot for their native
+  domains, plus a reusable FieldPlot2D overlay for continuous fields.
+
+## 2026-07-17: MatterViz upstream scalar-grid PR reconstruction
+
+- Re-audited the Multiwfn MatterViz vendor changes against upstream MatterViz
+  `v0.4.3` (`448bcff8`). Upstream already contains batched Worker meshing,
+  cancellation, multi-volume coloring, explicit bonds and geometry lifecycle
+  handling, so those are excluded from the new contribution.
+- Created clean branch `agent/scalar-grid-kernel` from upstream instead of
+  reusing the older camera/vendor branch. The pre-existing untracked
+  `windows-preview/` directory remains untouched and excluded.
+- Reconstructed only the first compatibility layer: internal flat
+  `ScalarGrid3D` storage with Float32/Float64 data and explicit
+  `x_fastest`/`z_fastest` order, plus marching-cubes support. The public
+  `VolumetricData.grid` contract, parsers, sampling, Worker protocol and
+  Multiwfn transport remain unchanged.
+- Preserved the legacy nested-grid direct-index hot path and added explicit
+  rejection of malformed flat dimensions or data lengths. Tests compare
+  positions, indices and normals across both storage orders and precisions for
+  periodic and finite grids, including buffer output and empty inputs.
+- Focused marching-cubes, sampling and isosurface utility verification passes
+  165/165 tests. Scoped Vite+ lint, `svelte-package` and distribution asset
+  packaging pass.
+  Full `svelte-check` remains blocked by the existing missing optional
+  `d3-contour` and `anywidget/types` modules; formatting cannot run in this WSL
+  install because its Linux oxfmt native binding is absent. `git diff --check`
+  is clean. Independent review found one important runtime-validation gap:
+  unknown storage orders were silently treated as `z_fastest`. The final code
+  rejects unknown orders and non-Float32/Float64 data, adds a hard-coded index
+  sentinel, periodic Float32 and axis-specific degenerate coverage, and passed
+  follow-up review with no blocker. A controlled red/green run confirmed the
+  sentinel fails when the x-fastest formula is deliberately replaced by the
+  z-fastest formula and passes after restoration.
+- Refetched `janosh/matterviz` before finalization; upstream `main` remains
+  `448bcff8`, so no rebase conflict exists. The contribution is maintained on
+  the separate `Stardust0831/matterviz` fork branch
+  `agent/scalar-grid-kernel`; no direct upstream push is permitted.
+- Committed the final three-file diff as `19415f79` and pushed only to the fork
+  branch. The upstream PR has not been opened; the prepared English body and
+  compare URL remain in `docs/matterviz-upstream-drafts.md` for user review.
+- After upstream PR #414 was opened, its first CI run exposed two repository
+  policy failures rather than numerical failures. The `prek` job showed the
+  exact Vite+ formatting diff for the three changed files, while `knip` found
+  the exported but externally unused `ScalarGridArray` helper type. Applied
+  only the formatter-produced line layout and made that helper type internal.
+  The upstream formatter, Knip, scoped lint and all 165 related tests pass
+  locally. Commit `3d8470bd` was pushed to the fork PR branch and replacement
+  CI completed successfully: build, unit tests, all four E2E shards, Dash,
+  Knip, prek, publint, CodeRabbit and GitGuardian pass. Deploy is expectedly
+  skipped and GitHub reports PR #414 as `mergeStateStatus=CLEAN`.
+- CodeRabbit's original review contained one useful correctness finding despite
+  the later incremental review reporting no new action: runtime dimensions with
+  four entries passed validation because only the first three contributed to
+  the expected data length. Added an explicit exact-arity check and malformed
+  tests for missing and extra dimensions. The extra-dimension test failed before
+  the fix and passes afterward; the related suite count is now 167/167. Pushed
+  commit `e87c2c59`, replied with the verification evidence and resolved the
+  inline review thread. The replacement build, four E2E shards, unit tests,
+  Dash, Knip, prek, publint and CodeRabbit all pass; the PR has zero unresolved
+  review threads and GitHub reports `mergeStateStatus=CLEAN`.
+
 ## 2026-07-14: Native Rust host migration started
 
 - Corrected the implementation direction after the Python launcher fixes became a second process-lifecycle layer: MatterViz will use one native Rust host for the local HTTP/session service, WebView creation, API routing, native file selection, port binding and shutdown. Fortran remains the tightly coupled Multiwfn calculation adapter and continues to own the existing request loop; no calculation core was changed.
@@ -1171,3 +1250,281 @@
   all 19 review threads remain resolved. GitHub now reports the branch as
   mergeable but `REVIEW_REQUIRED`; the remaining gate is approval from the
   requested independent reviewer, not an unresolved bot conversation.
+
+## 2026-07-17: non-invasive native 2D plot bridge
+
+- Re-audited the native plot sources after choosing MatterViz `ScatterPlot`.
+  Multiwfn already passes its final sampled curves and discrete lines to the
+  DISLIN Fortran API after broadening, weighting and unit conversion. The
+  implementation therefore captures that existing GUI boundary instead of
+  adding calls to `DOS.f90` or `spectrum.f90`; those scientific files remain
+  byte-for-byte unchanged.
+- Added `noGUI/matterviz_plot_capture.f90` and connected only the MatterViz
+  build's previously empty DISLIN stubs. The capture records axes, panel
+  geometry, style and copied final `CURVE` arrays. Three-point DISLIN spikes are
+  normalized to position/intensity pairs. Unsupported plot kinds are not
+  advertised or launched.
+- The capture is serialized as inline `multiwfn-matterviz-plot` v1 inside the
+  existing in-memory workbench manifest. It uses the established `MWFNCTL`
+  bootstrap and shutdown pipes, so menu 10/11 can open a synchronous plot-only
+  WebView without menu 0, a structure artifact or runtime files.
+- Rust now validates the plot schema and resource limits before retaining the
+  immutable manifest. The frontend maps all panels through one
+  `MultiwfnPlotView`/MatterViz `ScatterPlot` path. Fortran remains authoritative
+  for FWHM, line shape, units, weighting, range and visibility.
+- Local evidence: 30 Python adapter/build tests pass; frontend plot tests and
+  the full frontend suite pass; Svelte check and Vite production build pass;
+  Rust formatting passes. A temporary unpacked GNU Fortran 13 toolchain
+  compiles the capture module, MatterViz stubs and GUI adapter with the
+  MatterViz macro both enabled and disabled. A linked synthetic harness verifies
+  reversed ranges and three-point spike compression. Playwright renders DOS,
+  IR, Raman, UV-Vis and NMR at 1400x900 and 800x700 with nonempty SVG paths, no
+  binding warnings, page errors, horizontal overflow or panel overlap. Full
+  Rust compilation remains blocked locally by missing Wayland `pkg-config`
+  development files; three-platform native builds and real Multiwfn menu
+  workflows remain explicit CI/manual gates.
+- The independent read-only review found that the first label-based classifier
+  also accepted LDOS and VDOS, limits silently returned partial captures,
+  legend text used an unsafe end-offset guess, and `MYLINE`/`RLMESS` semantics
+  were absent. All accepted findings were corrected only in the MatterViz GUI
+  boundary. Regular DOS now requires its exact Y label plus the native
+  `LEGINI` call pattern; LDOS and VDOS fail closed. Series, sampled-point,
+  discrete-stick, label and legend overflows invalidate the whole capture and
+  print a terminal diagnostic instead of launching incomplete scientific data.
+- Legend text is attached at `LEGLIN` time only to still-unlabelled captured
+  series with the active DISLIN color; ambiguous reused colors remain generic
+  rather than being assigned a potentially incorrect identity. Two-point
+  vertical `CURVE` calls become MatterViz reference lines, `MYLINE` preserves
+  their dashed state, and bounded `RLMESS` text is attached to the nearest
+  original point in the same panel/axis state for ScatterPlot point labels.
+  Presentation-only DISLIN superscript/epsilon markup is normalized to plain
+  ASCII while all coordinates and scientific values remain unchanged.
+- CI now invokes `test_matterviz_plot_adapter.py`. Its linked GNU Fortran
+  harness exercises native-order DOS and IR calls, rejects LDOS/VDOS, verifies
+  legend, dash, label and axis-markup capture, and proves that series and stick
+  overflow suppress a WebView launch. GNU Fortran 13 compiles the capture,
+  MatterViz DISLIN stubs and `GUI_matterviz.f90` with the backend macro enabled,
+  and the legacy stub path with it disabled.
+- Final local frontend verification on current `origin/main` passes 125/125
+  tests, zero Svelte
+  diagnostics and the production Vite build. A fresh Playwright replay renders
+  all five minimal native plot artifacts at 1400x900 and 800x700; every view
+  contains nonempty SVG paths with no page/console error, document overflow or
+  header/panel overlap. The replay also confirms a captured point label and
+  dashed reference line remain visible through the ScatterPlot adapter.
+- The post-fix review identified deeper native sequences that the first harness
+  did not cover. A VDOS plot can re-enable its IR/Raman discrete-line panel,
+  and NMR repeats its 14-color palette for system 15. Classification now vetoes
+  the entire capture whenever any panel carries the exact VDOS axis label,
+  before considering otherwise supported secondary labels. Legend resolution
+  is deferred until `DISFIN`; a color is used only when it maps to exactly one
+  captured legend entry, while reused-color systems intentionally keep generic
+  names instead of receiving a false identity.
+- Point labels now use bounded sparse records plus per-series linked indices.
+  This removes the former fixed 160-character allocation for every sampled
+  point, preserves multiple native atom labels on the same NMR stick in order,
+  emits labels in O(points + labels) work, and rejects an oversized individual
+  `RLMESS` value rather than truncating it. The linked harness now reproduces
+  VDOS with a supported-looking secondary panel, repeated NMR colors, repeated
+  labels on one point and oversized-label rejection in addition to the earlier
+  limit cases.
+- The final macro-off compile caught that plot-only serializer helpers were
+  visible without their MatterViz capture type. The complete 2D adapter block
+  is now guarded by `MULTIWFN_MATTERVIZ_BACKEND`. Fresh GNU Fortran 13 builds
+  pass for both the MatterViz macro-on module/GUI/stub set and the macro-off
+  legacy GUI/stub set; the scientific source diff remains empty.
+
+## 2026-07-20: generic PlotScene v2 and binary plot transport
+
+- Replaced the v1-only serializer path with a compatible v2 PlotScene model.
+  The scene describes page/panel layout, axes, layers and annotations; numeric
+  arrays are not embedded in JSON. They travel as immutable multi-role Float64
+  datasets over the existing inherited data pipe and are served only through a
+  capability-authenticated Rust endpoint.
+- Kept the scientific boundary unchanged: final native arrays are captured in
+  `noGUI/dislin_d_empty.f90` and `noGUI/matterviz_plot_capture.f90`. No calls or
+  MatterViz types were added to Multiwfn calculation sources. Unsupported
+  primitives invalidate the scene instead of falling back to external parsing
+  or inferred scientific meanings.
+- Corrected integration semantics found during compile review. DISLIN bars now
+  retain their exact `y1 -> y2` baseline/span, stream fields retain native x/y
+  grid coordinates separately from u/v components, and single `SYMBOL` calls
+  are explicit scatter layers. Field overlays now pass through MatterViz axis
+  scales, including reversed/log coordinates, rather than assuming normalized
+  panel coordinates.
+- Removed the independent 256 MiB plot protocol/store ceilings. The Rust pipe
+  reader now evaluates the declared frame against the shared active
+  volume+plot memory budget before allocating it; rejected bodies are drained
+  through a 64 KiB scratch buffer so the versioned pipe remains synchronized.
+- Added a fragmented `MWFNP2D` transport test that verifies the plot ACK/store
+  and then sends a normal volume frame on the same pipe. Local GNU Fortran 15
+  GUI-adapter compilation and linked capture execution pass, as do 22 Python
+  tests, the C stream test, all 132 frontend tests, zero Svelte diagnostics,
+  the Vite production build, all 105 Rust tests, `cargo check` and strict
+  Clippy. Three-platform CI and real native menu workflows remain acceptance
+  gates.
+
+## 2026-07-20: PlotScene v2 review hardening
+
+- Fixed the v2 entry component so it no longer evaluates v1 `panel.series`
+  state before selecting the v2 renderer. The protocol decoder now checks the
+  header's aggregate element count as well as directory/body byte totals.
+- Added atomic resolve-time validation for role lengths, field shape products,
+  coordinate-vector sizes and positive values on log axes. Field/bar and dense
+  secondary-axis combinations that the selected renderer cannot honor now fail
+  closed instead of silently using x1/y1.
+- Corrected native DISLIN semantics: `INCMRK(-1)` produces point-only scatter,
+  while successive `GRAF` calls with identical `AXSPOS`/`AXSLEN` merge into one
+  panel with x2/y2 metadata and explicit layer routing.
+- Removed the PlotStore 128-entry LRU behavior that could evict an ACKed dataset
+  before its scene manifest arrived. Plot v2 uses checked accounting plus the
+  shared active-byte admission budget, not the legacy v1 2,000,000-point cap.
+- Dataset-backed annotation layers are rejected in favor of panel annotations,
+  which now render inside MatterViz's scaled plot content. Native filled raster,
+  relief and streamline primitives fail closed because their palette, lighting,
+  seed and integration semantics are not yet represented faithfully.
+- Removed the fixed Fortran 268,435,456-value ceiling and report allocation
+  failure directly. DISLIN `STREAM` now invalidates the complete scene because
+  the previous bounded generator ignored native seed/integration semantics.
+- Post-fix local evidence: all 133 frontend tests, Svelte check, Vite build,
+  GNU Fortran 15 linked capture harness and GUI module compilation, 30 Python
+  adapter/build tests, strict C transport tests, 108 Rust tests and strict
+  Clippy pass. The Python runner skipped its duplicate linked harness because
+  its compiler probe does not recognize the conda-prefixed executable; the
+  same harness was compiled and run directly. The follow-up independent review,
+  real menus and three-platform CI remain explicit gates.
+- The follow-up review found a third same-position native `GRAF` range could
+  overwrite an existing secondary axis, and secondary fill/error or aggregate
+  dense-scatter routes could silently render on x1/y1. These combinations now
+  invalidate the scene. The same pass moved annotations into MatterViz's scaled
+  user-content layer, made field shape and log-coordinate checks mandatory,
+  restored marker-size metadata, releases stale async resolutions, and keeps
+  the original cross-platform optional lockfile entries intact.
+- The first PR #49 CI run failed for two build-integration omissions rather
+  than runtime behavior: the Host needed one rustfmt rewrite, and the separate
+  `matterviz-volume-e2e` crate did not declare the new path-included
+  `plot_protocol` and `plot_store` modules. Added those two module declarations;
+  both manifest-specific format checks and all 109 e2e tests pass locally.
+- The second run passed all Linux/macOS/Windows MatterViz package jobs and left
+  only the Linux build-contract harness failing: GNU Fortran's default
+  132-column free-form limit truncated compact capture statements. Split every
+  overlong capture/harness line without changing behavior. A local compile with
+  explicit `-Werror=line-truncation` and the Python-linked harness both pass.
+
+## 2026-07-20: CodeRabbit follow-up
+
+- Evaluated the latest review against PlotScene v2 and applied only findings
+  that remain valid. Plot-only sessions now complete the Rust Host readiness
+  handshake, positive `INCMRK` values retain their line-plus-marker semantics,
+  and legends resolve by native curve-series identity instead of raw layer
+  position when bars or other non-curve primitives precede a curve.
+- Corrected native `BLACK` to `#000000`, constrained the C plot publisher to
+  its five actual array pointer arguments, emitted marker styling for
+  line-plus-scatter layers, and removed duplicate Rust constructor and Fortran
+  reset cleanup code. Regression coverage exercises each behavioral change.
+- Rechecked the remaining unresolved v1 compatibility discussion instead of
+  dismissing it as obsolete. Aggregate `referenceLines` now share a Host-side
+  20,000-entry limit across panels and are rejected before per-entry validation.
+- Fixed three subsequent end-to-end review findings. Plot ACKs now use the
+  shared 64-byte control-header CRC field expected by the C producer, with a
+  compiled C-to-Rust regression. Explicit DISLIN page dimensions remain
+  authoritative, lower-left `AXSPOS` coordinates are converted to CSS top,
+  and panel annotations use the same top-edge frame.
+- DISLIN logarithmic `GRAF` bounds are converted from base-10 exponents to
+  finite positive physical values for primary and secondary axes. Unrepresentable
+  exponent ranges fail closed. The linked harness covers negative exponents,
+  secondary log state, overflow/underflow and the 3000x1800 viewport example.
+- Browser review of a 60,000-point synthetic IRI scene exposed two v2 runtime
+  defects that unit parsing tests had missed. The parsed scene is no longer
+  parsed a second time inside `PlotSceneView`, and dense scatter no longer
+  forces fullscreen on mount. The IRI canvas remains within its panel.
+- Multiwfn plot containers now set MatterViz's inherited text color to black.
+  Playwright confirmed black axis/tick text, a canvas-backed binned scatter,
+  no page errors and a contained canvas at 1400x900. The local IRI artifact is
+  explicitly synthetic and is not claimed as a native-menu calculation result.
+- Follow-up browser inspection found that MatterViz axis and tick strokes use
+  `--border-color` independently of `--text-color`. Both scientific plot roots
+  now scope that variable to black as well; review screenshots must check the
+  computed stroke and text colors rather than relying on source declarations.
+- Selected the official `IRI_tutorial.zip` phenol-dimer example for real-menu
+  validation. The native sequence is `20`, `4`, `3`, then `-1`; the plot arrays
+  remain Multiwfn's sign(lambda2)rho and IRI grid values captured at the DISLIN
+  adapter boundary.
+- Ran the current PR #49 Linux CI build on the official `phenol_dimer.wfn` with
+  the tutorial's high-quality grid. Multiwfn produced 1,777,622 native points
+  on a 187x97x98 grid. Columns 4/5 of its own menu-2 export were repacked without
+  sampling as the protocol's Float64 x/y roles and rendered through PlotScene v2
+  `BinnedScatterPlot`; the result matches the characteristic shape in the
+  official tutorial image. Playwright found a nonempty 634x300 canvas, black
+  axis text/ticks/grid strokes, no browser errors and no layout overflow.
+- Follow-up visual review corrected three presentation defects without changing
+  the protocol or native data. Scientific plots now draw an explicit four-sided
+  1 px black solid frame and reserve a right-side band for ordinary legends or
+  the dense-scatter density scale. Spectrum sticks are emitted as independent
+  SVG `M...V...` subpaths instead of one continuous baseline-connected curve,
+  eliminating the unintended y=0 line while retaining one toggleable series.
+- Playwright rechecked NMR and the full 1,777,622-point phenol-dimer IRI scene
+  at 1400 px and 800 px. Frames and decorations do not overlap, the document
+  has no horizontal overflow, the density bar stays outside the data frame and
+  NMR contains four disconnected vertical subpaths with no baseline connector.
+
+## 2026-07-21: native PNG/PDF plot export
+
+- Audited Multiwfn's existing `setgraphformat` path. The MatterViz DISLIN
+  adapter now recognizes native `png` and `pdf` selections, preserves the
+  `SETFIL` destination across `DISINI`, and publishes a bounded export request
+  without changing any scientific calculation module.
+- Added an authenticated one-shot Rust Host endpoint that accepts only the
+  manifest-declared format and destination, checks exact MIME and file magic,
+  bounds the body to 64 MiB, and atomically replaces `dislin.png` or
+  `dislin.pdf`. The browser cannot choose or override the filesystem path.
+- PNG export rasterizes the stabilized scientific SVG at the native requested
+  pixel dimensions. PDF converts SVG axes, labels, frames, legends and curves
+  to vector operators; Canvas-backed dense scatter is embedded as a PNG layer.
+  Foreign-object labels are converted to SVG text before export to avoid a
+  Chromium tainted-canvas failure.
+- Direct application exports were generated for DOS, IR, Raman, UV-Vis, NMR
+  and the official 1,777,622-point phenol-dimer IRI dataset. All twelve Host
+  writes returned HTTP 200 with no page errors. The five spectrum examples are
+  rendering fixtures; the IRI example is the real native tutorial calculation.
+- File inspection confirmed 1200x800 spectrum PNGs, a 1600x1200 IRI PNG and
+  valid one-page PDF 1.3 documents. The DOS PDF contains vector path operators
+  and no image object; the IRI PDF retains vector plot furniture and contains
+  raster image objects only for its Canvas density layer.
+- Independent read-only review found that the binned IRI frame lived in an
+  HTML overlay and was absent from the assembled export document. The exporter
+  now recreates that overlay as a vector SVG rectangle, and regenerated IRI
+  PNG/PDF output shows the complete solid black frame.
+- Canvas serialization now fails closed instead of silently omitting the
+  scientific density layer. Export errors remain visible with an explicit
+  Return-to-Multiwfn action, and unsupported legacy format selections report a
+  clear adapter message rather than producing no file without explanation.
+
+## 2026-07-21: native IRI proportions and interaction colors
+
+- Audited the official IRI tutorial (`http://sobereva.com/598`), the native
+  `drawscatter` setup and the distributed `examples/scripts/IRIscatter.gnu`.
+  The native plot uses a 3000x2250 page with centered 2400x1800 axes, so the
+  authoritative data-frame ratio is 4:3. The tutorial JPEG is cropped and is
+  not used as a layout ratio.
+- Fixed the GUI adapter to retain `PAGE` state configured before `DISINI` and
+  capture `CENTER` without changing `otherfunc.f90`, `plot.f90` or any numerical
+  routine. The WebView now converts that normalized viewport directly into
+  responsive padding and is not constrained by the application's old 800 px
+  maximum width. The same native padding is passed to scatter, dense-scatter,
+  contour and bar routes so preserving page geometry does not regress fields.
+- The optional official colored IRI plot maps column 4, the horizontal
+  `sign(lambda2)rho` value, to blue at -0.04, green at 0 and red at 0.02. The
+  dense MatterViz route now uses that quantity consistently in point and bin
+  modes; bin count controls opacity only and values outside the color range are
+  clipped to its endpoints.
+- Regenerated the real 1,777,622-point phenol-dimer artifact as direct PNG and
+  PDF output. The IRI page is 1600x1200 with a 1280x960 data frame, native axes
+  x [-0.4, 0.1] and y [0, 2.5], an external physical color bar and no browser
+  errors. PDF retains vector plot furniture and rasterizes only the Canvas
+  point layer.
+- The first CI run after the r24 vendor update stopped during clean dependency
+  installation because pnpm's strict build-script policy found the transitive
+  `core-js@3.49.0` postinstall without an explicit decision. Kept the policy
+  enabled and recorded `core-js: false` in `allowBuilds`; MatterViz remains the
+  only dependency allowed to execute its package build script.

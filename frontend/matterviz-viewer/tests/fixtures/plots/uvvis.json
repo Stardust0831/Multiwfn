@@ -1,0 +1,1 @@
+{"format":"multiwfn-matterviz-plot","version":1,"kind":"uvvis","title":"UV-Vis spectrum","panels":[{"id":"uvvis","xAxis":{"label":"Wavelength","unit":"nm","range":[800,200]},"yAxis":{"label":"Molar absorption coefficient","range":[0,10]},"series":[{"id":"uvvis","type":"line","x":[800,650,500,350,200],"y":[0,3,9,4,0]}]}]}

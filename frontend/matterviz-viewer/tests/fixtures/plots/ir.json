@@ -1,0 +1,1 @@
+{"format":"multiwfn-matterviz-plot","version":1,"kind":"ir","title":"IR spectrum","panels":[{"id":"ir","xAxis":{"label":"Wavenumber","unit":"cm-1","range":[4000,0]},"yAxis":{"label":"IR intensity","range":[0,10]},"series":[{"id":"ir","type":"line","x":[4000,3000,2000,1000,0],"y":[0,2,9,3,0]}]}]}

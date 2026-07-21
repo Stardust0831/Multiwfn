@@ -54,6 +54,7 @@
 #define MWFN_PICK_MAX_BODY_BYTES UINT32_C(32768)
 #define MWFN_PICK_READ_TIMEOUT_MS 15000U
 #define MWFN_CONTROL_FRAME_TIMEOUT_MS 30000U
+#define MWFN_PLOT_HEADER_BYTES 80U
 #define MWFN_PICK_STATUS_CANCEL UINT16_C(0)
 #define MWFN_PICK_STATUS_SELECTED UINT16_C(1)
 #define MWFN_PICK_STATUS_ERROR UINT16_C(2)
@@ -242,11 +243,11 @@ static int mwfn_valid_ready(const uint8_t *header) {
     return mwfn_crc32c(copy, sizeof(copy)) == mwfn_get_u32(header + 36);
 }
 
-static int mwfn_valid_ack_fields_major(const uint8_t *ack, uint16_t major,
+static int mwfn_valid_ack_fields_magic(const uint8_t *ack, const char magic[8], uint16_t major,
                                        int64_t request_id, int64_t volume_id,
                                        int require_zero_status) {
     uint8_t copy[MWFN_ACK_BYTES];
-    if (memcmp(ack, "MWFNVOL\0", 8U) != 0 || mwfn_get_u16(ack + 8) != major ||
+    if (memcmp(ack, magic, 8U) != 0 || mwfn_get_u16(ack + 8) != major ||
         mwfn_get_u16(ack + 10) != 0U || mwfn_get_u16(ack + 12) != 8U ||
         mwfn_get_u16(ack + 14) != 1U || mwfn_get_u32(ack + 16) != MWFN_ACK_BYTES ||
         mwfn_get_u64(ack + 20) != (uint64_t)request_id || mwfn_get_u64(ack + 28) != 0U ||
@@ -261,6 +262,13 @@ static int mwfn_valid_ack_fields_major(const uint8_t *ack, uint16_t major,
     return mwfn_crc32c(copy, sizeof(copy)) == mwfn_get_u32(ack + 36);
 }
 
+static int mwfn_valid_ack_fields_major(const uint8_t *ack, uint16_t major,
+                                       int64_t request_id, int64_t volume_id,
+                                       int require_zero_status) {
+    return mwfn_valid_ack_fields_magic(ack, "MWFNVOL\0", major, request_id, volume_id,
+                                       require_zero_status);
+}
+
 static int mwfn_valid_ack_fields(const uint8_t *ack, int64_t request_id, int64_t volume_id,
                                  int require_zero_status) {
     return mwfn_valid_ack_fields_major(ack, 1U, request_id, volume_id, require_zero_status);
@@ -272,6 +280,12 @@ static int mwfn_valid_ack(const uint8_t *ack, int64_t request_id, int64_t volume
 
 static int mwfn_valid_stream_ack(const uint8_t *ack, int64_t request_id, int64_t volume_id) {
     return mwfn_valid_ack_fields_major(ack, 2U, request_id, volume_id, 1);
+}
+
+static int mwfn_valid_plot_ack(const uint8_t *ack, int64_t request_id, int64_t dataset_id,
+                               int require_zero_status) {
+    return mwfn_valid_ack_fields_magic(ack, "MWFNP2D\0", 1U, request_id, dataset_id,
+                                       require_zero_status);
 }
 
 static int mwfn_control_fields_valid(uint16_t message_type, uint16_t flags,
@@ -2103,6 +2117,143 @@ int multiwfn_matterviz_publish_volume_stream(
         if (error_code != 0) return error_code;
         if (!mwfn_valid_stream_ack(ack, request_id, volume_id)) {
             return mwfn_valid_ack_fields_major(ack, 2U, request_id, volume_id, 0)
+                       ? MWFN_ERR_REJECTED
+                       : MWFN_ERR_PROTOCOL;
+        }
+    }
+    return 0;
+}
+
+/*
+ * Publish a caller-owned Float64 array as a generic 2D plot dataset. The body
+ * is streamed from the Fortran array and is never duplicated as a full frame.
+ */
+int multiwfn_matterviz_publish_plot_data(
+    intptr_t volume_write, intptr_t ack_read, int64_t request_id, int64_t dataset_id,
+    const int32_t *semantic_roles, const double *array1, const double *array2,
+    const double *array3, const double *array4, const double *array5,
+    const int64_t *element_counts, int32_t array_count, uint32_t publish_timeout_ms) {
+    uint8_t header[MWFN_PLOT_HEADER_BYTES] = {0};
+    uint8_t directory[8U * 32U] = {0};
+    uint64_t directory_bytes;
+    uint64_t body_bytes;
+    uint64_t total_elements;
+    uint64_t total_bytes;
+    uint32_t body_crc = UINT32_MAX;
+    mwfn_stream_deadline_t deadline;
+    uint64_t body_offset;
+    uint64_t offset;
+    int32_t array_index;
+    const double *arrays[8] = {array1, array2, array3, array4, array5, NULL, NULL, NULL};
+    uint16_t roles_seen = 0U;
+    int error_code;
+
+#ifdef _WIN32
+    if ((HANDLE)(uintptr_t)volume_write == NULL ||
+        (HANDLE)(uintptr_t)volume_write == INVALID_HANDLE_VALUE ||
+        (HANDLE)(uintptr_t)ack_read == NULL ||
+        (HANDLE)(uintptr_t)ack_read == INVALID_HANDLE_VALUE) {
+        return MWFN_ERR_HANDLE;
+    }
+#else
+    if (volume_write < 0 || ack_read < 0) return MWFN_ERR_HANDLE;
+#endif
+    if (publish_timeout_ms == 0U) return MWFN_ERR_TIMEOUT;
+    if (!mwfn_host_is_little_endian()) return MWFN_ERR_UNSUPPORTED;
+    if (request_id <= 0 || dataset_id <= 0 || request_id != dataset_id || semantic_roles == NULL ||
+        element_counts == NULL || array_count <= 0 || array_count > 5) {
+        return MWFN_ERR_INVALID;
+    }
+    directory_bytes = (uint64_t)array_count * 32U;
+    body_bytes = 0U;
+    total_elements = 0U;
+    for (array_index = 0; array_index < array_count; ++array_index) {
+        const int32_t role = semantic_roles[array_index];
+        const int64_t signed_count = element_counts[array_index];
+        uint64_t count;
+        uint64_t array_bytes;
+        uint16_t role_bit;
+        uint8_t *entry = directory + (size_t)array_index * 32U;
+        if (role < 1 || role > 8 || arrays[array_index] == NULL || signed_count <= 0) {
+            return MWFN_ERR_INVALID;
+        }
+        role_bit = (uint16_t)(1U << (unsigned int)(role - 1));
+        if ((roles_seen & role_bit) != 0U) return MWFN_ERR_INVALID;
+        roles_seen = (uint16_t)(roles_seen | role_bit);
+        count = (uint64_t)signed_count;
+        if (count > UINT64_MAX / sizeof(double)) return EOVERFLOW;
+        array_bytes = count * sizeof(double);
+        if (body_bytes > UINT64_MAX - array_bytes || total_elements > UINT64_MAX - count) {
+            return EOVERFLOW;
+        }
+        entry[0] = (uint8_t)role;
+        mwfn_put_u64(entry + 8, count);
+        mwfn_put_u64(entry + 16, body_bytes);
+        mwfn_put_u64(entry + 24, array_bytes);
+        body_bytes += array_bytes;
+        total_elements += count;
+        for (offset = 0; offset < count; ++offset) {
+            const double value = arrays[array_index][(size_t)offset];
+            if (!isfinite(value)) return MWFN_ERR_INVALID;
+            body_crc = mwfn_crc32c_update(body_crc, (const uint8_t *)&value, sizeof(value));
+        }
+    }
+    body_crc = ~body_crc;
+    if (directory_bytes > UINT64_MAX - MWFN_PLOT_HEADER_BYTES ||
+        MWFN_PLOT_HEADER_BYTES + directory_bytes > UINT64_MAX - body_bytes) {
+        return EOVERFLOW;
+    }
+    total_bytes = MWFN_PLOT_HEADER_BYTES + directory_bytes + body_bytes;
+    memcpy(header, "MWFNP2D\0", 8U);
+    mwfn_put_u16(header + 8, 1U);
+    mwfn_put_u16(header + 10, 0U);
+    mwfn_put_u16(header + 12, 1U);
+    mwfn_put_u16(header + 14, 1U);
+    mwfn_put_u32(header + 16, MWFN_PLOT_HEADER_BYTES);
+    mwfn_put_u64(header + 20, (uint64_t)dataset_id);
+    mwfn_put_u32(header + 28, (uint32_t)array_count);
+    mwfn_put_u32(header + 32, 32U);
+    mwfn_put_u64(header + 36, directory_bytes);
+    mwfn_put_u64(header + 44, body_bytes);
+    mwfn_put_u64(header + 52, total_elements);
+    mwfn_put_u32(header + 64, body_crc);
+    mwfn_put_u64(header + 72, total_bytes);
+    mwfn_put_u32(header + 60, mwfn_crc32c(header, sizeof(header)));
+
+    deadline = mwfn_stream_deadline(publish_timeout_ms);
+    error_code = mwfn_stream_write(volume_write, header, sizeof(header), deadline);
+    if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+    if (error_code != 0) return error_code;
+    error_code = mwfn_stream_write(volume_write, directory, (size_t)directory_bytes, deadline);
+    if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+    if (error_code != 0) return error_code;
+    body_offset = 0U;
+    for (array_index = 0; array_index < array_count; ++array_index) {
+        const uint64_t count = (uint64_t)element_counts[array_index];
+        for (offset = 0; offset < count;) {
+            const uint64_t remaining = count - offset;
+            const size_t chunk_samples = remaining > MWFN_STREAM_CHUNK_BYTES / sizeof(double)
+                                             ? MWFN_STREAM_CHUNK_BYTES / sizeof(double)
+                                             : (size_t)remaining;
+            const size_t chunk_bytes = chunk_samples * sizeof(double);
+            error_code = mwfn_stream_write(
+                volume_write,
+                (const uint8_t *)(arrays[array_index] + (size_t)offset),
+                chunk_bytes, deadline);
+            if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+            if (error_code != 0) return error_code;
+            offset += (uint64_t)chunk_samples;
+        }
+        body_offset += count * sizeof(double);
+    }
+    if (body_offset != body_bytes) return MWFN_ERR_PROTOCOL;
+    {
+        uint8_t ack[MWFN_ACK_BYTES];
+        error_code = mwfn_stream_read_ack(ack_read, ack, deadline);
+        if (error_code == ETIMEDOUT) return MWFN_ERR_TIMEOUT;
+        if (error_code != 0) return error_code;
+        if (!mwfn_valid_plot_ack(ack, request_id, dataset_id, 1)) {
+            return mwfn_valid_plot_ack(ack, request_id, dataset_id, 0)
                        ? MWFN_ERR_REJECTED
                        : MWFN_ERR_PROTOCOL;
         }

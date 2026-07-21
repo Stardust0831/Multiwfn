@@ -2,6 +2,17 @@
 
 Updated: 2026-07-16
 
+## PR #49 generic two-dimensional scientific plots
+
+- [x] Freeze `multiwfn-matterviz-plot` v2 and `MWFNP2D` v1 contracts while retaining plot v1 compatibility.
+- [x] Replace spectrum-name classification with an explicit DISLIN two-dimensional scene state machine in the MatterViz adapter.
+- [x] Capture line, scatter, bars, error bars, fills, annotations, four axes, panel geometry and line contours. Keep raster/fill-color, relief and `STREAM` fail-closed until their palette, lighting and integration semantics can be reproduced faithfully.
+- [x] Publish large XY and field arrays through the in-memory binary data pipe; do not emit runtime plot files or expand million-point data into JSON.
+- [x] Render XY, dense scatter and continuous fields with shared MatterViz axes and controls. Plot export remains a separate audited task.
+- [x] Preserve the original interactive entry points without changing Multiwfn calculation or analysis modules. Legacy image-export parity remains unclaimed.
+- [ ] Verify real DOS/spectrum, IRI/RDG/DORI, ordinary curve, CDA, LDOS/electron-hole matrix and 2D plane workflows.
+- [ ] Run frontend, Rust, Fortran/CMake, browser and three-platform package verification followed by independent read-only review.
+
 ## 2026-07-14 Rust host migration
 
 - [x] Stop extending the Python launcher workaround and define the native architecture: Fortran remains the Multiwfn calculation/session adapter; Rust owns the loopback HTTP service, WebView, lifecycle and native file dialog.
@@ -552,6 +563,42 @@ behavior requires the explicit diagnostic environment flag.
   `docs/matterviz-upstream-drafts.md`. Do not publish them before manual
   prerelease acceptance and a clean rebase onto current upstream.
 
+## MatterViz upstream scalar-grid PR
+
+- [x] Re-audit MatterViz `v0.4.3` and remove already-upstream Worker,
+  multi-volume, explicit-bond and lifecycle work from the proposed contribution.
+- [x] Create clean branch `agent/scalar-grid-kernel` from upstream `448bcff8`.
+- [x] Limit the first PR to internal `ScalarGrid3D` access and marching-cubes
+  parity. Keep `VolumetricData.grid`, parsers, sampling, Worker ownership,
+  budgets and all Multiwfn protocols unchanged.
+- [x] Cover nested, `x_fastest`, `z_fastest`, Float32, Float64, periodic,
+  non-periodic, normals, typed geometry buffers, empty grids and malformed flat
+  dimensions/data lengths.
+- [x] Pass focused MatterViz tests and package build; record the existing
+  optional-dependency and Linux oxfmt-binding limitations without hiding them.
+- [x] Adjudicate the independent read-only review. Add runtime storage-order and
+  typed-array validation plus independent sentinel, periodic Float32 and
+  axis-degenerate tests; the follow-up review reports no remaining blocker.
+- [x] Commit and push the minimal branch only to the separate
+  `Stardust0831/matterviz` fork as `19415f79` on
+  `agent/scalar-grid-kernel`. Do not push directly to `janosh/matterviz`.
+- [x] Open upstream MatterViz PR #414 from the fork branch to
+  `janosh/matterviz:main`; do not add parser/Worker/API changes to this PR.
+- [x] Diagnose the first CI failures as formatter output and an unnecessarily
+  exported internal helper type. Apply the exact Vite+ formatting and make
+  `ScalarGridArray` internal in commit `3d8470bd`.
+- [x] Confirm replacement PR #414 CI is green at `3d8470bd`: build, unit tests,
+  four E2E shards, Dash, Knip, prek, publint, CodeRabbit and GitGuardian all
+  pass. GitHub reports `mergeStateStatus=CLEAN`.
+- [x] Evaluate and implement CodeRabbit's valid dimension-arity finding.
+  `ScalarGrid3D` now rejects missing or extra dimensions; red/green evidence
+  reproduces the four-dimensional acceptance bug before commit `e87c2c59`, and
+  167 related tests pass afterward. Reply to and resolve the inline thread;
+  replacement CI is fully green with zero unresolved threads and CLEAN merge
+  status.
+- [ ] Review any maintainer feedback without expanding the PR beyond the
+  marching-cubes compatibility layer.
+
 ## PR #26 final merge gate
 
 - [x] Fix the post-release macOS memory snapshot, finite-grid extent and ESP
@@ -566,3 +613,132 @@ behavior requires the explicit diagnostic environment flag.
 - [ ] Obtain approval from a different authorized reviewer. The branch is
   mergeable, but GitHub correctly reports `REVIEW_REQUIRED`; the PR author
   cannot satisfy this protection rule by self-approval.
+
+## 2026-07-17 native 2D plot replacement
+
+- [x] Keep `DOS.f90`, `spectrum.f90`, `Multiwfn.f90` and all numerical routines
+  unchanged. Capture final arrays only at the existing Fortran DISLIN GUI API
+  boundary used by the MatterViz noGUI build.
+- [x] Replace selected no-op DISLIN stubs with a bounded GUI capture module for
+  `METAFL`, `DISINI`, axis metadata, style state, `CURVE`, legends and `DISFIN`.
+  Do not parse external program output or inspect a browser/DOM plot.
+- [x] Add versioned inline `multiwfn-matterviz-plot` v1 data to the existing
+  in-memory `session_init`; reuse the current CRC-protected control pipes and
+  synchronous window-close shutdown path without a writable session directory.
+- [x] Add strict Rust validation for DOS, IR, Raman, UV-Vis and NMR artifacts,
+  including finite ranges, matched arrays and limits of 128 series, 2,000,000
+  sampled pairs, 100,000 stick pairs and 20,000 labels.
+- [x] Add one reusable `MultiwfnPlotView` composed from MatterViz
+  `ScatterPlot`; preserve descending axes, dual axes, multiple panels, legend,
+  pan/zoom, fullscreen and discrete sticks without reimplementing broadening.
+- [x] Add regression tests proving the scientific Fortran sources contain no
+  MatterViz plot hooks, validating protocol boundaries, reversed IR/NMR axes,
+  UV-Vis wavelength coordinates and DOS multi-panel sticks.
+- [x] Resolve the independent architecture review without touching scientific
+  sources: fail closed for LDOS/VDOS and capture overflow, enforce the 100,000
+  stick limit, bind legends by captured style rather than array offset, retain
+  `MYLINE` references and `RLMESS` labels, and normalize DISLIN-only axis markup.
+- [x] Add the plot adapter test to CI and run a linked Fortran harness covering
+  accepted DOS/IR sequences, excluded LDOS/VDOS, labels, dashes and both series
+  and stick overflow rejection.
+- [x] Extend fail-closed coverage for native VDOS plus re-enabled discrete
+  lines, NMR palette reuse after 14 systems, and repeated/oversized `RLMESS`
+  labels. Keep ambiguous legends generic and store labels sparsely in bounded
+  O(points + labels) structures.
+- [ ] Complete macOS and Windows compilation in CI. Local GNU Fortran 13
+  compilation now passes for the MatterViz macro-on adapter and macro-off
+  legacy DISLIN path; the linked Linux harness also passes.
+- [ ] Run native menu 10/11 acceptance with real Multiwfn-produced final arrays
+  for DOS/PDOS, IR, Raman, UV-Vis eV/nm and NMR; compare axis ranges, visible
+  series and sticks with the original DISLIN window.
+- [x] Run Playwright at 1400x900 and 800px against captured artifacts and assert
+  nonblank SVG, reversed axes, working legend/zoom and no overlap or page error.
+- [ ] Confirm normal plot close creates no manifest, plot JSON, session
+  directory or other runtime intermediate file on all three platforms.
+- [ ] Keep COHP, LDOS, PES, bands, ECD, VCD and ROA disabled in the first batch;
+  add them only after their GUI semantics are explicitly adapted and tested.
+
+## 2026-07-20 generic native 2D PlotScene v2
+
+- [x] Preserve plot v1 compatibility and add a generic versioned PlotScene v2
+  with normalized multi-panel viewports, explicit/reversed/log axes, layers,
+  annotations and optional semantic metadata.
+- [x] Add the in-memory `MWFNP2D` multi-array Float64 protocol and authenticated
+  Rust `/api/plot-data/<id>` endpoint. Keep static scenes, structure data and
+  numeric plot bodies on the existing control/data pipes with no plot files.
+- [x] Capture line, scatter/symbol, nonzero-baseline bars, error ranges, filled
+  curves and line-contour intent at the DISLIN adapter
+  boundary. Unsupported or incomplete primitives such as `FBARS` and `AREAF`
+  remain fail-closed instead of being drawn with guessed semantics.
+- [x] Route regular and dense points through MatterViz `ScatterPlot` and
+  `BinnedScatterPlot`; reuse MatterViz axes for fields and exact-baseline bar
+  overlays. Preserve native grid coordinates for line contours instead of
+  normalizing scientific coordinates away.
+- [x] Remove the plot protocol/store's duplicate 256 MiB ceilings. Admit a plot
+  frame before allocation using the existing combined active volume+plot
+  memory budget and drain a rejected frame with a bounded scratch buffer.
+- [x] Add fragmented shared-pipe plot/ACK/next-volume transport coverage,
+  binary CRC/offset tests, strict scene parsing, field helpers, dataset release,
+  bars baseline and Fortran capture semantics.
+- [x] Pass the linked GNU Fortran capture harness, GUI adapter compilation, 22
+  Python adapter/build tests, C stream protocol tests, 132 frontend tests,
+  Svelte check, Vite production build, 105 Rust tests, `cargo check` and strict
+  Clippy locally.
+- [x] Resolve the first independent v2 review: lazily initialize the v1 view,
+  recognize native `INCMRK(-1)`, merge same-geometry `GRAF` overlays into
+  x2/y2 axes, retain all ACKed scene datasets, remove v1 point caps from v2,
+  validate dataset shapes/log values, reject unsupported axis routes and
+  dataset-backed annotations, and reject unsupported third-axis overlays.
+- [x] Replace the fixed Fortran array-value ceiling with checked allocation and
+  the Host's shared byte budget. Keep structural layer/label limits for bounded
+  scene complexity.
+- [x] Fail closed for DISLIN `STREAM`; do not substitute a bounded approximate
+  streamline generator that ignores native seed and integration controls.
+- [x] Apply the still-valid CodeRabbit v2 findings: complete plot-only ready
+  signaling, preserve positive `INCMRK` line-plus-marker intent, bind legends
+  through curve-series identity, correct `BLACK`, and match the C publisher's
+  array-count bound to its five pointer arguments. Add focused regressions.
+- [x] Bound aggregate v1 `referenceLines` across panels in the Rust Host and
+  cover the exact limit plus one-entry-over rejection boundary.
+- [x] Align `MWFNP2D` ACK CRC/reserved offsets with the reused C control ACK
+  layout and add a compiled C-producer/Rust-ACK e2e regression.
+- [x] Convert DISLIN lower-left panel geometry and log-exponent bounds at the
+  GUI adapter boundary; cover explicit PAGE geometry, panel annotations,
+  secondary log axes and unrepresentable exponent ranges in CI tests.
+- [x] Render a synthetic 60,000-point IRI review scene through the v2 binary
+  dataset path; fix double scene parsing and forced dense-scatter fullscreen,
+  and use black scientific-axis text and strokes in both v1 and v2 plot
+  containers.
+- [x] Pass Linux, Windows and macOS CI for the combined branch.
+- [ ] Run real native Multiwfn menu workflows for representative curve,
+  high-density IRI scatter and line-contour plots; verify
+  data/range parity with DISLIN at desktop and 800px browser viewports.
+- [x] Render the official IRI tutorial's `phenol_dimer.wfn` high-quality grid
+  without point sampling through the binary PlotScene v2 dense-scatter route;
+  compare its shape with the official DISLIN tutorial image and verify black
+  axes/ticks plus a nonempty, contained Canvas at 1400x900.
+- [x] Use a four-sided black solid scientific frame, place legends and the IRI
+  density scale in a reserved band outside the data rectangle, and render
+  discrete spectrum sticks without an artificial y=0 connector. Verify NMR and
+  real IRI layouts at both 1400 px and 800 px.
+- [x] Audit the native `setgraphformat` workflow and preserve its `png`/`pdf`
+  choices plus `dislin.<format>` output names at the GUI adapter boundary.
+  Export the stabilized scientific SVG document through the authenticated Rust
+  Host instead of taking a WebView screenshot. PDF axes, text and curves remain
+  vector content; only Canvas-backed dense layers such as IRI are embedded as
+  raster images.
+- [x] Generate direct PNG/PDF review exports for DOS, IR, Raman, UV-Vis, NMR
+  and the official phenol-dimer IRI tutorial. Verify PNG/PDF signatures,
+  dimensions, successful Host writes, four-sided black frames, external
+  legends/scales and disconnected spectrum sticks. Keep the fixture provenance
+  explicit: only the IRI artifact is a real native calculation in this set.
+- [x] Match the native IRI `drawscatter(..., iratio=1)` geometry: retain the
+  pre-`DISINI` 3000x2250 page and centered 2400x1800 axes, remove the inherited
+  800 px WebView width cap, and regression-test the resulting 4:3 data frame.
+- [x] Color the dense IRI scatter by its native horizontal value,
+  `sign(lambda2)rho`, using the official optional `IRIscatter.gnu` anchors
+  -0.04 blue, 0 green and 0.02 red with endpoint clipping. Bin population may
+  affect opacity only; it is not exposed as the scientific color quantity.
+- [ ] Extend native-format export beyond PNG/PDF only after each requested
+  format has a tested document encoder; unsupported legacy format selections
+  must fail clearly rather than silently writing mislabeled data.
