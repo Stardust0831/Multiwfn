@@ -31,6 +31,7 @@
     cube_entries,
     display_range,
     manifest_url,
+    plot_export,
     resolve_entry_url,
     resolve_volume_entry_url,
     type ManifestEntry,
@@ -1089,6 +1090,9 @@
 {#if plotArtifact}
   <MultiwfnPlotView
     artifact={plotArtifact}
+    exportConfig={plot_export(manifest)}
+    onExported={return_to_multiwfn}
+    onExportError={report_error}
     resolver={async (datasetId: number): Promise<PlotDataset> => {
       const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
       return read_plot_dataset_response(response, datasetId)

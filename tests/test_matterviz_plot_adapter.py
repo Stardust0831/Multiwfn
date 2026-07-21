@@ -33,6 +33,18 @@ class MatterVizPlotAdapterTests(unittest.TestCase):
         ):
             self.assertIn(hook, DISLIN)
         self.assertIn("subroutine show_captured_matterviz_plot", GUI)
+        self.assertIn("subroutine export_captured_matterviz_plot", GUI)
+
+    def test_native_png_pdf_devices_are_exported_at_the_capture_boundary(self):
+        self.assertIn("matterviz_plot_capture_active", CAPTURE)
+        self.assertIn("matterviz_plot_export_unsupported", CAPTURE)
+        self.assertIn("trim(matterviz_plot_device)=='png'", CAPTURE)
+        self.assertIn("trim(matterviz_plot_device)=='pdf'", CAPTURE)
+        self.assertIn("matterviz_export_captured_plot", DISLIN)
+        self.assertIn('"plotExport": { "format": "', GUI)
+        self.assertIn("matterviz_plot_export_width", GUI)
+        self.assertIn("matterviz_capture_window_size(nw,nh)", DISLIN)
+        self.assertNotIn("plotExport", (ROOT / "plot.f90").read_text(encoding="utf-8"))
 
     def test_capture_and_control_limits_are_explicit(self):
         self.assertIn("matterviz_plot_max_series=128", CAPTURE)

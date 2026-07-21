@@ -721,6 +721,17 @@ behavior requires the explicit diagnostic environment flag.
   density scale in a reserved band outside the data rectangle, and render
   discrete spectrum sticks without an artificial y=0 connector. Verify NMR and
   real IRI layouts at both 1400 px and 800 px.
-- [ ] Add plot export only after native format expectations are audited. Do not
-  claim legacy DISLIN export parity while interactive WebView rendering is the
-  only verified output path.
+- [x] Audit the native `setgraphformat` workflow and preserve its `png`/`pdf`
+  choices plus `dislin.<format>` output names at the GUI adapter boundary.
+  Export the stabilized scientific SVG document through the authenticated Rust
+  Host instead of taking a WebView screenshot. PDF axes, text and curves remain
+  vector content; only Canvas-backed dense layers such as IRI are embedded as
+  raster images.
+- [x] Generate direct PNG/PDF review exports for DOS, IR, Raman, UV-Vis, NMR
+  and the official phenol-dimer IRI tutorial. Verify PNG/PDF signatures,
+  dimensions, successful Host writes, four-sided black frames, external
+  legends/scales and disconnected spectrum sticks. Keep the fixture provenance
+  explicit: only the IRI artifact is a real native calculation in this set.
+- [ ] Extend native-format export beyond PNG/PDF only after each requested
+  format has a tested document encoder; unsupported legacy format selections
+  must fail clearly rather than silently writing mislabeled data.

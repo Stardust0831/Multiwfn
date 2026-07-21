@@ -6,6 +6,7 @@
 //! session bootstrap must not trust such a value without checking it.
 
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -43,6 +44,7 @@ pub(crate) enum SessionDataError {
     InvalidManifestVersion,
     InvalidManifestEntry,
     InvalidManifestPlot(&'static str),
+    InvalidPlotExport(&'static str),
     InvalidOptionalObject(&'static str),
     Serialization,
 }
@@ -87,12 +89,27 @@ impl fmt::Display for SessionDataError {
             Self::InvalidManifestPlot(reason) => {
                 write!(f, "manifest plot is invalid: {reason}")
             }
+            Self::InvalidPlotExport(reason) => {
+                write!(f, "manifest plotExport is invalid: {reason}")
+            }
             Self::InvalidOptionalObject(field) => {
                 write!(f, "session_init {field} must be a JSON object or null")
             }
             Self::Serialization => f.write_str("session_init JSON object could not be serialized"),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PlotExportFormat {
+    Png,
+    Pdf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PlotExportDirective {
+    pub(crate) format: PlotExportFormat,
+    pub(crate) path: PathBuf,
 }
 
 impl std::error::Error for SessionDataError {}
@@ -103,6 +120,7 @@ pub(crate) struct SessionData {
     manifest: Arc<[u8]>,
     structure: Option<Arc<[u8]>>,
     state: Option<Arc<[u8]>>,
+    plot_export: Option<PlotExportDirective>,
 }
 
 impl SessionData {
@@ -158,6 +176,7 @@ impl SessionData {
         )?;
         validate_manifest_entries(manifest_object)?;
         validate_manifest_plot(manifest_object)?;
+        let plot_export = validate_plot_export(manifest_object)?;
 
         let manifest = serialize(manifest)?;
         let structure = optional_object(object, "structure")?;
@@ -169,6 +188,7 @@ impl SessionData {
             manifest,
             structure,
             state,
+            plot_export,
         })
     }
 
@@ -191,6 +211,35 @@ impl SessionData {
     pub(crate) fn state_bytes(&self) -> Option<&[u8]> {
         self.state.as_deref()
     }
+
+    pub(crate) fn plot_export(&self) -> Option<&PlotExportDirective> {
+        self.plot_export.as_ref()
+    }
+}
+
+fn validate_plot_export(
+    manifest: &serde_json::Map<String, Value>,
+) -> Result<Option<PlotExportDirective>, SessionDataError> {
+    let Some(value) = manifest.get("plotExport") else {
+        return Ok(None);
+    };
+    let object = value
+        .as_object()
+        .ok_or(SessionDataError::InvalidPlotExport("must be an object"))?;
+    let format = match object.get("format").and_then(Value::as_str) {
+        Some("png") => PlotExportFormat::Png,
+        Some("pdf") => PlotExportFormat::Pdf,
+        _ => return Err(SessionDataError::InvalidPlotExport("format")),
+    };
+    let path = object
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && !value.contains('\0'))
+        .ok_or(SessionDataError::InvalidPlotExport("path"))?;
+    Ok(Some(PlotExportDirective {
+        format,
+        path: PathBuf::from(path),
+    }))
 }
 
 fn validate_manifest_entries(
@@ -869,6 +918,37 @@ mod tests {
             serde_json::from_slice::<Value>(data.state_bytes().unwrap()).unwrap(),
             json!({"camera": {"zoom": 1}})
         );
+        assert!(data.plot_export().is_none());
+    }
+
+    #[test]
+    fn validates_configured_plot_export_directive() {
+        let mut body = valid_body();
+        body["manifest"]["plotExport"] = json!({
+            "format": "png",
+            "path": "/tmp/matterviz-export.png"
+        });
+        let data = SessionData::parse(&frame(body)).unwrap();
+        assert_eq!(
+            data.plot_export(),
+            Some(&PlotExportDirective {
+                format: PlotExportFormat::Png,
+                path: PathBuf::from("/tmp/matterviz-export.png")
+            })
+        );
+
+        for directive in [
+            json!({"format": "svg", "path": "/tmp/export.svg"}),
+            json!({"format": "pdf", "path": ""}),
+            json!([]),
+        ] {
+            let mut invalid = valid_body();
+            invalid["manifest"]["plotExport"] = directive;
+            assert!(matches!(
+                SessionData::parse(&frame(invalid)),
+                Err(SessionDataError::InvalidPlotExport(_))
+            ));
+        }
     }
 
     #[test]

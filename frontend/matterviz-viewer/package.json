@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "d3-contour": "^4.0.2",
+    "jspdf": "^4.2.1",
     "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r23.tgz",
-    "svelte": "^5.56.4"
+    "svelte": "^5.56.4",
+    "svg2pdf.js": "^2.7.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.2.0",

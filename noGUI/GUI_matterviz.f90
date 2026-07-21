@@ -245,11 +245,11 @@ call launch_matterviz_gui("miniGUI",7,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
-subroutine begin_matterviz_plot(sink,plot_kind,title)
+subroutine begin_matterviz_plot(sink,plot_kind,title,export_format,export_path)
 type(matterviz_json_sink),intent(out) :: sink
-character(len=*),intent(in) :: plot_kind,title
+character(len=*),intent(in) :: plot_kind,title,export_format,export_path
 character(len=:),allocatable :: escaped
-character(len=128) :: line
+character(len=1024) :: line
 
 sink=matterviz_json_sink()
 sink%buffer=multiwfn_matterviz_control_buffer_create()
@@ -266,6 +266,14 @@ call emit_matterviz_json(sink,'  "manifest": {')
 call emit_matterviz_json(sink,'    "format": "multiwfn-matterviz-workbench",')
 call emit_matterviz_json(sink,'    "version": 2,')
 call emit_matterviz_json(sink,'    "structure": null,')
+if (len_trim(export_format)>0) then
+    write(line,"(a,i0,a,i0,a)") '    "plotExport": { "format": "'// &
+        matterviz_json_escape(trim(export_format))//'", "path": "'// &
+        matterviz_json_escape(trim(export_path))//'", "width": ', &
+        matterviz_plot_export_width(trim(export_format)),', "height": ', &
+        matterviz_plot_export_height(trim(export_format)),' },'
+    call emit_matterviz_json(sink,line)
+end if
 call emit_matterviz_json(sink,'    "plot": {')
 call emit_matterviz_json(sink,'    "format": "multiwfn-matterviz-plot",')
 call emit_matterviz_json(sink,'    "version": 2,')
@@ -276,6 +284,24 @@ write(line,"(a,i0,a,i0,a)") '    "page": { "width": ',matterviz_scene_page_width
 call emit_matterviz_json(sink,line)
 call emit_matterviz_json(sink,'    "panels": [')
 end subroutine
+
+integer function matterviz_plot_export_width(export_format)
+character(len=*),intent(in) :: export_format
+if (trim(export_format)=='png'.and.matterviz_plot_window_width>0) then
+    matterviz_plot_export_width=matterviz_plot_window_width
+else
+    matterviz_plot_export_width=matterviz_scene_page_width()
+end if
+end function
+
+integer function matterviz_plot_export_height(export_format)
+character(len=*),intent(in) :: export_format
+if (trim(export_format)=='png'.and.matterviz_plot_window_height>0) then
+    matterviz_plot_export_height=matterviz_plot_window_height
+else
+    matterviz_plot_export_height=matterviz_scene_page_height()
+end if
+end function
 
 integer function matterviz_scene_page_width()
 integer :: panel
@@ -748,10 +774,11 @@ do idx=1,len_trim(value)
 end do
 end function
 
-subroutine show_captured_matterviz_plot()
+subroutine deliver_captured_matterviz_plot(export_format,export_path)
 type(matterviz_json_sink) :: sink
 integer :: panel,layer,idx,plot_status,publish_status
 integer(c_int64_t) :: dataset_base,dataset_id,request_id
+character(len=*),intent(in) :: export_format,export_path
 character(len=160) :: title
 
 if (.not.matterviz_capture_supported()) return
@@ -765,7 +792,7 @@ end do
 title=trim(matterviz_plot_title)
 if (len_trim(title)==0) title='Multiwfn 2D plot'
 dataset_base=gui_volume_serial
-call begin_matterviz_plot(sink,'',trim(title))
+call begin_matterviz_plot(sink,'',trim(title),trim(export_format),trim(export_path))
 do panel=1,matterviz_plot_panel_count
     call emit_matterviz_scene_panel(sink,panel,dataset_base,panel<matterviz_plot_panel_count)
 end do
@@ -786,6 +813,17 @@ end do
 gui_volume_serial=dataset_base+int(matterviz_plot_layer_count,c_int64_t)
 call send_matterviz_plot(sink,plot_status)
 if (plot_status/=0) write(*,"(a,i0)") ' MatterViz plot viewer ended with status ',plot_status
+end subroutine
+
+subroutine show_captured_matterviz_plot()
+call deliver_captured_matterviz_plot('','')
+end subroutine
+
+subroutine export_captured_matterviz_plot()
+character(len=160) :: export_path
+export_path=trim(matterviz_plot_file)
+if (len_trim(export_path)==0) export_path='dislin.'//trim(matterviz_plot_device)
+call deliver_captured_matterviz_plot(trim(matterviz_plot_device),trim(export_path))
 end subroutine
 #endif
 
@@ -2795,5 +2833,11 @@ end module
 subroutine matterviz_show_captured_plot()
 use GUI, only: show_captured_matterviz_plot
 call show_captured_matterviz_plot()
+end subroutine
+
+
+subroutine matterviz_export_captured_plot()
+use GUI, only: export_captured_matterviz_plot
+call export_captured_matterviz_plot()
 end subroutine
 #endif

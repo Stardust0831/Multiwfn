@@ -3,7 +3,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -14,7 +14,7 @@ use crate::control_protocol::MessageType;
 use crate::control_transport::{ControlTransport, ControlTransportConfig};
 use crate::memory_budget;
 use crate::plot_store::PlotStore;
-use crate::session_data::SessionData;
+use crate::session_data::{PlotExportDirective, PlotExportFormat, SessionData};
 use crate::shutdown::ShutdownSignal;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::transport::{TransportConfig, VolumeTransport};
@@ -26,6 +26,8 @@ use socket2::{Domain, Protocol, Socket, Type};
 
 const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
+const MAX_PLOT_EXPORT_BYTES: usize = 64 * 1024 * 1024;
+static PLOT_EXPORT_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn session_bootstrap_wait_timeout(stage_timeout: Duration) -> Duration {
     stage_timeout.saturating_mul(SESSION_BOOTSTRAP_STAGES)
@@ -60,6 +62,7 @@ pub struct HttpService {
     in_memory_session: bool,
     frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<Mutex<bool>>,
+    plot_export_written: Arc<AtomicBool>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -325,6 +328,7 @@ impl HttpService {
             in_memory_session,
             frontend_ready,
             return_signaled: Arc::new(Mutex::new(false)),
+            plot_export_written: Arc::new(AtomicBool::new(false)),
             worker: Mutex::new(None),
         };
         let runner = service.clone_for_thread(frontend, manifest, state);
@@ -370,6 +374,7 @@ impl HttpService {
             in_memory_session: self.in_memory_session,
             frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
+            plot_export_written: self.plot_export_written.clone(),
         }
     }
     pub fn url(&self) -> &str {
@@ -463,6 +468,7 @@ struct ServiceRunner {
     in_memory_session: bool,
     frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<Mutex<bool>>,
+    plot_export_written: Arc<AtomicBool>,
 }
 impl ServiceRunner {
     fn run(self) {
@@ -508,6 +514,7 @@ impl ServiceRunner {
             in_memory_session: self.in_memory_session,
             frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
+            plot_export_written: self.plot_export_written.clone(),
         }
     }
     fn handle(&self, mut stream: TcpStream) {
@@ -519,13 +526,21 @@ impl ServiceRunner {
         }
         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
-        let (first, host) = match read_http_request(&mut stream) {
+        let request = match read_http_request(&mut stream) {
             Ok(value) => value,
-            Err(_) => {
+            Err(HttpRequestError::TooLarge) => {
+                respond(&mut stream, 413, "text/plain", b"Payload Too Large", false);
+                return;
+            }
+            Err(HttpRequestError::BadRequest) => {
                 respond(&mut stream, 400, "text/plain", b"Bad Request", false);
                 return;
             }
         };
+        let first = request.first;
+        let host = request.host;
+        let headers = request.headers;
+        let body = request.body;
         if !host.eq_ignore_ascii_case(&self.authority) {
             respond(&mut stream, 403, "text/plain", b"Invalid Host", false);
             return;
@@ -604,6 +619,76 @@ impl ServiceRunner {
                 return;
             }
             self.frontend_ready.store(true, Ordering::Release);
+            respond_json(&mut stream, &json!({"ok": true}), 200, false);
+            return;
+        }
+        if path == "/api/plot-export" {
+            if method != "POST" {
+                respond(
+                    &mut stream,
+                    405,
+                    "text/plain",
+                    b"Method Not Allowed",
+                    method == "HEAD",
+                );
+                return;
+            }
+            let Some(export) = self
+                .session_data
+                .as_ref()
+                .and_then(SessionData::plot_export)
+            else {
+                respond(
+                    &mut stream,
+                    409,
+                    "text/plain",
+                    b"Plot export is not configured",
+                    false,
+                );
+                return;
+            };
+            let content_types: Vec<_> = headers
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.as_str())
+                .collect();
+            let content_type = content_types.first().copied();
+            let expected_type = match export.format {
+                PlotExportFormat::Png => "image/png",
+                PlotExportFormat::Pdf => "application/pdf",
+            };
+            if content_types.len() != 1
+                || content_type != Some(expected_type)
+                || !plot_export_magic_matches(&export.format, &body)
+            {
+                respond(
+                    &mut stream,
+                    415,
+                    "text/plain",
+                    b"Plot export content does not match configured format",
+                    false,
+                );
+                return;
+            }
+            if self
+                .plot_export_written
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                respond(
+                    &mut stream,
+                    409,
+                    "text/plain",
+                    b"Plot export already written",
+                    false,
+                );
+                return;
+            }
+            if let Err(error) = write_plot_export(export, &body) {
+                self.plot_export_written.store(false, Ordering::Release);
+                respond(&mut stream, 500, "text/plain", error.as_bytes(), false);
+                return;
+            }
             respond_json(&mut stream, &json!({"ok": true}), 200, false);
             return;
         }
@@ -1177,42 +1262,187 @@ fn terminate_control_session(
     shutdown.request();
 }
 
-fn read_http_request(stream: &mut TcpStream) -> Result<(String, String), ()> {
+struct HttpRequest {
+    first: String,
+    host: String,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+#[derive(Clone, Copy)]
+enum HttpRequestError {
+    BadRequest,
+    TooLarge,
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRequestError> {
     const MAX_HEADERS: usize = 64 * 1024;
     const MAX_REQUEST_LINE: usize = 8 * 1024;
     let mut request = Vec::with_capacity(1024);
     let mut chunk = [0_u8; 1024];
+    let separator;
     loop {
-        let length = stream.read(&mut chunk).map_err(|_| ())?;
+        let length = stream
+            .read(&mut chunk)
+            .map_err(|_| HttpRequestError::BadRequest)?;
         if length == 0 {
-            return Err(());
+            return Err(HttpRequestError::BadRequest);
         }
         request.extend_from_slice(&chunk[..length]);
-        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+        if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            separator = index;
             break;
         }
         if request.len() > MAX_HEADERS {
-            return Err(());
+            return Err(HttpRequestError::BadRequest);
         }
     }
-    if request.len() > MAX_HEADERS {
-        return Err(());
+    if separator > MAX_HEADERS {
+        return Err(HttpRequestError::BadRequest);
     }
-    let request = std::str::from_utf8(&request).map_err(|_| ())?;
+    let header_bytes = &request[..separator];
+    let initial_body = request[separator + 4..].to_vec();
+    let request = std::str::from_utf8(header_bytes).map_err(|_| HttpRequestError::BadRequest)?;
     let mut lines = request.split("\r\n");
-    let first = lines.next().ok_or(())?;
+    let first = lines.next().ok_or(HttpRequestError::BadRequest)?;
     if first.is_empty() || first.len() > MAX_REQUEST_LINE {
-        return Err(());
+        return Err(HttpRequestError::BadRequest);
     }
-    let mut hosts = lines.filter_map(|line| {
-        let (name, value) = line.split_once(':')?;
-        name.eq_ignore_ascii_case("host").then_some(value.trim())
-    });
-    let host = hosts.next().filter(|value| !value.is_empty()).ok_or(())?;
-    if hosts.next().is_some() {
-        return Err(());
+    let mut headers = Vec::new();
+    for line in lines {
+        let (name, value) = line.split_once(':').ok_or(HttpRequestError::BadRequest)?;
+        if name.is_empty() || name.bytes().any(|byte| byte <= b' ' || byte >= 127) {
+            return Err(HttpRequestError::BadRequest);
+        }
+        headers.push((name.to_owned(), value.trim().to_owned()));
     }
-    Ok((first.to_owned(), host.to_owned()))
+    let hosts: Vec<_> = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("host"))
+        .map(|(_, value)| value.as_str())
+        .collect();
+    let host = hosts
+        .first()
+        .filter(|value| !value.is_empty())
+        .ok_or(HttpRequestError::BadRequest)?;
+    if hosts.len() != 1 {
+        return Err(HttpRequestError::BadRequest);
+    }
+    let content_lengths: Vec<_> = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .map(|(_, value)| value.as_str())
+        .collect();
+    if content_lengths.len() > 1 {
+        return Err(HttpRequestError::BadRequest);
+    }
+    let body_length = content_lengths
+        .first()
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|_| HttpRequestError::BadRequest)
+        })
+        .transpose()?
+        .unwrap_or(0);
+    if body_length > MAX_PLOT_EXPORT_BYTES {
+        return Err(HttpRequestError::TooLarge);
+    }
+    if headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("transfer-encoding") && !value.eq_ignore_ascii_case("identity")
+    }) {
+        return Err(HttpRequestError::BadRequest);
+    }
+    if initial_body.len() > body_length {
+        return Err(HttpRequestError::BadRequest);
+    }
+    let mut body = initial_body;
+    while body.len() < body_length {
+        let remaining = body_length - body.len();
+        let chunk_length = chunk.len().min(remaining);
+        let length = stream
+            .read(&mut chunk[..chunk_length])
+            .map_err(|_| HttpRequestError::BadRequest)?;
+        if length == 0 {
+            return Err(HttpRequestError::BadRequest);
+        }
+        body.extend_from_slice(&chunk[..length]);
+    }
+    Ok(HttpRequest {
+        first: first.to_owned(),
+        host: (*host).to_owned(),
+        headers,
+        body,
+    })
+}
+
+fn plot_export_magic_matches(format: &PlotExportFormat, body: &[u8]) -> bool {
+    match format {
+        PlotExportFormat::Png => body.starts_with(b"\x89PNG\r\n\x1a\n"),
+        PlotExportFormat::Pdf => body.starts_with(b"%PDF-"),
+    }
+}
+
+fn write_plot_export(export: &PlotExportDirective, body: &[u8]) -> Result<(), String> {
+    let parent = export
+        .path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = export
+        .path
+        .file_name()
+        .ok_or_else(|| "plot export path has no file name".to_owned())?
+        .to_string_lossy();
+    let counter = PLOT_EXPORT_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp = parent.join(format!(
+        ".{name}.matterviz-{pid}-{counter}.tmp",
+        pid = std::process::id()
+    ));
+    let result = (|| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(|error| format!("could not create plot export temporary file: {error}"))?;
+        file.write_all(body)
+            .and_then(|_| file.sync_all())
+            .map_err(|error| format!("could not write plot export: {error}"))?;
+        replace_file(&temp, &export.path)
+            .map_err(|error| format!("could not finalize plot export: {error}"))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+#[cfg(not(windows))]
+fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::rename(from, to)
+}
+
+#[cfg(windows)]
+fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
+    let to: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+    let result = unsafe {
+        MoveFileExW(
+            from.as_ptr(),
+            to.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 fn bind(host: &str, port: u16) -> Result<TcpListener, String> {
@@ -1465,6 +1695,8 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8],
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        409 => "Conflict",
+        415 => "Unsupported Media Type",
         413 => "Payload Too Large",
         500 => "Internal Server Error",
         503 => "Service Unavailable",
@@ -1482,7 +1714,7 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8],
 mod tests {
     use super::{
         backend_response_status, content_type, decode_path, query_u64, safe_join, AppConfig,
-        ControlSession, HttpService,
+        ControlSession, HttpService, PlotExportFormat,
     };
     use crate::control_protocol::{
         decode_frame, decode_header, encode_frame, MessageType, HEADER_BYTES,
@@ -2823,6 +3055,31 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&path);
         path
+    }
+
+    #[test]
+    fn plot_export_writes_png_and_pdf_atomically() {
+        for (format, suffix, body) in [
+            (
+                PlotExportFormat::Png,
+                "png",
+                b"\x89PNG\r\n\x1a\nplot".as_slice(),
+            ),
+            (PlotExportFormat::Pdf, "pdf", b"%PDF-1.7\nplot".as_slice()),
+        ] {
+            let root = fixture(&format!("plot-export-{suffix}"));
+            fs::create_dir_all(&root).unwrap();
+            let path = root.join(format!("output.{suffix}"));
+            let directive = super::PlotExportDirective {
+                format,
+                path: path.clone(),
+            };
+            assert!(super::plot_export_magic_matches(&directive.format, body));
+            fs::write(&path, b"old output").unwrap();
+            super::write_plot_export(&directive, body).unwrap();
+            assert_eq!(fs::read(&path).unwrap(), body);
+            let _ = fs::remove_dir_all(root);
+        }
     }
 
     fn golden_frame() -> Vec<u8> {

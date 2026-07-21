@@ -1467,3 +1467,35 @@
   at 1400 px and 800 px. Frames and decorations do not overlap, the document
   has no horizontal overflow, the density bar stays outside the data frame and
   NMR contains four disconnected vertical subpaths with no baseline connector.
+
+## 2026-07-21: native PNG/PDF plot export
+
+- Audited Multiwfn's existing `setgraphformat` path. The MatterViz DISLIN
+  adapter now recognizes native `png` and `pdf` selections, preserves the
+  `SETFIL` destination across `DISINI`, and publishes a bounded export request
+  without changing any scientific calculation module.
+- Added an authenticated one-shot Rust Host endpoint that accepts only the
+  manifest-declared format and destination, checks exact MIME and file magic,
+  bounds the body to 64 MiB, and atomically replaces `dislin.png` or
+  `dislin.pdf`. The browser cannot choose or override the filesystem path.
+- PNG export rasterizes the stabilized scientific SVG at the native requested
+  pixel dimensions. PDF converts SVG axes, labels, frames, legends and curves
+  to vector operators; Canvas-backed dense scatter is embedded as a PNG layer.
+  Foreign-object labels are converted to SVG text before export to avoid a
+  Chromium tainted-canvas failure.
+- Direct application exports were generated for DOS, IR, Raman, UV-Vis, NMR
+  and the official 1,777,622-point phenol-dimer IRI dataset. All twelve Host
+  writes returned HTTP 200 with no page errors. The five spectrum examples are
+  rendering fixtures; the IRI example is the real native tutorial calculation.
+- File inspection confirmed 1200x800 spectrum PNGs, a 1600x1200 IRI PNG and
+  valid one-page PDF 1.3 documents. The DOS PDF contains vector path operators
+  and no image object; the IRI PDF retains vector plot furniture and contains
+  raster image objects only for its Canvas density layer.
+- Independent read-only review found that the binned IRI frame lived in an
+  HTML overlay and was absent from the assembled export document. The exporter
+  now recreates that overlay as a vector SVG rectangle, and regenerated IRI
+  PNG/PDF output shows the complete solid black frame.
+- Canvas serialization now fails closed instead of silently omitting the
+  scientific density layer. Export errors remain visible with an explicit
+  Return-to-Multiwfn action, and unsupported legacy format selections report a
+  clear adapter message rather than producing no file without explanation.

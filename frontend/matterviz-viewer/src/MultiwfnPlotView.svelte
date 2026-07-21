@@ -1,13 +1,39 @@
 <script lang="ts">
   import { ScatterPlot } from 'matterviz'
   import type { RefLine, UserContentProps } from 'matterviz/plot'
-  import { untrack } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { stick_path, to_matterviz_series, type PlotArtifact, type PlotPanel } from './plot'
   import PlotSceneView from './PlotSceneView.svelte'
   import type { PlotDataset, PlotDatasetResolver, PlotScene } from './plot'
   import { SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING, scientific_series_color } from './scientific-plot'
+  import { export_plot_document, wait_for_plot_ready, type PlotExportRequest } from './plot-export'
 
-  let { artifact, resolver, release }: { artifact: PlotArtifact | PlotScene; resolver?: PlotDatasetResolver; release?: (datasetId: number, dataset: PlotDataset) => void } = $props()
+  let { artifact, resolver, release, exportConfig, onExported, onExportError }: { artifact: PlotArtifact | PlotScene; resolver?: PlotDatasetResolver; release?: (datasetId: number, dataset: PlotDataset) => void; exportConfig?: PlotExportRequest; onExported?: () => void; onExportError?: (error: unknown) => void } = $props()
+  let plotRoot = $state<HTMLElement | undefined>()
+  let exportStarted = false
+  let exportError = $state<string | undefined>()
+  $effect(() => {
+    const config = exportConfig
+    const root = plotRoot
+    if (!config || !root || exportStarted) return
+    exportStarted = true
+    let cancelled = false
+    const run = async (): Promise<void> => {
+      try {
+        await tick()
+        await wait_for_plot_ready(root)
+        if (cancelled) return
+        await export_plot_document(root, config)
+        if (!cancelled) onExported?.()
+      } catch (error) {
+        if (cancelled) return
+        exportError = error instanceof Error ? error.message : String(error)
+        onExportError?.(error)
+      }
+    }
+    void run()
+    return () => { cancelled = true }
+  })
   const v1_artifact = $derived(artifact as PlotArtifact)
 
   const axis_label = (axis: { label: string; unit?: string }): string => axis.unit ? `${axis.label} (${axis.unit})` : axis.label
@@ -32,9 +58,12 @@
 </script>
 
 {#if artifact.version === 2}
-  <PlotSceneView scene={artifact as PlotScene} {resolver} {release} />
+  <div bind:this={plotRoot} data-plot-document data-export-width={(artifact as PlotScene).page.width} data-export-height={(artifact as PlotScene).page.height} style="width:100%;height:100%;">
+    <PlotSceneView scene={artifact as PlotScene} {resolver} {release} />
+    {#if exportError}<div class="plot-error" role="alert"><span>{exportError}</span>{#if onExported}<button type="button" onclick={onExported}>Return to Multiwfn</button>{/if}</div>{/if}
+  </div>
 {:else}
-<main class="plot-only" aria-label="Multiwfn plot viewer">
+<main bind:this={plotRoot} class="plot-only" data-plot-document data-export-width="1600" data-export-height="900" aria-label="Multiwfn plot viewer">
   <header class="plot-header">
     <strong>{v1_artifact.title}</strong>
     <span>{v1_artifact.kind.toUpperCase()}</span>
@@ -79,5 +108,6 @@
       </article>
     {/each}
   </section>
+  {#if exportError}<div class="plot-error" role="alert"><span>{exportError}</span>{#if onExported}<button type="button" onclick={onExported}>Return to Multiwfn</button>{/if}</div>{/if}
 </main>
 {/if}

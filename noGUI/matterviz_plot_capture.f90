@@ -54,13 +54,14 @@ type :: matterviz_plot_annotation
     character(len=matterviz_plot_label_length) :: text=''
 end type
 
-logical :: matterviz_plot_interactive=.false.
+logical :: matterviz_plot_interactive=.false.,matterviz_plot_capture_active=.false.
 integer :: matterviz_plot_series_count=0
 integer :: matterviz_plot_legend_count=0,matterviz_plot_capture_error=0
 integer :: matterviz_plot_label_count=0,matterviz_plot_stick_count=0
 integer :: matterviz_plot_posx=0,matterviz_plot_posy=0
 integer :: matterviz_plot_lenx=0,matterviz_plot_leny=0
 integer :: matterviz_plot_page_x=0,matterviz_plot_page_y=0
+integer :: matterviz_plot_window_width=0,matterviz_plot_window_height=0
 integer :: matterviz_plot_width=1
 real*8 :: matterviz_plot_xlow=0D0,matterviz_plot_xhigh=1D0
 real*8 :: matterviz_plot_ylow=0D0,matterviz_plot_yhigh=1D0
@@ -68,6 +69,7 @@ real*8 :: matterviz_plot_zlow=0D0,matterviz_plot_zhigh=1D0
 real*8 :: matterviz_plot_xstep=0D0,matterviz_plot_ystep=0D0
 character(len=160) :: matterviz_plot_xlabel='',matterviz_plot_ylabel=''
 character(len=160) :: matterviz_plot_title='',matterviz_plot_file=''
+character(len=8) :: matterviz_plot_device=''
 character(len=7) :: matterviz_plot_color='#222222'
 logical :: matterviz_plot_dashed=.false.,matterviz_plot_xlog=.false.,matterviz_plot_ylog=.false.
 logical :: matterviz_plot_legend_initialized=.false.
@@ -111,7 +113,7 @@ matterviz_plot_legends=''; matterviz_plot_legend_colors=''; matterviz_plot_legen
 matterviz_plot_label_series=0; matterviz_plot_label_point=0; matterviz_plot_label_next=0; matterviz_plot_labels=''
 matterviz_plot_annotations=matterviz_plot_annotation()
 matterviz_plot_panels=matterviz_plot_panel(); matterviz_plot_layers=matterviz_plot_layer()
-matterviz_plot_page_x=0; matterviz_plot_page_y=0; matterviz_plot_title=''; matterviz_plot_file=''
+matterviz_plot_page_x=0; matterviz_plot_page_y=0; matterviz_plot_title=''
 matterviz_plot_posx=0; matterviz_plot_posy=0; matterviz_plot_lenx=0; matterviz_plot_leny=0
 matterviz_plot_width=1; matterviz_plot_xlow=0D0; matterviz_plot_xhigh=1D0
 matterviz_plot_ylow=0D0; matterviz_plot_yhigh=1D0; matterviz_plot_zlow=0D0; matterviz_plot_zhigh=1D0
@@ -144,15 +146,28 @@ end subroutine
 
 subroutine matterviz_capture_metafl(value)
 character(len=*),intent(in) :: value
-matterviz_plot_interactive=trim(adjustl(value))=='xwin'
+matterviz_plot_device=trim(adjustl(value))
+matterviz_plot_interactive=trim(matterviz_plot_device)=='xwin'
+matterviz_plot_capture_active=matterviz_plot_interactive.or. &
+    trim(matterviz_plot_device)=='png'.or.trim(matterviz_plot_device)=='pdf'
 end subroutine
+
+logical function matterviz_plot_export_requested()
+matterviz_plot_export_requested=matterviz_plot_capture_active.and..not.matterviz_plot_interactive
+end function
+logical function matterviz_plot_export_unsupported()
+character(len=8) :: device
+device=trim(matterviz_plot_device)
+matterviz_plot_export_unsupported=device=='gif'.or.device=='tiff'.or.device=='bmp'.or. &
+    device=='ps'.or.device=='eps'.or.device=='wmf'.or.device=='svg'
+end function
 subroutine matterviz_capture_page(nx,ny)
 integer,intent(in) :: nx,ny
 matterviz_plot_page_x=nx; matterviz_plot_page_y=ny
 end subroutine
 subroutine matterviz_capture_window_size(nx,ny)
 integer,intent(in) :: nx,ny
-matterviz_plot_page_x=nx; matterviz_plot_page_y=ny
+matterviz_plot_window_width=nx; matterviz_plot_window_height=ny
 end subroutine
 subroutine matterviz_capture_window_title(value)
 character(len=*),intent(in) :: value
@@ -451,6 +466,7 @@ real*8,intent(in),optional :: x(:),y(:),z(:),aux1(:),aux2(:),levels(:)
 integer,intent(in),optional :: nx,ny,nz
 type(matterviz_plot_layer),pointer :: layer
 integer :: need,allocation_status
+if (.not.matterviz_plot_capture_active) return
 if (matterviz_plot_capture_error/=0) return
 if (matterviz_plot_current_panel<=0) then; matterviz_plot_capture_error=6; return; end if
 if (matterviz_plot_layer_count>=matterviz_plot_max_layers) then; matterviz_plot_capture_error=7; return; end if
@@ -492,7 +508,7 @@ subroutine matterviz_capture_curve(x,y,count)
 integer,intent(in) :: count
 real*8,intent(in) :: x(count),y(count)
 integer :: idx,allocation_status
-if (.not.matterviz_plot_interactive.or.matterviz_plot_capture_error/=0.or.count<=0) return
+if (.not.matterviz_plot_capture_active.or.matterviz_plot_capture_error/=0.or.count<=0) return
 if (matterviz_plot_series_count>=matterviz_plot_max_series) then; matterviz_plot_capture_error=1; return; end if
 matterviz_plot_series_count=matterviz_plot_series_count+1; idx=matterviz_plot_series_count
 allocate(matterviz_plot_series(idx)%x(count),matterviz_plot_series(idx)%y(count), &
@@ -579,7 +595,7 @@ subroutine matterviz_capture_label(value,x,y)
 character(len=*),intent(in) :: value; real*8,intent(in) :: x,y
 integer :: idx,point_idx,best_series,best_point
 real*8 :: xspan,yspan,score,best_score
-if (.not.matterviz_plot_interactive.or.matterviz_plot_capture_error/=0.or.len_trim(value)==0) return
+if (.not.matterviz_plot_capture_active.or.matterviz_plot_capture_error/=0.or.len_trim(value)==0) return
 if (matterviz_plot_label_count>=matterviz_plot_max_labels.or. &
     len_trim(value)>matterviz_plot_label_length) then
     matterviz_plot_capture_error=4
@@ -644,7 +660,7 @@ matterviz_plot_palette_count=n; matterviz_plot_palette_r(1:n)=r; matterviz_plot_
 end subroutine
 subroutine matterviz_capture_unsupported(name)
 character(len=*),intent(in) :: name
-if (matterviz_plot_interactive.and.matterviz_plot_capture_error==0) matterviz_plot_capture_error=9
+if (matterviz_plot_capture_active.and.matterviz_plot_capture_error==0) matterviz_plot_capture_error=9
 end subroutine
 
 logical function matterviz_capture_supported()

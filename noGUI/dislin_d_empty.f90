@@ -889,15 +889,24 @@
 
   subroutine disfin()
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
-    use matterviz_plot_capture, only: matterviz_plot_interactive,matterviz_capture_supported, &
-      matterviz_plot_capture_error,matterviz_capture_error_message,matterviz_capture_resolve_legends
-    if (matterviz_plot_interactive.and.matterviz_plot_capture_error/=0) then
-      write(*,"(a,a)") ' MatterViz plot was not opened: ',trim(matterviz_capture_error_message())
-    else if (matterviz_plot_interactive.and.matterviz_capture_supported()) then
+    use matterviz_plot_capture, only: matterviz_plot_interactive,matterviz_plot_capture_active, &
+      matterviz_plot_export_requested,matterviz_plot_export_unsupported,matterviz_plot_device, &
+      matterviz_capture_supported,matterviz_plot_capture_error,matterviz_capture_error_message, &
+      matterviz_capture_resolve_legends
+    if (matterviz_plot_capture_active.and.matterviz_plot_capture_error/=0) then
+      write(*,"(a,a)") ' MatterViz plot was not rendered: ',trim(matterviz_capture_error_message())
+    else if (matterviz_plot_capture_active.and.matterviz_capture_supported()) then
       call matterviz_capture_resolve_legends()
-      call matterviz_show_captured_plot()
+      if (matterviz_plot_interactive) then
+        call matterviz_show_captured_plot()
+      else if (matterviz_plot_export_requested()) then
+        call matterviz_export_captured_plot()
+      end if
+    else if (matterviz_plot_export_unsupported()) then
+      write(*,"(a,a)") ' MatterViz plot export format is not supported: ',trim(matterviz_plot_device)
     end if
     matterviz_plot_interactive=.false.
+    matterviz_plot_capture_active=.false.
 #else
     call doesnotexist("disfin")
 #endif
@@ -5222,9 +5231,16 @@
   end subroutine windbr
 
   subroutine window(nx,ny,nw,nh)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_window_size
+#endif
     implicit none
     integer, intent (in) :: nx,ny,nw,nh
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    call matterviz_capture_window_size(nw,nh)
+#else
     call doesnotexist("window")
+#endif
   end subroutine window
 
   subroutine winfnt(cfnt)

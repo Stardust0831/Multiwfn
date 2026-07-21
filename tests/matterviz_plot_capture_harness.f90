@@ -1,5 +1,5 @@
 module matterviz_capture_harness_state
-integer :: launches=0
+integer :: launches=0,exports=0
 end module
 
 program matterviz_capture_harness
@@ -120,6 +120,14 @@ end do
 call disfin()
 if (launches/=9.or.matterviz_plot_capture_error/=1) error stop 19
 
+! File devices capture the same native data and preserve SETFIL across DISINI.
+call setfil('review-output.pdf'); call metafl('pdf'); call winsiz(1200,800); call disini()
+call axspos(100,200); call axslen(800,500)
+call name('x','X'); call name('y','Y'); call graf(0D0,3D0,0D0,1D0,0D0,2D0,0D0,1D0)
+call curve(x,y,4); call disfin()
+if (exports/=1.or.matterviz_plot_file/='review-output.pdf'.or.trim(matterviz_plot_device)/='pdf') error stop 55
+if (matterviz_plot_window_width/=1200.or.matterviz_plot_window_height/=800) error stop 58
+
 write(*,'(a)') 'MATTERVIZ_CAPTURE_OK'
 
 contains
@@ -128,7 +136,20 @@ real*8,intent(in) :: xlow,xhigh,ylow,yhigh
 call metafl('xwin'); call disini(); call axspos(100,200); call axslen(800,500)
 call name('x','X'); call name('y','Y'); call graf(xlow,xhigh,xlow,1D0,ylow,yhigh,ylow,1D0)
 end subroutine
+
 end program
+
+subroutine matterviz_export_captured_plot()
+use matterviz_plot_capture
+use matterviz_capture_harness_state
+implicit none
+exports=exports+1
+if (.not.matterviz_plot_export_requested()) error stop 56
+call matterviz_capture_metafl('svg')
+if (.not.matterviz_plot_export_unsupported()) error stop 57
+call matterviz_capture_metafl('pdf')
+if (matterviz_plot_layer_count/=1.or.trim(matterviz_plot_layers(1)%kind)/='line') error stop 57
+end subroutine
 
 subroutine matterviz_show_captured_plot()
 use matterviz_plot_capture
