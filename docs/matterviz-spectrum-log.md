@@ -1523,3 +1523,8 @@
   x [-0.4, 0.1] and y [0, 2.5], an external physical color bar and no browser
   errors. PDF retains vector plot furniture and rasterizes only the Canvas
   point layer.
+- The first CI run after the r24 vendor update stopped during clean dependency
+  installation because pnpm's strict build-script policy found the transitive
+  `core-js@3.49.0` postinstall without an explicit decision. Kept the policy
+  enabled and recorded `core-js: false` in `allowBuilds`; MatterViz remains the
+  only dependency allowed to execute its package build script.

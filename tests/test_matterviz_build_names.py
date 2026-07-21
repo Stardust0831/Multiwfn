@@ -31,6 +31,9 @@ VIEWER_APP = (ROOT / "frontend" / "matterviz-viewer" / "src" / "App.svelte").rea
 VIEWER_STYLES = (ROOT / "frontend" / "matterviz-viewer" / "src" / "styles.css").read_text(
     encoding="utf-8"
 )
+VIEWER_PNPM_WORKSPACE = (
+    ROOT / "frontend" / "matterviz-viewer" / "pnpm-workspace.yaml"
+).read_text(encoding="utf-8")
 ESP_LEGEND = (
     ROOT / "frontend" / "matterviz-viewer" / "src" / "EspLegend.svelte"
 ).read_text(encoding="utf-8")
@@ -44,6 +47,10 @@ LINUX_REAL_ORBITAL = (
 
 
 class MatterVizBuildNamingTests(unittest.TestCase):
+    def test_frontend_declares_reviewed_dependency_build_scripts(self):
+        self.assertIn("matterviz: true", VIEWER_PNPM_WORKSPACE)
+        self.assertIn("core-js: false", VIEWER_PNPM_WORKSPACE)
+
     def test_scientific_plot_axes_use_black_text_and_strokes(self):
         self.assertIn(".plot-only", VIEWER_STYLES)
         self.assertIn(".plot-scene", VIEWER_STYLES)
