@@ -3,6 +3,7 @@
   import type { UserContentProps } from 'matterviz/plot'
   import { contour_geometry } from './field'
   import type { PlotDataset, PlotSceneAnnotation, PlotSceneAxis, PlotSceneLayer } from './plot'
+  import { SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING } from './scientific-plot'
 
   let {
     axes,
@@ -52,6 +53,7 @@
 </script>
 
   {#snippet user_content({ width, height, x_scale_fn, y_scale_fn, pad }: UserContentProps)}
+    <rect class="scientific-plot-frame" x={pad.l} y={pad.t} width={width - pad.l - pad.r} height={height - pad.t - pad.b} fill="none" stroke="#000" stroke-width="1" shape-rendering="crispEdges" pointer-events="none" />
     <g class="field-overlays" pointer-events="none">
       {#each bar_series as bars (bars.id)}
         {#if bars.visible !== false}
@@ -82,6 +84,7 @@
   {/snippet}
 
   <ScatterPlot
+    class="scientific-scatter-plot"
     series={series as never[]}
     x_axis={axis_config(axes.x1)}
     y_axis={axis_config(axes.y1)}
@@ -89,8 +92,9 @@
     y2_axis={axes.y2 ? axis_config(axes.y2) : {}}
     fill_regions={fill_regions as never[]}
     error_bands={error_bands as never[]}
+    padding={SCIENTIFIC_PLOT_PADDING}
     user_content={user_content}
-    legend={{ draggable: true }}
+    legend={SCIENTIFIC_PLOT_LEGEND}
     controls={{ show: true }}
     fullscreen_toggle={true}
     pan={{ enabled: true }}

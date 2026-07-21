@@ -81,6 +81,9 @@ test('compiles the v2 component entry with lazy v1 initialization', async () => 
     assert.match(scene_source, /resolve_plot_scene\(scene, resolver\)/)
     assert.doesNotMatch(scene_source, /resolve_plot_scene\(parse_plot_scene\(scene\)/)
     assert.doesNotMatch(scene_source, /fullscreen=\{true\}/)
+    assert.match(scene_source, /SCIENTIFIC_PLOT_PADDING/)
+    assert.match(scene_source, /class="scientific-plot-frame"/)
+    assert.match(scene_source, /class="scientific-binned-plot"/)
   } finally {
     await server.close()
   }

@@ -117,11 +117,15 @@ export const to_matterviz_series = (input: PlotSeries): MatterVizSeries => {
   const labels = input.labels?.map((label) => label ? { text: label, auto_placement: true } : {})
   const label_style = labels ? { markers: 'line+points' as const, point_style: { radius: 0, fill_opacity: 0, stroke_opacity: 0 }, point_label: labels } : { markers: 'line' as const }
   if (input.type === 'line') return { id: input.id, label: input.label, x: input.x, y: input.y, ...label_style, visible: input.visible, y_axis: input.axis === 'y2' ? 'y2' : 'y1', line_style: { stroke: input.color, stroke_width: input.lineWidth, line_dash: input.dash === 'dash' ? '6 4' : undefined } }
-  const x: number[] = [], y: number[] = []
-  input.x.forEach((value, index) => { x.push(value, value, value); y.push(0, input.y[index], 0) })
-  const stick_labels = input.labels?.flatMap((label) => [{}, label ? { text: label, auto_placement: true } : {}, {}])
-  return { id: input.id, label: input.label, x, y, ...(stick_labels ? { markers: 'line+points' as const, point_style: { radius: 0, fill_opacity: 0, stroke_opacity: 0 }, point_label: stick_labels } : { markers: 'line' as const }), visible: input.visible, y_axis: input.axis === 'y2' ? 'y2' : 'y1', line_style: { stroke: input.color, stroke_width: input.lineWidth, line_dash: input.dash === 'dash' ? '6 4' : undefined } }
+  const first = input.x[0]
+  return { id: input.id, label: input.label, x: [first, first], y: [0, 0], markers: 'line', visible: input.visible, y_axis: input.axis === 'y2' ? 'y2' : 'y1', line_style: { stroke: input.color, stroke_width: input.lineWidth, line_dash: input.dash === 'dash' ? '6 4' : undefined } }
 }
+
+export const stick_path = (
+  input: PlotSeries,
+  x_scale: (value: number) => number,
+  y_scale: (value: number) => number,
+): string => input.x.map((value, index) => `M${x_scale(value)},${y_scale(0)}V${y_scale(input.y[index])}`).join('')
 
 /** Generic PlotScene v2. The JSON artifact contains only metadata and dataset ids. */
 export type PlotSceneAxisName = 'x1' | 'x2' | 'y1' | 'y2'

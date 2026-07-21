@@ -1,10 +1,11 @@
 <script lang="ts">
   import { ScatterPlot } from 'matterviz'
-  import type { RefLine } from 'matterviz/plot'
+  import type { RefLine, UserContentProps } from 'matterviz/plot'
   import { untrack } from 'svelte'
-  import { to_matterviz_series, type PlotArtifact, type PlotPanel } from './plot'
+  import { stick_path, to_matterviz_series, type PlotArtifact, type PlotPanel } from './plot'
   import PlotSceneView from './PlotSceneView.svelte'
   import type { PlotDataset, PlotDatasetResolver, PlotScene } from './plot'
+  import { SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING, scientific_series_color } from './scientific-plot'
 
   let { artifact, resolver, release }: { artifact: PlotArtifact | PlotScene; resolver?: PlotDatasetResolver; release?: (datasetId: number, dataset: PlotDataset) => void } = $props()
   const v1_artifact = $derived(artifact as PlotArtifact)
@@ -39,18 +40,37 @@
     <span>{v1_artifact.kind.toUpperCase()}</span>
   </header>
   <section class="plot-panels">
-    {#each panels as view (view.panel.id)}
+    {#each panels as view, panel_index (view.panel.id)}
       <article class="plot-panel" style={`--plot-height: ${view.panel.heightWeight ?? 1}`}>
         {#if view.panel.title}<h2>{view.panel.title}</h2>{/if}
         <div class="plot-canvas">
+          {#snippet scientific_content({ width, height, x_scale_fn, y_scale_fn, y2_scale_fn, pad }: UserContentProps)}
+            {@const clip_id = `spectrum-sticks-${panel_index}`}
+            <defs><clipPath id={clip_id}><rect x={pad.l} y={pad.t} width={width - pad.l - pad.r} height={height - pad.t - pad.b} /></clipPath></defs>
+            <rect class="scientific-plot-frame" x={pad.l} y={pad.t} width={width - pad.l - pad.r} height={height - pad.t - pad.b} fill="none" stroke="#000" stroke-width="1" shape-rendering="crispEdges" pointer-events="none" />
+            <g class="spectrum-sticks" clip-path={`url(#${clip_id})`} pointer-events="none">
+              {#each view.panel.series as source, series_index (source.id)}
+                {#if source.type === 'sticks' && view.series[series_index]?.visible !== false}
+                  {@const y_scale = source.axis === 'y2' && y2_scale_fn ? y2_scale_fn : y_scale_fn}
+                  <path d={stick_path(source, x_scale_fn, y_scale)} fill="none" stroke={scientific_series_color(source.color, series_index)} stroke-width={source.lineWidth ?? 2} stroke-dasharray={source.dash === 'dash' ? '6 4' : undefined} />
+                  {#each source.labels ?? [] as label, label_index}
+                    {#if label}<text x={x_scale_fn(source.x[label_index])} y={y_scale(source.y[label_index]) - 5} text-anchor="middle" fill={scientific_series_color(source.color, series_index)} font-size="11">{label}</text>{/if}
+                  {/each}
+                {/if}
+              {/each}
+            </g>
+          {/snippet}
           <ScatterPlot
+            class="scientific-scatter-plot"
             bind:series={view.series}
             bind:x_axis={view.x_axis}
             bind:y_axis={view.y_axis}
             bind:y2_axis={view.y2_axis}
             bind:ref_lines={view.ref_lines}
             bind:display={view.display}
-            legend={{ draggable: true }}
+            padding={SCIENTIFIC_PLOT_PADDING}
+            user_content={scientific_content}
+            legend={SCIENTIFIC_PLOT_LEGEND}
             controls={{ show: true }}
             fullscreen_toggle={true}
             pan={{ enabled: true }}

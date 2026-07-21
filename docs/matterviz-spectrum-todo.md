@@ -717,6 +717,10 @@ behavior requires the explicit diagnostic environment flag.
   without point sampling through the binary PlotScene v2 dense-scatter route;
   compare its shape with the official DISLIN tutorial image and verify black
   axes/ticks plus a nonempty, contained Canvas at 1400x900.
+- [x] Use a four-sided black solid scientific frame, place legends and the IRI
+  density scale in a reserved band outside the data rectangle, and render
+  discrete spectrum sticks without an artificial y=0 connector. Verify NMR and
+  real IRI layouts at both 1400 px and 800 px.
 - [ ] Add plot export only after native format expectations are audited. Do not
   claim legacy DISLIN export parity while interactive WebView rendering is the
   only verified output path.

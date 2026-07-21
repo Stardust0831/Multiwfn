@@ -1457,3 +1457,13 @@
   `BinnedScatterPlot`; the result matches the characteristic shape in the
   official tutorial image. Playwright found a nonempty 634x300 canvas, black
   axis text/ticks/grid strokes, no browser errors and no layout overflow.
+- Follow-up visual review corrected three presentation defects without changing
+  the protocol or native data. Scientific plots now draw an explicit four-sided
+  1 px black solid frame and reserve a right-side band for ordinary legends or
+  the dense-scatter density scale. Spectrum sticks are emitted as independent
+  SVG `M...V...` subpaths instead of one continuous baseline-connected curve,
+  eliminating the unintended y=0 line while retaining one toggleable series.
+- Playwright rechecked NMR and the full 1,777,622-point phenol-dimer IRI scene
+  at 1400 px and 800 px. Frames and decorations do not overlap, the document
+  has no horizontal overflow, the density bar stays outside the data frame and
+  NMR contains four disconnected vertical subpaths with no baseline connector.

@@ -3,6 +3,7 @@
   import type { UserContentProps } from 'matterviz/plot'
   import { to_matterviz_axis, to_matterviz_bar_series, to_matterviz_data_series, to_matterviz_error_band, to_matterviz_fill_region, materialize_plot_layer, parse_plot_scene, release_plot_scene, resolve_plot_scene, type PlotDataset, type PlotDatasetResolver, type PlotScene, type PlotSceneLayer, type PlotScenePanel, type ResolvedPlotScene } from './plot'
   import FieldPlot2D from './FieldPlot2D.svelte'
+  import { SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING } from './scientific-plot'
 
   let { scene, resolver, release, resolved: supplied }: { scene: PlotScene; resolver?: PlotDatasetResolver; release?: (datasetId: number, dataset: PlotDataset) => void; resolved?: ResolvedPlotScene } = $props()
   let loaded = $state<ResolvedPlotScene | undefined>()
@@ -71,18 +72,22 @@
         <article class="scene-panel" style={`left:${panel.viewport[0] * 100}%;top:${panel.viewport[1] * 100}%;width:${panel.viewport[2] * 100}%;height:${panel.viewport[3] * 100}%`}>
           <div class="scene-plot">
             {#snippet annotations({ width, height, x_scale_fn, y_scale_fn }: UserContentProps)}
+              <rect class="scientific-plot-frame" x={SCIENTIFIC_PLOT_PADDING.l} y={SCIENTIFIC_PLOT_PADDING.t} width={width - SCIENTIFIC_PLOT_PADDING.l - SCIENTIFIC_PLOT_PADDING.r} height={height - SCIENTIFIC_PLOT_PADDING.t - SCIENTIFIC_PLOT_PADDING.b} fill="none" stroke="#000" stroke-width="1" shape-rendering="crispEdges" pointer-events="none" />
               <g class="scene-annotations" pointer-events="none">
                 {#each panel.annotations ?? [] as annotation (annotation.id ?? `${annotation.text}:${annotation.x}:${annotation.y}`)}
                   <text x={annotation_x(annotation, width, x_scale_fn)} y={annotation_y(annotation, height, y_scale_fn)} fill={typeof annotation.style?.color === 'string' ? annotation.style.color : 'currentColor'} font-size={typeof annotation.style?.fontSize === 'number' ? annotation.style.fontSize : 11} text-anchor="middle" dominant-baseline="middle">{annotation.text}</text>
                 {/each}
               </g>
             {/snippet}
+            {#snippet binned_frame({ width, height }: { width: number; height: number; fullscreen: boolean })}
+              <div class="scientific-plot-frame" style={`position:absolute;left:${SCIENTIFIC_PLOT_PADDING.l}px;top:${SCIENTIFIC_PLOT_PADDING.t}px;width:${width - SCIENTIFIC_PLOT_PADDING.l - SCIENTIFIC_PLOT_PADDING.r}px;height:${height - SCIENTIFIC_PLOT_PADDING.t - SCIENTIFIC_PLOT_PADDING.b}px;border:1px solid #000;box-sizing:border-box;pointer-events:none;`} aria-hidden="true"></div>
+            {/snippet}
             {#if route === 'field'}
               <FieldPlot2D axes={panel.axes} series={series(panel)} field_layers={field_layers(panel)} datasets={loaded.datasets} bar_series={bars(panel)} fill_regions={fills(panel)} error_bands={errors(panel)} annotations={panel.annotations ?? []} />
             {:else if route === 'binned-scatter'}
-              <BinnedScatterPlot series={dense_points(panel)} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} density={{ auto_point_mode: { max_points: 50_000 } }} fullscreen_toggle={true} />
+              <BinnedScatterPlot class="scientific-binned-plot" series={dense_points(panel)} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} padding={SCIENTIFIC_PLOT_PADDING} density={{ auto_point_mode: { max_points: 50_000 }, color_bar: { title: 'Density', orientation: 'vertical', bar_style: 'width:12px;height:150px;', title_side: 'top', title_style: 'max-width:145px;font-size:10px;' } }} children={binned_frame} fullscreen_toggle={true} />
             {:else}
-              <ScatterPlot series={series(panel) as never[]} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} x2_axis={panel.axes.x2 ? axis_config(panel.axes.x2) : {}} y2_axis={panel.axes.y2 ? axis_config(panel.axes.y2) : {}} fill_regions={fills(panel) as never[]} error_bands={errors(panel) as never[]} user_content={annotations} legend={{ draggable: true }} controls={{ show: true }} fullscreen_toggle={true} pan={{ enabled: true }} />
+              <ScatterPlot class="scientific-scatter-plot" series={series(panel) as never[]} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} x2_axis={panel.axes.x2 ? axis_config(panel.axes.x2) : {}} y2_axis={panel.axes.y2 ? axis_config(panel.axes.y2) : {}} fill_regions={fills(panel) as never[]} error_bands={errors(panel) as never[]} padding={SCIENTIFIC_PLOT_PADDING} user_content={annotations} legend={SCIENTIFIC_PLOT_LEGEND} controls={{ show: true }} fullscreen_toggle={true} pan={{ enabled: true }} />
             {/if}
           </div>
         </article>
