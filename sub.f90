@@ -2209,7 +2209,6 @@ if (wfntype==0.and.imodwfn==0) then !RHF
 	! mathematical density-matrix expression.
 	Ptot=2*matmul(CObasa(:,1:nocc),transpose(CObasa(:,1:nocc)))
     !call matprod(2,Ptot,CObasa(:,1:nint(naelec)),CObasa(:,1:nint(naelec)))
-    Ptot=Ptot*2
 else if (wfntype==1.and.imodwfn==0) then !UHF
     Palpha=matmul_blas(CObasa(:,1:nint(naelec)),CObasa(:,1:nint(naelec)),nbasis,nbasis,0,1)
     Pbeta=matmul_blas(CObasb(:,1:nint(nbelec)),CObasb(:,1:nint(nbelec)),nbasis,nbasis,0,1)
