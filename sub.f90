@@ -2199,8 +2199,15 @@ end if
 !However, if the wavefunction has been modified, the case may be complicated, for example, there is a hole orbital. In these cases
 !We use general way (as used for post-HF) to construct density matrix
 if (wfntype==0.and.imodwfn==0) then !RHF
-	!Ptot=2*matmul(CObasa(:,1:nint(naelec)),transpose(CObasa(:,1:nint(naelec))))
-    Ptot=matmul_blas(CObasa(:,1:nint(naelec)),CObasa(:,1:nint(naelec)),nbasis,nbasis,0,1) !Parallel MKL, fastest
+	nocc=nint(naelec)
+	if (nocc<0.or.nocc>size(CObasa,2)) then
+		write(*,"(a,2i10)") " Error: Occupied-MO count exceeds coefficient-matrix columns:",nocc,size(CObasa,2)
+		stop
+	end if
+	! Avoid the BLAS fast path here: some ORCA 6 ECP Molden inputs segfault
+	! inside it after the spherical-basis conversion, while this is the same
+	! mathematical density-matrix expression.
+	Ptot=2*matmul(CObasa(:,1:nocc),transpose(CObasa(:,1:nocc)))
     !call matprod(2,Ptot,CObasa(:,1:nint(naelec)),CObasa(:,1:nint(naelec)))
     Ptot=Ptot*2
 else if (wfntype==1.and.imodwfn==0) then !UHF
