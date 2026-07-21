@@ -707,11 +707,16 @@ behavior requires the explicit diagnostic environment flag.
   secondary log axes and unrepresentable exponent ranges in CI tests.
 - [x] Render a synthetic 60,000-point IRI review scene through the v2 binary
   dataset path; fix double scene parsing and forced dense-scatter fullscreen,
-  and use black scientific-axis text in both v1 and v2 plot containers.
-- [ ] Pass Linux, Windows and macOS CI for the combined branch.
+  and use black scientific-axis text and strokes in both v1 and v2 plot
+  containers.
+- [x] Pass Linux, Windows and macOS CI for the combined branch.
 - [ ] Run real native Multiwfn menu workflows for representative curve,
   high-density IRI scatter and line-contour plots; verify
   data/range parity with DISLIN at desktop and 800px browser viewports.
+- [x] Render the official IRI tutorial's `phenol_dimer.wfn` high-quality grid
+  without point sampling through the binary PlotScene v2 dense-scatter route;
+  compare its shape with the official DISLIN tutorial image and verify black
+  axes/ticks plus a nonempty, contained Canvas at 1400x900.
 - [ ] Add plot export only after native format expectations are audited. Do not
   claim legacy DISLIN export parity while interactive WebView rendering is the
   only verified output path.

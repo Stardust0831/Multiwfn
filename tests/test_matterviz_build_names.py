@@ -44,10 +44,11 @@ LINUX_REAL_ORBITAL = (
 
 
 class MatterVizBuildNamingTests(unittest.TestCase):
-    def test_scientific_plot_axes_use_black_text(self):
+    def test_scientific_plot_axes_use_black_text_and_strokes(self):
         self.assertIn(".plot-only", VIEWER_STYLES)
         self.assertIn(".plot-scene", VIEWER_STYLES)
         self.assertGreaterEqual(VIEWER_STYLES.count("--text-color: #000"), 2)
+        self.assertGreaterEqual(VIEWER_STYLES.count("--border-color: #000"), 2)
 
     def test_inline_plot_session_signals_frontend_ready(self):
         inline_branch = VIEWER_APP.split("if (inlinePlot !== undefined)", 1)[1].split(

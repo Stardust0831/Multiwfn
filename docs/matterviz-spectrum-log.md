@@ -1442,3 +1442,18 @@
   Playwright confirmed black axis/tick text, a canvas-backed binned scatter,
   no page errors and a contained canvas at 1400x900. The local IRI artifact is
   explicitly synthetic and is not claimed as a native-menu calculation result.
+- Follow-up browser inspection found that MatterViz axis and tick strokes use
+  `--border-color` independently of `--text-color`. Both scientific plot roots
+  now scope that variable to black as well; review screenshots must check the
+  computed stroke and text colors rather than relying on source declarations.
+- Selected the official `IRI_tutorial.zip` phenol-dimer example for real-menu
+  validation. The native sequence is `20`, `4`, `3`, then `-1`; the plot arrays
+  remain Multiwfn's sign(lambda2)rho and IRI grid values captured at the DISLIN
+  adapter boundary.
+- Ran the current PR #49 Linux CI build on the official `phenol_dimer.wfn` with
+  the tutorial's high-quality grid. Multiwfn produced 1,777,622 native points
+  on a 187x97x98 grid. Columns 4/5 of its own menu-2 export were repacked without
+  sampling as the protocol's Float64 x/y roles and rendered through PlotScene v2
+  `BinnedScatterPlot`; the result matches the characteristic shape in the
+  official tutorial image. Playwright found a nonempty 634x300 canvas, black
+  axis text/ticks/grid strokes, no browser errors and no layout overflow.
