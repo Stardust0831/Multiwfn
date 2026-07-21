@@ -26,6 +26,7 @@ class MatterVizPlotAdapterTests(unittest.TestCase):
         for hook in (
             "matterviz_capture_metafl",
             "matterviz_capture_reset",
+            "matterviz_capture_center",
             "matterviz_capture_name",
             "matterviz_capture_graph",
             "matterviz_capture_curve",
@@ -70,6 +71,17 @@ class MatterVizPlotAdapterTests(unittest.TestCase):
         self.assertIn("axis_low,', ',axis_high", axis)
         for name in ("'x1'", "'y1'", "'x2'", "'y2'"):
             self.assertIn(f"emit_matterviz_scene_axis(sink,{name}", panel)
+
+    def test_iri_semantics_are_identified_only_at_the_gui_adapter_boundary(self):
+        semantic = GUI.split("function matterviz_scene_semantic_kind", 1)[1].split(
+            "end function", 1
+        )[0]
+        self.assertIn("matterviz_plot_panel_count/=1", semantic)
+        self.assertIn("index(xlabel,'rho')>0", semantic)
+        self.assertIn("index(ylabel,'IRI')>0", semantic)
+        self.assertIn("kind='iri'", semantic)
+        self.assertNotIn(b"semanticKind", (ROOT / "otherfunc.f90").read_bytes())
+        self.assertNotIn(b"semanticKind", (ROOT / "plot.f90").read_bytes())
 
     def test_line_with_markers_is_supported_and_published_as_xy(self):
         supported = GUI.split("logical function matterviz_layer_supported", 1)[1].split(

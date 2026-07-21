@@ -72,6 +72,7 @@ character(len=160) :: matterviz_plot_title='',matterviz_plot_file=''
 character(len=8) :: matterviz_plot_device=''
 character(len=7) :: matterviz_plot_color='#222222'
 logical :: matterviz_plot_dashed=.false.,matterviz_plot_xlog=.false.,matterviz_plot_ylog=.false.
+logical :: matterviz_plot_centered=.false.
 logical :: matterviz_plot_legend_initialized=.false.
 integer :: matterviz_plot_marker_interval=0,matterviz_plot_marker_symbol=0
 integer :: matterviz_plot_hsymbol=0
@@ -113,7 +114,8 @@ matterviz_plot_legends=''; matterviz_plot_legend_colors=''; matterviz_plot_legen
 matterviz_plot_label_series=0; matterviz_plot_label_point=0; matterviz_plot_label_next=0; matterviz_plot_labels=''
 matterviz_plot_annotations=matterviz_plot_annotation()
 matterviz_plot_panels=matterviz_plot_panel(); matterviz_plot_layers=matterviz_plot_layer()
-matterviz_plot_page_x=0; matterviz_plot_page_y=0; matterviz_plot_title=''
+! PAGE, METAFL, WINSIZ and SETFIL are configured before DISINI in native plots.
+matterviz_plot_title=''
 matterviz_plot_posx=0; matterviz_plot_posy=0; matterviz_plot_lenx=0; matterviz_plot_leny=0
 matterviz_plot_width=1; matterviz_plot_xlow=0D0; matterviz_plot_xhigh=1D0
 matterviz_plot_ylow=0D0; matterviz_plot_yhigh=1D0; matterviz_plot_zlow=0D0; matterviz_plot_zhigh=1D0
@@ -122,6 +124,7 @@ matterviz_plot_color='#222222'; matterviz_plot_dashed=.false.; matterviz_plot_xl
 matterviz_plot_labels_x=''; matterviz_plot_labels_y=''; matterviz_plot_digits_x=''; matterviz_plot_digits_y=''
 matterviz_plot_legend_initialized=.false.; matterviz_plot_marker_interval=0; matterviz_plot_marker_symbol=0
 matterviz_plot_hsymbol=0; matterviz_plot_marker_enabled=.false.; matterviz_plot_palette_count=0
+matterviz_plot_centered=.false.
 matterviz_plot_palette_name=''
 matterviz_plot_palette_r=0D0; matterviz_plot_palette_g=0D0; matterviz_plot_palette_b=0D0
 do i=1,matterviz_plot_max_series
@@ -216,10 +219,23 @@ end subroutine
 subroutine matterviz_capture_axis_length(xlen,ylen)
 integer,intent(in) :: xlen,ylen
 matterviz_plot_lenx=xlen; matterviz_plot_leny=ylen
+call matterviz_apply_centered_axes()
 end subroutine
 subroutine matterviz_capture_axis_position(xpos,ypos)
 integer,intent(in) :: xpos,ypos
 matterviz_plot_posx=xpos; matterviz_plot_posy=ypos
+matterviz_plot_centered=.false.
+end subroutine
+subroutine matterviz_capture_center()
+matterviz_plot_centered=.true.
+call matterviz_apply_centered_axes()
+end subroutine
+subroutine matterviz_apply_centered_axes()
+if (.not.matterviz_plot_centered) return
+if (matterviz_plot_page_x>0.and.matterviz_plot_lenx>0) &
+    matterviz_plot_posx=(matterviz_plot_page_x-matterviz_plot_lenx)/2
+if (matterviz_plot_page_y>0.and.matterviz_plot_leny>0) &
+    matterviz_plot_posy=(matterviz_plot_page_y+matterviz_plot_leny)/2
 end subroutine
 subroutine matterviz_capture_name(value,axis)
 character(len=*),intent(in) :: value,axis

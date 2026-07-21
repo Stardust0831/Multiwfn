@@ -142,6 +142,35 @@ Before proposing this PR, split the changes by parser/model concern if the
 upstream code has independent ownership boundaries. Fixtures must be generic
 structured data, not Multiwfn session artifacts.
 
+### 6. Scientific-value coloring for binned scatter
+
+Title: `feat(plot): color binned scatter by axis value`
+
+Summary:
+
+- Extend the generic binned-scatter density config with
+  `color_by: 'count' | 'x' | 'y'`, retaining `count` as the compatibility
+  default, plus an optional bounded value-to-color function.
+- Use physical bin-center coordinates after the active linear or nonlinear
+  axis transform, so log-axis colors represent data values rather than pixel
+  or bin indices.
+- Apply the same color semantics in automatic point and density modes, hover,
+  click payloads and the color bar. Bin population continues to control
+  density opacity when an axis value controls hue.
+- Bound color/fill caches and clamp custom functions to the declared color
+  range. Add point/density parity, nonlinear-bin and endpoint tests.
+
+Rationale: dense scientific plots often encode a physical coordinate or
+observable by color while using bin counts only as a rendering optimization.
+This supports interaction diagrams, phase maps and other large scatter data
+without changing scientific meaning when the component switches render mode.
+
+Keep out: Multiwfn plot protocols, IRI-specific labels or palettes, session
+transport, export endpoints and vendored package metadata. The upstream PR
+should be reconstructed on current MatterViz `main`; the local
+`agent/binned-value-color` branch is validation work based on the Multiwfn
+vendor lineage and is not itself ready to open upstream.
+
 ## Issue draft: rendering smoothness and mesh quality
 
 Title: `Expose bounded isosurface mesh-quality controls without blocking camera interaction`

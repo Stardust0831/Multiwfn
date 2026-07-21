@@ -84,6 +84,13 @@ test('compiles the v2 component entry with lazy v1 initialization', async () => 
     assert.match(scene_source, /SCIENTIFIC_PLOT_PADDING/)
     assert.match(scene_source, /class="scientific-plot-frame"/)
     assert.match(scene_source, /class="scientific-binned-plot"/)
+    assert.match(scene_source, /color_by: 'x'/)
+    assert.match(scene_source, /<FieldPlot2D[^>]*\{padding\}/s)
+    const field_source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../src/FieldPlot2D.svelte', import.meta.url), 'utf8'))
+    assert.match(field_source, /padding = SCIENTIFIC_PLOT_PADDING/)
+    assert.match(field_source, /<ScatterPlot[\s\S]*\{padding\}/)
+    const style_source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../src/styles.css', import.meta.url), 'utf8'))
+    assert.match(style_source, /\.plot-scene\s*\{[^}]*max-width:\s*none\s*!important/s)
   } finally {
     await server.close()
   }

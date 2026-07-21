@@ -302,7 +302,12 @@
   end subroutine bufmod
 
   subroutine center()
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    use matterviz_plot_capture, only: matterviz_capture_center
+    call matterviz_capture_center()
+#else
     call doesnotexist("center")
+#endif
   end subroutine center
 
   subroutine cgmbgd(xr,xg,xb)

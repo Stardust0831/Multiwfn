@@ -14,6 +14,7 @@
     fill_regions = [],
     error_bands = [],
     annotations = [],
+    padding = SCIENTIFIC_PLOT_PADDING,
   }: {
     axes: { x1: PlotSceneAxis; y1: PlotSceneAxis; x2?: PlotSceneAxis; y2?: PlotSceneAxis }
     series?: unknown[]
@@ -23,6 +24,7 @@
     fill_regions?: unknown[]
     error_bands?: unknown[]
     annotations?: PlotSceneAnnotation[]
+    padding?: { t: number; b: number; l: number; r: number }
   } = $props()
 
   const axis_config = (axis: PlotSceneAxis) => ({ label: axis.label, unit: axis.unit, range: axis.range, scale_type: axis.scale, ticks: axis.ticks, format: axis.format })
@@ -92,7 +94,7 @@
     y2_axis={axes.y2 ? axis_config(axes.y2) : {}}
     fill_regions={fill_regions as never[]}
     error_bands={error_bands as never[]}
-    padding={SCIENTIFIC_PLOT_PADDING}
+    {padding}
     user_content={user_content}
     legend={SCIENTIFIC_PLOT_LEGEND}
     controls={{ show: true }}

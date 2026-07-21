@@ -732,6 +732,13 @@ behavior requires the explicit diagnostic environment flag.
   dimensions, successful Host writes, four-sided black frames, external
   legends/scales and disconnected spectrum sticks. Keep the fixture provenance
   explicit: only the IRI artifact is a real native calculation in this set.
+- [x] Match the native IRI `drawscatter(..., iratio=1)` geometry: retain the
+  pre-`DISINI` 3000x2250 page and centered 2400x1800 axes, remove the inherited
+  800 px WebView width cap, and regression-test the resulting 4:3 data frame.
+- [x] Color the dense IRI scatter by its native horizontal value,
+  `sign(lambda2)rho`, using the official optional `IRIscatter.gnu` anchors
+  -0.04 blue, 0 green and 0.02 red with endpoint clipping. Bin population may
+  affect opacity only; it is not exposed as the scientific color quantity.
 - [ ] Extend native-format export beyond PNG/PDF only after each requested
   format has a tested document encoder; unsupported legacy format selections
   must fail clearly rather than silently writing mislabeled data.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { parse_plot_artifact, stick_path, to_matterviz_series } from '../src/plot.ts'
-import { SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING, scientific_series_color } from '../src/scientific-plot.ts'
+import { native_viewport_padding, SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING, scientific_series_color } from '../src/scientific-plot.ts'
 
 const axis = (label: string, range: [number, number]) => ({ label, range })
 const artifact = {
@@ -43,6 +43,15 @@ test('reserves a deterministic external legend band and stable series colors', (
   assert.equal(scientific_series_color(undefined, 0), '#4e79a7')
   assert.equal(scientific_series_color(undefined, 1), '#f28e2c')
   assert.equal(scientific_series_color('#123456', 1), '#123456')
+})
+
+test('native 4:3 viewport preserves the original Multiwfn plot proportions', () => {
+  const padding = native_viewport_padding([0.1, 0.1, 0.8, 0.8], 3000, 2250)
+  for (const [actual, expected] of [[padding.l, 300], [padding.t, 225], [padding.r, 300], [padding.b, 225]]) {
+    assert.ok(Math.abs(actual - expected) < 1e-9)
+  }
+  const ratio = (3000 - padding.l - padding.r) / (2250 - padding.t - padding.b)
+  assert.ok(Math.abs(ratio - 4 / 3) < 1e-12)
 })
 
 test('accepts reversed IR and NMR axes and leaves UV-Vis nm values unchanged', () => {

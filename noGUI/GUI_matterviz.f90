@@ -774,12 +774,23 @@ do idx=1,len_trim(value)
 end do
 end function
 
+function matterviz_scene_semantic_kind() result(kind)
+character(len=16) :: kind
+character(len=160) :: xlabel,ylabel
+kind=''
+if (matterviz_plot_panel_count/=1) return
+xlabel=matterviz_plot_panels(1)%xlabel
+ylabel=matterviz_plot_panels(1)%ylabel
+if (index(xlabel,'rho')>0.and.index(ylabel,'IRI')>0) kind='iri'
+end function
+
 subroutine deliver_captured_matterviz_plot(export_format,export_path)
 type(matterviz_json_sink) :: sink
 integer :: panel,layer,idx,plot_status,publish_status
 integer(c_int64_t) :: dataset_base,dataset_id,request_id
 character(len=*),intent(in) :: export_format,export_path
 character(len=160) :: title
+character(len=16) :: semantic_kind
 
 if (.not.matterviz_capture_supported()) return
 do layer=1,matterviz_plot_layer_count
@@ -792,7 +803,8 @@ end do
 title=trim(matterviz_plot_title)
 if (len_trim(title)==0) title='Multiwfn 2D plot'
 dataset_base=gui_volume_serial
-call begin_matterviz_plot(sink,'',trim(title),trim(export_format),trim(export_path))
+semantic_kind=matterviz_scene_semantic_kind()
+call begin_matterviz_plot(sink,trim(semantic_kind),trim(title),trim(export_format),trim(export_path))
 do panel=1,matterviz_plot_panel_count
     call emit_matterviz_scene_panel(sink,panel,dataset_base,panel<matterviz_plot_panel_count)
 end do

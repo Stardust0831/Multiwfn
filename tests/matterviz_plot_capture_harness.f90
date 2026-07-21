@@ -128,6 +128,13 @@ call curve(x,y,4); call disfin()
 if (exports/=1.or.matterviz_plot_file/='review-output.pdf'.or.trim(matterviz_plot_device)/='pdf') error stop 55
 if (matterviz_plot_window_width/=1200.or.matterviz_plot_window_height/=800) error stop 58
 
+! Native drawscatter configures PAGE before DISINI and centers AXSLEN afterwards.
+call page(3000,2250); call metafl('xwin'); call disini(); call center(); call axslen(2400,1800)
+call name('sign(lambda2)rho (a.u.)','X'); call name('IRI (a.u.)','Y')
+call graf(-0.4D0,0.1D0,-0.4D0,0.05D0,0D0,2.5D0,0D0,0.25D0)
+call incmrk(-1); call curve(x,y,4); call disfin()
+if (launches/=10) error stop 59
+
 write(*,'(a)') 'MATTERVIZ_CAPTURE_OK'
 
 contains
@@ -190,6 +197,10 @@ case(8)
     if (.not.matterviz_plot_layers(2)%use_y2.or.matterviz_plot_panels(1)%y2low/=10D0) error stop 40
 case(9)
     if (trim(matterviz_plot_layers(1)%kind)/='contour'.or.matterviz_plot_layers(1)%nx/=2) error stop 33
+case(10)
+    if (matterviz_plot_page_x/=3000.or.matterviz_plot_page_y/=2250) error stop 60
+    if (matterviz_plot_panels(1)%posx/=300.or.matterviz_plot_panels(1)%posy/=2025) error stop 61
+    if (matterviz_plot_panels(1)%lenx/=2400.or.matterviz_plot_panels(1)%leny/=1800) error stop 62
 case default
     error stop 37
 end select

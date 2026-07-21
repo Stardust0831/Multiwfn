@@ -1499,3 +1499,27 @@
   scientific density layer. Export errors remain visible with an explicit
   Return-to-Multiwfn action, and unsupported legacy format selections report a
   clear adapter message rather than producing no file without explanation.
+
+## 2026-07-21: native IRI proportions and interaction colors
+
+- Audited the official IRI tutorial (`http://sobereva.com/598`), the native
+  `drawscatter` setup and the distributed `examples/scripts/IRIscatter.gnu`.
+  The native plot uses a 3000x2250 page with centered 2400x1800 axes, so the
+  authoritative data-frame ratio is 4:3. The tutorial JPEG is cropped and is
+  not used as a layout ratio.
+- Fixed the GUI adapter to retain `PAGE` state configured before `DISINI` and
+  capture `CENTER` without changing `otherfunc.f90`, `plot.f90` or any numerical
+  routine. The WebView now converts that normalized viewport directly into
+  responsive padding and is not constrained by the application's old 800 px
+  maximum width. The same native padding is passed to scatter, dense-scatter,
+  contour and bar routes so preserving page geometry does not regress fields.
+- The optional official colored IRI plot maps column 4, the horizontal
+  `sign(lambda2)rho` value, to blue at -0.04, green at 0 and red at 0.02. The
+  dense MatterViz route now uses that quantity consistently in point and bin
+  modes; bin count controls opacity only and values outside the color range are
+  clipped to its endpoints.
+- Regenerated the real 1,777,622-point phenol-dimer artifact as direct PNG and
+  PDF output. The IRI page is 1600x1200 with a 1280x960 data frame, native axes
+  x [-0.4, 0.1] and y [0, 2.5], an external physical color bar and no browser
+  errors. PDF retains vector plot furniture and rasterizes only the Canvas
+  point layer.
