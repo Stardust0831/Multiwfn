@@ -705,6 +705,9 @@ behavior requires the explicit diagnostic environment flag.
 - [x] Convert DISLIN lower-left panel geometry and log-exponent bounds at the
   GUI adapter boundary; cover explicit PAGE geometry, panel annotations,
   secondary log axes and unrepresentable exponent ranges in CI tests.
+- [x] Render a synthetic 60,000-point IRI review scene through the v2 binary
+  dataset path; fix double scene parsing and forced dense-scatter fullscreen,
+  and use black scientific-axis text in both v1 and v2 plot containers.
 - [ ] Pass Linux, Windows and macOS CI for the combined branch.
 - [ ] Run real native Multiwfn menu workflows for representative curve,
   high-density IRI scatter and line-contour plots; verify

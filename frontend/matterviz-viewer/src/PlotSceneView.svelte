@@ -22,7 +22,7 @@
       return () => { generation += 1 }
     }
     let active: ResolvedPlotScene | undefined
-    void resolve_plot_scene(parse_plot_scene(scene), resolver).then((result) => {
+    void resolve_plot_scene(scene, resolver).then((result) => {
       if (current !== generation) { release_plot_scene(result, release); return }
       active = result
       loaded = result
@@ -80,7 +80,7 @@
             {#if route === 'field'}
               <FieldPlot2D axes={panel.axes} series={series(panel)} field_layers={field_layers(panel)} datasets={loaded.datasets} bar_series={bars(panel)} fill_regions={fills(panel)} error_bands={errors(panel)} annotations={panel.annotations ?? []} />
             {:else if route === 'binned-scatter'}
-              <BinnedScatterPlot series={dense_points(panel)} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} density={{ auto_point_mode: { max_points: 50_000 } }} fullscreen_toggle={true} fullscreen={true} />
+              <BinnedScatterPlot series={dense_points(panel)} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} density={{ auto_point_mode: { max_points: 50_000 } }} fullscreen_toggle={true} />
             {:else}
               <ScatterPlot series={series(panel) as never[]} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} x2_axis={panel.axes.x2 ? axis_config(panel.axes.x2) : {}} y2_axis={panel.axes.y2 ? axis_config(panel.axes.y2) : {}} fill_regions={fills(panel) as never[]} error_bands={errors(panel) as never[]} user_content={annotations} legend={{ draggable: true }} controls={{ show: true }} fullscreen_toggle={true} pan={{ enabled: true }} />
             {/if}

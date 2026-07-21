@@ -1434,3 +1434,11 @@
   finite positive physical values for primary and secondary axes. Unrepresentable
   exponent ranges fail closed. The linked harness covers negative exponents,
   secondary log state, overflow/underflow and the 3000x1800 viewport example.
+- Browser review of a 60,000-point synthetic IRI scene exposed two v2 runtime
+  defects that unit parsing tests had missed. The parsed scene is no longer
+  parsed a second time inside `PlotSceneView`, and dense scatter no longer
+  forces fullscreen on mount. The IRI canvas remains within its panel.
+- Multiwfn plot containers now set MatterViz's inherited text color to black.
+  Playwright confirmed black axis/tick text, a canvas-backed binned scatter,
+  no page errors and a contained canvas at 1400x900. The local IRI artifact is
+  explicitly synthetic and is not claimed as a native-menu calculation result.

@@ -77,6 +77,10 @@ test('compiles the v2 component entry with lazy v1 initialization', async () => 
     assert.equal(typeof module.default, 'function')
     const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../src/MultiwfnPlotView.svelte', import.meta.url), 'utf8'))
     assert.match(source, /artifact\.version === 1 \? v1_artifact\.panels\.map/)
+    const scene_source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../src/PlotSceneView.svelte', import.meta.url), 'utf8'))
+    assert.match(scene_source, /resolve_plot_scene\(scene, resolver\)/)
+    assert.doesNotMatch(scene_source, /resolve_plot_scene\(parse_plot_scene\(scene\)/)
+    assert.doesNotMatch(scene_source, /fullscreen=\{true\}/)
   } finally {
     await server.close()
   }
