@@ -18,6 +18,8 @@ printf '%s' "$MAINTAINER_PKCS8_BASE64" | \
   multiwfn-matterviz-sign proof --manifest linux.install-manifest.json \
   --root assembled/linux \
   --key-id maintainer-1 --output assembled/linux/.multiwfn-install-proof-v1.json
+multiwfn-matterviz-sign verify-proof --root assembled/linux \
+  --manifest linux.install-manifest.json --registry trusted-keys.json
 multiwfn-matterviz-sign build-manifest --tag matterviz-preview-17 \
   --target=linux-x86_64=Multiwfn-linux.tar.gz:linux.install-manifest.json \
   --target=macos-x86_64=Multiwfn-macos.tar.gz:macos.install-manifest.json \

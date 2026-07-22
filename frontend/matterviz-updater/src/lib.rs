@@ -243,7 +243,13 @@ fn validate_release_manifest(m: &ReleaseManifestV1) -> Result<()> {
     let mut targets = BTreeSet::new();
     for t in &m.targets {
         if t.target.trim().is_empty() || !targets.insert(t.target.clone()) { return Err(Error::Invalid("duplicate target".into())); }
-        if t.archive_name.is_empty() || t.archive_name.bytes().any(|b| matches!(b, b'/' | b'\\' | b':')) || Path::new(&t.archive_name).components().count() != 1 { return Err(Error::Invalid("archive name must be a basename".into())); }
+        if t.archive_name.is_empty()
+            || !t.archive_name.is_ascii()
+            || t.archive_name.bytes().any(|byte| !(0x21..=0x7e).contains(&byte) || matches!(byte, b'/' | b'\\' | b':'))
+            || Path::new(&t.archive_name).components().count() != 1
+        {
+            return Err(Error::Invalid("archive name must be a printable ASCII basename".into()));
+        }
         if t.archive_size > MAX_ARCHIVE_BYTES { return Err(Error::Limit("archive exceeds 512 MiB".into())); }
         for digest in [&t.archive_sha256, &t.install_manifest_sha256] {
             if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) { return Err(Error::Invalid("digest must be lowercase hexadecimal".into())); }
@@ -271,7 +277,13 @@ fn validate_digest(digest: &str) -> Result<()> {
 }
 
 fn validate_rel_path(path: &str) -> Result<()> {
-    if path.is_empty() || path.contains('\\') || path.contains(':') || path.starts_with('/') || path.starts_with('\0') {
+    if path.is_empty()
+        || !path.is_ascii()
+        || path.bytes().any(|byte| !(0x20..=0x7e).contains(&byte))
+        || path.contains('\\')
+        || path.contains(':')
+        || path.starts_with('/')
+    {
         return Err(Error::Invalid(format!("unsafe path {path:?}")));
     }
     let p = Path::new(path);
@@ -340,6 +352,23 @@ fn path_for(root: &Path, rel: &str) -> PathBuf {
     rel.split('/').fold(root.to_path_buf(), |p, c| p.join(c))
 }
 
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn windows_number_of_links(path: &Path) -> Result<u32> {
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let file = File::open(path)?;
+    let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, info.as_mut_ptr()) } == 0 {
+        return Err(Error::Io(io::Error::last_os_error()));
+    }
+    Ok(unsafe { info.assume_init() }.nNumberOfLinks)
+}
+
 fn check_regular_file(path: &Path) -> Result<fs::Metadata> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.file_type().is_file() { return Err(Error::Invalid(format!("not a regular file: {}", path.display()))); }
@@ -352,7 +381,7 @@ fn check_regular_file(path: &Path) -> Result<fs::Metadata> {
         // FILE_ATTRIBUTE_REPARSE_POINT includes symlinks, junctions and other
         // redirecting filesystem objects. They are never followed by a
         // transaction.
-        if metadata.file_attributes() & 0x400 != 0 || metadata.number_of_links().is_some_and(|links| links > 1) {
+        if metadata.file_attributes() & 0x400 != 0 || windows_number_of_links(path)? > 1 {
             return Err(Error::Invalid(format!("reparse point or hard link rejected: {}", path.display())));
         }
     }
@@ -367,7 +396,7 @@ fn existing_nolink(path: &Path) -> Result<Option<fs::Metadata>> {
             {
                 use std::os::windows::fs::MetadataExt;
                 if meta.file_attributes() & 0x400 != 0
-                    || (meta.is_file() && meta.number_of_links().is_some_and(|links| links > 1))
+                    || (meta.is_file() && windows_number_of_links(path)? > 1)
                 {
                     return Err(Error::Invalid(format!("reparse point or hard link rejected: {}", path.display())));
                 }
@@ -419,7 +448,8 @@ fn collect_files(root: &Path, base: &Path, out: &mut Vec<InstallFile>) -> Result
             let executable = meta.permissions().mode() & 0o111 != 0;
             #[cfg(not(unix))]
             let executable = false;
-            out.push(InstallFile { path: rel, size, sha256, executable, policy: if rel == "settings.ini" { FilePolicy::Preserve } else { FilePolicy::Managed } });
+            let policy = if rel == "settings.ini" { FilePolicy::Preserve } else { FilePolicy::Managed };
+            out.push(InstallFile { path: rel, size, sha256, executable, policy });
         } else { return Err(Error::Invalid(format!("special file rejected: {rel}"))); }
         if out.len() > MAX_ENTRIES { return Err(Error::Limit("too many files".into())); }
     }
@@ -586,6 +616,7 @@ fn extract_tar(bytes: &[u8], destination: &Path) -> Result<()> {
         let size = entry.size(); total = total.checked_add(size).ok_or_else(|| Error::Limit("extracted size overflow".into()))?;
         if total > MAX_EXTRACTED_BYTES { return Err(Error::Limit("extracted data exceeds 2 GiB".into())); }
         let path = path_for(destination, &raw); ensure_parent(&path)?;
+        #[cfg(unix)]
         let mode = entry.header().mode().ok();
         let mut out = OpenOptions::new().write(true).create_new(true).open(&path)?;
         let copied = io::copy(&mut entry.by_ref().take(size), &mut out)?;
@@ -774,7 +805,7 @@ fn move_replace(state: &mut TransactionState, txn: &Path, root: &Path, source: &
     let backup = if existing_nolink(&destination)?.is_some() { Some(backup_path(txn, state.entries.len()).display().to_string()) } else { None };
     let index = journal_entry(state, txn, operation, rel, backup.clone(), Some(source.display().to_string()))?;
     if let Some(backup) = backup {
-        durable_rename(&destination, &backup)?;
+        durable_rename(&destination, Path::new(&backup))?;
         journal_phase(state, txn, index, "backedUp")?;
     }
     durable_rename(source, &destination)?;
@@ -933,7 +964,7 @@ pub fn rollback_state(state: &TransactionState) -> Result<()> {
         if let Some(backup) = &entry.backup {
             if existing_nolink(Path::new(backup))?.is_some() {
                 ensure_parent(&path)?;
-                durable_rename(backup, &path)?;
+                durable_rename(Path::new(backup), &path)?;
             }
         }
     }
@@ -993,7 +1024,36 @@ pub fn load_candidate(install_root: &Path) -> Result<Option<CandidateState>> {
 pub fn clear_candidate(install_root: &Path) -> Result<()> {
     let dir = candidate_dir(install_root);
     match existing_nolink(&dir)? {
-        Some(meta) if meta.is_dir() => { fs::remove_dir_all(dir)?; Ok(()) }
+        Some(meta) if meta.is_dir() => {
+            let mut has_entries = false;
+            for item in fs::read_dir(&dir)? {
+                has_entries = true;
+                let item = item?;
+                let name = item.file_name();
+                let name = name.to_str().ok_or_else(|| Error::Conflict("candidate contains a non-UTF-8 path".into()))?;
+                let expected_helper = if cfg!(windows) {
+                    "multiwfn-matterviz-updater-helper.exe"
+                } else {
+                    "multiwfn-matterviz-updater-helper"
+                };
+                if !matches!(name, "candidate.json" | "candidate.json.tmp" | "stage")
+                    && name != expected_helper
+                {
+                    return Err(Error::Conflict(format!("unknown candidate file {name}")));
+                }
+                let item_meta = existing_nolink(&item.path())?
+                    .ok_or_else(|| Error::Conflict("candidate entry disappeared".into()))?;
+                if (name == "stage") != item_meta.is_dir() {
+                    return Err(Error::Conflict(format!("invalid candidate entry {name}")));
+                }
+            }
+            if has_entries && !state_path(install_root).is_file() {
+                return Err(Error::Conflict("candidate ownership metadata is missing".into()));
+            }
+            fs::remove_dir_all(&dir)?;
+            if let Some(parent) = dir.parent() { sync_directory(parent)?; }
+            Ok(())
+        }
         Some(_) => Err(Error::Conflict("candidate path is not a directory".into())),
         None => Ok(()),
     }
@@ -1020,7 +1080,7 @@ impl GitHubClient {
     fn allowed(url: &str) -> bool { url::Url::parse(url).is_ok_and(|u| u.scheme() == "https" && matches!(u.host_str(), Some("api.github.com") | Some("github.com") | Some("objects.githubusercontent.com") | Some("release-assets.githubusercontent.com"))) }
     pub fn download_bounded(&self, url: &str, limit: u64) -> Result<Vec<u8>> {
         if !Self::allowed(url) { return Err(Error::Network("download host is not allowlisted".into())); }
-        let mut response = self.client.get(url).send().map_err(|e| Error::Network(e.to_string()))?;
+        let response = self.client.get(url).send().map_err(|e| Error::Network(e.to_string()))?;
         if !response.status().is_success() { return Err(Error::Network(format!("download status {}", response.status()))); }
         if response.content_length().is_some_and(|size| size > limit) { return Err(Error::Limit("download exceeds configured limit".into())); }
         let mut bytes = Vec::new();
@@ -1041,7 +1101,7 @@ impl ReleaseClient for GitHubClient {
     }
 }
 
-pub fn select_latest_release(releases: &[RemoteRelease], current: Option<&str>) -> Option<&RemoteRelease> {
+pub fn select_latest_release<'a>(releases: &'a [RemoteRelease], current: Option<&str>) -> Option<&'a RemoteRelease> {
     releases.iter().filter(|r| r.prerelease && is_newer_preview(&r.tag_name, current)).max_by_key(|r| parse_preview_tag(&r.tag_name).unwrap_or(0))
 }
 
@@ -1177,8 +1237,17 @@ mod tests {
         assert!(existing_nolink(&candidate_dir(d.path())).unwrap().is_some());
         assert_ne!(candidate_dir(d.path()), transaction_dir(d.path()));
         assert!(stage_dir(d.path()).is_dir());
-        clear_candidate(d.path()).unwrap();
-        assert!(!candidate_dir(d.path()).exists());
+        assert!(matches!(clear_candidate(d.path()), Err(Error::Conflict(_))));
+        assert!(candidate_dir(d.path()).is_dir());
+    }
+
+    #[test] fn candidate_cleanup_preserves_unknown_files() {
+        let d = tempdir().unwrap();
+        let candidate = candidate_dir(d.path());
+        fs::create_dir_all(&candidate).unwrap();
+        fs::write(candidate.join("user-sentinel.txt"), b"keep").unwrap();
+        assert!(matches!(clear_candidate(d.path()), Err(Error::Conflict(_))));
+        assert_eq!(fs::read(candidate.join("user-sentinel.txt")).unwrap(), b"keep");
     }
 
     #[test] fn transaction_preserves_settings_and_removes_old_managed_file() {

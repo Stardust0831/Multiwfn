@@ -21,6 +21,16 @@ Updated: 2026-07-23
   rollback failure must retain recoverable state.
 - [ ] Test real N-to-N+1 package updates, conflicts, rollback and file-count
   changes on Windows, Linux and macOS with user sentinel files.
+- [ ] Import the CI-generated updater `Cargo.lock` and rustfmt output, restore
+  strict `--locked`/`fmt --check` jobs, then pass updater/Host clippy and all
+  three package builds. The bootstrap workflow is not a release candidate.
+- [x] Address the first independent security review: separate applying from
+  installed journals, make rollback idempotent, durably order payload and
+  journal renames, detach the helper, use Linux pidfds and preserve explicit
+  recovery state in the Host.
+- [x] Build formal frontend artifacts with the prerelease updater branch
+  disabled; formal packages also omit the updater executable, inventory and
+  proof, so no update control or GitHub request is available.
 - [ ] After code review, configure the protected signing Environment, encrypted
   offline key backup and public-key registry. The first trust-root preview must
   be installed manually; validate self-update using the following preview.

@@ -1222,3 +1222,11 @@
   all 19 review threads remain resolved. GitHub now reports the branch as
   mergeable but `REVIEW_REQUIRED`; the remaining gate is approval from the
   requested independent reviewer, not an unresolved bot conversation.
+- Preview-only signed updater bootstrap run `29950460567` reached all three
+  platforms. The frontend gate exposed invalid MatterViz icon names, Linux and
+  macOS exposed a fixed-array test helper, and Windows reached the updater and
+  exposed stable-Rust portability errors in hard-link metadata plus ordinary
+  borrow/path typing errors. The frontend now passes 124 tests, Svelte check
+  and both preview/formal production builds locally; the Rust corrections are
+  staged for the next CI bootstrap, which must generate and return the updater
+  lockfile and current rustfmt output before the workflow is made strict.

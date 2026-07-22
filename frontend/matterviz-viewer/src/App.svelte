@@ -136,7 +136,8 @@
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
   let updateStatus = $state<UpdateStatus | undefined>()
   let updateOpen = $state(false)
-  const updateClient = create_update_client(new URL(window.location.href))
+  const updaterBuildEnabled = import.meta.env.VITE_MATTERVIZ_PRERELEASE_UPDATER === '1'
+  const updateClient = updaterBuildEnabled ? create_update_client(new URL(window.location.href)) : undefined
 
   type ApiPayload = {
     ok?: boolean
@@ -233,7 +234,7 @@
   }
 
   const load_update_status = async (): Promise<void> => {
-    if (!new URL(window.location.href).searchParams.get('cap')) return
+    if (!updateClient || !new URL(window.location.href).searchParams.get('cap')) return
     try {
       const next = await updateClient.status()
       updateStatus = next.visible ? next : undefined
@@ -1173,9 +1174,9 @@
     <button type="button" onclick={export_state}>Export</button>
     <input class="hidden-file-input" bind:this={stateInput} type="file" accept="application/json,.json" onchange={import_state_file} />
     <button type="button" onclick={() => open_panel('logs')} aria-expanded={logOpen}>Logs ({logEntries.length})</button>
-    {#if updateStatus?.visible}
+    {#if updaterBuildEnabled && updateStatus?.visible}
       <button class="icon-button update-toolbar-button" type="button" title="Open updater" aria-label="Open updater" onclick={() => updateOpen = true}>
-        <Icon icon={updateStatus.state === 'available' ? 'Download' : 'RefreshCw'} width="16" height="16" />
+        <Icon icon={updateStatus.state === 'available' ? 'Download' : 'Version'} width="16" height="16" />
       </button>
     {/if}
     <button class="return" type="button" onclick={return_to_multiwfn} disabled={returnPending}>Return</button>
@@ -1554,7 +1555,7 @@
     </aside>
   {/if}
 
-  {#if updateStatus?.visible}
+  {#if updaterBuildEnabled && updateStatus?.visible}
     <UpdateModal open={updateOpen} page={new URL(window.location.href)} initial_status={updateStatus} onstatus={(status) => updateStatus = status} onclose={() => updateOpen = false} />
   {/if}
 </main>

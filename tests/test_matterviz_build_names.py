@@ -332,6 +332,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         )
         self.assertIn('test ! -e "package/$PKG/resources/tools/multiwfn-matterviz-updater"', WORKFLOW)
         self.assertIn('test ! -e "package/$PKG/.multiwfn-install-manifest-v1.json"', WORKFLOW)
+        self.assertIn("VITE_MATTERVIZ_PRERELEASE_UPDATER=0 pnpm build", WORKFLOW)
+        self.assertIn("VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build", WORKFLOW)
 
     def test_matterviz_preview_signing_is_protected_and_fail_closed(self):
         self.assertIn("sign-preview:", WORKFLOW)
@@ -339,6 +341,7 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("secrets.MATTERVIZ_PREVIEW_SIGNING_KEY_PKCS8_BASE64", WORKFLOW)
         self.assertIn("trusted-keys.json has no production public key", WORKFLOW)
         self.assertIn('"$tool" proof', WORKFLOW)
+        self.assertIn('"$tool" verify-proof', WORKFLOW)
         self.assertIn('"$tool" build-manifest', WORKFLOW)
         self.assertIn('"$tool" sign', WORKFLOW)
         self.assertIn('"$tool" verify', WORKFLOW)

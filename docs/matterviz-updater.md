@@ -84,7 +84,9 @@ contacted only after the user selects Check:
 5. Restart Multiwfn manually after the helper reports completion.
 
 Formal packages omit the updater executable, install inventory and proof. Their
-Host reports no update capability and the frontend renders no update control.
+frontend is built with `VITE_MATTERVIZ_PRERELEASE_UPDATER=0`, performs no
+updater status request and renders no update control. The Host reports no update
+capability if its dormant local status route is probed directly.
 
 ## Production key onboarding
 

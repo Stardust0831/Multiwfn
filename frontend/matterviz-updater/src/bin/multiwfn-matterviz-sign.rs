@@ -3,7 +3,7 @@
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use ed25519_dalek::SigningKey;
 use ed25519_dalek::pkcs8::EncodePrivateKey;
-use matterviz_updater::{inventory_directory, json_output, manifest_sha256, sha256_hex, sign_inventory_proof, sign_manifest, verify_inventory_for_signing, verify_signed_manifest, Error, InstallManifestV1, ReleaseManifestV1, ReleaseTarget, SignedReleaseManifest, PublicKeyEntry, REPOSITORY, CHANNEL};
+use matterviz_updater::{inventory_directory, json_output, manifest_sha256, read_inventory_proof, sha256_hex, sign_inventory_proof, sign_manifest, verify_inventory_for_signing, verify_inventory_proof, verify_signed_manifest, Error, InstallManifestV1, ReleaseManifestV1, ReleaseTarget, SignedReleaseManifest, PublicKeyEntry, REPOSITORY, CHANNEL};
 use rand::rngs::OsRng;
 use serde::Serialize;
 use std::env;
@@ -94,6 +94,18 @@ fn run(args: &[String]) -> Result<(), Error> {
             let registry: Vec<PublicKeyEntry> = serde_json::from_slice(&fs::read(arg(args, "--registry")?)?)?;
             verify_signed_manifest(&signed, &registry)?; println!("{{\"ok\":true}} ");
         }
+        "verify-proof" => {
+            let root = PathBuf::from(arg(args, "--root")?);
+            let manifest: InstallManifestV1 = serde_json::from_slice(&fs::read(arg(args, "--manifest")?)?)?;
+            let registry: Vec<PublicKeyEntry> = serde_json::from_slice(&fs::read(arg(args, "--registry")?)?)?;
+            verify_inventory_for_signing(&root, &manifest)?;
+            let proof = read_inventory_proof(&root)?;
+            verify_inventory_proof(&proof, &registry)?;
+            if proof.release_tag != manifest.release_tag || proof.target != manifest.target || proof.install_manifest_sha256 != manifest_sha256(&manifest)? {
+                return Err(Error::Signature("installed proof does not bind inventory".into()));
+            }
+            println!("{{\"ok\":true}}");
+        }
         "build-sign" => {
             // Convenience for CI: build a manifest and sign it with PKCS#8 read
             // only from stdin.  The private key is never an argument or log value.
@@ -107,7 +119,7 @@ fn run(args: &[String]) -> Result<(), Error> {
             let key = read_stdin()?; let signed = sign_manifest(&manifest, &key_id, &key)?;
             output(optional(args, "--output"), &serde_json::to_vec_pretty(&signed)?)?;
         }
-        _ => return Err(Error::Invalid("commands: generate-key target-id inventory build-manifest sign proof build-sign verify".into())),
+        _ => return Err(Error::Invalid("commands: generate-key target-id inventory build-manifest sign proof build-sign verify verify-proof".into())),
     }
     Ok(())
 }

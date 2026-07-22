@@ -76,14 +76,14 @@
 
 {#if open}
   <div class="update-backdrop" role="presentation">
-    <section class="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-heading">
+    <dialog class="update-modal" open aria-labelledby="update-heading">
       <header class="update-modal-header">
         <div>
           <span class="update-kicker">MatterViz updater</span>
           <h2 id="update-heading">Update Multiwfn</h2>
         </div>
         <button class="icon-button" type="button" title="Dismiss updater" aria-label="Dismiss updater" onclick={close} disabled={busy}>
-          <Icon icon="X" width="16" height="16" />
+          <Icon icon="Cross" width="16" height="16" />
         </button>
       </header>
 
@@ -96,7 +96,7 @@
         {#if status.state === 'idle'}
           <p>Check for a signed Multiwfn update.</p>
           <button class="update-primary" type="button" onclick={() => run_action('check')} disabled={busy}>
-            <Icon icon="RefreshCw" width="15" height="15" /> Check for updates
+            <Icon icon="Version" width="15" height="15" /> Check for updates
           </button>
         {:else if status.state === 'available'}
           <p>A verified update is available.</p>
@@ -122,7 +122,7 @@
           <div class="update-actions"><button type="button" onclick={retry} disabled={busy}>Retry</button><button type="button" onclick={close}>Dismiss</button></div>
         {:else if status.state === 'error'}
           <p class="update-error">{status.message ?? 'The update request failed.'}</p>
-          <div class="update-actions"><button type="button" onclick={retry} disabled={busy}><Icon icon="RefreshCw" width="14" height="14" /> Retry</button><button type="button" onclick={close}>Dismiss</button></div>
+          <div class="update-actions"><button type="button" onclick={retry} disabled={busy}><Icon icon="Version" width="14" height="14" /> Retry</button><button type="button" onclick={close}>Dismiss</button></div>
         {:else}
           <p>{progress_label(status.state)}</p>
           <div class="update-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(status.progress ?? 0)}>
@@ -131,6 +131,6 @@
           <small>{status.progress === undefined ? 'Please keep this window open.' : `${Math.round(status.progress)}%`}</small>
         {/if}
       </div>
-    </section>
+    </dialog>
   </div>
 {/if}

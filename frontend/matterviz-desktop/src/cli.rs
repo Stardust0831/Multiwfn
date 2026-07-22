@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn validates_optional_positive_multiwfn_pid_for_managed_sessions() {
-        let base = ["--frontend=dist".into(), "--session=session".into()];
+        let base = vec!["--frontend=dist".into(), "--session=session".into()];
         assert!(parse(base.clone()).is_ok());
         let mut zero = base.clone();
         zero.push("--multiwfn-pid=0".into());

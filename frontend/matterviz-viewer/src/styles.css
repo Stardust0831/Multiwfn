@@ -91,7 +91,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .update-toolbar-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; padding: 0; }
 
 .update-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgb(15 23 42 / 28%); }
-.update-modal { width: min(440px, 100%); max-height: min(620px, calc(100vh - 32px)); overflow: auto; border: 1px solid #cfd6df; border-radius: 7px; background: #fff; box-shadow: 0 16px 42px rgb(15 23 42 / 24%); }
+.update-modal { width: min(440px, 100%); max-height: min(620px, calc(100vh - 32px)); margin: 0; padding: 0; overflow: auto; border: 1px solid #cfd6df; border-radius: 7px; color: inherit; background: #fff; box-shadow: 0 16px 42px rgb(15 23 42 / 24%); }
 .update-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid #e2e6eb; }
 .update-modal-header h2 { margin: 2px 0 0; font-size: 18px; }
 .update-kicker { color: #667085; font-size: 11px; }

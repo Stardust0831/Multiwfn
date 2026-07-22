@@ -67,7 +67,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm test
           pnpm check
-          pnpm build
+          VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -214,9 +214,15 @@ jobs:
 
       - name: Build MatterViz frontend
         working-directory: frontend/matterviz-viewer
+        shell: bash
         run: |
+          set -euo pipefail
           pnpm install --frozen-lockfile
-          pnpm build
+          if [[ "${GITHUB_REF_NAME:-}" == v*-matterviz.* ]]; then
+            VITE_MATTERVIZ_PRERELEASE_UPDATER=0 pnpm build
+          else
+            VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build
+          fi
 
       - name: Build MatterViz desktop shell
         working-directory: frontend/matterviz-desktop
@@ -321,7 +327,11 @@ jobs:
             cp frontend/matterviz-updater/target/release/multiwfn-matterviz-updater \
               "package/$PKG/resources/tools/multiwfn-matterviz-updater"
           fi
-          for binary in build-matterviz-package/Multiwfn_MatterVizGUI frontend/matterviz-desktop/target/release/matterviz-desktop; do
+          for binary in \
+            build-matterviz-package/Multiwfn_MatterVizGUI \
+            frontend/matterviz-desktop/target/release/matterviz-desktop \
+            package/"$PKG"/resources/tools/multiwfn-matterviz-updater; do
+            [ -e "$binary" ] || continue
             if objdump -T "$binary" | grep -Eq 'GLIBC_(2\.(3[6-9]|[4-9][0-9])|[3-9]\.)'; then
               echo "Found a GLIBC dependency newer than the declared 2.35 floor in $binary" >&2
               exit 1
@@ -478,6 +488,11 @@ jobs:
             echo "Unexpected Homebrew dependency remains in MatterViz Desktop" >&2
             exit 1
           fi
+          if [[ -e "package/$PKG/resources/tools/multiwfn-matterviz-updater" ]] && \
+             otool -L "package/$PKG/resources/tools/multiwfn-matterviz-updater" | grep -E '/(opt/homebrew|usr/local)/'; then
+            echo "Unexpected Homebrew dependency remains in MatterViz updater" >&2
+            exit 1
+          fi
           for binary in "package/$PKG/Multiwfn_MatterVizGUI" package/"$PKG"/resources/lib/*.dylib; do
             duplicates="$(otool -l "$binary" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | sort | uniq -d)"
             if [ -n "$duplicates" ]; then
@@ -531,6 +546,7 @@ jobs:
             changed=0
             for binary in "package/$PKG/Multiwfn_MatterVizGUI.exe" \
               "package/$PKG/resources/tools/matterviz-desktop.exe" \
+              "package/$PKG/resources/tools/multiwfn-matterviz-updater.exe" \
               package/"$PKG"/*.dll package/"$PKG"/resources/tools/*.dll; do
               [ -e "$binary" ] || continue
               case " $processed " in *" $binary "*) continue ;; esac
@@ -759,6 +775,10 @@ jobs:
                 --manifest "$inventory" \
                 --key-id "$MATTERVIZ_PREVIEW_SIGNING_KEY_ID" \
                 --output "$package_root/.multiwfn-install-proof-v1.json"
+            "$tool" verify-proof \
+              --root "$package_root" \
+              --manifest "$inventory" \
+              --registry "$registry_path"
             cp "$inventory" "signing-work/inventories/$target.json"
             if [[ "$name" == *.zip ]]; then
               output="$PWD/signed-assets/$name"
