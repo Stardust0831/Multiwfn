@@ -413,22 +413,6 @@ impl HttpService {
         }
     }
 
-    pub fn update_status(&self) -> Value {
-        self.updater.status()
-    }
-
-    pub fn start_update_check(&self) -> Result<Value, String> {
-        self.updater.start_check()
-    }
-
-    pub fn start_update_stage(&self) -> Result<Value, String> {
-        self.updater.start_stage()
-    }
-
-    pub fn install_update(&self) -> Result<Value, String> {
-        self.updater.install()
-    }
-
     pub fn confirm_update_after_ready(&self) {
         self.updater.confirm_after_ready();
     }

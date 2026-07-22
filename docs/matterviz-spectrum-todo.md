@@ -25,12 +25,18 @@ Updated: 2026-07-23
   restore strict `--locked`/`fmt --check` jobs and remove every temporary
   bootstrap trigger/artifact step.
 - [ ] Pass updater/Host Clippy and all three package builds in final CI. The
-  updater itself passes 16 tests, check, rustfmt and Clippy locally; Host native
+  updater itself passes 21 tests, check, rustfmt and Clippy locally; Host native
   linking and non-Linux updater code remain platform CI gates.
 - [x] Address the first independent security review: separate applying from
   installed journals, make rollback idempotent, durably order payload and
   journal renames, detach the helper, use Linux pidfds and preserve explicit
   recovery state in the Host.
+- [x] Address the final review's cleanup crash window: atomically retire active
+  candidate/transaction directories before best-effort recursive deletion, so
+  interrupted cleanup cannot leave a journal-less active recovery path.
+- [x] Run updater tests natively in every package-matrix job; cover already
+  absent process waits, unsupported platforms, hard links, executable-mode
+  authentication and the 20,000-file manifest boundary.
 - [x] Build formal frontend artifacts with the prerelease updater branch
   disabled; formal packages also omit the updater executable, inventory and
   proof, so no update control or GitHub request is available.

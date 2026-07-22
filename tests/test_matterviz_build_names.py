@@ -316,6 +316,11 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("cargo build --release --locked --bin multiwfn-matterviz-sign", WORKFLOW)
 
     def test_matterviz_package_metadata_distinguishes_formal_and_preview(self):
+        updater_block = WORKFLOW.split("- name: Build MatterViz updater", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        self.assertIn("cargo test --locked", updater_block)
+        self.assertIn("cargo build --release --locked", updater_block)
         self.assertIn('echo "MATTERVIZ_FORMAL=1"', WORKFLOW)
         self.assertIn('echo "MATTERVIZ_FORMAL=0"', WORKFLOW)
         self.assertIn('echo "MATTERVIZ_PACKAGE_TAG=', WORKFLOW)

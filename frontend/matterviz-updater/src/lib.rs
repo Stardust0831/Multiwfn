@@ -652,6 +652,20 @@ pub fn hash_file(path: &Path) -> Result<(u64, String)> {
     Ok((meta.len(), format!("{:x}", h.finalize())))
 }
 
+fn file_executable(path: &Path) -> Result<bool> {
+    let metadata = check_regular_file(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        Ok(metadata.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        Ok(false)
+    }
+}
+
 fn collect_files(root: &Path, base: &Path, out: &mut Vec<InstallFile>) -> Result<()> {
     for item in fs::read_dir(root)? {
         let item = item?;
@@ -741,7 +755,10 @@ pub fn verify_inventory(root: &Path, manifest: &InstallManifestV1) -> Result<()>
         let path = path_for(root, &f.path);
         let (size, digest) = hash_file(&path)
             .map_err(|_| Error::Invalid(format!("missing or invalid file {}", f.path)))?;
-        if size != f.size || !digest.eq_ignore_ascii_case(&f.sha256) {
+        if size != f.size
+            || !digest.eq_ignore_ascii_case(&f.sha256)
+            || file_executable(&path)? != f.executable
+        {
             return Err(Error::Invalid(format!(
                 "inventory digest mismatch {}",
                 f.path
@@ -771,6 +788,7 @@ pub fn verify_inventory_for_signing(root: &Path, manifest: &InstallManifestV1) -
         };
         if expected_file.size != file.size
             || expected_file.sha256 != file.sha256
+            || expected_file.executable != file.executable
             || expected_file.policy != file.policy
         {
             return Err(Error::Invalid(format!(
@@ -786,7 +804,10 @@ pub fn verify_inventory_for_signing(root: &Path, manifest: &InstallManifestV1) -
         }
         let (size, digest) = hash_file(&path)
             .map_err(|_| Error::Invalid(format!("missing or invalid file {}", f.path)))?;
-        if size != f.size || !digest.eq_ignore_ascii_case(&f.sha256) {
+        if size != f.size
+            || !digest.eq_ignore_ascii_case(&f.sha256)
+            || file_executable(&path)? != f.executable
+        {
             return Err(Error::Invalid(format!(
                 "inventory digest mismatch {}",
                 f.path
@@ -824,7 +845,10 @@ pub fn authenticate_current_inventory(
     {
         let path = path_for(root, &file.path);
         let (size, digest) = hash_file(&path)?;
-        if size != file.size || !digest.eq_ignore_ascii_case(&file.sha256) {
+        if size != file.size
+            || !digest.eq_ignore_ascii_case(&file.sha256)
+            || file_executable(&path)? != file.executable
+        {
             return Err(Error::Signature(format!(
                 "managed inventory tampering {}",
                 file.path
@@ -1259,6 +1283,33 @@ fn durable_replace(source: &Path, destination: &Path) -> Result<()> {
     }
 }
 
+fn retire_directory_with_cleanup(path: &Path, cleanup: bool) -> Result<PathBuf> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::Invalid("owned directory has no parent".into()))?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Error::Invalid("owned directory has no UTF-8 name".into()))?;
+    let retired = parent.join(format!(".{name}.retired-{:032x}", rand::random::<u128>()));
+    if existing_nolink(&retired)?.is_some() {
+        return Err(Error::Conflict("retired directory name collision".into()));
+    }
+    durable_rename(path, &retired)?;
+    if cleanup {
+        // The active protocol name has already been retired durably. A crash or
+        // deletion failure can leave only a non-active, uniquely owned remnant.
+        if fs::remove_dir_all(&retired).is_ok() {
+            sync_directory(parent)?;
+        }
+    }
+    Ok(retired)
+}
+
+fn retire_directory(path: &Path) -> Result<()> {
+    retire_directory_with_cleanup(path, true).map(|_| ())
+}
+
 fn sync_regular_file(path: &Path) -> Result<()> {
     check_regular_file(path)?;
     File::open(path)?.sync_all()?;
@@ -1422,7 +1473,10 @@ pub fn apply_transaction(
     if let Some(ref m) = current {
         for file in m.files.iter().filter(|f| f.policy == FilePolicy::Managed) {
             let (size, digest) = hash_file(&path_for(install_root, &file.path))?;
-            if size != file.size || !digest.eq_ignore_ascii_case(&file.sha256) {
+            if size != file.size
+                || !digest.eq_ignore_ascii_case(&file.sha256)
+                || file_executable(&path_for(install_root, &file.path))? != file.executable
+            {
                 return Err(Error::Conflict(format!(
                     "modified managed file {}",
                     file.path
@@ -1543,12 +1597,12 @@ pub fn apply_transaction(
                 "update failed ({e}); rollback also failed ({recovery})"
             )));
         }
+        retire_directory(&txn)?;
         if let Err(cleanup) = clear_candidate(install_root) {
             return Err(Error::Conflict(format!(
                 "update failed ({e}); candidate cleanup failed ({cleanup})"
             )));
         }
-        let _ = fs::remove_dir_all(&txn);
         return Err(e);
     }
     Ok(state)
@@ -1632,7 +1686,7 @@ pub fn confirm_transaction(install_root: &Path) -> Result<()> {
         ));
     }
     clear_candidate(install_root)?;
-    fs::remove_dir_all(transaction_dir(install_root))?;
+    retire_directory(&transaction_dir(install_root))?;
     Ok(())
 }
 
@@ -1642,7 +1696,7 @@ pub fn rollback_last(install_root: &Path) -> Result<()> {
     };
     rollback_state(&state)?;
     clear_candidate(install_root)?;
-    fs::remove_dir_all(transaction_dir(install_root))?;
+    retire_directory(&transaction_dir(install_root))?;
     Ok(())
 }
 
@@ -1727,10 +1781,7 @@ pub fn clear_candidate(install_root: &Path) -> Result<()> {
                     "candidate ownership metadata is missing".into(),
                 ));
             }
-            fs::remove_dir_all(&dir)?;
-            if let Some(parent) = dir.parent() {
-                sync_directory(parent)?;
-            }
+            retire_directory(&dir)?;
             Ok(())
         }
         Some(_) => Err(Error::Conflict("candidate path is not a directory".into())),
@@ -1890,6 +1941,27 @@ mod tests {
             policy: FilePolicy::Managed,
         });
         assert!(validate_install_manifest(&m).is_err());
+    }
+
+    #[test]
+    fn manifest_rejects_more_than_the_file_limit() {
+        let file = InstallFile {
+            path: "file".into(),
+            size: 0,
+            sha256: "0".repeat(64),
+            executable: false,
+            policy: FilePolicy::Managed,
+        };
+        let manifest = InstallManifestV1 {
+            version: 1,
+            target: "linux-x86_64".into(),
+            release_tag: "matterviz-preview-1".into(),
+            files: vec![file; MAX_ENTRIES + 1],
+        };
+        assert!(matches!(
+            validate_install_manifest(&manifest),
+            Err(Error::Limit(_))
+        ));
     }
 
     #[test]
@@ -2328,6 +2400,37 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn installed_managed_executable_mode_is_authenticated() {
+        use ed25519_dalek::pkcs8::EncodePrivateKey;
+        use std::os::unix::fs::PermissionsExt;
+
+        let d = tempdir().unwrap();
+        let app = d.path().join("app");
+        fs::write(&app, b"x").unwrap();
+        fs::set_permissions(&app, fs::Permissions::from_mode(0o755)).unwrap();
+        let manifest =
+            inventory_directory(d.path(), "linux-x86_64", "matterviz-preview-1").unwrap();
+        fs::write(
+            d.path().join(INSTALL_MANIFEST_NAME),
+            manifest_bytes(&manifest).unwrap(),
+        )
+        .unwrap();
+        let signing = SigningKey::from_bytes(&[17u8; 32]);
+        let key = B64.encode(signing.to_pkcs8_der().unwrap().as_bytes());
+        let proof = sign_inventory_proof(&manifest, "k", &key).unwrap();
+        let registry = vec![PublicKeyEntry {
+            version: 1,
+            key_id: "k".into(),
+            public_key: B64.encode(signing.verifying_key().to_bytes()),
+        }];
+        fs::set_permissions(&app, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            authenticate_current_inventory(d.path(), &proof, &registry, "linux-x86_64").is_err()
+        );
+    }
+
     #[test]
     fn injected_mid_apply_failure_rolls_back_and_clears_journal() {
         let d = tempdir().unwrap();
@@ -2402,5 +2505,25 @@ mod tests {
         assert_eq!(loaded.lifecycle, "applying");
         assert!(!loaded.pending_confirm);
         assert!(confirm_transaction(d.path()).is_err());
+    }
+
+    #[test]
+    fn retired_transaction_remnant_is_not_an_active_recovery_state() {
+        let d = tempdir().unwrap();
+        let txn = transaction_dir(d.path());
+        fs::create_dir_all(&txn).unwrap();
+        let state = TransactionState {
+            version: 1,
+            install_root: d.path().display().to_string(),
+            target_tag: "matterviz-preview-2".into(),
+            entries: Vec::new(),
+            lifecycle: "installed".into(),
+            pending_confirm: true,
+        };
+        write_state(&txn, &state).unwrap();
+        let retired = retire_directory_with_cleanup(&txn, false).unwrap();
+        assert!(!txn.exists());
+        assert!(retired.join("journal.json").is_file());
+        assert!(load_transaction(d.path()).unwrap().is_none());
     }
 }

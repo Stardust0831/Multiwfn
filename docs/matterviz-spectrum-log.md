@@ -1240,3 +1240,18 @@
   reaches native Wayland/DBus discovery but this WSL environment lacks
   `pkg-config` and the corresponding development libraries, so full Host and
   package verification remains in three-platform CI.
+- Final read-only review found a crash window in recursive transaction cleanup:
+  losing `journal.json` before the active directory disappeared made recovery
+  impossible. Candidate and transaction cleanup now first durably rename the
+  owned directory to a unique retired name and only then delete recursively;
+  a simulated post-rename crash proves the remnant is not interpreted as an
+  active transaction. Managed executable permissions are authenticated too.
+  Native package jobs now execute updater tests, including the platform PID
+  wait and unsupported-target rejection, rather than compiling the binary only.
+- Strict workflow run `29952704277` exposed four integration errors rather than
+  updater-protocol failures: stale public Host wrappers failed Clippy, the
+  shared volume test crate omitted the new updater module, and Win32 wait
+  constants were imported from the wrong modules. The wrappers were removed,
+  the test crate now includes `updater.rs`, and constants use Foundation plus
+  the documented process synchronization mask. Local updater tests pass 21/21
+  and the expanded volume e2e suite passes 106/106 before the next CI run.

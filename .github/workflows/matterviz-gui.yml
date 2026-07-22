@@ -214,7 +214,9 @@ jobs:
 
       - name: Build MatterViz updater
         working-directory: frontend/matterviz-updater
-        run: cargo build --release --locked
+        run: |
+          cargo test --locked
+          cargo build --release --locked
 
       - name: Test C-to-Rust binary volume transport
         run: cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked

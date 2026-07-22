@@ -45,7 +45,9 @@ fn reply(command: &str, root: &Path, result: Result<Option<String>, Error>) -> i
     } else {
         candidate.as_ref().map(|c| c.tag.clone())
     };
+    let local_target = host_target().ok();
     let enabled = root.join("settings.ini").is_file()
+        && local_target.is_some()
         && embedded_key_registry().is_ok_and(|keys| !keys.is_empty())
         && read_current_tag(root).is_some_and(|tag| {
             let Ok(signed) = matterviz_updater::read_inventory_proof(root) else {
@@ -54,8 +56,13 @@ fn reply(command: &str, root: &Path, result: Result<Option<String>, Error>) -> i
             let Ok(keys) = embedded_key_registry() else {
                 return false;
             };
-            matterviz_updater::authenticate_current_inventory(root, &signed, &keys, &host_target())
-                .is_ok()
+            matterviz_updater::authenticate_current_inventory(
+                root,
+                &signed,
+                &keys,
+                local_target.as_deref().unwrap_or_default(),
+            )
+            .is_ok()
                 && signed.release_tag == tag
         });
     let value = match result {
@@ -182,7 +189,7 @@ fn command_check(root: &Path) -> Result<Option<String>, Error> {
         std::cmp::Reverse(matterviz_updater::parse_preview_tag(&release.tag_name).unwrap_or(0))
     });
     let registry = embedded_key_registry()?;
-    let target = host_target();
+    let target = host_target()?;
     for release in releases.iter().filter(|release| {
         release.prerelease && is_newer_preview(&release.tag_name, current.as_deref())
     }) {
@@ -476,7 +483,7 @@ fn command_helper(args: &[String]) -> Result<(), Error> {
     if candidate.tag != candidate.manifest.manifest.tag {
         return Err(Error::Signature("candidate tag mismatch".into()));
     }
-    if candidate.target != host_target() {
+    if candidate.target != host_target()? {
         return Err(Error::Signature(
             "candidate target does not match this host".into(),
         ));
@@ -653,11 +660,11 @@ fn wait_for_processes_unix(host: u32, multiwfn: u32) -> Result<(), Error> {
 #[cfg(windows)]
 #[allow(unsafe_code)]
 fn wait_for_processes_windows(host: u32, multiwfn: u32) -> Result<(), Error> {
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, WAIT_FAILED, WAIT_OBJECT_0};
     use windows_sys::Win32::System::Threading::{
         GetExitCodeProcess, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
-        SYNCHRONIZE, WAIT_FAILED, WAIT_OBJECT_0,
     };
+    const SYNCHRONIZE: u32 = 0x0010_0000;
     const WAIT_TIMEOUT: u32 = 0x102;
     let started = std::time::Instant::now();
     let mut handles = Vec::new();
@@ -725,15 +732,24 @@ fn wait_for_processes(host: u32, multiwfn: u32) -> Result<(), Error> {
 fn wait_for_processes(_host: u32, _multiwfn: u32) -> Result<(), Error> {
     Err(Error::Network("unsupported platform process wait".into()))
 }
-fn host_target() -> String {
-    match (env::consts::OS, env::consts::ARCH) {
+fn host_target() -> Result<String, Error> {
+    target_for(env::consts::OS, env::consts::ARCH)
+}
+
+fn target_for(os: &str, arch: &str) -> Result<String, Error> {
+    let target = match (os, arch) {
         ("windows", "x86_64") => "windows-x86_64",
         ("macos", "aarch64") => "macos-aarch64",
-        ("macos", _) => "macos-x86_64",
+        ("macos", "x86_64") => "macos-x86_64",
         ("linux", "aarch64") => "linux-aarch64",
-        _ => "linux-x86_64",
-    }
-    .into()
+        ("linux", "x86_64") => "linux-x86_64",
+        (os, arch) => {
+            return Err(Error::Invalid(format!(
+                "unsupported updater platform {os}-{arch}"
+            )))
+        }
+    };
+    Ok(target.into())
 }
 
 fn main() {
@@ -774,5 +790,21 @@ fn conflict_list(error: &Error) -> Vec<String> {
         vec![bound_message(message)]
     } else {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{target_for, wait_for_processes};
+
+    #[test]
+    fn rejects_unsupported_platforms() {
+        assert!(target_for("linux", "riscv64").is_err());
+        assert!(target_for("freebsd", "x86_64").is_err());
+    }
+
+    #[test]
+    fn native_process_wait_accepts_already_absent_processes() {
+        wait_for_processes(2_147_483_647, 2_147_483_647).unwrap();
     }
 }
