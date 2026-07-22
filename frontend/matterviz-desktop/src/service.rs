@@ -17,6 +17,7 @@ use crate::session_data::SessionData;
 use crate::shutdown::ShutdownSignal;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::transport::{TransportConfig, VolumeTransport};
+use crate::updater::UpdateManager;
 #[cfg(test)]
 use crate::volume_store::InsertError;
 use crate::volume_store::VolumeStore;
@@ -39,6 +40,7 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub transport: Option<TransportConfig>,
+    pub multiwfn_pid: Option<u64>,
 }
 
 pub struct HttpService {
@@ -58,6 +60,7 @@ pub struct HttpService {
     in_memory_session: bool,
     frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<Mutex<bool>>,
+    updater: Arc<UpdateManager>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -301,6 +304,7 @@ impl HttpService {
             in_memory_session,
             frontend_ready,
             return_signaled: Arc::new(Mutex::new(false)),
+            updater: Arc::new(UpdateManager::new(config.multiwfn_pid)),
             worker: Mutex::new(None),
         };
         let runner = service.clone_for_thread(frontend, manifest, state);
@@ -345,6 +349,7 @@ impl HttpService {
             in_memory_session: self.in_memory_session,
             frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
+            updater: self.updater.clone(),
         }
     }
     pub fn url(&self) -> &str {
@@ -407,6 +412,10 @@ impl HttpService {
             transport.join();
         }
     }
+
+    pub fn confirm_update_after_ready(&self) {
+        self.updater.confirm_after_ready();
+    }
 }
 
 struct ServiceRunner {
@@ -428,6 +437,7 @@ struct ServiceRunner {
     in_memory_session: bool,
     frontend_ready: Arc<AtomicBool>,
     return_signaled: Arc<Mutex<bool>>,
+    updater: Arc<UpdateManager>,
 }
 impl ServiceRunner {
     fn run(self) {
@@ -471,6 +481,7 @@ impl ServiceRunner {
             in_memory_session: self.in_memory_session,
             frontend_ready: self.frontend_ready.clone(),
             return_signaled: self.return_signaled.clone(),
+            updater: self.updater.clone(),
         }
     }
     fn handle(&self, mut stream: TcpStream) {
@@ -482,7 +493,7 @@ impl ServiceRunner {
         }
         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
-        let (first, host) = match read_http_request(&mut stream) {
+        let (first, host, request) = match read_http_request(&mut stream) {
             Ok(value) => value,
             Err(_) => {
                 respond(&mut stream, 400, "text/plain", b"Bad Request", false);
@@ -568,6 +579,93 @@ impl ServiceRunner {
             }
             self.frontend_ready.store(true, Ordering::Release);
             respond_json(&mut stream, &json!({"ok": true}), 200, false);
+            return;
+        }
+        if path == "/api/update/status" {
+            if method != "GET" {
+                respond(
+                    &mut stream,
+                    405,
+                    "text/plain",
+                    b"Method Not Allowed",
+                    method == "HEAD",
+                );
+                return;
+            }
+            respond_json(&mut stream, &self.updater.status(), 200, false);
+            return;
+        }
+        if matches!(
+            path.as_str(),
+            "/api/update/check" | "/api/update/stage" | "/api/update/install"
+        ) {
+            if !self.updater.visible() {
+                respond(&mut stream, 404, "text/plain", b"Not Found", false);
+                return;
+            }
+            if method != "POST" {
+                respond(
+                    &mut stream,
+                    405,
+                    "text/plain",
+                    b"Method Not Allowed",
+                    method == "HEAD",
+                );
+                return;
+            }
+            if !request.is_empty_json() {
+                respond_json(
+                    &mut stream,
+                    &json!({"ok": false, "message": "Update requests require Content-Type: application/json and body {}"}),
+                    400,
+                    false,
+                );
+                return;
+            }
+            match path.as_str() {
+                "/api/update/check" => match self.updater.start_check() {
+                    Ok(value) => respond_json(&mut stream, &value, 202, false),
+                    Err(message) => respond_json(
+                        &mut stream,
+                        &json!({"ok": false, "message": message}),
+                        409,
+                        false,
+                    ),
+                },
+                "/api/update/stage" => match self.updater.start_stage() {
+                    Ok(value) => respond_json(&mut stream, &value, 202, false),
+                    Err(message) => respond_json(
+                        &mut stream,
+                        &json!({"ok": false, "message": message}),
+                        409,
+                        false,
+                    ),
+                },
+                "/api/update/install" => match self.updater.install() {
+                    Ok(_) => {
+                        let status = self.updater.status();
+                        if let Err(message) = self.signal_return() {
+                            respond_json(
+                                &mut stream,
+                                &json!({"ok": false, "message": message}),
+                                500,
+                                false,
+                            );
+                            return;
+                        }
+                        self.volume_store.clear();
+                        respond_json(&mut stream, &status, 200, false);
+                        self.shutdown.request();
+                    }
+                    Err(message) => respond_json(
+                        &mut stream,
+                        &json!({"ok": false, "message": message}),
+                        409,
+                        false,
+                    ),
+                },
+                _ => unreachable!(),
+            }
             return;
         }
         if method == "POST" {
@@ -1108,9 +1206,26 @@ fn terminate_control_session(
     shutdown.request();
 }
 
-fn read_http_request(stream: &mut TcpStream) -> Result<(String, String), ()> {
+struct HttpRequest {
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+impl HttpRequest {
+    fn is_empty_json(&self) -> bool {
+        let content_types: Vec<_> = self
+            .headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .collect();
+        content_types.len() == 1 && content_types[0].1 == "application/json" && self.body == b"{}"
+    }
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, HttpRequest), ()> {
     const MAX_HEADERS: usize = 64 * 1024;
     const MAX_REQUEST_LINE: usize = 8 * 1024;
+    const MAX_BODY: usize = 64 * 1024;
     let mut request = Vec::with_capacity(1024);
     let mut chunk = [0_u8; 1024];
     loop {
@@ -1129,21 +1244,63 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, String), ()> {
     if request.len() > MAX_HEADERS {
         return Err(());
     }
-    let request = std::str::from_utf8(&request).map_err(|_| ())?;
+    let split = request
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or(())?;
+    let header_bytes = &request[..split];
+    let mut body = request[split + 4..].to_vec();
+    let request = std::str::from_utf8(header_bytes).map_err(|_| ())?;
     let mut lines = request.split("\r\n");
     let first = lines.next().ok_or(())?;
     if first.is_empty() || first.len() > MAX_REQUEST_LINE {
         return Err(());
     }
-    let mut hosts = lines.filter_map(|line| {
-        let (name, value) = line.split_once(':')?;
-        name.eq_ignore_ascii_case("host").then_some(value.trim())
-    });
-    let host = hosts.next().filter(|value| !value.is_empty()).ok_or(())?;
+    let mut headers = Vec::new();
+    for line in lines {
+        let (name, value) = line.split_once(':').ok_or(())?;
+        if name.is_empty()
+            || name
+                .chars()
+                .any(|value| value.is_ascii_control() || value == ' ')
+        {
+            return Err(());
+        }
+        headers.push((name.to_owned(), value.trim().to_owned()));
+    }
+    let mut hosts = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("host"));
+    let host = hosts
+        .next()
+        .filter(|(_, value)| !value.is_empty())
+        .map(|(_, value)| value.clone())
+        .ok_or(())?;
     if hosts.next().is_some() {
         return Err(());
     }
-    Ok((first.to_owned(), host.to_owned()))
+    let content_lengths: Vec<_> = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .collect();
+    let content_length = match content_lengths.as_slice() {
+        [] => 0,
+        [(_, value)] => value.parse::<usize>().map_err(|_| ())?,
+        _ => return Err(()),
+    };
+    if content_length > MAX_BODY || body.len() > content_length {
+        return Err(());
+    }
+    while body.len() < content_length {
+        let remaining = content_length - body.len();
+        let mut chunk = vec![0_u8; remaining.min(4096)];
+        let count = stream.read(&mut chunk).map_err(|_| ())?;
+        if count == 0 {
+            return Err(());
+        }
+        body.extend_from_slice(&chunk[..count]);
+    }
+    Ok((first.to_owned(), host, HttpRequest { headers, body }))
 }
 
 fn bind(host: &str, port: u16) -> Result<TcpListener, String> {
@@ -1390,12 +1547,14 @@ fn write_stream_header(
 fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8], head: bool) {
     let reason = match status {
         200 => "OK",
+        202 => "Accepted",
         204 => "No Content",
         302 => "Found",
         400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        409 => "Conflict",
         413 => "Payload Too Large",
         500 => "Internal Server Error",
         503 => "Service Unavailable",
@@ -1502,6 +1661,7 @@ mod tests {
                 host: "127.0.0.1".to_owned(),
                 port: 0,
                 transport: None,
+                multiwfn_pid: Some(1),
             },
             Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(bootstrap_read),
@@ -1603,6 +1763,7 @@ mod tests {
                         volume_read_pipe: into_raw_pipe(volume_read),
                         volume_ack_pipe: into_raw_pipe(ack_write),
                     }),
+                    multiwfn_pid: Some(1),
                 },
                 Some(ControlTransportConfig {
                     read_pipe: into_raw_pipe(bootstrap_read),
@@ -1654,6 +1815,7 @@ mod tests {
                     volume_read_pipe: into_raw_pipe(volume_read),
                     volume_ack_pipe: into_raw_pipe(ack_write),
                 }),
+                multiwfn_pid: Some(1),
             },
             Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(bootstrap_read),
@@ -1742,6 +1904,7 @@ mod tests {
                 host: "127.0.0.1".to_owned(),
                 port: 0,
                 transport: None,
+                multiwfn_pid: Some(1),
             },
             Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(bootstrap_read),
@@ -1793,6 +1956,7 @@ mod tests {
                 host: "127.0.0.1".to_owned(),
                 port: 0,
                 transport: None,
+                multiwfn_pid: Some(1),
             },
             Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(bootstrap_read),
@@ -2058,6 +2222,7 @@ mod tests {
                 host: "127.0.0.1".to_owned(),
                 port: 0,
                 transport: None,
+                multiwfn_pid: Some(1),
             },
             Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(response_read),
@@ -2188,6 +2353,7 @@ mod tests {
                 host: "127.0.0.1".to_owned(),
                 port: 0,
                 transport: None,
+                multiwfn_pid: Some(1),
             },
             Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(bootstrap_read),
@@ -2258,6 +2424,7 @@ mod tests {
             host: "localhost".to_owned(),
             port: 0,
             transport: None,
+            multiwfn_pid: Some(1),
         })
         .unwrap();
         assert_eq!(
@@ -2295,6 +2462,7 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 0,
             transport: None,
+            multiwfn_pid: Some(1),
         });
         match result {
             Err(error) => assert!(error.contains("index.html"), "{error}"),
@@ -2325,6 +2493,7 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 0,
             transport: None,
+            multiwfn_pid: Some(1),
         })
         .unwrap();
         assert!(!service.frontend_ready());
@@ -2356,6 +2525,49 @@ mod tests {
     }
 
     #[test]
+    fn service_hides_updater_without_a_multiwfn_process() {
+        let root = fixture("hidden-updater");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+
+        let service = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            transport: None,
+            multiwfn_pid: None,
+        })
+        .unwrap();
+
+        let status = request(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/update/status"),
+        );
+        assert!(status.starts_with("HTTP/1.1 200 OK"));
+        assert!(status.contains(r#""format":"multiwfn-matterviz-update""#));
+        assert!(status.contains(r#""visible":false"#));
+
+        let check = request(
+            service.url(),
+            "POST",
+            &authorized_path(service.url(), "/api/update/check"),
+        );
+        assert!(check.starts_with("HTTP/1.1 404 Not Found"));
+
+        service.shutdown();
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn safe_join_blocks_traversal() {
         let root = tempfile_dir();
         assert!(safe_join(&root, "../outside").is_err());
@@ -2380,6 +2592,7 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 0,
             transport: None,
+            multiwfn_pid: Some(1),
         })
         .unwrap();
         let manifest = request(service.url(), "GET", "/session/manifest.json");
@@ -2471,6 +2684,7 @@ mod tests {
                 volume_read_pipe: into_raw_pipe(volume_read),
                 volume_ack_pipe: into_raw_pipe(ack_write),
             }),
+            multiwfn_pid: Some(1),
         })
         .unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
@@ -2547,6 +2761,7 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 0,
             transport: None,
+            multiwfn_pid: Some(1),
         })
         .unwrap();
         let frame = golden_frame();
@@ -2605,6 +2820,7 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: preferred,
             transport: None,
+            multiwfn_pid: Some(1),
         })
         .unwrap();
         let actual = Url::parse(service.url()).unwrap().port().unwrap();

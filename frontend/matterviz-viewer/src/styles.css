@@ -88,6 +88,34 @@ button:hover:not(:disabled) { border-color: #66788c; background: #f0f3f7; }
 button:disabled { opacity: 0.45; cursor: default; }
 .hidden-file-input { display: none; }
 .return { margin-left: auto; font-weight: 600; }
+.update-toolbar-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; padding: 0; }
+
+.update-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgb(15 23 42 / 28%); }
+.update-modal { width: min(440px, 100%); max-height: min(620px, calc(100vh - 32px)); margin: 0; padding: 0; overflow: auto; border: 1px solid #cfd6df; border-radius: 7px; color: inherit; background: #fff; box-shadow: 0 16px 42px rgb(15 23 42 / 24%); }
+.update-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid #e2e6eb; }
+.update-modal-header h2 { margin: 2px 0 0; font-size: 18px; }
+.update-kicker { color: #667085; font-size: 11px; }
+.update-modal-body { display: grid; gap: 14px; padding: 16px 18px 18px; }
+.update-modal-body p { margin: 0; line-height: 1.45; }
+.update-tags { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.update-tags > div { display: grid; gap: 3px; min-width: 0; padding: 9px 10px; border: 1px solid #e2e6eb; border-radius: 5px; background: #f8f9fb; }
+.update-tags span { color: #667085; font-size: 11px; }
+.update-tags strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.update-primary, .update-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.update-primary { width: 100%; font-weight: 600; }
+.update-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.update-warning { color: #7a4d00; }
+.update-error { color: #a12828; }
+.update-recovery { color: #4d5c6b; font-size: 12px; }
+.update-conflicts { display: grid; gap: 5px; max-height: 150px; overflow: auto; margin: 0; padding-left: 20px; color: #7a4d00; font-size: 12px; }
+.update-progress { height: 8px; overflow: hidden; border-radius: 4px; background: #e7ebf0; }
+.update-progress span { display: block; height: 100%; background: #1976b8; transition: width 180ms ease; }
+.update-modal small { color: #667085; }
+
+@media (max-width: 800px) {
+  .update-backdrop { align-items: end; padding: 8px; }
+  .update-modal { max-height: calc(100vh - 16px); }
+}
 
 .periodic-bar { min-height: 38px; padding-block: 4px; }
 .periodic-bar strong { font-size: 12px; }

@@ -1,6 +1,52 @@
 # MatterViz origin/main parity TODO
 
-Updated: 2026-07-16
+Updated: 2026-07-23
+
+## 2026-07-23 prerelease self-update
+
+- [x] Add a standalone Rust updater with a versioned Ed25519 release manifest,
+  authenticated install inventory and fail-closed preview-channel selection.
+- [x] Preserve unknown regular files and `settings.ini`; abort before writes on
+  modified managed files, target collisions, links, special files or unsafe
+  archive paths.
+- [x] Add journaled staging, rollback and first-launch confirmation while the
+  helper waits for a normal Multiwfn `q` exit instead of killing the process.
+- [x] Add capability-protected Host endpoints and a manual-only update UI that
+  is absent from formal releases.
+- [x] Complete the two-layer trust chain: a package-carried signed inventory
+  proof authenticates installed ownership without an archive-hash cycle, while
+  the external signed release manifest authenticates the final archive.
+- [x] Prove the transaction journal is crash-consistent: every rename must have
+  a durable intent first, staging must not collide with the active journal, and
+  rollback failure must retain recoverable state.
+- [ ] Test real N-to-N+1 package updates, conflicts, rollback and file-count
+  changes on Windows, Linux and macOS with user sentinel files.
+- [x] Check in the Rust 1.88-generated updater `Cargo.lock` and rustfmt output;
+  restore strict `--locked`/`fmt --check` jobs and remove every temporary
+  bootstrap trigger/artifact step.
+- [x] Pass updater/Host Clippy and all three package builds in final CI. Run
+  `29954169768` passed frontend/Host plus Linux, macOS and Windows package jobs;
+  every native package job executes the updater tests.
+- [x] Address the first independent security review: separate applying from
+  installed journals, make rollback idempotent, durably order payload and
+  journal renames, detach the helper, use Linux pidfds and preserve explicit
+  recovery state in the Host.
+- [x] Address the final review's cleanup crash window: atomically retire active
+  candidate/transaction directories before best-effort recursive deletion, so
+  interrupted cleanup cannot leave a journal-less active recovery path.
+- [x] Run updater tests natively in every package-matrix job; cover already
+  absent process waits, unsupported platforms, hard links, executable-mode
+  authentication and the 20,000-file manifest boundary.
+- [x] Build formal frontend artifacts with the prerelease updater branch
+  disabled; formal packages also omit the updater executable, inventory and
+  proof, so no update control or GitHub request is available.
+- [x] Address actionable final CodeRabbit findings: status capability checks
+  authenticate signed metadata without re-hashing every managed file, while
+  mutation paths retain full authentication; stale regular write probes are
+  recoverable and unsafe probe object types remain rejected.
+- [ ] After code review, configure the protected signing Environment, encrypted
+  offline key backup and public-key registry. The first trust-root preview must
+  be installed manually; validate self-update using the following preview.
 
 ## 2026-07-14 Rust host migration
 

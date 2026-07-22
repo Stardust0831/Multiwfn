@@ -1,5 +1,56 @@
 # MatterViz parity development log
 
+## 2026-07-23: prerelease updater architecture
+
+- Started the updater on an independent branch from current `origin/main`, not
+  on the native-plot PR. Work is confined to the MatterViz GUI, Rust middleware,
+  release packaging and tests; scientific calculation modules remain outside
+  scope.
+- Audited the signed updater in `Stardust0831/ssh-mountmate`. Its Ed25519 key
+  registry, bounded release metadata and detached helper are useful foundations,
+  but its whole-directory swap is unsuitable for a Multiwfn folder that may
+  contain user files.
+- Chose a signed file-level ownership inventory. Unknown regular files remain
+  untouched, `settings.ini` is always preserved, and any managed-file change or
+  new-path collision aborts the update before disk mutation. New and removed
+  official files are handled by authenticated old/new inventories.
+- Limited the first feature to manual checks from preview packages, the latest
+  newer signed preview, normal user-driven Multiwfn exit, manual restart and
+  three-platform support. Formal releases omit the updater and UI capability.
+- Production key setup is deferred until implementation and security review
+  pass. CI uses ephemeral keys; production custody will use a protected GitHub
+  Environment plus an encrypted offline recovery copy.
+- Static integration review rejected the first updater-core transaction rather
+  than treating it as complete. Staging occupied the same directory that the
+  installer rejected as an unfinished transaction, and backup renames preceded
+  their durable journal entries, so normal installation and crash recovery were
+  not yet valid.
+- Corrected the trust design to avoid a circular archive hash. Each preview
+  package carries a separately signed installed-inventory proof that binds the
+  repository, channel, tag, target and managed inventory digest. The external
+  signed release manifest then binds that inventory digest and the completed
+  archive name, size and SHA-256. User-modified `settings.ini` remains outside
+  the managed digest.
+- Host integration now passes the Multiwfn PID from the native C launcher,
+  exposes capability-protected local status/check/stage/install routes, accepts
+  only versioned updater JSON, preserves structured conflict replies from
+  nonzero helper exits and confirms a pending update only after frontend
+  readiness. The preview-only frontend has explicit idle, available, staging,
+  ready, conflict, error and recovery states; its focused protocol tests pass.
+- Independent security review rejected the initial core as not ready because
+  file renames were weaker than journal durability, applying and installed
+  transactions shared one confirmation bit, the helper was not detached and
+  Linux tracked reusable numeric PIDs. The corrected core now uses explicit
+  applying/installed lifecycle states, idempotent rollback, Unix directory
+  fsync, Windows write-through rename, detached process creation and Linux
+  pidfds. Host startup preserves recovery state and only confirms an explicitly
+  installed transaction after frontend readiness.
+- Local C, Python, workflow-schema and focused updater-frontend checks pass.
+  Full frontend execution remains dependency-blocked in this worktree, and no
+  Rust toolchain is installed. A one-time CI bootstrap will therefore generate
+  the genuine updater lockfile and rustfmt output before the workflow is changed
+  back to strict locked, read-only verification.
+
 ## 2026-07-14: Native Rust host migration started
 
 - Corrected the implementation direction after the Python launcher fixes became a second process-lifecycle layer: MatterViz will use one native Rust host for the local HTTP/session service, WebView creation, API routing, native file selection, port binding and shutdown. Fortran remains the tightly coupled Multiwfn calculation adapter and continues to own the existing request loop; no calculation core was changed.
@@ -1171,3 +1222,53 @@
   all 19 review threads remain resolved. GitHub now reports the branch as
   mergeable but `REVIEW_REQUIRED`; the remaining gate is approval from the
   requested independent reviewer, not an unresolved bot conversation.
+- Preview-only signed updater bootstrap run `29950460567` reached all three
+  platforms. The frontend gate exposed invalid MatterViz icon names, Linux and
+  macOS exposed a fixed-array test helper, and Windows reached the updater and
+  exposed stable-Rust portability errors in hard-link metadata plus ordinary
+  borrow/path typing errors. The frontend now passes 124 tests, Svelte check
+  and both preview/formal production builds locally; the Rust corrections are
+  staged for the next CI bootstrap, which must generate and return the updater
+  lockfile and current rustfmt output before the workflow is made strict.
+- A temporary local Rust 1.88 toolchain subsequently generated the checked-in
+  updater `Cargo.lock` and normalized both updater and Host sources. Updater
+  verification passes 16/16 tests, `cargo check --locked`, rustfmt check and
+  Clippy with warnings denied; the authenticated N-to-N+1 test now uses real
+  Ed25519 test proofs and covers preserved settings, added/removed managed
+  files and an unknown user sentinel. A cross-platform hard-link regression
+  exercises the stable Win32 metadata replacement. Local Host compilation
+  reaches native Wayland/DBus discovery but this WSL environment lacks
+  `pkg-config` and the corresponding development libraries, so full Host and
+  package verification remains in three-platform CI.
+- Final read-only review found a crash window in recursive transaction cleanup:
+  losing `journal.json` before the active directory disappeared made recovery
+  impossible. Candidate and transaction cleanup now first durably rename the
+  owned directory to a unique retired name and only then delete recursively;
+  a simulated post-rename crash proves the remnant is not interpreted as an
+  active transaction. Managed executable permissions are authenticated too.
+  Native package jobs now execute updater tests, including the platform PID
+  wait and unsupported-target rejection, rather than compiling the binary only.
+- Strict workflow run `29952704277` exposed four integration errors rather than
+  updater-protocol failures: stale public Host wrappers failed Clippy, the
+  shared volume test crate omitted the new updater module, and Win32 wait
+  constants were imported from the wrong modules. The wrappers were removed,
+  the test crate now includes `updater.rs`, and constants use Foundation plus
+  the documented process synchronization mask. Local updater tests pass 21/21
+  and the expanded volume e2e suite passes 106/106 before the next CI run.
+- Final exact-head workflow run `29954169768` passed all four required jobs for
+  commit `2c6e7a919a11ffb8471760c0fbe41ced36762d4c`: frontend/Rust Host and the
+  Linux, macOS and Windows package matrices. Each native package job ran the
+  updater tests before release build; sign-preview and release jobs were
+  correctly skipped. Focused follow-up review found no remaining critical or
+  important issue in the cleanup, platform-test and CI-integration fixes. No
+  preview tag is created until the protected signing Environment and public
+  trust registry are configured and the first trust-root package is reviewed.
+- PR #51 final review identified two reproducible updater issues. Status replies
+  no longer hash every managed package file: they verify the signed proof,
+  manifest digest, release tag and platform target, while installation still
+  performs complete managed-file authentication before mutation. A stale
+  regular write probe left by a crash is now replaced; links, hard links,
+  reparse points and non-files remain rejected. The regression suite now passes
+  22/22 tests together with Rust 1.88 format, check and strict Clippy gates. The
+  review service's date warning was not applied because both the commit and the
+  maintained project timezone date are `2026-07-23`.

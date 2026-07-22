@@ -20,6 +20,8 @@ pub mod shutdown;
 pub mod stream_broker;
 #[path = "../../../frontend/matterviz-desktop/src/transport.rs"]
 pub mod transport;
+#[path = "../../../frontend/matterviz-desktop/src/updater.rs"]
+pub mod updater;
 #[path = "../../../frontend/matterviz-desktop/src/volume_protocol.rs"]
 pub mod volume_protocol;
 #[path = "../../../frontend/matterviz-desktop/src/volume_store.rs"]
@@ -137,6 +139,7 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 0,
             transport: Some(transport),
+            multiwfn_pid: Some(1),
         })
         .unwrap();
         read_ready(&mut producer);

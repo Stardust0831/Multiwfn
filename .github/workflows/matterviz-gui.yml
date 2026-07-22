@@ -22,7 +22,9 @@ on:
       - tests/linux/**
       - tests/windows/test_matterviz_async_launch.ps1
       - frontend/matterviz-viewer/**
+      - frontend/matterviz-updater/**
       - docs/matterviz-webview.md
+      - docs/matterviz-updater.md
       - .github/workflows/matterviz-gui.yml
   workflow_dispatch:
 
@@ -64,7 +66,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm test
           pnpm check
-          pnpm build
+          VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -91,6 +93,15 @@ jobs:
           cargo test --locked
           cargo check --locked
           cargo clippy --locked -- -D warnings
+          cargo build --release --locked
+
+      - name: Test MatterViz updater
+        working-directory: frontend/matterviz-updater
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked
+          cargo check --locked
+          cargo clippy --all-targets --locked -- -D warnings
           cargo build --release --locked
 
       - name: Test C-to-Rust binary volume transport
@@ -184,15 +195,27 @@ jobs:
 
       - name: Build MatterViz frontend
         working-directory: frontend/matterviz-viewer
+        shell: bash
         run: |
+          set -euo pipefail
           pnpm install --frozen-lockfile
-          pnpm build
+          if [[ "${GITHUB_REF_NAME:-}" == v*-matterviz.* ]]; then
+            VITE_MATTERVIZ_PRERELEASE_UPDATER=0 pnpm build
+          else
+            VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build
+          fi
 
       - name: Build MatterViz desktop shell
         working-directory: frontend/matterviz-desktop
         run: |
           cargo test --locked
           cargo check --locked
+          cargo build --release --locked
+
+      - name: Build MatterViz updater
+        working-directory: frontend/matterviz-updater
+        run: |
+          cargo test --locked
           cargo build --release --locked
 
       - name: Test C-to-Rust binary volume transport
@@ -238,6 +261,19 @@ jobs:
           ref="${ref//\//-}"
           pkg="Multiwfn-MatterViz-${ref}-${{ matrix.platform }}"
           echo "PKG=$pkg" >> "$GITHUB_ENV"
+          case "${GITHUB_REF_NAME:-}" in
+            v*-matterviz.*)
+              echo "MATTERVIZ_FORMAL=1" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "MATTERVIZ_FORMAL=0" >> "$GITHUB_ENV"
+              ;;
+          esac
+          if [[ "${GITHUB_REF_NAME:-}" == matterviz-preview-* ]]; then
+            echo "MATTERVIZ_PACKAGE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "MATTERVIZ_PACKAGE_TAG=matterviz-preview-${GITHUB_RUN_NUMBER:-1}" >> "$GITHUB_ENV"
+          fi
           mkdir -p "package/$pkg/resources/tools" "package/$pkg/resources/frontend/matterviz-viewer" "package/$pkg/resources/lib"
           cp LICENSE.txt "package/$pkg/LICENSE.txt"
           cp ATTRIBUTION.txt "package/$pkg/ATTRIBUTION.txt"
@@ -270,7 +306,15 @@ jobs:
           cp build-matterviz-package/Multiwfn_MatterVizGUI "package/$PKG/Multiwfn_MatterVizGUI"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop \
             "package/$PKG/resources/tools/matterviz-desktop"
-          for binary in build-matterviz-package/Multiwfn_MatterVizGUI frontend/matterviz-desktop/target/release/matterviz-desktop; do
+          if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then
+            cp frontend/matterviz-updater/target/release/multiwfn-matterviz-updater \
+              "package/$PKG/resources/tools/multiwfn-matterviz-updater"
+          fi
+          for binary in \
+            build-matterviz-package/Multiwfn_MatterVizGUI \
+            frontend/matterviz-desktop/target/release/matterviz-desktop \
+            package/"$PKG"/resources/tools/multiwfn-matterviz-updater; do
+            [ -e "$binary" ] || continue
             if objdump -T "$binary" | grep -Eq 'GLIBC_(2\.(3[6-9]|[4-9][0-9])|[3-9]\.)'; then
               echo "Found a GLIBC dependency newer than the declared 2.35 floor in $binary" >&2
               exit 1
@@ -289,6 +333,18 @@ jobs:
           chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
           find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
+          if [[ "$MATTERVIZ_FORMAL" == "1" ]]; then
+            test ! -e "package/$PKG/resources/tools/multiwfn-matterviz-updater"
+            test ! -e "package/$PKG/.multiwfn-install-manifest-v1.json"
+            test ! -e "package/$PKG/.multiwfn-install-proof-v1.json"
+          else
+            target_id="$(frontend/matterviz-updater/target/release/multiwfn-matterviz-sign target-id)"
+            frontend/matterviz-updater/target/release/multiwfn-matterviz-sign inventory \
+              --root "package/$PKG" \
+              --target "$target_id" \
+              --tag "$MATTERVIZ_PACKAGE_TAG" \
+              --output "package/$PKG/.multiwfn-install-manifest-v1.json"
+          fi
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
 
@@ -393,6 +449,10 @@ jobs:
           cp build-matterviz-package/Multiwfn_MatterVizGUI "package/$PKG/Multiwfn_MatterVizGUI"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop \
             "package/$PKG/resources/tools/matterviz-desktop"
+          if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then
+            cp frontend/matterviz-updater/target/release/multiwfn-matterviz-updater \
+              "package/$PKG/resources/tools/multiwfn-matterviz-updater"
+          fi
           chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
           otool -l "package/$PKG/Multiwfn_MatterVizGUI" \
             | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' > /tmp/multiwfn-rpaths.txt
@@ -411,6 +471,11 @@ jobs:
             echo "Unexpected Homebrew dependency remains in MatterViz Desktop" >&2
             exit 1
           fi
+          if [[ -e "package/$PKG/resources/tools/multiwfn-matterviz-updater" ]] && \
+             otool -L "package/$PKG/resources/tools/multiwfn-matterviz-updater" | grep -E '/(opt/homebrew|usr/local)/'; then
+            echo "Unexpected Homebrew dependency remains in MatterViz updater" >&2
+            exit 1
+          fi
           for binary in "package/$PKG/Multiwfn_MatterVizGUI" package/"$PKG"/resources/lib/*.dylib; do
             duplicates="$(otool -l "$binary" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | sort | uniq -d)"
             if [ -n "$duplicates" ]; then
@@ -420,6 +485,18 @@ jobs:
           done
           find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
+          if [[ "$MATTERVIZ_FORMAL" == "1" ]]; then
+            test ! -e "package/$PKG/resources/tools/multiwfn-matterviz-updater"
+            test ! -e "package/$PKG/.multiwfn-install-manifest-v1.json"
+            test ! -e "package/$PKG/.multiwfn-install-proof-v1.json"
+          else
+            target_id="$(frontend/matterviz-updater/target/release/multiwfn-matterviz-sign target-id)"
+            frontend/matterviz-updater/target/release/multiwfn-matterviz-sign inventory \
+              --root "package/$PKG" \
+              --target "$target_id" \
+              --tag "$MATTERVIZ_PACKAGE_TAG" \
+              --output "package/$PKG/.multiwfn-install-manifest-v1.json"
+          fi
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
 
@@ -442,12 +519,17 @@ jobs:
           cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
             "package/$PKG/resources/tools/matterviz-desktop.exe"
+          if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then
+            cp frontend/matterviz-updater/target/release/multiwfn-matterviz-updater.exe \
+              "package/$PKG/resources/tools/multiwfn-matterviz-updater.exe"
+          fi
           : > windows-dlls.log
           processed=""
           while :; do
             changed=0
             for binary in "package/$PKG/Multiwfn_MatterVizGUI.exe" \
               "package/$PKG/resources/tools/matterviz-desktop.exe" \
+              "package/$PKG/resources/tools/multiwfn-matterviz-updater.exe" \
               package/"$PKG"/*.dll package/"$PKG"/resources/tools/*.dll; do
               [ -e "$binary" ] || continue
               case " $processed " in *" $binary "*) continue ;; esac
@@ -468,6 +550,18 @@ jobs:
             done
             [ "$changed" -eq 1 ] || break
           done
+          if [[ "$MATTERVIZ_FORMAL" == "1" ]]; then
+            test ! -e "package/$PKG/resources/tools/multiwfn-matterviz-updater.exe"
+            test ! -e "package/$PKG/.multiwfn-install-manifest-v1.json"
+            test ! -e "package/$PKG/.multiwfn-install-proof-v1.json"
+          else
+            target_id="$(frontend/matterviz-updater/target/release/multiwfn-matterviz-sign.exe target-id)"
+            frontend/matterviz-updater/target/release/multiwfn-matterviz-sign.exe inventory \
+              --root "package/$PKG" \
+              --target "$target_id" \
+              --tag "$MATTERVIZ_PACKAGE_TAG" \
+              --output "package/$PKG/.multiwfn-install-manifest-v1.json"
+          fi
       - name: Verify Windows shell and create archive
         if: runner.os == 'Windows'
         shell: pwsh
@@ -551,6 +645,20 @@ jobs:
           test -f "package/$PKG/resources/frontend/matterviz-viewer/dist/index.html"
           test -n "$(find "package/$PKG/resources/frontend/matterviz-viewer/dist/assets" -type f -print -quit)"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            updater="package/$PKG/resources/tools/multiwfn-matterviz-updater.exe"
+          else
+            updater="package/$PKG/resources/tools/multiwfn-matterviz-updater"
+          fi
+          if [[ "$MATTERVIZ_FORMAL" == "1" ]]; then
+            test ! -e "$updater"
+            test ! -e "package/$PKG/.multiwfn-install-manifest-v1.json"
+            test ! -e "package/$PKG/.multiwfn-install-proof-v1.json"
+          else
+            test -f "$updater"
+            test -f "package/$PKG/.multiwfn-install-manifest-v1.json"
+            test ! -e "package/$PKG/.multiwfn-install-proof-v1.json"
+          fi
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
             unzip -Z1 "dist/$PKG.zip" | grep -Fx LICENSE.txt
             unzip -Z1 "dist/$PKG.zip" | grep -Fx ATTRIBUTION.txt
           else
@@ -571,24 +679,190 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  sign-preview:
+    name: Sign MatterViz preview packages
+    if: startsWith(github.ref, 'refs/tags/matterviz-preview-')
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: matterviz-preview-signing
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout signing tools and registry
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88.0'
+
+      - name: Build signing tool
+        working-directory: frontend/matterviz-updater
+        run: cargo build --release --locked --bin multiwfn-matterviz-sign
+
+      - name: Download unsigned preview packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: matterviz-package-*
+          path: unsigned-assets
+          merge-multiple: true
+
+      - name: Sign installed inventories and final release manifest
+        env:
+          MATTERVIZ_PREVIEW_SIGNING_KEY_PKCS8_BASE64: ${{ secrets.MATTERVIZ_PREVIEW_SIGNING_KEY_PKCS8_BASE64 }}
+          MATTERVIZ_PREVIEW_SIGNING_KEY_ID: ${{ vars.MATTERVIZ_PREVIEW_SIGNING_KEY_ID }}
+        run: |
+          set -euo pipefail
+          tool="$PWD/frontend/matterviz-updater/target/release/multiwfn-matterviz-sign"
+          registry_path="$PWD/frontend/matterviz-updater/trusted-keys.json"
+          registry_compact="$(tr -d '[:space:]' < "$registry_path")"
+          if [[ "$registry_compact" == "[]" ]]; then
+            echo "Preview signing is disabled: trusted-keys.json has no production public key." >&2
+            exit 1
+          fi
+          if [[ -z "${MATTERVIZ_PREVIEW_SIGNING_KEY_PKCS8_BASE64:-}" || -z "${MATTERVIZ_PREVIEW_SIGNING_KEY_ID:-}" ]]; then
+            echo "Preview signing is fail-closed: protected Environment key material is missing." >&2
+            exit 1
+          fi
+          mkdir -p signed-assets signing-work/inventories
+          : > signing-work/specs.tsv
+          shopt -s nullglob
+          archives=(unsigned-assets/*.tar.gz unsigned-assets/*.zip)
+          test "${#archives[@]}" -eq 3
+          for archive in "${archives[@]}"; do
+            name="$(basename "$archive")"
+            work="$(mktemp -d "$PWD/signing-work/package.XXXXXX")"
+            mkdir -p "$work/extracted"
+            if [[ "$name" == *.zip ]]; then
+              unzip -q "$archive" -d "$work/extracted"
+              package_root="$work/extracted"
+            else
+              tar -xzf "$archive" -C "$work/extracted"
+              mapfile -t roots < <(find "$work/extracted" -mindepth 1 -maxdepth 1 -type d -print)
+              test "${#roots[@]}" -eq 1
+              package_root="${roots[0]}"
+            fi
+            inventory="$package_root/.multiwfn-install-manifest-v1.json"
+            test -f "$inventory"
+            target="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["target"])' "$inventory")"
+            tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["release_tag"])' "$inventory")"
+            test "$tag" = "$GITHUB_REF_NAME"
+            printf '%s' "$MATTERVIZ_PREVIEW_SIGNING_KEY_PKCS8_BASE64" | \
+              "$tool" proof \
+                --root "$package_root" \
+                --manifest "$inventory" \
+                --key-id "$MATTERVIZ_PREVIEW_SIGNING_KEY_ID" \
+                --output "$package_root/.multiwfn-install-proof-v1.json"
+            "$tool" verify-proof \
+              --root "$package_root" \
+              --manifest "$inventory" \
+              --registry "$registry_path"
+            cp "$inventory" "signing-work/inventories/$target.json"
+            if [[ "$name" == *.zip ]]; then
+              output="$PWD/signed-assets/$name"
+              (cd "$package_root" && zip -q -r "$output" .)
+            else
+              package_name="$(basename "$package_root")"
+              tar -czf "signed-assets/$name" -C "$(dirname "$package_root")" "$package_name"
+            fi
+            printf '%s\t%s\t%s\n' \
+              "$target" "$PWD/signed-assets/$name" "$PWD/signing-work/inventories/$target.json" \
+              >> signing-work/specs.tsv
+          done
+          manifest_args=()
+          while IFS=$'\t' read -r target archive inventory; do
+            manifest_args+=("--target=$target=$archive:$inventory")
+          done < signing-work/specs.tsv
+          "$tool" build-manifest \
+            --tag "$GITHUB_REF_NAME" \
+            "${manifest_args[@]}" \
+            --output signing-work/release-manifest-v1.json
+          printf '%s' "$MATTERVIZ_PREVIEW_SIGNING_KEY_PKCS8_BASE64" | \
+            "$tool" sign \
+              --manifest signing-work/release-manifest-v1.json \
+              --key-id "$MATTERVIZ_PREVIEW_SIGNING_KEY_ID" \
+              --output signed-assets/multiwfn-matterviz-release-manifest-v1.json
+          "$tool" verify \
+            --manifest signed-assets/multiwfn-matterviz-release-manifest-v1.json \
+            --registry "$registry_path"
+          (cd signed-assets && sha256sum *.tar.gz *.zip multiwfn-matterviz-release-manifest-v1.json > SHA256SUMS.txt)
+
+      - name: Upload signed preview assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-signed-preview
+          path: signed-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Publish MatterViz release
-    if: startsWith(github.ref, 'refs/tags/matterviz-preview-') || (startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-matterviz.'))
+    if: >-
+      always() && needs.build.result == 'success' && needs.package.result == 'success' &&
+      (startsWith(github.ref, 'refs/tags/matterviz-preview-') ||
+       (startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-matterviz.'))) &&
+      (!startsWith(github.ref, 'refs/tags/matterviz-preview-') || needs.sign-preview.result == 'success')
     needs:
       - build
       - package
+      - sign-preview
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
 
     steps:
-      - name: Download packages
+      - name: Download signed preview packages
+        if: startsWith(github.ref, 'refs/tags/matterviz-preview-')
+        uses: actions/download-artifact@v4
+        with:
+          name: matterviz-signed-preview
+          path: release-assets
+
+      - name: Download formal packages
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/download-artifact@v4
         with:
           pattern: matterviz-package-*
           path: release-assets
           merge-multiple: true
+
+      - name: Verify release package metadata contract
+        working-directory: release-assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          formal=0
+          if [[ "$GITHUB_REF_NAME" == v*-matterviz.* ]]; then
+            formal=1
+          fi
+          for archive in *.tar.gz *.zip; do
+            [ -e "$archive" ] || continue
+            if [[ "$archive" == *.zip ]]; then
+              listing="$(unzip -Z1 "$archive")"
+            else
+              listing="$(tar -tzf "$archive")"
+            fi
+            if [[ "$formal" == 1 ]]; then
+              if grep -Eq '(^|/)resources/tools/multiwfn-matterviz-updater(\.exe)?$|(^|/)\.multiwfn-install-(manifest|proof)-v1\.json$' <<<"$listing"; then
+                echo "Formal MatterViz package contains updater metadata: $archive" >&2
+                exit 1
+              fi
+            elif ! grep -Eq '(^|/)resources/tools/multiwfn-matterviz-updater(\.exe)?$' <<<"$listing" || \
+                 ! grep -Eq '(^|/)\.multiwfn-install-manifest-v1\.json$' <<<"$listing" || \
+                 ! grep -Eq '(^|/)\.multiwfn-install-proof-v1\.json$' <<<"$listing"; then
+              echo "Preview/test MatterViz package is missing updater metadata: $archive" >&2
+              exit 1
+            fi
+          done
+          if [[ "$formal" == 0 ]]; then
+            test -f multiwfn-matterviz-release-manifest-v1.json
+          fi
 
       - name: Publish release
         env:
@@ -596,7 +870,10 @@ jobs:
         run: |
           set -euo pipefail
           cd release-assets
-          sha256sum * > SHA256SUMS.txt
+          if [[ ! -f SHA256SUMS.txt ]]; then
+            sha256sum * > SHA256SUMS.txt
+          fi
+          sha256sum -c SHA256SUMS.txt
           test "$(find . -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) | wc -l)" -eq 3
           release_flags=(--verify-tag)
           if [[ "$GITHUB_REF_NAME" == matterviz-preview-* ]]; then
@@ -611,9 +888,27 @@ jobs:
             release_notes="Official MatterViz/WebView GUI package for Multiwfn $version. Includes Linux, macOS and Windows packages with the MatterViz frontend, native Rust Host and Multiwfn executable. The formal runtime uses versioned in-memory control, picker and binary-volume pipes; packages contain no Python or 3Dmol runtime and normal sessions create no manifest, structure, control or dynamic Cube artifacts. CI calculates a real uncached orbital and verifies binary delivery, Return/process shutdown and zero runtime artifacts on extracted Windows and Linux packages. Cube fallback is diagnostic-only and requires MULTIWFN_MATTERVIZ_ALLOW_CUBE_FALLBACK=1. Linux requires glibc 2.35 or newer and a WebKitGTK 4.1 desktop environment."
             release_flags+=(--latest)
           fi
+          if existing_draft="$(gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "$existing_draft" != "true" ]]; then
+              echo "Release $GITHUB_REF_NAME already exists and is not a draft" >&2
+              exit 1
+            fi
+            gh release delete "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" --yes
+          fi
           gh release create "$GITHUB_REF_NAME" ./* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$release_title" \
             --notes "$release_notes" \
+            --draft \
             "${release_flags[@]}"
+          mkdir -p ../published-verification
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir ../published-verification
+          (cd ../published-verification && sha256sum -c SHA256SUMS.txt)
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false

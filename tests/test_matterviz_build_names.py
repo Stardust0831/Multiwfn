@@ -267,10 +267,13 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("origin_mode: 'absolute'", volume_adapter)
         self.assertIn("manifest.structure?.path ? { origin_mode: 'absolute' as const }", VIEWER_APP)
-        isosurface = (
+        isosurface_path = (
             ROOT / "frontend" / "matterviz-viewer" / "node_modules" / "matterviz"
             / "dist" / "isosurface" / "Isosurface.svelte"
-        ).read_text(encoding="utf-8")
+        )
+        if not isosurface_path.is_file():
+            self.skipTest("viewer dependencies are not installed")
+        isosurface = isosurface_path.read_text(encoding="utf-8")
         self.assertEqual(isosurface.count("volume_reference_origin(all_volumes)"), 3)
 
     def test_matterviz_package_workflow_has_no_transitional_names(self):
@@ -291,6 +294,79 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertNotIn("multiwfn_matterviz_file_dialog.py", WORKFLOW)
         self.assertIn("MatterViz package unexpectedly contains a Python runtime artifact", WORKFLOW)
         self.assertIn("-name '*.py'", WORKFLOW)
+
+    def test_matterviz_updater_uses_a_checked_in_lockfile(self):
+        self.assertIn("frontend/matterviz-updater/**", WORKFLOW)
+        self.assertIn("docs/matterviz-updater.md", WORKFLOW)
+        block = WORKFLOW.split("- name: Test MatterViz updater", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        self.assertIn("working-directory: frontend/matterviz-updater", block)
+        for command in (
+            "cargo fmt --all -- --check",
+            "cargo test --locked",
+            "cargo check --locked",
+            "cargo clippy --all-targets --locked -- -D warnings",
+            "cargo build --release --locked",
+        ):
+            self.assertIn(command, block)
+        self.assertNotIn("cargo generate-lockfile", WORKFLOW)
+        self.assertNotIn("matterviz-updater-bootstrap", WORKFLOW)
+        self.assertIn("cargo build --release --locked", WORKFLOW)
+        self.assertIn("cargo build --release --locked --bin multiwfn-matterviz-sign", WORKFLOW)
+
+    def test_matterviz_package_metadata_distinguishes_formal_and_preview(self):
+        updater_block = WORKFLOW.split("- name: Build MatterViz updater", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        self.assertIn("cargo test --locked", updater_block)
+        self.assertIn("cargo build --release --locked", updater_block)
+        self.assertIn('echo "MATTERVIZ_FORMAL=1"', WORKFLOW)
+        self.assertIn('echo "MATTERVIZ_FORMAL=0"', WORKFLOW)
+        self.assertIn('echo "MATTERVIZ_PACKAGE_TAG=', WORKFLOW)
+        self.assertIn("multiwfn-matterviz-updater", WORKFLOW)
+        self.assertIn("multiwfn-matterviz-updater.exe", WORKFLOW)
+        self.assertIn("multiwfn-matterviz-sign target-id", WORKFLOW)
+        self.assertIn("multiwfn-matterviz-sign.exe target-id", WORKFLOW)
+        self.assertIn("inventory \\", WORKFLOW)
+        self.assertIn("--output \"package/$PKG/.multiwfn-install-manifest-v1.json\"", WORKFLOW)
+        self.assertIn(".multiwfn-install-proof-v1.json", WORKFLOW)
+        self.assertGreater(
+            WORKFLOW.index("--output \"package/$PKG/.multiwfn-install-manifest-v1.json\"") ,
+            WORKFLOW.index("find \"package/$PKG\" -depth -type d -name __pycache__ -empty -delete"),
+        )
+        self.assertIn('test ! -e "package/$PKG/resources/tools/multiwfn-matterviz-updater"', WORKFLOW)
+        self.assertIn('test ! -e "package/$PKG/.multiwfn-install-manifest-v1.json"', WORKFLOW)
+        self.assertIn("VITE_MATTERVIZ_PRERELEASE_UPDATER=0 pnpm build", WORKFLOW)
+        self.assertIn("VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build", WORKFLOW)
+
+    def test_matterviz_preview_signing_is_protected_and_fail_closed(self):
+        self.assertIn("sign-preview:", WORKFLOW)
+        self.assertIn("environment:\n      name: matterviz-preview-signing", WORKFLOW)
+        self.assertIn("secrets.MATTERVIZ_PREVIEW_SIGNING_KEY_PKCS8_BASE64", WORKFLOW)
+        self.assertIn("trusted-keys.json has no production public key", WORKFLOW)
+        self.assertIn('"$tool" proof', WORKFLOW)
+        self.assertIn('"$tool" verify-proof', WORKFLOW)
+        self.assertIn('"$tool" build-manifest', WORKFLOW)
+        self.assertIn('"$tool" sign', WORKFLOW)
+        self.assertIn('"$tool" verify', WORKFLOW)
+        self.assertIn("needs.sign-preview.result == 'success'", WORKFLOW)
+        self.assertNotIn("MATTERVIZ_PREVIEW_SIGNING_ENABLED", WORKFLOW)
+        self.assertNotIn("archive re-signing is intentionally a documented TODO", WORKFLOW)
+
+    def test_release_verification_checks_formal_and_preview_metadata(self):
+        block = WORKFLOW.split("- name: Verify release package metadata contract", 1)[1].split(
+            "\n      - name: Publish release", 1
+        )[0]
+        self.assertIn("v*-matterviz.*", block)
+        self.assertIn("resources/tools/multiwfn-matterviz-updater", block)
+        self.assertIn("install-manifest", block)
+        self.assertIn("install-proof", block)
+        self.assertIn("multiwfn-matterviz-release-manifest-v1.json", block)
+        self.assertIn("Formal MatterViz package contains updater metadata", block)
+        self.assertIn("Preview/test MatterViz package is missing updater metadata", block)
+        self.assertIn('gh release view "$GITHUB_REF_NAME"', WORKFLOW)
+        self.assertIn('gh release delete "$GITHUB_REF_NAME"', WORKFLOW)
 
     def test_matterviz_workflow_supports_preview_and_formal_releases(self):
         self.assertIn("- 'matterviz-preview-*'", WORKFLOW)
