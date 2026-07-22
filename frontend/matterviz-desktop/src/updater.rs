@@ -118,7 +118,11 @@ impl UpdateManager {
     }
 
     #[cfg(test)]
-    fn with_executable(executable: Option<PathBuf>, host_pid: u32, multiwfn_pid: Option<u64>) -> Self {
+    fn with_executable(
+        executable: Option<PathBuf>,
+        host_pid: u32,
+        multiwfn_pid: Option<u64>,
+    ) -> Self {
         let initial = if executable.is_some() && multiwfn_pid.is_some() {
             UpdateState::visible()
         } else {
@@ -258,8 +262,8 @@ impl UpdateManager {
         let manager = self.clone();
         thread::spawn(move || {
             let _guard = guard;
-            let result = run_helper(&executable, &[command, "--json"], timeout)
-                .and_then(parse_helper_json);
+            let result =
+                run_helper(&executable, &[command, "--json"], timeout).and_then(parse_helper_json);
             match result {
                 Ok(value) if value.get("ok").and_then(Value::as_bool) != Some(false) => {
                     manager.set_state(|state| apply(state, &value));
@@ -356,7 +360,11 @@ fn startup_state(value: &Value) -> UpdateState {
     state
 }
 
-fn run_helper(executable: &Path, args: &[&str], timeout: Duration) -> Result<CommandOutput, String> {
+fn run_helper(
+    executable: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<CommandOutput, String> {
     let mut command = Command::new(executable);
     command
         .args(args)
@@ -366,8 +374,14 @@ fn run_helper(executable: &Path, args: &[&str], timeout: Duration) -> Result<Com
     let mut child = command
         .spawn()
         .map_err(|error| format!("could not start updater: {error}"))?;
-    let stdout = child.stdout.take().ok_or_else(|| "updater stdout unavailable".to_owned())?;
-    let stderr = child.stderr.take().ok_or_else(|| "updater stderr unavailable".to_owned())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "updater stdout unavailable".to_owned())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "updater stderr unavailable".to_owned())?;
     let stdout_thread = thread::spawn(|| bounded_read(stdout));
     let stderr_thread = thread::spawn(|| bounded_read(stderr));
     let deadline = Instant::now() + timeout;
@@ -433,8 +447,7 @@ fn parse_helper_bytes(
     status: &str,
 ) -> Result<Value, String> {
     if let Ok(value) = serde_json::from_slice::<Value>(stdout) {
-        if value.get("format").and_then(Value::as_str)
-            == Some("multiwfn-matterviz-update")
+        if value.get("format").and_then(Value::as_str) == Some("multiwfn-matterviz-update")
             && value.get("version").and_then(Value::as_u64) == Some(1)
         {
             return Ok(value);

@@ -1,9 +1,14 @@
 #![deny(unsafe_code)]
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use ed25519_dalek::SigningKey;
 use ed25519_dalek::pkcs8::EncodePrivateKey;
-use matterviz_updater::{inventory_directory, json_output, manifest_sha256, read_inventory_proof, sha256_hex, sign_inventory_proof, sign_manifest, verify_inventory_for_signing, verify_inventory_proof, verify_signed_manifest, Error, InstallManifestV1, ReleaseManifestV1, ReleaseTarget, SignedReleaseManifest, PublicKeyEntry, REPOSITORY, CHANNEL};
+use ed25519_dalek::SigningKey;
+use matterviz_updater::{
+    inventory_directory, json_output, manifest_sha256, read_inventory_proof, sha256_hex,
+    sign_inventory_proof, sign_manifest, verify_inventory_for_signing, verify_inventory_proof,
+    verify_signed_manifest, Error, InstallManifestV1, PublicKeyEntry, ReleaseManifestV1,
+    ReleaseTarget, SignedReleaseManifest, CHANNEL, REPOSITORY,
+};
 use rand::rngs::OsRng;
 use serde::Serialize;
 use std::env;
@@ -12,36 +17,80 @@ use std::io::{self, Read};
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
-#[derive(Serialize)] struct KeyReply { version: u32, key_id: String, public_key: String }
-fn arg(args: &[String], name: &str) -> Result<String, Error> { args.windows(2).find(|p| p[0] == name).map(|p| Ok(p[1].clone())).unwrap_or_else(|| Err(Error::Invalid(format!("missing {name}")))) }
-fn optional(args: &[String], name: &str) -> Option<String> { args.windows(2).find(|p| p[0] == name).map(|p| p[1].clone()) }
-fn output(path: Option<String>, bytes: &[u8]) -> Result<(), Error> { if let Some(path) = path { fs::write(path, bytes)?; } else { print!("{}", String::from_utf8_lossy(bytes)); } Ok(()) }
+#[derive(Serialize)]
+struct KeyReply {
+    version: u32,
+    key_id: String,
+    public_key: String,
+}
+fn arg(args: &[String], name: &str) -> Result<String, Error> {
+    args.windows(2)
+        .find(|p| p[0] == name)
+        .map(|p| Ok(p[1].clone()))
+        .unwrap_or_else(|| Err(Error::Invalid(format!("missing {name}"))))
+}
+fn optional(args: &[String], name: &str) -> Option<String> {
+    args.windows(2).find(|p| p[0] == name).map(|p| p[1].clone())
+}
+fn output(path: Option<String>, bytes: &[u8]) -> Result<(), Error> {
+    if let Some(path) = path {
+        fs::write(path, bytes)?;
+    } else {
+        print!("{}", String::from_utf8_lossy(bytes));
+    }
+    Ok(())
+}
 fn write_private_key(path: &str, bytes: &[u8]) -> Result<(), Error> {
     use std::fs::OpenOptions;
     use std::io::Write;
-    let mut options = OpenOptions::new(); options.write(true).create_new(true);
-    #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
     let mut file = options.open(path).map_err(Error::Io)?;
     file.write_all(bytes).map_err(Error::Io)?;
     file.sync_all().map_err(Error::Io)?;
     Ok(())
 }
-fn read_stdin() -> Result<Zeroizing<String>, Error> { let mut s = String::new(); io::stdin().read_to_string(&mut s)?; Ok(Zeroizing::new(s)) }
+fn read_stdin() -> Result<Zeroizing<String>, Error> {
+    let mut s = String::new();
+    io::stdin().read_to_string(&mut s)?;
+    Ok(Zeroizing::new(s))
+}
 fn parse_specs(args: &[String]) -> Result<Vec<(String, PathBuf, PathBuf)>, Error> {
     let mut out = Vec::new();
     for spec in args.iter().filter(|s| s.starts_with("--target=")) {
-        let value = &spec[9..]; let (target, rest) = value.split_once('=').ok_or_else(|| Error::Invalid("--target=TARGET=ARCHIVE:INVENTORY".into()))?;
-        let (archive, inventory) = rest.split_once(':').ok_or_else(|| Error::Invalid("--target=TARGET=ARCHIVE:INVENTORY".into()))?;
-        out.push((target.to_owned(), PathBuf::from(archive), PathBuf::from(inventory)));
+        let value = &spec[9..];
+        let (target, rest) = value
+            .split_once('=')
+            .ok_or_else(|| Error::Invalid("--target=TARGET=ARCHIVE:INVENTORY".into()))?;
+        let (archive, inventory) = rest
+            .split_once(':')
+            .ok_or_else(|| Error::Invalid("--target=TARGET=ARCHIVE:INVENTORY".into()))?;
+        out.push((
+            target.to_owned(),
+            PathBuf::from(archive),
+            PathBuf::from(inventory),
+        ));
     }
-    if out.is_empty() { return Err(Error::Invalid("at least one --target=... spec is required".into())); }
+    if out.is_empty() {
+        return Err(Error::Invalid(
+            "at least one --target=... spec is required".into(),
+        ));
+    }
     Ok(out)
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let result = run(&args[1..]);
-    if let Err(e) = result { eprintln!("{e}"); std::process::exit(1); }
+    if let Err(e) = result {
+        eprintln!("{e}");
+        std::process::exit(1);
+    }
 }
 
 fn run(args: &[String]) -> Result<(), Error> {

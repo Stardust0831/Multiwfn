@@ -1230,3 +1230,13 @@
   and both preview/formal production builds locally; the Rust corrections are
   staged for the next CI bootstrap, which must generate and return the updater
   lockfile and current rustfmt output before the workflow is made strict.
+- A temporary local Rust 1.88 toolchain subsequently generated the checked-in
+  updater `Cargo.lock` and normalized both updater and Host sources. Updater
+  verification passes 16/16 tests, `cargo check --locked`, rustfmt check and
+  Clippy with warnings denied; the authenticated N-to-N+1 test now uses real
+  Ed25519 test proofs and covers preserved settings, added/removed managed
+  files and an unknown user sentinel. A cross-platform hard-link regression
+  exercises the stable Win32 metadata replacement. Local Host compilation
+  reaches native Wayland/DBus discovery but this WSL environment lacks
+  `pkg-config` and the corresponding development libraries, so full Host and
+  package verification remains in three-platform CI.

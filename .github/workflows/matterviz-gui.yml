@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - feature/matterviz-gui
-      - feature/matterviz-prerelease-updater
     tags:
       - 'matterviz-preview-*'
       - 'v*-matterviz.*'
@@ -99,29 +98,11 @@ jobs:
       - name: Test MatterViz updater
         working-directory: frontend/matterviz-updater
         run: |
-          cargo fmt --all
-          cargo generate-lockfile
-          cargo test
-          cargo check
-          cargo clippy --all-targets -- -D warnings
-          cargo build --release
-
-      - name: Upload normalized updater bootstrap files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: matterviz-updater-bootstrap
-          path: |
-            frontend/matterviz-updater/Cargo.lock
-            frontend/matterviz-updater/src
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Require checked-in updater formatting and lockfile
-        run: |
-          set -euo pipefail
-          git diff --exit-code -- frontend/matterviz-updater
-          git ls-files --error-unmatch frontend/matterviz-updater/Cargo.lock
+          cargo fmt --all -- --check
+          cargo test --locked
+          cargo check --locked
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo build --release --locked
 
       - name: Test C-to-Rust binary volume transport
         run: |
@@ -233,7 +214,7 @@ jobs:
 
       - name: Build MatterViz updater
         working-directory: frontend/matterviz-updater
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Test C-to-Rust binary volume transport
         run: cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
@@ -720,7 +701,7 @@ jobs:
 
       - name: Build signing tool
         working-directory: frontend/matterviz-updater
-        run: cargo build --release --bin multiwfn-matterviz-sign
+        run: cargo build --release --locked --bin multiwfn-matterviz-sign
 
       - name: Download unsigned preview packages
         uses: actions/download-artifact@v4

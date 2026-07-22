@@ -1234,9 +1234,7 @@ impl HttpRequest {
             .iter()
             .filter(|(name, _)| name.eq_ignore_ascii_case("content-type"))
             .collect();
-        content_types.len() == 1
-            && content_types[0].1 == "application/json"
-            && self.body == b"{}"
+        content_types.len() == 1 && content_types[0].1 == "application/json" && self.body == b"{}"
     }
 }
 
@@ -1277,7 +1275,11 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, HttpRequ
     let mut headers = Vec::new();
     for line in lines {
         let (name, value) = line.split_once(':').ok_or(())?;
-        if name.is_empty() || name.chars().any(|value| value.is_ascii_control() || value == ' ') {
+        if name.is_empty()
+            || name
+                .chars()
+                .any(|value| value.is_ascii_control() || value == ' ')
+        {
             return Err(());
         }
         headers.push((name.to_owned(), value.trim().to_owned()));
@@ -1314,11 +1316,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, HttpRequ
         }
         body.extend_from_slice(&chunk[..count]);
     }
-    Ok((
-        first.to_owned(),
-        host,
-        HttpRequest { headers, body },
-    ))
+    Ok((first.to_owned(), host, HttpRequest { headers, body }))
 }
 
 fn bind(host: &str, port: u16) -> Result<TcpListener, String> {

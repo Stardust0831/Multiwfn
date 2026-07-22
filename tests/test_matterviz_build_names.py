@@ -295,7 +295,7 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("MatterViz package unexpectedly contains a Python runtime artifact", WORKFLOW)
         self.assertIn("-name '*.py'", WORKFLOW)
 
-    def test_matterviz_updater_bootstrap_generates_a_real_lockfile(self):
+    def test_matterviz_updater_uses_a_checked_in_lockfile(self):
         self.assertIn("frontend/matterviz-updater/**", WORKFLOW)
         self.assertIn("docs/matterviz-updater.md", WORKFLOW)
         block = WORKFLOW.split("- name: Test MatterViz updater", 1)[1].split(
@@ -303,17 +303,17 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         )[0]
         self.assertIn("working-directory: frontend/matterviz-updater", block)
         for command in (
-            "cargo fmt --all",
-            "cargo generate-lockfile",
-            "cargo test",
-            "cargo check",
-            "cargo clippy --all-targets -- -D warnings",
-            "cargo build --release",
+            "cargo fmt --all -- --check",
+            "cargo test --locked",
+            "cargo check --locked",
+            "cargo clippy --all-targets --locked -- -D warnings",
+            "cargo build --release --locked",
         ):
             self.assertIn(command, block)
-        self.assertNotIn("--locked", block)
-        self.assertIn("matterviz-updater-bootstrap", WORKFLOW)
-        self.assertIn("git ls-files --error-unmatch frontend/matterviz-updater/Cargo.lock", WORKFLOW)
+        self.assertNotIn("cargo generate-lockfile", WORKFLOW)
+        self.assertNotIn("matterviz-updater-bootstrap", WORKFLOW)
+        self.assertIn("cargo build --release --locked", WORKFLOW)
+        self.assertIn("cargo build --release --locked --bin multiwfn-matterviz-sign", WORKFLOW)
 
     def test_matterviz_package_metadata_distinguishes_formal_and_preview(self):
         self.assertIn('echo "MATTERVIZ_FORMAL=1"', WORKFLOW)

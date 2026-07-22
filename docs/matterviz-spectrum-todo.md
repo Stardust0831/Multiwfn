@@ -21,9 +21,12 @@ Updated: 2026-07-23
   rollback failure must retain recoverable state.
 - [ ] Test real N-to-N+1 package updates, conflicts, rollback and file-count
   changes on Windows, Linux and macOS with user sentinel files.
-- [ ] Import the CI-generated updater `Cargo.lock` and rustfmt output, restore
-  strict `--locked`/`fmt --check` jobs, then pass updater/Host clippy and all
-  three package builds. The bootstrap workflow is not a release candidate.
+- [x] Check in the Rust 1.88-generated updater `Cargo.lock` and rustfmt output;
+  restore strict `--locked`/`fmt --check` jobs and remove every temporary
+  bootstrap trigger/artifact step.
+- [ ] Pass updater/Host Clippy and all three package builds in final CI. The
+  updater itself passes 16 tests, check, rustfmt and Clippy locally; Host native
+  linking and non-Linux updater code remain platform CI gates.
 - [x] Address the first independent security review: separate applying from
   installed journals, make rollback idempotent, durably order payload and
   journal renames, detach the helper, use Linux pidfds and preserve explicit
