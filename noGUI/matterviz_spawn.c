@@ -791,7 +791,8 @@ static int mwfn_spawn_posix(const char *executable, const char *frontend, const 
     char ack_fd[32];
     char request_fd[32];
     char response_fd[32];
-    char *argv[18];
+    char multiwfn_pid[32];
+    char *argv[20];
     unsigned int argc = 0;
     int error_code;
     if (mwfn_pipe_cloexec(exec_pipe) != 0 ||
@@ -819,6 +820,9 @@ static int mwfn_spawn_posix(const char *executable, const char *frontend, const 
     argv[argc++] = (char *)session;
     argv[argc++] = (char *)"--manifest";
     argv[argc++] = (char *)manifest;
+    (void)snprintf(multiwfn_pid, sizeof(multiwfn_pid), "%ld", (long)getpid());
+    argv[argc++] = (char *)"--multiwfn-pid";
+    argv[argc++] = multiwfn_pid;
     if (with_transport) {
         (void)snprintf(volume_fd, sizeof(volume_fd), "%d", volume_pipe[0]);
         (void)snprintf(ack_fd, sizeof(ack_fd), "%d", ack_pipe[1]);
@@ -1515,12 +1519,13 @@ static int mwfn_spawn_windows(const char *executable, const char *frontend, cons
                               const char *manifest, int with_transport, HANDLE *volume_write_out,
                               HANDLE *ack_read_out, HANDLE *request_read_out,
                               HANDLE *response_write_out, PROCESS_INFORMATION *process_out) {
-    const char *names[15];
+    const char *names[17];
     char volume_handle[32];
     char ack_handle[32];
     char control_read_handle[32];
     char control_write_handle[32];
-    wchar_t *wide_values[15] = {0};
+    char multiwfn_pid[32];
+    wchar_t *wide_values[17] = {0};
     wchar_t *command_line = NULL;
     size_t command_length = 0;
     size_t command_capacity = 0;
@@ -1548,6 +1553,10 @@ static int mwfn_spawn_windows(const char *executable, const char *frontend, cons
     names[count++] = session;
     names[count++] = "--manifest";
     names[count++] = manifest;
+    (void)snprintf(multiwfn_pid, sizeof(multiwfn_pid), "%lu",
+                   (unsigned long)GetCurrentProcessId());
+    names[count++] = "--multiwfn-pid";
+    names[count++] = multiwfn_pid;
     if (with_transport) {
         if (!CreatePipe(&volume_read, &volume_write, &security, 0) ||
             !CreatePipe(&ack_read, &ack_write, &security, 0) ||

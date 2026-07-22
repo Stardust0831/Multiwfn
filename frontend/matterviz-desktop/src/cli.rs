@@ -75,6 +75,7 @@ impl Cli {
         let mut volume_ack_pipe = None;
         let mut control_read_pipe = None;
         let mut control_write_pipe = None;
+        let mut multiwfn_pid = None;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             let (key, inline) = arg
@@ -140,6 +141,12 @@ impl Cli {
                     }
                     control_write_pipe = Some(parse_pipe(&take(key)?, key)?);
                 }
+                "--multiwfn-pid" => {
+                    if multiwfn_pid.is_some() {
+                        return Err("--multiwfn-pid must be provided once".to_owned());
+                    }
+                    multiwfn_pid = Some(parse_pid(&take(key)?, key)?);
+                }
                 "--help" | "-h" => return Err(usage()),
                 other => return Err(format!("unknown argument {other}")),
             }
@@ -179,6 +186,7 @@ impl Cli {
                 || volume_ack_pipe.is_some()
                 || control_read_pipe.is_some()
                 || control_write_pipe.is_some()
+                || multiwfn_pid.is_some()
             {
                 return Err("--select-file cannot be combined with a MatterViz session".to_owned());
             }
@@ -203,6 +211,7 @@ impl Cli {
                 || volume_ack_pipe.is_some()
                 || control_read_pipe.is_some()
                 || control_write_pipe.is_some()
+                || multiwfn_pid.is_some()
             {
                 return Err("--url cannot be combined with a managed session".to_owned());
             }
@@ -220,6 +229,7 @@ impl Cli {
                 || volume_ack_pipe.is_some()
                 || control_read_pipe.is_some()
                 || control_write_pipe.is_some()
+                || multiwfn_pid.is_some()
             {
                 return Err("transport pipes require a managed session".to_owned());
             }
@@ -292,6 +302,7 @@ impl Cli {
             host,
             port,
             transport,
+            multiwfn_pid,
         };
         Ok(Self {
             mode: Mode::Managed(config),
@@ -310,6 +321,16 @@ fn parse_pipe(value: &str, name: &str) -> Result<u64, String> {
         return Err(format!("{name} is invalid"));
     }
     Ok(raw)
+}
+
+fn parse_pid(value: &str, name: &str) -> Result<u64, String> {
+    let pid = value
+        .parse::<u64>()
+        .map_err(|_| format!("{name} must be a positive process id"))?;
+    if pid == 0 {
+        return Err(format!("{name} must be a positive process id"));
+    }
+    Ok(pid)
 }
 
 fn parse_timeout(value: &str) -> Result<Duration, String> {
@@ -337,7 +358,7 @@ fn validate_url(value: &str) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: matterviz-desktop --frontend DIR --session DIR [--manifest FILE] [--state FILE] [--host HOST] [--port PORT] [--startup-timeout SEC] [--volume-read-pipe RAW --volume-ack-pipe RAW --control-read-pipe RAW --control-write-pipe RAW]\n       matterviz-desktop --select-file (--output FILE | --result-pipe RAW)\n       matterviz-desktop --url URL".to_owned()
+    "usage: matterviz-desktop --frontend DIR --session DIR [--multiwfn-pid PID] [--manifest FILE] [--state FILE] [--host HOST] [--port PORT] [--startup-timeout SEC] [--volume-read-pipe RAW --volume-ack-pipe RAW --control-read-pipe RAW --control-write-pipe RAW]\n       matterviz-desktop --select-file (--output FILE | --result-pipe RAW)\n       matterviz-desktop --url URL".to_owned()
 }
 
 #[cfg(test)]
@@ -359,6 +380,7 @@ mod tests {
             "--frontend".into(),
             "dist".into(),
             "--session=session".into(),
+            "--multiwfn-pid=123".into(),
             "--port".into(),
             "0".into(),
         ])
@@ -368,6 +390,22 @@ mod tests {
         };
         assert_eq!(config.host, DEFAULT_MANAGED_HOST);
         assert_eq!(config.port, 0);
+        assert_eq!(config.multiwfn_pid, Some(123));
+    }
+
+    #[test]
+    fn validates_optional_positive_multiwfn_pid_for_managed_sessions() {
+        let base = ["--frontend=dist".into(), "--session=session".into()];
+        assert!(parse(base.clone()).is_ok());
+        let mut zero = base.clone();
+        zero.push("--multiwfn-pid=0".into());
+        assert!(parse(zero).is_err());
+        let mut duplicate = base.clone();
+        duplicate.extend(["--multiwfn-pid=9".into(), "--multiwfn-pid=10".into()]);
+        assert!(parse(duplicate).is_err());
+        let mut valid = base;
+        valid.push("--multiwfn-pid=9".into());
+        assert!(parse(valid).is_ok());
     }
 
     #[test]
@@ -375,6 +413,7 @@ mod tests {
         let cli = parse([
             "--frontend=dist".into(),
             "--session=session".into(),
+            "--multiwfn-pid=123".into(),
             "--volume-read-pipe=41".into(),
             "--volume-ack-pipe".into(),
             "42".into(),
@@ -393,6 +432,7 @@ mod tests {
         let cli = parse([
             "--frontend=dist".into(),
             "--session=session".into(),
+            "--multiwfn-pid=123".into(),
             "--volume-read-pipe=41".into(),
             "--volume-ack-pipe=42".into(),
             "--control-read-pipe=43".into(),

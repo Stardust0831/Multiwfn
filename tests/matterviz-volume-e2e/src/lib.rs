@@ -137,6 +137,7 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 0,
             transport: Some(transport),
+            multiwfn_pid: Some(1),
         })
         .unwrap();
         read_ready(&mut producer);

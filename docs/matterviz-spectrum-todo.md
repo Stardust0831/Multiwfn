@@ -1,6 +1,29 @@
 # MatterViz origin/main parity TODO
 
-Updated: 2026-07-16
+Updated: 2026-07-23
+
+## 2026-07-23 prerelease self-update
+
+- [ ] Add a standalone Rust updater with a versioned Ed25519 release manifest,
+  authenticated install inventory and fail-closed preview-channel selection.
+- [ ] Preserve unknown regular files and `settings.ini`; abort before writes on
+  modified managed files, target collisions, links, special files or unsafe
+  archive paths.
+- [ ] Add journaled staging, rollback and first-launch confirmation while the
+  helper waits for a normal Multiwfn `q` exit instead of killing the process.
+- [x] Add capability-protected Host endpoints and a manual-only update UI that
+  is absent from formal releases.
+- [ ] Complete the two-layer trust chain: a package-carried signed inventory
+  proof authenticates installed ownership without an archive-hash cycle, while
+  the external signed release manifest authenticates the final archive.
+- [ ] Prove the transaction journal is crash-consistent: every rename must have
+  a durable intent first, staging must not collide with the active journal, and
+  rollback failure must retain recoverable state.
+- [ ] Test real N-to-N+1 package updates, conflicts, rollback and file-count
+  changes on Windows, Linux and macOS with user sentinel files.
+- [ ] After code review, configure the protected signing Environment, encrypted
+  offline key backup and public-key registry. The first trust-root preview must
+  be installed manually; validate self-update using the following preview.
 
 ## 2026-07-14 Rust host migration
 

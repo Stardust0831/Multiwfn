@@ -1,5 +1,56 @@
 # MatterViz parity development log
 
+## 2026-07-23: prerelease updater architecture
+
+- Started the updater on an independent branch from current `origin/main`, not
+  on the native-plot PR. Work is confined to the MatterViz GUI, Rust middleware,
+  release packaging and tests; scientific calculation modules remain outside
+  scope.
+- Audited the signed updater in `Stardust0831/ssh-mountmate`. Its Ed25519 key
+  registry, bounded release metadata and detached helper are useful foundations,
+  but its whole-directory swap is unsuitable for a Multiwfn folder that may
+  contain user files.
+- Chose a signed file-level ownership inventory. Unknown regular files remain
+  untouched, `settings.ini` is always preserved, and any managed-file change or
+  new-path collision aborts the update before disk mutation. New and removed
+  official files are handled by authenticated old/new inventories.
+- Limited the first feature to manual checks from preview packages, the latest
+  newer signed preview, normal user-driven Multiwfn exit, manual restart and
+  three-platform support. Formal releases omit the updater and UI capability.
+- Production key setup is deferred until implementation and security review
+  pass. CI uses ephemeral keys; production custody will use a protected GitHub
+  Environment plus an encrypted offline recovery copy.
+- Static integration review rejected the first updater-core transaction rather
+  than treating it as complete. Staging occupied the same directory that the
+  installer rejected as an unfinished transaction, and backup renames preceded
+  their durable journal entries, so normal installation and crash recovery were
+  not yet valid.
+- Corrected the trust design to avoid a circular archive hash. Each preview
+  package carries a separately signed installed-inventory proof that binds the
+  repository, channel, tag, target and managed inventory digest. The external
+  signed release manifest then binds that inventory digest and the completed
+  archive name, size and SHA-256. User-modified `settings.ini` remains outside
+  the managed digest.
+- Host integration now passes the Multiwfn PID from the native C launcher,
+  exposes capability-protected local status/check/stage/install routes, accepts
+  only versioned updater JSON, preserves structured conflict replies from
+  nonzero helper exits and confirms a pending update only after frontend
+  readiness. The preview-only frontend has explicit idle, available, staging,
+  ready, conflict, error and recovery states; its focused protocol tests pass.
+- Independent security review rejected the initial core as not ready because
+  file renames were weaker than journal durability, applying and installed
+  transactions shared one confirmation bit, the helper was not detached and
+  Linux tracked reusable numeric PIDs. The corrected core now uses explicit
+  applying/installed lifecycle states, idempotent rollback, Unix directory
+  fsync, Windows write-through rename, detached process creation and Linux
+  pidfds. Host startup preserves recovery state and only confirms an explicitly
+  installed transaction after frontend readiness.
+- Local C, Python, workflow-schema and focused updater-frontend checks pass.
+  Full frontend execution remains dependency-blocked in this worktree, and no
+  Rust toolchain is installed. A one-time CI bootstrap will therefore generate
+  the genuine updater lockfile and rustfmt output before the workflow is changed
+  back to strict locked, read-only verification.
+
 ## 2026-07-14: Native Rust host migration started
 
 - Corrected the implementation direction after the Python launcher fixes became a second process-lifecycle layer: MatterViz will use one native Rust host for the local HTTP/session service, WebView creation, API routing, native file selection, port binding and shutdown. Fortran remains the tightly coupled Multiwfn calculation adapter and continues to own the existing request loop; no calculation core was changed.
