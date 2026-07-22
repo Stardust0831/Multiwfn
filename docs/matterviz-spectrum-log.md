@@ -1263,3 +1263,12 @@
   important issue in the cleanup, platform-test and CI-integration fixes. No
   preview tag is created until the protected signing Environment and public
   trust registry are configured and the first trust-root package is reviewed.
+- PR #51 final review identified two reproducible updater issues. Status replies
+  no longer hash every managed package file: they verify the signed proof,
+  manifest digest, release tag and platform target, while installation still
+  performs complete managed-file authentication before mutation. A stale
+  regular write probe left by a crash is now replaced; links, hard links,
+  reparse points and non-files remain rejected. The regression suite now passes
+  22/22 tests together with Rust 1.88 format, check and strict Clippy gates. The
+  review service's date warning was not applied because both the commit and the
+  maintained project timezone date are `2026-07-23`.

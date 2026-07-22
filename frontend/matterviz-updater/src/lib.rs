@@ -826,16 +826,8 @@ pub fn authenticate_current_inventory(
     registry: &[PublicKeyEntry],
     target: &str,
 ) -> Result<InstallManifestV1> {
-    verify_inventory_proof(proof, registry)?;
     let local = read_install_manifest(root)?;
-    if local.target != target || local.release_tag != proof.release_tag || proof.target != target {
-        return Err(Error::Signature(
-            "installed release metadata mismatch".into(),
-        ));
-    }
-    if manifest_sha256(&local)? != proof.install_manifest_sha256 {
-        return Err(Error::Signature("installed inventory is not signed".into()));
-    }
+    authenticate_current_inventory_metadata(&local, proof, registry, target)?;
     // The complete inventory is signed above. Preserve-policy file contents
     // are user-owned after installation and are therefore not re-hashed here.
     for file in local
@@ -856,6 +848,31 @@ pub fn authenticate_current_inventory(
         }
     }
     Ok(local)
+}
+
+/// Authenticate the installed manifest and proof without hashing package files.
+/// This is suitable for capability/status reporting only; mutation paths must
+/// call [`authenticate_current_inventory`] before trusting managed file state.
+pub fn authenticate_current_inventory_metadata(
+    manifest: &InstallManifestV1,
+    proof: &InstalledInventoryProof,
+    registry: &[PublicKeyEntry],
+    target: &str,
+) -> Result<()> {
+    verify_inventory_proof(proof, registry)?;
+    validate_install_manifest(manifest)?;
+    if manifest.target != target
+        || manifest.release_tag != proof.release_tag
+        || proof.target != target
+    {
+        return Err(Error::Signature(
+            "installed release metadata mismatch".into(),
+        ));
+    }
+    if manifest_sha256(manifest)? != proof.install_manifest_sha256 {
+        return Err(Error::Signature("installed inventory is not signed".into()));
+    }
+    Ok(())
 }
 
 /// Authenticate the target package proof and its complete inventory before a
@@ -1460,6 +1477,15 @@ pub fn apply_transaction(
         ));
     }
     let probe = install_root.join(".multiwfn-updater-write-probe");
+    if let Some(metadata) = existing_nolink(&probe)? {
+        if !metadata.is_file() {
+            return Err(Error::Invalid(format!(
+                "write probe is not a regular file: {}",
+                probe.display()
+            )));
+        }
+        fs::remove_file(&probe)?;
+    }
     OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -2325,6 +2351,30 @@ mod tests {
     }
 
     #[test]
+    fn stale_regular_write_probe_is_replaced_but_directory_is_rejected() {
+        let d = tempdir().unwrap();
+        fs::write(d.path().join(".multiwfn-updater-write-probe"), b"stale").unwrap();
+        let target = InstallManifestV1 {
+            version: 1,
+            target: "linux-x86_64".into(),
+            release_tag: "matterviz-preview-2".into(),
+            files: vec![file_entry("app", b"new", FilePolicy::Managed)],
+        };
+        stage_with_manifest(d.path(), &target, &[("app", b"new")]);
+        apply_transaction(d.path(), stage_dir(d.path()).as_path(), &target).unwrap();
+        assert_eq!(fs::read(d.path().join("app")).unwrap(), b"new");
+        assert!(!d.path().join(".multiwfn-updater-write-probe").exists());
+
+        let d2 = tempdir().unwrap();
+        fs::create_dir(d2.path().join(".multiwfn-updater-write-probe")).unwrap();
+        stage_with_manifest(d2.path(), &target, &[("app", b"new")]);
+        assert!(matches!(
+            apply_transaction(d2.path(), stage_dir(d2.path()).as_path(), &target),
+            Err(Error::Invalid(_))
+        ));
+    }
+
+    #[test]
     fn rollback_restores_journaled_backup() {
         let d = tempdir().unwrap();
         fs::write(d.path().join("app"), b"new").unwrap();
@@ -2388,6 +2438,18 @@ mod tests {
         assert!(
             authenticate_current_inventory(d.path(), &proof, &registry, "linux-x86_64").is_ok()
         );
+        fs::write(d.path().join("app"), b"modified").unwrap();
+        assert!(authenticate_current_inventory_metadata(
+            &manifest,
+            &proof,
+            &registry,
+            "linux-x86_64"
+        )
+        .is_ok());
+        assert!(
+            authenticate_current_inventory(d.path(), &proof, &registry, "linux-x86_64").is_err()
+        );
+        fs::write(d.path().join("app"), b"x").unwrap();
         let mut changed = manifest.clone();
         changed.files[1].sha256 = sha256_hex(b"tampered-entry");
         fs::write(

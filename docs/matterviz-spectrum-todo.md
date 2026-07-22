@@ -26,7 +26,7 @@ Updated: 2026-07-23
   bootstrap trigger/artifact step.
 - [x] Pass updater/Host Clippy and all three package builds in final CI. Run
   `29954169768` passed frontend/Host plus Linux, macOS and Windows package jobs;
-  every native package job executes the 21 updater tests.
+  every native package job executes the updater tests.
 - [x] Address the first independent security review: separate applying from
   installed journals, make rollback idempotent, durably order payload and
   journal renames, detach the helper, use Linux pidfds and preserve explicit
@@ -40,6 +40,10 @@ Updated: 2026-07-23
 - [x] Build formal frontend artifacts with the prerelease updater branch
   disabled; formal packages also omit the updater executable, inventory and
   proof, so no update control or GitHub request is available.
+- [x] Address actionable final CodeRabbit findings: status capability checks
+  authenticate signed metadata without re-hashing every managed file, while
+  mutation paths retain full authentication; stale regular write probes are
+  recoverable and unsafe probe object types remain rejected.
 - [ ] After code review, configure the protected signing Environment, encrypted
   offline key backup and public-key registry. The first trust-root preview must
   be installed manually; validate self-update using the following preview.

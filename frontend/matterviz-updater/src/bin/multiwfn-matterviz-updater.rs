@@ -1,10 +1,10 @@
 #![deny(unsafe_code)]
 
 use matterviz_updater::{
-    apply_authenticated_transaction, candidate_dir, clear_candidate, confirm_transaction,
-    embedded_key_registry, extract_archive, is_newer_preview, json_output, load_candidate,
-    load_transaction, read_install_manifest, rollback_last, save_candidate, stage_dir,
-    CandidateState, Error, GitHubClient, ReleaseClient,
+    apply_authenticated_transaction, authenticate_current_inventory_metadata, candidate_dir,
+    clear_candidate, confirm_transaction, embedded_key_registry, extract_archive, is_newer_preview,
+    json_output, load_candidate, load_transaction, read_install_manifest, rollback_last,
+    save_candidate, stage_dir, CandidateState, Error, GitHubClient, ReleaseClient,
 };
 use serde::Serialize;
 use std::env;
@@ -35,7 +35,10 @@ struct Reply<'a> {
 }
 
 fn reply(command: &str, root: &Path, result: Result<Option<String>, Error>) -> i32 {
-    let current = read_current_tag(root);
+    let current_manifest = read_install_manifest(root).ok();
+    let current = current_manifest
+        .as_ref()
+        .map(|manifest| manifest.release_tag.clone());
     let candidate = load_candidate(root).ok().flatten();
     let staged_ready = stage_dir(root).is_dir();
     let pending = load_transaction(root).ok().flatten();
@@ -46,24 +49,17 @@ fn reply(command: &str, root: &Path, result: Result<Option<String>, Error>) -> i
         candidate.as_ref().map(|c| c.tag.clone())
     };
     let local_target = host_target().ok();
+    let registry = embedded_key_registry().ok();
     let enabled = root.join("settings.ini").is_file()
-        && local_target.is_some()
-        && embedded_key_registry().is_ok_and(|keys| !keys.is_empty())
-        && read_current_tag(root).is_some_and(|tag| {
+        && local_target.as_deref().is_some_and(|target| {
+            let (Some(manifest), Some(keys)) = (current_manifest.as_ref(), registry.as_deref())
+            else {
+                return false;
+            };
             let Ok(signed) = matterviz_updater::read_inventory_proof(root) else {
                 return false;
             };
-            let Ok(keys) = embedded_key_registry() else {
-                return false;
-            };
-            matterviz_updater::authenticate_current_inventory(
-                root,
-                &signed,
-                &keys,
-                local_target.as_deref().unwrap_or_default(),
-            )
-            .is_ok()
-                && signed.release_tag == tag
+            authenticate_current_inventory_metadata(manifest, &signed, keys, target).is_ok()
         });
     let value = match result {
         Ok(_tag) => Reply {
@@ -165,10 +161,6 @@ fn install_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
 }
-fn read_current_tag(root: &Path) -> Option<String> {
-    read_install_manifest(root).ok().map(|m| m.release_tag)
-}
-
 fn command_status(root: &Path) -> Result<Option<String>, Error> {
     if let Some(txn) = load_transaction(root)? {
         return Ok(Some(txn.target_tag));
