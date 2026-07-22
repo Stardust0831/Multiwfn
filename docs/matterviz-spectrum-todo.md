@@ -4,19 +4,19 @@ Updated: 2026-07-23
 
 ## 2026-07-23 prerelease self-update
 
-- [ ] Add a standalone Rust updater with a versioned Ed25519 release manifest,
+- [x] Add a standalone Rust updater with a versioned Ed25519 release manifest,
   authenticated install inventory and fail-closed preview-channel selection.
-- [ ] Preserve unknown regular files and `settings.ini`; abort before writes on
+- [x] Preserve unknown regular files and `settings.ini`; abort before writes on
   modified managed files, target collisions, links, special files or unsafe
   archive paths.
-- [ ] Add journaled staging, rollback and first-launch confirmation while the
+- [x] Add journaled staging, rollback and first-launch confirmation while the
   helper waits for a normal Multiwfn `q` exit instead of killing the process.
 - [x] Add capability-protected Host endpoints and a manual-only update UI that
   is absent from formal releases.
-- [ ] Complete the two-layer trust chain: a package-carried signed inventory
+- [x] Complete the two-layer trust chain: a package-carried signed inventory
   proof authenticates installed ownership without an archive-hash cycle, while
   the external signed release manifest authenticates the final archive.
-- [ ] Prove the transaction journal is crash-consistent: every rename must have
+- [x] Prove the transaction journal is crash-consistent: every rename must have
   a durable intent first, staging must not collide with the active journal, and
   rollback failure must retain recoverable state.
 - [ ] Test real N-to-N+1 package updates, conflicts, rollback and file-count
@@ -24,9 +24,9 @@ Updated: 2026-07-23
 - [x] Check in the Rust 1.88-generated updater `Cargo.lock` and rustfmt output;
   restore strict `--locked`/`fmt --check` jobs and remove every temporary
   bootstrap trigger/artifact step.
-- [ ] Pass updater/Host Clippy and all three package builds in final CI. The
-  updater itself passes 21 tests, check, rustfmt and Clippy locally; Host native
-  linking and non-Linux updater code remain platform CI gates.
+- [x] Pass updater/Host Clippy and all three package builds in final CI. Run
+  `29954169768` passed frontend/Host plus Linux, macOS and Windows package jobs;
+  every native package job executes the 21 updater tests.
 - [x] Address the first independent security review: separate applying from
   installed journals, make rollback idempotent, durably order payload and
   journal renames, detach the helper, use Linux pidfds and preserve explicit

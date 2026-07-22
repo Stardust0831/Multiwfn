@@ -1255,3 +1255,11 @@
   the test crate now includes `updater.rs`, and constants use Foundation plus
   the documented process synchronization mask. Local updater tests pass 21/21
   and the expanded volume e2e suite passes 106/106 before the next CI run.
+- Final exact-head workflow run `29954169768` passed all four required jobs for
+  commit `2c6e7a919a11ffb8471760c0fbe41ced36762d4c`: frontend/Rust Host and the
+  Linux, macOS and Windows package matrices. Each native package job ran the
+  updater tests before release build; sign-preview and release jobs were
+  correctly skipped. Focused follow-up review found no remaining critical or
+  important issue in the cleanup, platform-test and CI-integration fixes. No
+  preview tag is created until the protected signing Environment and public
+  trust registry are configured and the first trust-root package is reviewed.
