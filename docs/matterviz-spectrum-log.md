@@ -11,9 +11,18 @@
   names so the current ruleset cannot strand open PRs; `main` pushes no longer
   build the retired GUI.
 - Added cancellation for superseded noGUI and legacy GUI runs. Linux and macOS
-  noGUI now run the full functional suite only against the extracted release
-  package, eliminating the earlier duplicate run against the unpackaged binary;
-  Windows retains both its full suite and the distinct outside-MSYS2 smoke test.
+  noGUI initially retained extracted-package testing while removing duplicate
+  pre-package runs. The follow-up scope decision then removed separate macOS and
+  Windows noGUI builds entirely: their supported distributions are the unified
+  MatterViz packages, which already exercise command-line startup and analysis.
+- The remaining noGUI workflow is Linux-only. It builds on Rocky Linux 8,
+  verifies the glibc 2.28 floor, tests the extracted archive with the full
+  functional suite, and publishes only the Linux headless tarball for
+  `v*-nogui.*`. Pull requests retain lightweight macOS/Windows noGUI contexts
+  only because the active ruleset still requires those exact historical names.
+- Removed heavyweight noGUI validation on `main` pushes. Pull requests provide
+  the pre-merge build/test gate, while release tags rebuild and test their own
+  same-run Linux artifact; this avoids the former PR/main/tag triple build.
 - Kept release artifact provenance unchanged: every tag still builds and tests
   its platform packages in the publishing workflow, and the release job reuses
   only artifacts from that same workflow run. Cross-run PR artifact promotion

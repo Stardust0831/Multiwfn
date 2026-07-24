@@ -11,11 +11,17 @@ Updated: 2026-07-25
 - [x] Cancel superseded noGUI and legacy GUI workflow runs for the same PR/ref.
 - [x] Remove duplicate pre-package Linux/macOS noGUI functional runs while
   retaining the stronger extracted-package full suites and Windows coverage.
+- [x] Stop compiling separate Windows/macOS noGUI binaries. Preserve their
+  current required-check names as lightweight gates while the unified MatterViz
+  packages retain platform command-line smoke coverage.
+- [x] Make noGUI CI and `v*-nogui.*` releases Linux-only, keep the Rocky Linux 8
+  glibc 2.28 package/full-suite gate, and remove heavyweight `main` push reruns.
 - [ ] After PR #51 merges, deduplicate the final MatterViz workflow: build the
   platform-independent frontend once, keep platform-native tests in the package
   matrix, and remove the duplicate standalone Linux release/CMake build.
 - [ ] After the streamlined workflow is proven on a PR, replace the transitional
-  legacy required contexts in the `main` ruleset with current stable CI gates.
+  legacy/noGUI macOS/noGUI Windows contexts in the `main` ruleset with current
+  stable MatterViz and Linux-headless gates.
 
 ## 2026-07-14 Rust host migration
 
