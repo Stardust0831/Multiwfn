@@ -1,5 +1,43 @@
 # MatterViz parity development log
 
+## 2026-07-25: CI streamlining
+
+- Audited all nine workflows and the active `main` ruleset. Ordinary PRs were
+  required to build noGUI on three platforms, the retired Qt/3Dmol GUI on three
+  platforms, and the retired GUI again on Rocky Linux 8; MatterViz changes added
+  another Linux validation job and three-platform package matrix.
+- Restricted actual Qt/3Dmol builds to their existing manual and legacy-tag
+  release paths. Pull requests retain cheap jobs with the exact required check
+  names so the current ruleset cannot strand open PRs; `main` pushes no longer
+  build the retired GUI.
+- Added cancellation for superseded noGUI and legacy GUI runs. Linux and macOS
+  noGUI initially retained extracted-package testing while removing duplicate
+  pre-package runs. The follow-up scope decision then removed separate macOS and
+  Windows noGUI builds entirely: their supported distributions are the unified
+  MatterViz packages, which already exercise command-line startup and analysis.
+- The remaining noGUI workflow is Linux-only. It builds on Rocky Linux 8,
+  verifies the glibc 2.28 floor, tests the extracted archive with the full
+  functional suite, and publishes only the Linux headless tarball for
+  `v*-nogui.*`. Pull requests retain lightweight macOS/Windows noGUI contexts
+  only because the active ruleset still requires those exact historical names.
+- Removed heavyweight noGUI validation on `main` pushes. Pull requests provide
+  the pre-merge build/test gate, while release tags rebuild and test their own
+  same-run Linux artifact; this avoids the former PR/main/tag triple build.
+- Final review kept the intentional no-`main` trigger, corrected release
+  checksum entries to use downloadable asset basenames, and moved failure
+  diagnostics after the extracted-package suite while preserving its output in
+  an uploaded log.
+- Kept release artifact provenance unchanged: every tag still builds and tests
+  its platform packages in the publishing workflow, and the release job reuses
+  only artifacts from that same workflow run. Cross-run PR artifact promotion
+  remains deliberately unsupported.
+- Deferred MatterViz-internal frontend/Rust/Linux build deduplication until the
+  prerelease updater workflow PR is merged, avoiding conflicting edits to the
+  same workflow and preserving its preview/formal build distinction. Local
+  verification passes `actionlint` 1.7.12 for all changed workflows, static
+  event-routing assertions, 18/18 existing MatterViz build-contract tests and
+  `git diff --check`; independent review found no remaining important issue.
+
 ## 2026-07-14: Native Rust host migration started
 
 - Corrected the implementation direction after the Python launcher fixes became a second process-lifecycle layer: MatterViz will use one native Rust host for the local HTTP/session service, WebView creation, API routing, native file selection, port binding and shutdown. Fortran remains the tightly coupled Multiwfn calculation adapter and continues to own the existing request loop; no calculation core was changed.

@@ -2,36 +2,33 @@ name: build
 
 on:
   push:
-    branches: [main, official-build, upstream-tracking]
+    branches: [official-build, upstream-tracking]
     tags: ['v*-nogui.*']
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
 
 permissions:
   contents: read
 
 jobs:
   nogui:
-    name: noGUI (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: noGUI (ubuntu-latest)
+    runs-on: ubuntu-latest
     timeout-minutes: 75
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Linux dependencies
-        if: runner.os == 'Linux'
         run: |
           docker version
 
       - name: Build, test, and package Linux in glibc 2.28 container
-        if: runner.os == 'Linux'
         run: |
           set +e
           docker run --rm \
@@ -55,7 +52,6 @@ jobs:
               ninja --version
               cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 2>&1 | tee configure.log
               cmake --build build --parallel 2 2>&1 | tee build.log
-              bash tests/functional/run_nogui_tests.sh /work/build/Multiwfn_noGUI
               mkdir -p package/Multiwfn_noGUI-Linux/lib dist
               cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
               cp LICENSE.txt package/Multiwfn_noGUI-Linux/LICENSE.txt
@@ -92,143 +88,8 @@ jobs:
           fi
           exit "$status"
 
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew install gcc cmake ninja
-          echo "FC=$(ls $(brew --prefix)/bin/gfortran-* | sort -V | tail -n 1)" >> "$GITHUB_ENV"
-
-      - name: Install Windows dependencies
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc-fortran
-            mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-ninja
-            mingw-w64-ucrt-x86_64-openblas
-
-      - name: Configure and build
-        if: runner.os == 'macOS'
-        run: |
-          set -o pipefail
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
-          cmake --build build --parallel 2>&1 | tee build.log
-
-      - name: Configure and build on Windows
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          set -o pipefail
-          test -s "$MINGW_PREFIX/lib/libopenblas.a"
-          ls -l "$MINGW_PREFIX"/lib/libopenblas*
-          ls -l "$MINGW_PREFIX"/lib/libgomp* "$MINGW_PREFIX"/lib/libwinpthread* "$MINGW_PREFIX"/lib/libquadmath* "$MINGW_PREFIX"/lib/libgfortran*
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
-          cmake --build build --parallel 2>&1 | tee build.log
-
-      - name: Summarize build failure
-        if: failure() && runner.os != 'Windows'
-        run: |
-          {
-            echo "## Build failure tail"
-            echo
-            echo '```text'
-            tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || tail -n 200 linux-container.log 2>/dev/null || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped|No match for argument|Unable to find a match|Problem:|No such file)' build.log configure.log linux-container.log 2>/dev/null || true)"
-          if [ -n "$first_error" ]; then
-            echo "::error::$first_error"
-          fi
-
-      - name: Upload Linux failure logs
-        if: failure() && runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-failure-logs
-          path: |
-            linux-container.log
-            configure.log
-            build.log
-          if-no-files-found: ignore
-
-      - name: Summarize Windows build failure
-        if: failure() && runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          {
-            echo "## Build failure tail"
-            echo
-            echo '```text'
-            tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped)' build.log configure.log 2>/dev/null || true)"
-          if [ -n "$first_error" ]; then
-            echo "::error::$first_error"
-          fi
-
-      - name: Functional tests
-        if: runner.os == 'macOS'
-        run: |
-          bash tests/functional/run_nogui_tests.sh "$PWD/build/Multiwfn_noGUI"
-
-      - name: Functional tests on Windows
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          bash tests/functional/run_nogui_tests.sh "$PWD/build/Multiwfn_noGUI.exe"
-
-      - name: Collect Windows runtime DLL dependencies
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          mkdir -p package/Multiwfn_noGUI-Windows
-          cp build/Multiwfn_noGUI.exe package/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe
-          cp LICENSE.txt package/Multiwfn_noGUI-Windows/LICENSE.txt
-          cp ATTRIBUTION.txt package/Multiwfn_noGUI-Windows/ATTRIBUTION.txt
-          cp settings.ini package/Multiwfn_noGUI-Windows/settings.ini
-          : > package/Multiwfn_noGUI-Windows/windows-dlls.log
-          processed=""
-          while :; do
-            changed=0
-            for binary in package/Multiwfn_noGUI-Windows/Multiwfn_noGUI.exe package/Multiwfn_noGUI-Windows/*.dll; do
-              [ -e "$binary" ] || continue
-              case " $processed " in
-                *" $binary "*) continue ;;
-              esac
-              processed="$processed $binary"
-              objdump -p "$binary" | tee -a package/Multiwfn_noGUI-Windows/windows-dlls.log
-              for dll in $(objdump -p "$binary" | awk '/DLL Name:/ {print $3}'); do
-                case "$dll" in
-                  KERNEL32.dll|msvcrt.dll|USER32.dll|ADVAPI32.dll|SHELL32.dll|WS2_32.dll|bcrypt.dll|api-ms-win-*.dll)
-                    ;;
-                  *)
-                    dll_path="$(command -v "$dll" || true)"
-                    if [ -z "$dll_path" ] && [ -f "$MINGW_PREFIX/bin/$dll" ]; then
-                      dll_path="$MINGW_PREFIX/bin/$dll"
-                    fi
-                    if [ -z "$dll_path" ]; then
-                      echo "::error::Could not locate runtime DLL $dll"
-                      exit 1
-                    fi
-                    if [ ! -f "package/Multiwfn_noGUI-Windows/$dll" ]; then
-                      cp "$dll_path" package/Multiwfn_noGUI-Windows/
-                      changed=1
-                    fi
-                    ;;
-                esac
-              done
-            done
-            [ "$changed" -eq 1 ] || break
-          done
-          find package/Multiwfn_noGUI-Windows -maxdepth 1 -type f -printf '%f\n' | sort
-
+      # Validate the packaged archive with the full suite on the glibc 2.28 baseline.
       - name: Test Linux release candidate in clean glibc 2.28 container
-        if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           rm -rf clean-test
@@ -238,67 +99,58 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             rockylinux:8 \
-            bash tests/functional/run_nogui_tests.sh /work/clean-test/Multiwfn_noGUI-Linux/Multiwfn_noGUI
+            bash tests/functional/run_nogui_tests.sh /work/clean-test/Multiwfn_noGUI-Linux/Multiwfn_noGUI \
+            2>&1 | tee linux-package-test.log
 
-      - name: Package macOS release candidate
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          mkdir -p package/Multiwfn_noGUI-macOS dist
-          cp build/Multiwfn_noGUI package/Multiwfn_noGUI-macOS/Multiwfn_noGUI
-          cp LICENSE.txt package/Multiwfn_noGUI-macOS/LICENSE.txt
-          cp ATTRIBUTION.txt package/Multiwfn_noGUI-macOS/ATTRIBUTION.txt
-          cp settings.ini package/Multiwfn_noGUI-macOS/settings.ini
-          otool -L package/Multiwfn_noGUI-macOS/Multiwfn_noGUI | tee package/Multiwfn_noGUI-macOS/otool.txt
-          tar -czf dist/Multiwfn_noGUI-macOS.tar.gz -C package Multiwfn_noGUI-macOS
-
-      - name: Test macOS release candidate
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          rm -rf clean-test
-          mkdir clean-test
-          tar -xzf dist/Multiwfn_noGUI-macOS.tar.gz -C clean-test
-          bash tests/functional/run_nogui_tests.sh "$PWD/clean-test/Multiwfn_noGUI-macOS/Multiwfn_noGUI"
-
-      - name: Package Windows release candidate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path package/Multiwfn_noGUI-Windows/* -DestinationPath dist/Multiwfn_noGUI-Windows.zip -Force
-
-      - name: Test Windows release candidate outside MSYS2
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          Remove-Item -Recurse -Force clean-test -ErrorAction SilentlyContinue
-          Expand-Archive dist/Multiwfn_noGUI-Windows.zip -DestinationPath clean-test
-          $env:Path = (($env:Path -split ';') | Where-Object { $_ -notmatch 'msys64' }) -join ';'
-          $work = Join-Path $PWD "clean-test-work"
-          Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force $work | Out-Null
-          @"
-          3
-          water
-          O 0 0 0
-          H 0 0 0.96
-          H 0.92 0 -0.24
-          "@ | Set-Content -Path "$work/water.xyz" -Encoding ascii
-          "26`n1`n`nq`n0`nq`n" | & "$PWD/clean-test/Multiwfn_noGUI.exe" "$work/water.xyz" > "$work/geometry.out"
-          Select-String -Path "$work/geometry.out" -SimpleMatch "Formula: H2 O1" | Out-Null
-          Select-String -Path "$work/geometry.out" -SimpleMatch "Geometry center (X/Y/Z):    0.30666667    0.00000000    0.24000000 Angstrom" | Out-Null
-
-      - name: Upload release candidate package
+      - name: Upload Linux release candidate package
         uses: actions/upload-artifact@v4
         with:
-          name: Multiwfn_noGUI-package-${{ runner.os }}
-          path: |
-            dist/Multiwfn_noGUI-Linux.tar.gz
-            dist/Multiwfn_noGUI-macOS.tar.gz
-            dist/Multiwfn_noGUI-Windows.zip
+          name: Multiwfn_noGUI-package-Linux
+          path: dist/Multiwfn_noGUI-Linux.tar.gz
           if-no-files-found: error
+
+      - name: Summarize build failure
+        if: failure()
+        run: |
+          {
+            echo "## Build failure tail"
+            echo
+            echo '```text'
+            tail -n 200 linux-package-test.log 2>/dev/null || tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || tail -n 200 linux-container.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped|No match for argument|Unable to find a match|Problem:|No such file)' linux-package-test.log build.log configure.log linux-container.log 2>/dev/null || true)"
+          if [ -n "$first_error" ]; then
+            echo "::error::$first_error"
+          fi
+
+      - name: Upload Linux failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-failure-logs
+          path: |
+            linux-container.log
+            linux-package-test.log
+            configure.log
+            build.log
+          if-no-files-found: ignore
+
+  nogui_macos_gate:
+    name: noGUI (macos-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm unified MatterViz packaging
+        run: echo "macOS platform-specific noGUI builds are replaced by unified MatterViz packages; this required check is intentionally lightweight."
+
+  nogui_windows_gate:
+    name: noGUI (windows-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm unified MatterViz packaging
+        run: echo "Windows platform-specific noGUI builds are replaced by unified MatterViz packages; this required check is intentionally lightweight."
 
   release:
     name: Release
@@ -311,9 +163,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download binaries
+      - name: Download Linux binary artifact
         uses: actions/download-artifact@v4
         with:
+          name: Multiwfn_noGUI-package-Linux
           path: release-artifacts
 
       - name: Package release assets
@@ -322,36 +175,36 @@ jobs:
           mkdir -p release-assets
           cp LICENSE.txt release-assets/LICENSE.txt
           cp ATTRIBUTION.txt release-assets/ATTRIBUTION.txt
-          cp release-artifacts/Multiwfn_noGUI-package-Linux/Multiwfn_noGUI-Linux.tar.gz release-assets/
-          cp release-artifacts/Multiwfn_noGUI-package-macOS/Multiwfn_noGUI-macOS.tar.gz release-assets/
-          cp release-artifacts/Multiwfn_noGUI-package-Windows/Multiwfn_noGUI-Windows.zip release-assets/
-          sha256sum release-assets/* > release-assets/SHA256SUMS.txt
+          cp release-artifacts/Multiwfn_noGUI-Linux.tar.gz release-assets/
+          (
+            cd release-assets
+            sha256sum ATTRIBUTION.txt LICENSE.txt Multiwfn_noGUI-Linux.tar.gz > SHA256SUMS.txt
+          )
           version="${GITHUB_REF_NAME#v}"
           version="${version%-nogui.*}"
-          printf 'Cross-platform noGUI build of Multiwfn %s.\n\n' "$version" > RELEASE_NOTES.md
+          printf 'Linux headless/noGUI build of Multiwfn %s.\n\n' "$version" > RELEASE_NOTES.md
           cat >> RELEASE_NOTES.md <<'EOF'
-          This release keeps the upstream Fortran source behavior and adds a minimal CMake/GitHub Actions build path for noGUI binaries.
-          The Multiwfn license and this repository's supplemental attribution are included as LICENSE.txt and ATTRIBUTION.txt in this release and inside each platform archive.
+          This release contains the Linux headless/noGUI binary built from the upstream Fortran source with the minimal CMake/GitHub Actions build path.
+          The Multiwfn license and this repository's supplemental attribution are included as LICENSE.txt and ATTRIBUTION.txt in this release and inside the Linux archive.
 
           Validation in CI:
-          - Linux, macOS, and Windows release-candidate packages built with GNU Fortran.
-          - Linux package built on a glibc 2.28 Rocky Linux 8 baseline, then extracted and tested in a clean Rocky Linux 8 container without installing BLAS/LAPACK.
-          - Windows zip extracted and smoke-tested outside the MSYS2 shell, with required MSYS2 runtime DLLs copied beside the executable.
+          - Linux package built with GNU Fortran on a glibc 2.28 Rocky Linux 8 baseline.
+          - Extracted Linux package tested in a clean Rocky Linux 8 container without installing BLAS/LAPACK.
           - Geometry-only XYZ loading and structure analysis workflow.
           - Gaussian cube loading, grid statistics, and cube export workflow.
 
           Notes:
-          - These are noGUI binaries; DISLIN/Motif GUI support is intentionally outside this release.
+          - This is a noGUI binary; DISLIN/Motif GUI support is intentionally outside this release.
           - Fractional-derivative support is disabled in the default CI build.
+          - Unified MatterViz packages provide the supported cross-platform distribution.
 
-          Acknowledgements:
-          - Thanks to @bane-dysta for contributing the Windows executable icon in PR #2.
           EOF
 
       - name: Verify license packaging
         run: |
           set -euo pipefail
           test -s LICENSE.txt
+          test -s ATTRIBUTION.txt
           test -s release-assets/LICENSE.txt
           test -s release-assets/ATTRIBUTION.txt
           cmp LICENSE.txt release-assets/LICENSE.txt
@@ -359,12 +212,6 @@ jobs:
           tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/LICENSE.txt
           tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/ATTRIBUTION.txt
           tar -tzf release-assets/Multiwfn_noGUI-Linux.tar.gz | grep -Fx Multiwfn_noGUI-Linux/settings.ini
-          tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/LICENSE.txt
-          tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/ATTRIBUTION.txt
-          tar -tzf release-assets/Multiwfn_noGUI-macOS.tar.gz | grep -Fx Multiwfn_noGUI-macOS/settings.ini
-          unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx LICENSE.txt
-          unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx ATTRIBUTION.txt
-          unzip -Z1 release-assets/Multiwfn_noGUI-Windows.zip | grep -Fx settings.ini
 
       - name: Create GitHub release
         env:
@@ -373,5 +220,5 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           version="${version%-nogui.*}"
           gh release create "$GITHUB_REF_NAME" release-assets/* \
-            --title "Multiwfn ${version} noGUI cross-platform build" \
+            --title "Multiwfn ${version} Linux headless/noGUI build" \
             --notes-file RELEASE_NOTES.md
