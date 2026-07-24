@@ -88,32 +88,6 @@ jobs:
           fi
           exit "$status"
 
-      - name: Summarize build failure
-        if: failure()
-        run: |
-          {
-            echo "## Build failure tail"
-            echo
-            echo '```text'
-            tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || tail -n 200 linux-container.log 2>/dev/null || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped|No match for argument|Unable to find a match|Problem:|No such file)' build.log configure.log linux-container.log 2>/dev/null || true)"
-          if [ -n "$first_error" ]; then
-            echo "::error::$first_error"
-          fi
-
-      - name: Upload Linux failure logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-failure-logs
-          path: |
-            linux-container.log
-            configure.log
-            build.log
-          if-no-files-found: ignore
-
       # Validate the packaged archive with the full suite on the glibc 2.28 baseline.
       - name: Test Linux release candidate in clean glibc 2.28 container
         run: |
@@ -125,7 +99,8 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             rockylinux:8 \
-            bash tests/functional/run_nogui_tests.sh /work/clean-test/Multiwfn_noGUI-Linux/Multiwfn_noGUI
+            bash tests/functional/run_nogui_tests.sh /work/clean-test/Multiwfn_noGUI-Linux/Multiwfn_noGUI \
+            2>&1 | tee linux-package-test.log
 
       - name: Upload Linux release candidate package
         uses: actions/upload-artifact@v4
@@ -133,6 +108,33 @@ jobs:
           name: Multiwfn_noGUI-package-Linux
           path: dist/Multiwfn_noGUI-Linux.tar.gz
           if-no-files-found: error
+
+      - name: Summarize build failure
+        if: failure()
+        run: |
+          {
+            echo "## Build failure tail"
+            echo
+            echo '```text'
+            tail -n 200 linux-package-test.log 2>/dev/null || tail -n 200 build.log 2>/dev/null || tail -n 200 configure.log 2>/dev/null || tail -n 200 linux-container.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          first_error="$(grep -Eim1 '(^|: )(fatal error|error:|undefined reference|ld:|ninja: build stopped|No match for argument|Unable to find a match|Problem:|No such file)' linux-package-test.log build.log configure.log linux-container.log 2>/dev/null || true)"
+          if [ -n "$first_error" ]; then
+            echo "::error::$first_error"
+          fi
+
+      - name: Upload Linux failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-failure-logs
+          path: |
+            linux-container.log
+            linux-package-test.log
+            configure.log
+            build.log
+          if-no-files-found: ignore
 
   nogui_macos_gate:
     name: noGUI (macos-latest)
@@ -174,7 +176,10 @@ jobs:
           cp LICENSE.txt release-assets/LICENSE.txt
           cp ATTRIBUTION.txt release-assets/ATTRIBUTION.txt
           cp release-artifacts/Multiwfn_noGUI-Linux.tar.gz release-assets/
-          sha256sum release-assets/* > release-assets/SHA256SUMS.txt
+          (
+            cd release-assets
+            sha256sum ATTRIBUTION.txt LICENSE.txt Multiwfn_noGUI-Linux.tar.gz > SHA256SUMS.txt
+          )
           version="${GITHUB_REF_NAME#v}"
           version="${version%-nogui.*}"
           printf 'Linux headless/noGUI build of Multiwfn %s.\n\n' "$version" > RELEASE_NOTES.md

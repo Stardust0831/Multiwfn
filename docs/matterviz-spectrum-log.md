@@ -23,6 +23,10 @@
 - Removed heavyweight noGUI validation on `main` pushes. Pull requests provide
   the pre-merge build/test gate, while release tags rebuild and test their own
   same-run Linux artifact; this avoids the former PR/main/tag triple build.
+- Final review kept the intentional no-`main` trigger, corrected release
+  checksum entries to use downloadable asset basenames, and moved failure
+  diagnostics after the extracted-package suite while preserving its output in
+  an uploaded log.
 - Kept release artifact provenance unchanged: every tag still builds and tests
   its platform packages in the publishing workflow, and the release job reuses
   only artifacts from that same workflow run. Cross-run PR artifact promotion
