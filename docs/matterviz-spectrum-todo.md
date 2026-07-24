@@ -1,6 +1,21 @@
 # MatterViz origin/main parity TODO
 
-Updated: 2026-07-16
+Updated: 2026-07-25
+
+## 2026-07-25 CI streamlining
+
+- [x] Stop compiling and packaging the retired Qt/3Dmol GUI on ordinary pull
+  requests and `main` pushes; retain complete manual and legacy-tag builds.
+- [x] Preserve the existing legacy GUI required-check contexts as lightweight
+  PR compatibility gates until the repository ruleset is migrated separately.
+- [x] Cancel superseded noGUI and legacy GUI workflow runs for the same PR/ref.
+- [x] Remove duplicate pre-package Linux/macOS noGUI functional runs while
+  retaining the stronger extracted-package full suites and Windows coverage.
+- [ ] After PR #51 merges, deduplicate the final MatterViz workflow: build the
+  platform-independent frontend once, keep platform-native tests in the package
+  matrix, and remove the duplicate standalone Linux release/CMake build.
+- [ ] After the streamlined workflow is proven on a PR, replace the transitional
+  legacy required contexts in the `main` ruleset with current stable CI gates.
 
 ## 2026-07-14 Rust host migration
 

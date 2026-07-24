@@ -1,5 +1,30 @@
 # MatterViz parity development log
 
+## 2026-07-25: CI streamlining
+
+- Audited all nine workflows and the active `main` ruleset. Ordinary PRs were
+  required to build noGUI on three platforms, the retired Qt/3Dmol GUI on three
+  platforms, and the retired GUI again on Rocky Linux 8; MatterViz changes added
+  another Linux validation job and three-platform package matrix.
+- Restricted actual Qt/3Dmol builds to their existing manual and legacy-tag
+  release paths. Pull requests retain cheap jobs with the exact required check
+  names so the current ruleset cannot strand open PRs; `main` pushes no longer
+  build the retired GUI.
+- Added cancellation for superseded noGUI and legacy GUI runs. Linux and macOS
+  noGUI now run the full functional suite only against the extracted release
+  package, eliminating the earlier duplicate run against the unpackaged binary;
+  Windows retains both its full suite and the distinct outside-MSYS2 smoke test.
+- Kept release artifact provenance unchanged: every tag still builds and tests
+  its platform packages in the publishing workflow, and the release job reuses
+  only artifacts from that same workflow run. Cross-run PR artifact promotion
+  remains deliberately unsupported.
+- Deferred MatterViz-internal frontend/Rust/Linux build deduplication until the
+  prerelease updater workflow PR is merged, avoiding conflicting edits to the
+  same workflow and preserving its preview/formal build distinction. Local
+  verification passes `actionlint` 1.7.12 for all changed workflows, static
+  event-routing assertions, 18/18 existing MatterViz build-contract tests and
+  `git diff --check`; independent review found no remaining important issue.
+
 ## 2026-07-14: Native Rust host migration started
 
 - Corrected the implementation direction after the Python launcher fixes became a second process-lifecycle layer: MatterViz will use one native Rust host for the local HTTP/session service, WebView creation, API routing, native file selection, port binding and shutdown. Fortran remains the tightly coupled Multiwfn calculation adapter and continues to own the existing request loop; no calculation core was changed.

@@ -20,10 +20,16 @@ jobs:
     timeout-minutes: 90
 
     steps:
+      - name: Pull request compatibility gate
+        if: github.event_name == 'pull_request'
+        run: echo "GUI Linux glibc 2.28 compatibility build is reserved for manual runs."
+
       - name: Checkout
+        if: github.event_name != 'pull_request'
         uses: actions/checkout@v4
 
       - name: Build GUI package in Rocky Linux 8
+        if: github.event_name != 'pull_request'
         run: |
           set +e
           docker run --rm \
@@ -208,6 +214,7 @@ jobs:
           exit "$status"
 
       - name: Test GUI package in clean Rocky Linux 8
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           rm -rf clean-gui-test
@@ -319,7 +326,7 @@ jobs:
             '
 
       - name: Upload compatibility logs
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: multiwfn-gui-linux-glibc228-logs
@@ -330,7 +337,7 @@ jobs:
           retention-days: 7
 
       - name: Upload compatibility package
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'pull_request' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: multiwfn-gui-linux-glibc228

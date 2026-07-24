@@ -8,6 +8,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
+
 permissions:
   contents: read
 
@@ -55,7 +59,6 @@ jobs:
               ninja --version
               cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_RPATH="\$ORIGIN/lib" -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3 2>&1 | tee configure.log
               cmake --build build --parallel 2 2>&1 | tee build.log
-              bash tests/functional/run_nogui_tests.sh /work/build/Multiwfn_noGUI
               mkdir -p package/Multiwfn_noGUI-Linux/lib dist
               cp build/Multiwfn_noGUI package/Multiwfn_noGUI-Linux/Multiwfn_noGUI
               cp LICENSE.txt package/Multiwfn_noGUI-Linux/LICENSE.txt
@@ -170,11 +173,6 @@ jobs:
             echo "::error::$first_error"
           fi
 
-      - name: Functional tests
-        if: runner.os == 'macOS'
-        run: |
-          bash tests/functional/run_nogui_tests.sh "$PWD/build/Multiwfn_noGUI"
-
       - name: Functional tests on Windows
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -227,6 +225,7 @@ jobs:
           done
           find package/Multiwfn_noGUI-Windows -maxdepth 1 -type f -printf '%f\n' | sort
 
+      # Validate the packaged archive with the full suite on the glibc 2.28 baseline.
       - name: Test Linux release candidate in clean glibc 2.28 container
         if: runner.os == 'Linux'
         run: |
@@ -252,6 +251,7 @@ jobs:
           otool -L package/Multiwfn_noGUI-macOS/Multiwfn_noGUI | tee package/Multiwfn_noGUI-macOS/otool.txt
           tar -czf dist/Multiwfn_noGUI-macOS.tar.gz -C package Multiwfn_noGUI-macOS
 
+      # Validate the extracted release archive with the full functional suite.
       - name: Test macOS release candidate
         if: runner.os == 'macOS'
         run: |
