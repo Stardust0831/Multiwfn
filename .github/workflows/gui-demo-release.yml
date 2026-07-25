@@ -2,8 +2,6 @@ name: gui-demo-release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'gui-demo-preview-*'
       - 'gui-qt-preview-*'
@@ -16,10 +14,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: gui-demo-release-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
+
 jobs:
   package:
     name: Package Multiwfn GUI (${{ matrix.platform }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -36,11 +38,16 @@ jobs:
             asset_ext: zip
 
     steps:
+      - name: Pull request compatibility gate
+        if: github.event_name == 'pull_request'
+        run: echo "Legacy Qt/3Dmol packaging is release-only; this check preserves the existing required context."
+
       - name: Checkout
+        if: github.event_name != 'pull_request'
         uses: actions/checkout@v4
 
       - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+        if: github.event_name != 'pull_request' && runner.os == 'Linux'
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -63,14 +70,14 @@ jobs:
             libegl1
 
       - name: Install macOS dependencies
-        if: runner.os == 'macOS'
+        if: github.event_name != 'pull_request' && runner.os == 'macOS'
         run: |
           set -euo pipefail
           brew install gcc cmake ninja
           echo "FC=$(ls $(brew --prefix)/bin/gfortran-* | sort -V | tail -n 1)" >> "$GITHUB_ENV"
 
       - name: Install Windows dependencies
-        if: runner.os == 'Windows'
+        if: github.event_name != 'pull_request' && runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -82,7 +89,7 @@ jobs:
             mingw-w64-ucrt-x86_64-openblas
 
       - name: Build Multiwfn GUI executable
-        if: runner.os != 'Windows'
+        if: github.event_name != 'pull_request' && runner.os != 'Windows'
         run: |
           set -o pipefail
           default_shell="browser"
@@ -110,7 +117,7 @@ jobs:
           echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
       - name: Build Multiwfn GUI executable on Windows
-        if: runner.os == 'Windows'
+        if: github.event_name != 'pull_request' && runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -o pipefail
@@ -133,7 +140,7 @@ jobs:
           echo "MULTIWFN_GUI_EXE=${exe_name}" >> "$GITHUB_ENV"
 
       - name: Verify cube coordinate units
-        if: runner.os != 'Windows'
+        if: github.event_name != 'pull_request' && runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -141,7 +148,7 @@ jobs:
           tests/functional/run_3dmol_cube_unit_test.sh "build-3dmol-gui/${MULTIWFN_GUI_EXE}"
 
       - name: Build Qt native launcher
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || startsWith(github.ref_name, 'gui-qt-preview-') || contains(github.ref_name, '-gui.')
+        if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || startsWith(github.ref_name, 'gui-qt-preview-') || contains(github.ref_name, '-gui.'))
         shell: bash
         run: |
           set -euo pipefail
@@ -159,7 +166,7 @@ jobs:
             frontend/qt-multiwfn-gui/qt_multiwfn_gui.py
 
       - name: Summarize build failure
-        if: failure()
+        if: github.event_name != 'pull_request' && failure()
         shell: bash
         run: |
           {
@@ -175,6 +182,7 @@ jobs:
           fi
 
       - name: Prepare common package files
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -213,7 +221,7 @@ jobs:
           fi
 
       - name: Package Linux demo
-        if: runner.os == 'Linux'
+        if: github.event_name != 'pull_request' && runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
@@ -234,7 +242,7 @@ jobs:
           tar -czf "dist/${PKG}.tar.gz" -C package "$PKG"
 
       - name: Package macOS demo
-        if: runner.os == 'macOS'
+        if: github.event_name != 'pull_request' && runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
@@ -256,7 +264,7 @@ jobs:
           tar -czf "dist/${PKG}.tar.gz" -C package "$PKG"
 
       - name: Package Windows demo
-        if: runner.os == 'Windows'
+        if: github.event_name != 'pull_request' && runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -euo pipefail
@@ -299,13 +307,14 @@ jobs:
           find "package/${PKG}" -maxdepth 2 -type f | sort
 
       - name: Create Windows zip
-        if: runner.os == 'Windows'
+        if: github.event_name != 'pull_request' && runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "package/$env:PKG/*" -DestinationPath "dist/$env:PKG.zip" -Force
 
       - name: Verify attribution in GUI archive
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -318,6 +327,7 @@ jobs:
           fi
 
       - name: Upload GUI package
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: multiwfn-gui-package-${{ matrix.platform }}
