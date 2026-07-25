@@ -1,6 +1,27 @@
 # MatterViz origin/main parity TODO
 
-Updated: 2026-07-16
+Updated: 2026-07-25
+
+## 2026-07-25 CI streamlining
+
+- [x] Stop compiling and packaging the retired Qt/3Dmol GUI on ordinary pull
+  requests and `main` pushes; retain complete manual and legacy-tag builds.
+- [x] Preserve the existing legacy GUI required-check contexts as lightweight
+  PR compatibility gates until the repository ruleset is migrated separately.
+- [x] Cancel superseded noGUI and legacy GUI workflow runs for the same PR/ref.
+- [x] Remove duplicate pre-package Linux/macOS noGUI functional runs while
+  retaining the stronger extracted-package full suites and Windows coverage.
+- [x] Stop compiling separate Windows/macOS noGUI binaries. Preserve their
+  current required-check names as lightweight gates while the unified MatterViz
+  packages retain platform command-line smoke coverage.
+- [x] Make noGUI CI and `v*-nogui.*` releases Linux-only, keep the Rocky Linux 8
+  glibc 2.28 package/full-suite gate, and remove heavyweight `main` push reruns.
+- [ ] After PR #51 merges, deduplicate the final MatterViz workflow: build the
+  platform-independent frontend once, keep platform-native tests in the package
+  matrix, and remove the duplicate standalone Linux release/CMake build.
+- [ ] After the streamlined workflow is proven on a PR, replace the transitional
+  legacy/noGUI macOS/noGUI Windows contexts in the `main` ruleset with current
+  stable MatterViz and Linux-headless gates.
 
 ## PR #49 generic two-dimensional scientific plots
 
