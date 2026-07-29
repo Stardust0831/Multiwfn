@@ -15,6 +15,26 @@ html, body, #app {
 }
 button, input, select { font: inherit; }
 
+.plot-only { display: grid; grid-template-rows: auto minmax(0, 1fr); width: 100%; height: 100%; min-width: 0; overflow: hidden; color: #000; background: #fff; --text-color: #000; --border-color: #000; }
+.plot-header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-height: 48px; padding: 10px 16px; background: #f8f9fb; border-bottom: 1px solid #cfd6df; }
+.plot-header span { color: #667085; font-size: 11px; letter-spacing: 0; }
+.plot-panels { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; padding: 12px; }
+.plot-panel { display: grid; grid-template-rows: auto minmax(180px, var(--plot-height, 1fr)); min-height: 220px; flex: var(--plot-height, 1) 1 0; }
+.plot-panel h2 { margin: 0; padding: 0 4px 4px; color: #344054; font-size: 13px; font-weight: 600; }
+.plot-canvas { min-height: 0; border: 1px solid #d7dde5; border-radius: 5px; overflow: hidden; }
+.plot-canvas .matterviz-plot, .plot-canvas .plot-wrapper { width: 100%; height: 100%; }
+.scientific-scatter-plot { --plot-legend-max-width: 154px; --plot-legend-max-height: calc(100% - 54px); }
+.scientific-binned-plot { width: 100%; height: 100%; }
+.scientific-binned-plot > .color-bar { right: 22px !important; left: auto !important; top: 58px !important; }
+.plot-scene { position: relative; width: 100%; max-width: none !important; height: 100%; min-width: 0; overflow: hidden; color: #000; background: #fff; --text-color: #000; --border-color: #000; }
+.plot-scene > .plot-header { position: absolute; inset: 0 0 auto; z-index: 3; pointer-events: none; }
+.scene-page { position: relative; width: 100%; height: 100%; min-height: 0; overflow: auto; }
+.scene-panel { position: absolute; min-width: 0; min-height: 0; padding: 3px; }
+.scene-plot { position: relative; width: 100%; height: 100%; min-height: 120px; overflow: hidden; }
+.scene-plot .plot-wrapper, .scene-plot .matterviz-plot { width: 100%; height: 100%; }
+.plot-error, .plot-loading { margin: 20px; color: #667085; }
+@media (max-width: 800px) { .plot-panels { padding: 8px; gap: 8px; } .plot-panel { min-height: 200px; } }
+
 .workbench {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) 28px;

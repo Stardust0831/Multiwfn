@@ -7,6 +7,8 @@ mod inherited_pipe;
 mod lifecycle;
 mod memory_budget;
 mod picker_protocol;
+pub mod plot_protocol;
+pub mod plot_store;
 mod service;
 mod session_data;
 mod shutdown;

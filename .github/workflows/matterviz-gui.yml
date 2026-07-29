@@ -13,10 +13,14 @@ on:
     paths:
       - CMakeLists.txt
       - noGUI/GUI_matterviz.f90
+      - noGUI/dislin_d_empty.f90
+      - noGUI/matterviz_plot_capture.f90
       - noGUI/matterviz_spawn.c
       - frontend/matterviz-desktop/**
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
+      - tests/test_matterviz_plot_adapter.py
+      - tests/matterviz_plot_capture_harness.f90
       - tests/matterviz-volume-e2e/**
       - tests/fixtures/**
       - tests/linux/**
@@ -101,7 +105,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_plot_adapter.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |

@@ -1,0 +1,1 @@
+{"format":"multiwfn-matterviz-plot","version":1,"kind":"nmr","title":"NMR spectrum","panels":[{"id":"nmr","xAxis":{"label":"Chemical shift","unit":"ppm","range":[12,0]},"yAxis":{"label":"Signal strength","range":[0,10]},"series":[{"id":"nmr","type":"sticks","x":[10,7,3,1],"y":[2,8,5,3]}]}]}

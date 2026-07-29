@@ -1,6 +1,9 @@
 module GUI
 use defvar
 use iso_c_binding, only: c_char,c_int,c_int32_t,c_int64_t,c_intptr_t,c_double,c_null_char
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+use matterviz_plot_capture
+#endif
 implicit none
 
 real*8 :: aug3D_main0=6D0
@@ -70,6 +73,19 @@ interface
     integer(c_int32_t),value :: coordinate_unit,quantity_kind,value_unit
     real(c_double),intent(in) :: origin(3),voxel_axes(9),lattice(9),samples(*)
     integer(c_int32_t),value :: publish_timeout_ms
+    end function
+
+    integer(c_int) function multiwfn_matterviz_publish_plot_data(volume_write,ack_read,request_id, &
+        dataset_id,semantic_roles,array1,array2,array3,array4,array5,element_counts,array_count, &
+        publish_timeout_ms) &
+        bind(C,name="multiwfn_matterviz_publish_plot_data")
+    import :: c_int,c_int32_t,c_int64_t,c_intptr_t,c_double
+    integer(c_intptr_t),value :: volume_write,ack_read
+    integer(c_int64_t),value :: request_id,dataset_id
+    integer(c_int32_t),intent(in) :: semantic_roles(*)
+    real(c_double),intent(in) :: array1(*),array2(*),array3(*),array4(*),array5(*)
+    integer(c_int64_t),intent(in) :: element_counts(*)
+    integer(c_int32_t),value :: array_count,publish_timeout_ms
     end function
 
     subroutine multiwfn_matterviz_transport_close(volume_write,ack_read) &
@@ -227,6 +243,601 @@ subroutine miniGUI
 GUI_mode=7
 call launch_matterviz_gui("miniGUI",7,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
+
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+subroutine begin_matterviz_plot(sink,plot_kind,title,export_format,export_path)
+type(matterviz_json_sink),intent(out) :: sink
+character(len=*),intent(in) :: plot_kind,title,export_format,export_path
+character(len=:),allocatable :: escaped
+character(len=1024) :: line
+
+sink=matterviz_json_sink()
+sink%buffer=multiwfn_matterviz_control_buffer_create()
+if (sink%buffer<=0_c_intptr_t) then
+    sink%status=-1
+    return
+end if
+escaped=matterviz_json_escape(title)
+call emit_matterviz_json(sink,'{')
+call emit_matterviz_json(sink,'  "format": "multiwfn-matterviz-control",')
+call emit_matterviz_json(sink,'  "version": 1,')
+call emit_matterviz_json(sink,'  "kind": "session_init",')
+call emit_matterviz_json(sink,'  "manifest": {')
+call emit_matterviz_json(sink,'    "format": "multiwfn-matterviz-workbench",')
+call emit_matterviz_json(sink,'    "version": 2,')
+call emit_matterviz_json(sink,'    "structure": null,')
+if (len_trim(export_format)>0) then
+    write(line,"(a,i0,a,i0,a)") '    "plotExport": { "format": "'// &
+        matterviz_json_escape(trim(export_format))//'", "path": "'// &
+        matterviz_json_escape(trim(export_path))//'", "width": ', &
+        matterviz_plot_export_width(trim(export_format)),', "height": ', &
+        matterviz_plot_export_height(trim(export_format)),' },'
+    call emit_matterviz_json(sink,line)
+end if
+call emit_matterviz_json(sink,'    "plot": {')
+call emit_matterviz_json(sink,'    "format": "multiwfn-matterviz-plot",')
+call emit_matterviz_json(sink,'    "version": 2,')
+if (len_trim(plot_kind)>0) call emit_matterviz_json(sink,'    "semanticKind": "'//trim(plot_kind)//'",')
+call emit_matterviz_json(sink,'    "title": "'//escaped//'",')
+write(line,"(a,i0,a,i0,a)") '    "page": { "width": ',matterviz_scene_page_width(), &
+    ', "height": ',matterviz_scene_page_height(),' },'
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'    "panels": [')
+end subroutine
+
+integer function matterviz_plot_export_width(export_format)
+character(len=*),intent(in) :: export_format
+if (trim(export_format)=='png'.and.matterviz_plot_window_width>0) then
+    matterviz_plot_export_width=matterviz_plot_window_width
+else
+    matterviz_plot_export_width=matterviz_scene_page_width()
+end if
+end function
+
+integer function matterviz_plot_export_height(export_format)
+character(len=*),intent(in) :: export_format
+if (trim(export_format)=='png'.and.matterviz_plot_window_height>0) then
+    matterviz_plot_export_height=matterviz_plot_window_height
+else
+    matterviz_plot_export_height=matterviz_scene_page_height()
+end if
+end function
+
+integer function matterviz_scene_page_width()
+integer :: panel
+if (matterviz_plot_page_x>0) then
+    matterviz_scene_page_width=matterviz_plot_page_x
+    return
+end if
+matterviz_scene_page_width=1
+do panel=1,matterviz_plot_panel_count
+    matterviz_scene_page_width=max(matterviz_scene_page_width, &
+        matterviz_plot_panels(panel)%posx+max(1,matterviz_plot_panels(panel)%lenx))
+end do
+end function
+
+integer function matterviz_scene_page_height()
+integer :: panel
+if (matterviz_plot_page_y>0) then
+    matterviz_scene_page_height=matterviz_plot_page_y
+    return
+end if
+matterviz_scene_page_height=1
+do panel=1,matterviz_plot_panel_count
+    matterviz_scene_page_height=max(matterviz_scene_page_height, &
+        matterviz_plot_panels(panel)%posy+max(1,matterviz_plot_panels(panel)%leny))
+end do
+end function
+
+subroutine prepare_matterviz_plot(sink,status)
+type(matterviz_json_sink),intent(inout) :: sink
+integer,intent(out) :: status
+character(len=512) :: session,manifest,frontend,native
+integer :: launch_status,transport_error
+logical :: session_ok
+integer(c_int) :: c_status
+
+status=-1
+call emit_matterviz_json(sink,'    ]')
+call emit_matterviz_json(sink,'    }')
+call emit_matterviz_json(sink,'  },')
+call emit_matterviz_json(sink,'  "structure": null,')
+call emit_matterviz_json(sink,'  "state": null')
+call emit_matterviz_json(sink,'}')
+if (sink%status/=0) then
+    status=sink%status
+    call multiwfn_matterviz_control_buffer_destroy(sink%buffer)
+    return
+end if
+call close_matterviz_transport()
+call get_session_identity(session,session_ok)
+if (.not.session_ok) then
+    call multiwfn_matterviz_control_buffer_destroy(sink%buffer)
+    return
+end if
+manifest=trim(session)//'/manifest.json'
+call resolve_matterviz_launch_paths(frontend,native)
+call launch_matterviz_native(trim(native),trim(frontend),trim(session),trim(manifest), &
+    launch_status,transport_error)
+if (launch_status/=0.or.transport_error/=0.or.gui_response_write<0_c_intptr_t) then
+    write(*,"(a,i0,a,i0)") ' MatterViz plot launch failed (status ',launch_status, &
+        ', transport ',transport_error
+    call multiwfn_matterviz_control_buffer_destroy(sink%buffer)
+    call close_matterviz_transport()
+    return
+end if
+status=0
+end subroutine
+
+subroutine send_matterviz_plot(sink,status)
+type(matterviz_json_sink),intent(inout) :: sink
+integer,intent(out) :: status
+integer(c_int) :: c_status
+
+status=-1
+c_status=multiwfn_matterviz_control_buffer_send(sink%buffer,gui_response_write, &
+    2_c_int32_t,0_c_int64_t,30000_c_int32_t)
+call multiwfn_matterviz_control_buffer_destroy(sink%buffer)
+if (c_status/=0_c_int) then
+    call close_matterviz_transport()
+    return
+end if
+call wait_matterviz_plot_close(status)
+call close_matterviz_transport()
+end subroutine
+
+subroutine wait_matterviz_plot_close(status)
+integer,intent(out) :: status
+character(kind=c_char) :: body(1)
+integer(c_int32_t) :: message_type
+integer(c_int64_t) :: request_id,body_bytes
+integer(c_int) :: c_status
+
+status=-1
+do
+    c_status=multiwfn_matterviz_control_receive(gui_request_read,message_type,request_id, &
+        body,1_c_int64_t,body_bytes,250_c_int32_t)
+    if (c_status==-1003_c_int) cycle
+    if (c_status/=0_c_int) return
+    if (message_type==6_c_int32_t) then
+        status=0
+        return
+    end if
+end do
+end subroutine
+
+logical function matterviz_layer_supported(kind)
+character(len=*),intent(in) :: kind
+select case(trim(kind))
+case('line','scatter','line+scatter','symbol','bars','errorbar','fill','contour')
+    matterviz_layer_supported=.true.
+case default
+    matterviz_layer_supported=.false.
+end select
+end function
+
+subroutine emit_matterviz_scene_axis(sink,key,label,low,high,is_log,trailing)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=*),intent(in) :: key,label
+real*8,intent(in) :: low,high
+logical,intent(in) :: is_log,trailing
+character(len=1024) :: line
+character(len=1) :: suffix
+character(len=:),allocatable :: axis_label,axis_scale
+real*8 :: axis_low,axis_high
+
+suffix=' '
+if (trailing) suffix=','
+if (len_trim(label)>0) then
+    axis_label=trim(label)
+else
+    axis_label='Axis'
+end if
+if (is_log) then
+    axis_scale='log'
+    if (.not.matterviz_log_range_to_physical(low,high,axis_low,axis_high)) then
+        sink%status=-2
+        return
+    end if
+else
+    axis_scale='linear'
+    axis_low=low; axis_high=high
+end if
+write(line,"(a,a,a,es24.16,a,es24.16,a,a,a)") '        "',trim(key), &
+    '": { "label": "'//matterviz_json_escape(axis_label)//'", "range": [',axis_low,', ',axis_high, &
+    '], "scale": "',axis_scale,'" }'//suffix
+call emit_matterviz_json(sink,trim(line))
+end subroutine
+
+subroutine emit_matterviz_scene_panel(sink,panel_idx,dataset_base,trailing)
+type(matterviz_json_sink),intent(inout) :: sink
+integer,intent(in) :: panel_idx
+integer(c_int64_t),intent(in) :: dataset_base
+logical,intent(in) :: trailing
+type(matterviz_plot_panel) :: panel
+integer :: layer,emitted,total,annotation
+real*8 :: left,top,width,height,page_x,page_y,annotation_x,annotation_y
+character(len=1024) :: line
+
+panel=matterviz_plot_panels(panel_idx)
+page_x=dble(matterviz_scene_page_width()); page_y=dble(matterviz_scene_page_height())
+left=max(0D0,min(1D0-1D-6,dble(panel%posx)/page_x))
+top=matterviz_viewport_top(panel%posy,panel%leny,page_y)
+width=max(1D-6,min(1D0-left,dble(max(1,panel%lenx))/page_x))
+height=max(1D-6,min(1D0-top,dble(max(1,panel%leny))/page_y))
+call emit_matterviz_json(sink,'      {')
+write(line,"(a,i0,a)") '        "id": "panel-',panel_idx,'",'
+call emit_matterviz_json(sink,line)
+write(line,"(a,es16.8,a,es16.8,a,es16.8,a,es16.8,a)") &
+    '        "viewport": [',left,', ',top,', ',width,', ',height,'],'
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'        "axes": {')
+call emit_matterviz_scene_axis(sink,'x1',trim(panel%xlabel),panel%xlow,panel%xhigh,panel%xlog,.true.)
+call emit_matterviz_scene_axis(sink,'y1',trim(panel%ylabel),panel%ylow,panel%yhigh,panel%ylog, &
+    panel%has_x2.or.panel%has_y2)
+if (panel%has_x2) call emit_matterviz_scene_axis(sink,'x2',trim(panel%x2label),panel%x2low,panel%x2high, &
+    panel%x2log,panel%has_y2)
+if (panel%has_y2) call emit_matterviz_scene_axis(sink,'y2',trim(panel%y2label),panel%y2low,panel%y2high,panel%y2log,.false.)
+call emit_matterviz_json(sink,'        },')
+call emit_matterviz_json(sink,'        "layers": [')
+total=count([(matterviz_plot_layers(layer)%panel==panel_idx,layer=1,matterviz_plot_layer_count)])
+emitted=0
+do layer=1,matterviz_plot_layer_count
+    if (matterviz_plot_layers(layer)%panel/=panel_idx) cycle
+    emitted=emitted+1
+    call emit_matterviz_scene_layer(sink,layer,dataset_base+int(layer,c_int64_t),emitted<total)
+end do
+if (any([(matterviz_plot_annotations(annotation)%panel==panel_idx,annotation=1,matterviz_plot_label_count)])) then
+    call emit_matterviz_json(sink,'        ],')
+    call emit_matterviz_json(sink,'        "annotations": [')
+    total=count([(matterviz_plot_annotations(annotation)%panel==panel_idx,annotation=1,matterviz_plot_label_count)])
+    emitted=0
+    do annotation=1,matterviz_plot_label_count
+        if (matterviz_plot_annotations(annotation)%panel/=panel_idx) cycle
+        emitted=emitted+1
+        if (matterviz_plot_annotations(annotation)%data_coordinates) then
+            annotation_x=matterviz_plot_annotations(annotation)%x
+            annotation_y=matterviz_plot_annotations(annotation)%y
+            write(line,"(a,a,a,es24.16,a,es24.16,a,a)") &
+                '          { "text": "',matterviz_json_escape(trim(matterviz_plot_annotations(annotation)%text)), &
+                '", "coordinateSpace": "data", "x": ',annotation_x,', "y": ',annotation_y, &
+                ' }',merge(',',' ',emitted<total)
+        else
+            annotation_x=(matterviz_plot_annotations(annotation)%x-dble(panel%posx))/dble(max(1,panel%lenx))
+            annotation_y=matterviz_panel_annotation_y( &
+                matterviz_plot_annotations(annotation)%y,panel%posy,panel%leny)
+            write(line,"(a,a,a,es24.16,a,es24.16,a,a)") &
+                '          { "text": "',matterviz_json_escape(trim(matterviz_plot_annotations(annotation)%text)), &
+                '", "coordinateSpace": "panel", "x": ',annotation_x,', "y": ',annotation_y, &
+                ' }',merge(',',' ',emitted<total)
+        end if
+        call emit_matterviz_json(sink,trim(line))
+    end do
+    call emit_matterviz_json(sink,'        ]')
+else
+    call emit_matterviz_json(sink,'        ]')
+end if
+if (trailing) then; call emit_matterviz_json(sink,'      },'); else; call emit_matterviz_json(sink,'      }'); end if
+end subroutine
+
+subroutine emit_matterviz_scene_layer(sink,layer_idx,dataset_id,trailing)
+type(matterviz_json_sink),intent(inout) :: sink
+integer,intent(in) :: layer_idx
+integer(c_int64_t),intent(in) :: dataset_id
+logical,intent(in) :: trailing
+type(matterviz_plot_layer) :: layer
+character(len=16) :: scene_kind
+character(len=1024) :: line
+
+layer=matterviz_plot_layers(layer_idx)
+select case(trim(layer%kind))
+case('errorbar'); scene_kind='error-bars'
+case('symbol'); scene_kind='scatter'
+case default; scene_kind=trim(layer%kind)
+end select
+call emit_matterviz_json(sink,'          {')
+write(line,"(a,i0,a)") '            "id": "layer-',layer_idx,'",'
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'            "type": "'//trim(scene_kind)//'",')
+if (layer%legend>=1.and.layer%legend<=matterviz_plot_legend_count) then
+    call emit_matterviz_json(sink,'            "label": "'// &
+        matterviz_json_escape(trim(matterviz_plot_legends(layer%legend)))//'",')
+end if
+write(line,"(a,i0,a)") '            "data": { "datasetId": ',dataset_id,' },'
+call emit_matterviz_json(sink,line)
+if (layer%use_x2) call emit_matterviz_json(sink,'            "xAxis": "x2",')
+if (layer%use_y2) call emit_matterviz_json(sink,'            "yAxis": "y2",')
+if (layer%nx>0.and.layer%ny>0) then
+    write(line,"(a,i0,a,i0,a)") '            "shape": [',layer%nx,', ',layer%ny,'],'
+    call emit_matterviz_json(sink,line)
+    call emit_matterviz_json(sink,'            "order": "x-fastest",')
+end if
+if (allocated(layer%levels).and.size(layer%levels)>0) then
+    call emit_matterviz_real_array(sink,'levels',layer%levels,size(layer%levels),.true.)
+end if
+write(line,"(a,a,a,i0,a,a,a)") '            "style": { "color": "',trim(layer%color), &
+    '", "width": ',max(1,layer%width),', "dash": "',merge('6 4  ','solid',layer%dashed),'"'
+if (trim(scene_kind)=='scatter'.or.trim(scene_kind)=='line+scatter') then
+    write(line(len_trim(line)+1:),"(a,i0,a,i0)") ', "markerSymbol": ',layer%marker_symbol, &
+        ', "markerSize": ',max(1,layer%hsymbol)
+end if
+line=trim(line)//' }'
+call emit_matterviz_json(sink,trim(line))
+if (trailing) then; call emit_matterviz_json(sink,'          },'); else; call emit_matterviz_json(sink,'          }'); end if
+end subroutine
+
+subroutine publish_matterviz_plot_layer(layer,request_id,dataset_id,status)
+type(matterviz_plot_layer),intent(in),target :: layer
+integer(c_int64_t),intent(in) :: request_id,dataset_id
+integer,intent(out) :: status
+integer(c_int32_t) :: roles(5),array_count
+integer(c_int64_t) :: counts(5)
+real(c_double),target :: dummy(1)
+integer(c_int) :: c_status
+
+dummy=0D0; roles=0; counts=0; array_count=0
+select case(trim(layer%kind))
+case('line','scatter','line+scatter','symbol')
+    array_count=2; roles(1:2)=[1_c_int32_t,2_c_int32_t]
+    counts(1:2)=[int(size(layer%x),c_int64_t),int(size(layer%y),c_int64_t)]
+    c_status=multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,request_id, &
+        dataset_id,roles,layer%x,layer%y,dummy,dummy,dummy,counts,array_count,300000_c_int32_t)
+case('bars')
+    array_count=3; roles(1:3)=[1_c_int32_t,2_c_int32_t,8_c_int32_t]
+    counts(1:3)=[int(size(layer%x),c_int64_t),int(size(layer%y),c_int64_t), &
+        int(size(layer%aux1),c_int64_t)]
+    c_status=multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,request_id, &
+        dataset_id,roles,layer%x,layer%y,layer%aux1,dummy,dummy,counts,array_count,300000_c_int32_t)
+case('errorbar')
+    array_count=4; roles(1:4)=[1_c_int32_t,2_c_int32_t,6_c_int32_t,7_c_int32_t]
+    counts(1:4)=[int(size(layer%x),c_int64_t),int(size(layer%y),c_int64_t), &
+        int(size(layer%aux1),c_int64_t),int(size(layer%aux2),c_int64_t)]
+    c_status=multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,request_id, &
+        dataset_id,roles,layer%x,layer%y,layer%aux1,layer%aux2,dummy,counts,array_count,300000_c_int32_t)
+case('fill')
+    array_count=4; roles(1:4)=[1_c_int32_t,2_c_int32_t,8_c_int32_t,6_c_int32_t]
+    counts(1:4)=[int(size(layer%x),c_int64_t),int(size(layer%y),c_int64_t), &
+        int(size(layer%aux1),c_int64_t),int(size(layer%aux2),c_int64_t)]
+    c_status=multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,request_id, &
+        dataset_id,roles,layer%x,layer%y,layer%aux1,layer%aux2,dummy,counts,array_count,300000_c_int32_t)
+case('contour')
+    array_count=3; roles(1:3)=[1_c_int32_t,2_c_int32_t,3_c_int32_t]
+    counts(1:3)=[int(size(layer%x),c_int64_t),int(size(layer%y),c_int64_t),int(size(layer%z),c_int64_t)]
+    c_status=multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,request_id, &
+        dataset_id,roles,layer%x,layer%y,layer%z,dummy,dummy,counts,array_count,300000_c_int32_t)
+case default
+    c_status=-1001_c_int
+end select
+status=int(c_status)
+end subroutine
+
+subroutine emit_matterviz_plot_axis(sink,name,label,unit_name,low,high,trailing)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=*),intent(in) :: name,label,unit_name
+real*8,intent(in) :: low,high
+logical,intent(in) :: trailing
+character(len=1024) :: line
+character(len=32) :: low_text,high_text
+character(len=1) :: suffix
+character(len=:),allocatable :: escaped_label,escaped_unit
+
+escaped_label=matterviz_json_escape(label)
+escaped_unit=matterviz_json_escape(unit_name)
+write(low_text,"(es24.16)") low
+write(high_text,"(es24.16)") high
+suffix=' '
+if (trailing) suffix=','
+if (len_trim(unit_name)>0) then
+    line='      "'//trim(name)//'": { "label": "'//escaped_label//'", "range": ['// &
+        trim(adjustl(low_text))//', '//trim(adjustl(high_text))//'], "unit": "'// &
+        escaped_unit//'" }'//suffix
+else
+    line='      "'//trim(name)//'": { "label": "'//escaped_label//'", "range": ['// &
+        trim(adjustl(low_text))//', '//trim(adjustl(high_text))//'] }'//suffix
+end if
+call emit_matterviz_json(sink,trim(line))
+end subroutine
+
+subroutine emit_matterviz_plot_series(sink,id,label,series_type,x,y,count,axis_name,color, &
+    line_width,dashed,captured_series_index,trailing)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=*),intent(in) :: id,label,series_type,axis_name,color
+integer,intent(in) :: captured_series_index
+real*8,intent(in) :: x(:),y(:),line_width
+integer,intent(in) :: count
+logical,intent(in) :: dashed,trailing
+character(len=1024) :: line
+logical :: has_labels
+
+call emit_matterviz_json(sink,'        {')
+call emit_matterviz_json(sink,'          "id": "'//matterviz_json_escape(id)//'",')
+call emit_matterviz_json(sink,'          "label": "'//matterviz_json_escape(label)//'",')
+call emit_matterviz_json(sink,'          "type": "'//trim(series_type)//'",')
+call emit_matterviz_json(sink,'          "axis": "'//trim(axis_name)//'",')
+call emit_matterviz_json(sink,'          "color": "'//trim(color)//'",')
+if (dashed) then
+    call emit_matterviz_json(sink,'          "dash": "dash",')
+else
+    call emit_matterviz_json(sink,'          "dash": "solid",')
+end if
+write(line,"(a,es16.8,a)") '          "lineWidth": ',line_width,','
+call emit_matterviz_json(sink,line)
+call emit_matterviz_real_array(sink,'x',x,count,.true.)
+has_labels=any(matterviz_plot_series(captured_series_index)%label_head/=0)
+call emit_matterviz_real_array(sink,'y',y,count,has_labels)
+if (has_labels) call emit_matterviz_label_array(sink,captured_series_index,count)
+if (trailing) then
+    call emit_matterviz_json(sink,'        },')
+else
+    call emit_matterviz_json(sink,'        }')
+end if
+end subroutine
+
+subroutine emit_matterviz_label_array(sink,captured_series_index,count)
+type(matterviz_json_sink),intent(inout) :: sink
+integer,intent(in) :: captured_series_index,count
+integer :: idx,label_idx
+character(len=1) :: suffix
+character(len=:),allocatable :: combined
+
+call emit_matterviz_json(sink,'          "labels": [')
+do idx=1,count
+    suffix=' '
+    if (idx<count) suffix=','
+    combined=''
+    label_idx=matterviz_plot_series(captured_series_index)%label_head(idx)
+    do while(label_idx>0)
+        if (len(combined)>0) combined=combined//'; '
+        combined=combined//trim(matterviz_plot_labels(label_idx))
+        label_idx=matterviz_plot_label_next(label_idx)
+    end do
+    if (len(combined)>0) then
+        call emit_matterviz_json(sink,'            "'// &
+            matterviz_json_escape(combined)//'"'//suffix)
+    else
+        call emit_matterviz_json(sink,'            null'//suffix)
+    end if
+end do
+call emit_matterviz_json(sink,'          ]')
+end subroutine
+
+subroutine emit_matterviz_reference_line(sink,series,trailing)
+type(matterviz_json_sink),intent(inout) :: sink
+type(matterviz_captured_series),intent(in) :: series
+logical,intent(in) :: trailing
+character(len=128) :: line
+
+call emit_matterviz_json(sink,'        {')
+call emit_matterviz_json(sink,'          "axis": "x",')
+write(line,"(a,es24.16,a)") '          "value": ',series%x(1),','
+call emit_matterviz_json(sink,trim(line))
+call emit_matterviz_json(sink,'          "color": "'//trim(series%color)//'",')
+if (series%dashed) then
+    call emit_matterviz_json(sink,'          "dash": "dash"')
+else
+    call emit_matterviz_json(sink,'          "dash": "solid"')
+end if
+if (trailing) then
+    call emit_matterviz_json(sink,'        },')
+else
+    call emit_matterviz_json(sink,'        }')
+end if
+end subroutine
+
+logical function matterviz_is_vertical_reference(series)
+type(matterviz_captured_series),intent(in) :: series
+matterviz_is_vertical_reference=.false.
+if (series%count/=2) return
+matterviz_is_vertical_reference=abs(series%x(1)-series%x(2))<=1D-12
+end function
+
+subroutine emit_matterviz_real_array(sink,name,values,count,trailing)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=*),intent(in) :: name
+real*8,intent(in) :: values(:)
+integer,intent(in) :: count
+logical,intent(in) :: trailing
+character(len=128) :: item
+integer :: idx
+
+call emit_matterviz_json(sink,'          "'//trim(name)//'": [')
+do idx=1,count
+    if (idx<count) then
+        write(item,"(es24.16,a)") values(idx),','
+    else
+        write(item,"(es24.16)") values(idx)
+    end if
+    call emit_matterviz_json(sink,'            '//trim(adjustl(item)))
+end do
+if (trailing) then
+    call emit_matterviz_json(sink,'          ],')
+else
+    call emit_matterviz_json(sink,'          ]')
+end if
+end subroutine
+
+function matterviz_json_escape(value) result(escaped)
+character(len=*),intent(in) :: value
+character(len=:),allocatable :: escaped
+integer :: idx
+
+escaped=''
+do idx=1,len_trim(value)
+    select case(value(idx:idx))
+    case('"')
+        escaped=escaped//'\"'
+    case('\')
+        escaped=escaped//'\\'
+    case default
+        if (iachar(value(idx:idx))>=32) escaped=escaped//value(idx:idx)
+    end select
+end do
+end function
+
+function matterviz_scene_semantic_kind() result(kind)
+character(len=16) :: kind
+character(len=160) :: xlabel,ylabel
+kind=''
+if (matterviz_plot_panel_count/=1) return
+xlabel=matterviz_plot_panels(1)%xlabel
+ylabel=matterviz_plot_panels(1)%ylabel
+if (index(xlabel,'rho')>0.and.index(ylabel,'IRI')>0) kind='iri'
+end function
+
+subroutine deliver_captured_matterviz_plot(export_format,export_path)
+type(matterviz_json_sink) :: sink
+integer :: panel,layer,idx,plot_status,publish_status
+integer(c_int64_t) :: dataset_base,dataset_id,request_id
+character(len=*),intent(in) :: export_format,export_path
+character(len=160) :: title
+character(len=16) :: semantic_kind
+
+if (.not.matterviz_capture_supported()) return
+do layer=1,matterviz_plot_layer_count
+    if (.not.matterviz_layer_supported(matterviz_plot_layers(layer)%kind)) then
+        write(*,"(a,a)") ' MatterViz plot was not opened: unsupported captured layer ', &
+            trim(matterviz_plot_layers(layer)%kind)
+        return
+    end if
+end do
+title=trim(matterviz_plot_title)
+if (len_trim(title)==0) title='Multiwfn 2D plot'
+dataset_base=gui_volume_serial
+semantic_kind=matterviz_scene_semantic_kind()
+call begin_matterviz_plot(sink,trim(semantic_kind),trim(title),trim(export_format),trim(export_path))
+do panel=1,matterviz_plot_panel_count
+    call emit_matterviz_scene_panel(sink,panel,dataset_base,panel<matterviz_plot_panel_count)
+end do
+call prepare_matterviz_plot(sink,plot_status)
+if (plot_status/=0) return
+do layer=1,matterviz_plot_layer_count
+    dataset_id=dataset_base+int(layer,c_int64_t)
+    request_id=dataset_id
+    call publish_matterviz_plot_layer(matterviz_plot_layers(layer),request_id,dataset_id,publish_status)
+    if (publish_status/=0) then
+        write(*,"(a,i0,a,i0,a)") ' MatterViz plot dataset ',dataset_id, &
+            ' publish failed (',publish_status,')'
+        call close_matterviz_transport()
+        call multiwfn_matterviz_control_buffer_destroy(sink%buffer)
+        return
+    end if
+end do
+gui_volume_serial=dataset_base+int(matterviz_plot_layer_count,c_int64_t)
+call send_matterviz_plot(sink,plot_status)
+if (plot_status/=0) write(*,"(a,i0)") ' MatterViz plot viewer ended with status ',plot_status
+end subroutine
+
+subroutine show_captured_matterviz_plot()
+call deliver_captured_matterviz_plot('','')
+end subroutine
+
+subroutine export_captured_matterviz_plot()
+character(len=160) :: export_path
+export_path=trim(matterviz_plot_file)
+if (len_trim(export_path)==0) export_path='dislin.'//trim(matterviz_plot_device)
+call deliver_captured_matterviz_plot(trim(matterviz_plot_device),trim(export_path))
+end subroutine
+#endif
 
 subroutine launch_matterviz_gui(entry,mode,extra,init1,end1,init2,end2,init3,end3)
 character(len=*),intent(in) :: entry
@@ -2229,3 +2840,16 @@ end if
 end function
 
 end module
+
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+subroutine matterviz_show_captured_plot()
+use GUI, only: show_captured_matterviz_plot
+call show_captured_matterviz_plot()
+end subroutine
+
+
+subroutine matterviz_export_captured_plot()
+use GUI, only: export_captured_matterviz_plot
+call export_captured_matterviz_plot()
+end subroutine
+#endif

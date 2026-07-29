@@ -3,6 +3,12 @@ use std::sync::mpsc::{SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use crate::memory_budget;
+use crate::plot_protocol::{
+    declared_frame_len as declared_plot_frame_len, encode_ack as encode_plot_ack,
+    validate as validate_plot, MAGIC as PLOT_MAGIC,
+};
+use crate::plot_store::PlotStore;
 use crate::shutdown::ShutdownSignal;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::volume_protocol::{
@@ -32,6 +38,7 @@ impl VolumeTransport {
         Self::start_with_broker(
             config,
             store,
+            Arc::new(PlotStore::new()),
             Arc::new(VolumeStreamBroker::default()),
             shutdown,
         )
@@ -40,6 +47,7 @@ impl VolumeTransport {
     pub fn start_with_broker(
         config: TransportConfig,
         store: Arc<VolumeStore>,
+        plot_store: Arc<PlotStore>,
         broker: Arc<VolumeStreamBroker>,
         shutdown: ShutdownSignal,
     ) -> Result<Self, String> {
@@ -50,7 +58,7 @@ impl VolumeTransport {
         let worker_shutdown = shutdown.clone();
         let worker = thread::Builder::new()
             .name("matterviz-volume-reader".to_owned())
-            .spawn(move || run(reader, writer, store, broker, worker_shutdown))
+            .spawn(move || run(reader, writer, store, plot_store, broker, worker_shutdown))
             .map_err(|error| format!("could not start volume reader: {error}"))?;
         Ok(Self {
             worker: Mutex::new(Some(worker)),
@@ -76,11 +84,13 @@ fn run(
     mut reader: platform::PipeReader,
     mut writer: platform::PipeWriter,
     store: Arc<VolumeStore>,
+    plot_store: Arc<PlotStore>,
     broker: Arc<VolumeStreamBroker>,
     shutdown: ShutdownSignal,
 ) {
     if writer.write_all(&encode_ready()).is_err() {
         store.clear();
+        plot_store.clear();
         shutdown.request();
         return;
     }
@@ -89,20 +99,32 @@ fn run(
         if read_exact(&mut reader, &mut prelude, shutdown.flag()).is_err() {
             break;
         }
-        let major = match protocol_major(&prelude) {
-            Ok(value) => value,
-            Err(_) => break,
-        };
-        let result = if major == STREAM_MAJOR {
-            receive_stream_volume(&mut reader, &mut writer, &broker, shutdown.flag(), prelude)
+        let result = if &prelude[..8] == PLOT_MAGIC {
+            receive_plot(
+                &mut reader,
+                &mut writer,
+                &store,
+                &plot_store,
+                shutdown.flag(),
+                prelude,
+            )
         } else {
-            receive_buffered_volume(&mut reader, &mut writer, &store, shutdown.flag(), prelude)
+            let major = match protocol_major(&prelude) {
+                Ok(value) => value,
+                Err(_) => break,
+            };
+            if major == STREAM_MAJOR {
+                receive_stream_volume(&mut reader, &mut writer, &broker, shutdown.flag(), prelude)
+            } else {
+                receive_buffered_volume(&mut reader, &mut writer, &store, shutdown.flag(), prelude)
+            }
         };
         if result.is_err() {
             break;
         }
     }
     store.clear();
+    plot_store.clear();
     broker.fail_all("MatterViz volume transport closed");
     shutdown.request();
 }
@@ -122,6 +144,54 @@ fn receive_buffered_volume(
     let status = if store.insert(frame).is_ok() { 0 } else { 1 };
     let ack = encode_ack(identity.0, identity.1, status).map_err(|_| ())?;
     writer.write_all(&ack).map_err(|_| ())
+}
+
+fn receive_plot(
+    reader: &mut platform::PipeReader,
+    writer: &mut platform::PipeWriter,
+    volume_store: &VolumeStore,
+    store: &PlotStore,
+    stop: &AtomicBool,
+    prelude: [u8; PRELUDE_BYTES],
+) -> Result<(), ()> {
+    let mut header = [0_u8; crate::plot_protocol::HEADER_BYTES];
+    header[..PRELUDE_BYTES].copy_from_slice(&prelude);
+    read_exact(reader, &mut header[PRELUDE_BYTES..], stop)?;
+    let frame_len = declared_plot_frame_len(&header).map_err(|_| ())?;
+    let dataset_id = u64::from_le_bytes(header[20..28].try_into().map_err(|_| ())?);
+    let active = (volume_store.bytes() + store.bytes()) as u64;
+    let admitted = memory_budget::active_data_budget(active)
+        .is_ok_and(|budget| active.saturating_add(frame_len as u64) <= budget.active_limit_bytes);
+    if !admitted {
+        drain_exact(reader, frame_len - header.len(), stop)?;
+        let ack = encode_plot_ack(dataset_id, dataset_id, 1).map_err(|_| ())?;
+        return writer.write_all(&ack).map_err(|_| ());
+    }
+    let mut frame = vec![0_u8; frame_len];
+    frame[..header.len()].copy_from_slice(&header);
+    read_exact(reader, &mut frame[header.len()..], stop)?;
+    let valid = validate_plot(&frame).is_ok();
+    let status = if valid && store.insert(frame).is_ok() {
+        0
+    } else {
+        1
+    };
+    let ack = encode_plot_ack(dataset_id, dataset_id, status).map_err(|_| ())?;
+    writer.write_all(&ack).map_err(|_| ())
+}
+
+fn drain_exact(
+    reader: &mut platform::PipeReader,
+    mut remaining: usize,
+    stop: &AtomicBool,
+) -> Result<(), ()> {
+    let mut scratch = [0_u8; 64 * 1024];
+    while remaining > 0 {
+        let count = remaining.min(scratch.len());
+        read_exact(reader, &mut scratch[..count], stop)?;
+        remaining -= count;
+    }
+    Ok(())
 }
 
 fn receive_stream_volume(
@@ -394,6 +464,7 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plot_protocol::{encode as encode_plot, PlotArray, PlotData, PlotRole};
     use crate::stream_broker::VolumeStreamBroker;
     use crate::volume_protocol::{decode_ack, decode_volume, encode_volume, Crc32c};
     use std::io::{Read, Write};
@@ -495,6 +566,25 @@ mod tests {
         frame[36..40].copy_from_slice(&crc.finish().to_le_bytes());
     }
 
+    fn plot_fixture() -> Vec<u8> {
+        encode_plot(&PlotData {
+            dataset_id: 42,
+            arrays: vec![
+                PlotArray {
+                    role: PlotRole::X,
+                    values: vec![0.0, 1.0, 2.0],
+                    body_offset: 0,
+                },
+                PlotArray {
+                    role: PlotRole::Y,
+                    values: vec![2.0, 3.0, 5.0],
+                    body_offset: 24,
+                },
+            ],
+        })
+        .unwrap()
+    }
+
     #[test]
     fn full_stream_channel_observes_stop_without_blocking() {
         let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
@@ -516,9 +606,14 @@ mod tests {
         let broker = Arc::new(VolumeStreamBroker::default());
         let registration = broker.register(42).unwrap();
         let shutdown = ShutdownSignal::detached();
-        let transport =
-            VolumeTransport::start_with_broker(config, store.clone(), broker.clone(), shutdown)
-                .unwrap();
+        let transport = VolumeTransport::start_with_broker(
+            config,
+            store.clone(),
+            Arc::new(PlotStore::new()),
+            broker.clone(),
+            shutdown,
+        )
+        .unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
         crate::volume_protocol::decode_ready(&ready).unwrap();
@@ -571,8 +666,14 @@ mod tests {
         let store = Arc::new(VolumeStore::new());
         let broker = Arc::new(VolumeStreamBroker::default());
         let shutdown = ShutdownSignal::detached();
-        let transport =
-            VolumeTransport::start_with_broker(config, store, broker.clone(), shutdown).unwrap();
+        let transport = VolumeTransport::start_with_broker(
+            config,
+            store,
+            Arc::new(PlotStore::new()),
+            broker.clone(),
+            shutdown,
+        )
+        .unwrap();
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
 
@@ -653,6 +754,65 @@ mod tests {
         drop(volume_write);
         transport.join();
         assert!(store.is_empty());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn fragmented_plot_frame_is_stored_and_volume_frame_follows() {
+        let (volume_read, mut volume_write) = pipe_pair();
+        let (mut ack_read, ack_write) = pipe_pair();
+        let config = TransportConfig {
+            volume_read_pipe: into_raw_pipe(volume_read),
+            volume_ack_pipe: into_raw_pipe(ack_write),
+        };
+        let volume_store = Arc::new(VolumeStore::new());
+        let plot_store = Arc::new(PlotStore::new());
+        let shutdown = ShutdownSignal::detached();
+        let transport = VolumeTransport::start_with_broker(
+            config,
+            volume_store.clone(),
+            plot_store.clone(),
+            Arc::new(VolumeStreamBroker::default()),
+            shutdown,
+        )
+        .unwrap();
+        let mut ready = [0_u8; PRELUDE_BYTES];
+        ack_read.read_exact(&mut ready).unwrap();
+        crate::volume_protocol::decode_ready(&ready).unwrap();
+
+        let plot = plot_fixture();
+        for chunk in plot.chunks(13) {
+            volume_write.write_all(chunk).unwrap();
+        }
+        let mut plot_ack = [0_u8; crate::plot_protocol::ACK_BYTES];
+        ack_read.read_exact(&mut plot_ack).unwrap();
+        assert_eq!(&plot_ack[..8], crate::plot_protocol::MAGIC);
+        assert_eq!(u64::from_le_bytes(plot_ack[20..28].try_into().unwrap()), 42);
+        assert_eq!(u64::from_le_bytes(plot_ack[48..56].try_into().unwrap()), 42);
+        assert_eq!(u32::from_le_bytes(plot_ack[56..60].try_into().unwrap()), 0);
+        assert_eq!(plot_store.get(42).as_deref(), Some(plot.as_slice()));
+
+        let mut corrupt_plot = plot_fixture();
+        let last = corrupt_plot.len() - 1;
+        corrupt_plot[last] ^= 1;
+        for chunk in corrupt_plot.chunks(11) {
+            volume_write.write_all(chunk).unwrap();
+        }
+        ack_read.read_exact(&mut plot_ack).unwrap();
+        assert_eq!(u64::from_le_bytes(plot_ack[20..28].try_into().unwrap()), 42);
+        assert_eq!(u32::from_le_bytes(plot_ack[56..60].try_into().unwrap()), 1);
+
+        let volume = fixture();
+        for chunk in volume.chunks(17) {
+            volume_write.write_all(chunk).unwrap();
+        }
+        let mut volume_ack = [0_u8; crate::volume_protocol::ACK_HEADER_BYTES];
+        ack_read.read_exact(&mut volume_ack).unwrap();
+        assert_eq!(decode_ack(&volume_ack).unwrap(), (42, 1001, 0));
+        assert!(volume_store.get(1001).is_some());
+
+        drop(volume_write);
+        transport.join();
     }
 
     #[cfg(any(unix, windows))]
