@@ -1,0 +1,1 @@
+{"format":"multiwfn-matterviz-plot","version":1,"kind":"dos","title":"Density of states","panels":[{"id":"dos","xAxis":{"label":"Energy","unit":"eV","range":[-5,5]},"yAxis":{"label":"DOS","range":[0,8]},"series":[{"id":"tdos","label":"TDOS","type":"line","x":[-5,-2,0,2,5],"y":[0,2,7,2,0]},{"id":"levels","label":"Levels","type":"sticks","x":[-2,1],"y":[1,2]}]}]}

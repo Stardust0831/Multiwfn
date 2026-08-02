@@ -12,6 +12,13 @@ export type ManifestEntry = {
   analysisKind?: string
 }
 
+export type PlotExport = {
+  format: 'png' | 'pdf'
+  path: string
+  width?: number
+  height?: number
+}
+
 export type MultiwfnGuiState = {
   orbitalCount?: number
   homoIndex?: number
@@ -41,6 +48,7 @@ export type BondAnalysis = {
 }
 
 export type MultiwfnManifest = {
+  plotExport?: PlotExport
   multiwfnGui?: MultiwfnGui
   bondAnalysis?: BondAnalysis
   structure?: ManifestEntry | null
@@ -95,6 +103,19 @@ export const cube_entries = (manifest: MultiwfnManifest): ManifestEntry[] =>
     : Array.isArray(manifest?.layers)
       ? manifest.layers
       : []
+
+export const plot_export = (manifest: MultiwfnManifest): PlotExport | undefined => {
+  const value = manifest?.plotExport
+  if (!value || (value.format !== 'png' && value.format !== 'pdf') || typeof value.path !== 'string' || !value.path.trim()) return undefined
+  const dimensions = value.width === undefined && value.height === undefined
+    ? {}
+    : Number.isInteger(value.width) && Number.isInteger(value.height)
+      && Number(value.width) > 0 && Number(value.height) > 0
+      ? { width: Number(value.width), height: Number(value.height) }
+      : undefined
+  if (dimensions === undefined) return undefined
+  return { format: value.format, path: value.path, ...dimensions }
+}
 
 export const display_range = (
   manifest: MultiwfnManifest,

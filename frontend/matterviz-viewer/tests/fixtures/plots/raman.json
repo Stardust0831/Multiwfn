@@ -1,0 +1,1 @@
+{"format":"multiwfn-matterviz-plot","version":1,"kind":"raman","title":"Raman spectrum","panels":[{"id":"raman","xAxis":{"label":"Wavenumber","unit":"cm-1","range":[4000,0]},"yAxis":{"label":"Relative Raman intensity","range":[0,10]},"series":[{"id":"raman","type":"line","x":[4000,3000,2000,1000,0],"y":[0,7,2,5,0]}]}]}

@@ -15,6 +15,7 @@
   import { onMount } from 'svelte'
   import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
+  import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import UpdateModal from './UpdateModal.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
@@ -31,6 +32,7 @@
     cube_entries,
     display_range,
     manifest_url,
+    plot_export,
     resolve_entry_url,
     resolve_volume_entry_url,
     type ManifestEntry,
@@ -68,6 +70,7 @@
     orbital_visibility,
     type VolumeCacheOptions,
   } from './volume-cache'
+  import { parse_plot, read_plot_dataset_response, type PlotArtifact, type PlotDataset, type PlotScene } from './plot'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -138,6 +141,7 @@
   let updateOpen = $state(false)
   const updaterBuildEnabled = import.meta.env.VITE_MATTERVIZ_PRERELEASE_UPDATER === '1'
   const updateClient = updaterBuildEnabled ? create_update_client(new URL(window.location.href)) : undefined
+  let plotArtifact = $state<PlotArtifact | PlotScene | undefined>()
 
   type ApiPayload = {
     ok?: boolean
@@ -649,6 +653,14 @@
       const response = await fetch(url, { cache: 'no-store' })
       if (!response.ok) throw new Error(`Manifest request returned HTTP ${response.status}`)
       manifest = (await response.json()) as MultiwfnManifest
+      const inlinePlot = (manifest as MultiwfnManifest & { plot?: unknown }).plot
+      if (inlinePlot !== undefined) {
+        plotArtifact = parse_plot(inlinePlot)
+        manifestBase = new URL('.', url)
+        await signal_frontend_ready()
+        loading = false
+        return
+      }
       manifestBase = new URL('.', url)
       quality = Number(manifest.espAnalysis?.defaultQuality ?? 120000)
       orbitalIsovalue = normalize_orbital_isovalue(manifest.multiwfnGui?.state?.sur_value_orb, 0.02)
@@ -1094,6 +1106,18 @@
   })
 </script>
 
+{#if plotArtifact}
+  <MultiwfnPlotView
+    artifact={plotArtifact}
+    exportConfig={plot_export(manifest)}
+    onExported={return_to_multiwfn}
+    onExportError={report_error}
+    resolver={async (datasetId: number): Promise<PlotDataset> => {
+      const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
+      return read_plot_dataset_response(response, datasetId)
+    }}
+  />
+{:else}
 <main class="workbench" class:has-periodic={Boolean(manifest.periodic?.enabled)}>
   <header class="toolbar">
     <div class="brand">
@@ -1559,3 +1583,4 @@
     <UpdateModal open={updateOpen} page={new URL(window.location.href)} initial_status={updateStatus} onstatus={(status) => updateStatus = status} onclose={() => updateOpen = false} />
   {/if}
 </main>
+{/if}
