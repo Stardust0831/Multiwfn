@@ -14,6 +14,7 @@ mod session_data;
 mod shutdown;
 mod stream_broker;
 mod transport;
+mod updater;
 pub mod volume_protocol;
 pub mod volume_store;
 
@@ -178,6 +179,7 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
                 thread::spawn(move || {
                     while !service.is_shutdown() {
                         if service.frontend_ready() {
+                            service.confirm_update_after_ready();
                             ready_status.ready();
                             break;
                         }

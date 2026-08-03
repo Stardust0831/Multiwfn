@@ -1,0 +1,40 @@
+[package]
+name = "multiwfn-matterviz-updater"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Signed, transactional prerelease updater for Multiwfn MatterViz"
+license = "MIT"
+
+[lib]
+name = "matterviz_updater"
+path = "src/lib.rs"
+
+[[bin]]
+name = "multiwfn-matterviz-updater"
+path = "src/bin/multiwfn-matterviz-updater.rs"
+
+[[bin]]
+name = "multiwfn-matterviz-sign"
+path = "src/bin/multiwfn-matterviz-sign.rs"
+
+[dependencies]
+base64 = "0.22"
+ed25519-dalek = { version = "2.1", features = ["pkcs8", "rand_core"] }
+flate2 = "1"
+libc = "0.2"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tar = "0.4"
+url = "2"
+zeroize = { version = "1", features = ["derive"] }
+zip = { version = "2", default-features = false, features = ["deflate", "bzip2", "xz", "zstd"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Storage_FileSystem"] }

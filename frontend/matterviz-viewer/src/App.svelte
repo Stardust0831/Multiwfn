@@ -17,6 +17,7 @@
   import EspLegend from './EspLegend.svelte'
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
+  import UpdateModal from './UpdateModal.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
   import {
     estimate_esp_range,
@@ -57,6 +58,7 @@
     type WorkbenchCameraState,
   } from './state'
   import { signal_frontend_ready } from './startup'
+  import { create_update_client, type UpdateStatus } from './update'
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
   import {
     adapt_matterviz_volume,
@@ -135,6 +137,10 @@
     [key: string]: unknown
   }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
+  let updateStatus = $state<UpdateStatus | undefined>()
+  let updateOpen = $state(false)
+  const updaterBuildEnabled = import.meta.env.VITE_MATTERVIZ_PRERELEASE_UPDATER === '1'
+  const updateClient = updaterBuildEnabled ? create_update_client(new URL(window.location.href)) : undefined
   let plotArtifact = $state<PlotArtifact | PlotScene | undefined>()
 
   type ApiPayload = {
@@ -229,6 +235,16 @@
       throw new Error(`Backend returned HTTP ${response.status} without JSON`)
     }
     return response.json() as Promise<ApiPayload>
+  }
+
+  const load_update_status = async (): Promise<void> => {
+    if (!updateClient || !new URL(window.location.href).searchParams.get('cap')) return
+    try {
+      const next = await updateClient.status()
+      updateStatus = next.visible ? next : undefined
+    } catch {
+      updateStatus = undefined
+    }
   }
 
   const fetch_text = async (url: URL): Promise<string> => {
@@ -1084,7 +1100,10 @@
     isosurfaceSettings = { ...isosurfaceSettings, display_range: next }
   }
 
-  onMount(load_manifest)
+  onMount(() => {
+    void load_manifest()
+    void load_update_status()
+  })
 </script>
 
 {#if plotArtifact}
@@ -1179,6 +1198,11 @@
     <button type="button" onclick={export_state}>Export</button>
     <input class="hidden-file-input" bind:this={stateInput} type="file" accept="application/json,.json" onchange={import_state_file} />
     <button type="button" onclick={() => open_panel('logs')} aria-expanded={logOpen}>Logs ({logEntries.length})</button>
+    {#if updaterBuildEnabled && updateStatus?.visible}
+      <button class="icon-button update-toolbar-button" type="button" title="Open updater" aria-label="Open updater" onclick={() => updateOpen = true}>
+        <Icon icon={updateStatus.state === 'available' ? 'Download' : 'Version'} width="16" height="16" />
+      </button>
+    {/if}
     <button class="return" type="button" onclick={return_to_multiwfn} disabled={returnPending}>Return</button>
   </header>
 
@@ -1553,6 +1577,10 @@
         </div>
       {/if}
     </aside>
+  {/if}
+
+  {#if updaterBuildEnabled && updateStatus?.visible}
+    <UpdateModal open={updateOpen} page={new URL(window.location.href)} initial_status={updateStatus} onstatus={(status) => updateStatus = status} onclose={() => updateOpen = false} />
   {/if}
 </main>
 {/if}
