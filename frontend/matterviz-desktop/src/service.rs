@@ -548,10 +548,10 @@ impl ServiceRunner {
                 return;
             }
         };
-        let first = request.first;
-        let host = request.host;
-        let headers = request.headers;
-        let body = request.body;
+        let first = request.first.as_str();
+        let host = request.host.as_str();
+        let headers = &request.headers;
+        let body = request.body.as_slice();
         if !host.eq_ignore_ascii_case(&self.authority) {
             respond(&mut stream, 403, "text/plain", b"Invalid Host", false);
             return;
@@ -757,7 +757,7 @@ impl ServiceRunner {
             };
             if content_types.len() != 1
                 || content_type != Some(expected_type)
-                || !plot_export_magic_matches(&export.format, &body)
+                || !plot_export_magic_matches(&export.format, body)
             {
                 respond(
                     &mut stream,
@@ -782,7 +782,7 @@ impl ServiceRunner {
                 );
                 return;
             }
-            if let Err(error) = write_plot_export(export, &body) {
+            if let Err(error) = write_plot_export(export, body) {
                 self.plot_export_written.store(false, Ordering::Release);
                 respond(&mut stream, 500, "text/plain", error.as_bytes(), false);
                 return;
