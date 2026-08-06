@@ -15,6 +15,7 @@
   import { onMount } from 'svelte'
   import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
+  import MaterialPanel from './MaterialPanel.svelte'
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
@@ -117,6 +118,7 @@
   let espExtremaLoading = $state(false)
   let espExtrema = $state<EspExtremaResult | undefined>()
   let inspectorOpen = $state(true)
+  let materialOpen = $state(false)
   let inspectorSection = $state<'structure' | 'surfaces' | 'cell'>('structure')
   let rotationStep = $state(15)
   let panStep = $state(0.25)
@@ -504,7 +506,7 @@
     if (!density || !potential) return
     const range = estimate_esp_range(density, potential, espIsovalue, { maxCells: 150000, maxSamples: 50000 })
     espRange = [range.min, range.max]
-    update_layer(densityIdx, { color_range: espRange })
+    update_layer(densityIdx, { colormap: 'interpolateTransFlag', color_range: espRange })
   }
 
   const linked_esp_range = (): [number, number] | undefined => {
@@ -1163,6 +1165,7 @@
     {/if}
     <button type="button" onclick={() => open_panel('layers')} aria-expanded={layerOpen}>Layers ({volumeEntries.length})</button>
     <button type="button" onclick={() => open_panel('slice')} disabled={!volumetricData?.length} aria-expanded={sliceOpen}>2D Slice</button>
+    <button type="button" onclick={() => materialOpen = !materialOpen} aria-expanded={materialOpen}>Material</button>
     {#if esp_pair()}
       <button type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>ESP legend</button>
       <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>Approx. ESP extrema</button>
@@ -1313,6 +1316,9 @@
           bind:manual_min={sliceManualMin}
           bind:manual_max={sliceManualMax}
         />
+      {/if}
+      {#if materialOpen}
+        <MaterialPanel bind:settings={isosurfaceSettings} bind:sceneProps={sceneProps} bind:open={materialOpen} />
       {/if}
       {#if espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
