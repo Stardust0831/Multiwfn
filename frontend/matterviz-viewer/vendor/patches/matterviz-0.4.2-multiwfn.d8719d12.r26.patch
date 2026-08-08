@@ -1,0 +1,234 @@
+diff --git a/dist/colors/index.d.ts b/dist/colors/index.d.ts
+index b342eb0..98d8353 100755
+--- a/dist/colors/index.d.ts
++++ b/dist/colors/index.d.ts
+@@ -1,5 +1,7 @@
+ import * as d3_sc from 'd3-scale-chromatic';
+-export type D3InterpolateName = keyof typeof d3_sc & `interpolate${string}`;
++export declare const TRANS_FLAG_STOPS: readonly [string, string, string];
++export declare const trans_flag_interpolator: (t: number) => string;
++export type D3InterpolateName = (keyof typeof d3_sc & `interpolate${string}`) | `interpolateTransFlag`;
+ export type D3ColorSchemeName = D3InterpolateName extends `interpolate${infer Name}` ? Name : never;
+ export declare const get_d3_interpolator: (name: D3InterpolateName) => ((t: number) => string);
+ export declare const COLOR_SCALE_TYPES: readonly ["continuous", "categorical"];
+diff --git a/dist/colors/index.js b/dist/colors/index.js
+index e92ffe3..4e163fc 100755
+--- a/dist/colors/index.js
++++ b/dist/colors/index.js
+@@ -8,7 +8,28 @@ import jmol_colors from './jmol-colors.json' with { type: 'json' };
+ import muted_colors from './muted-colors.json' with { type: 'json' };
+ import pastel_colors from './pastel-colors.json' with { type: 'json' };
+ import vesta_colors from './vesta-colors.json' with { type: 'json' };
++export const TRANS_FLAG_STOPS = [`#f5a9b8`, `#ffffff`, `#5bcefa`];
++const lerp_css_hex = (first, second, fraction) => {
++    const parse = (hex) => {
++        const value = Number.parseInt(hex.replace(`#`, ``), 16);
++        return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
++    };
++    const first_rgb = parse(first);
++    const second_rgb = parse(second);
++    const amount = Math.min(1, Math.max(0, fraction));
++    const channels = first_rgb.map((channel, index) => Math.round(channel + (second_rgb[index] - channel) * amount));
++    return `#${channels.map((channel) => channel.toString(16).padStart(2, `0`)).join(``)}`;
++};
++export const trans_flag_interpolator = (value) => {
++    const amount = Math.min(1, Math.max(0, value));
++    const [negative, zero, positive] = TRANS_FLAG_STOPS;
++    return amount < 0.5
++        ? lerp_css_hex(negative, zero, amount * 2)
++        : lerp_css_hex(zero, positive, (amount - 0.5) * 2);
++};
+ export const get_d3_interpolator = (name) => {
++    if (name === `interpolateTransFlag`)
++        return trans_flag_interpolator;
+     const candidate = d3_sc[name];
+     return typeof candidate === `function` ? candidate : d3_sc.interpolateViridis;
+ };
+diff --git a/dist/isosurface/Isosurface.svelte b/dist/isosurface/Isosurface.svelte
+index add7f2d..25c80a1 100755
+--- a/dist/isosurface/Isosurface.svelte
++++ b/dist/isosurface/Isosurface.svelte
+@@ -18,6 +18,7 @@
+     Color,
+     DoubleSide,
+     FrontSide,
++    type Material,
+     Uint32BufferAttribute,
+   } from 'three'
+   import {
+@@ -71,6 +72,32 @@
+   } = $props()
+
+   let surface_specular = $derived(new Color().setScalar(settings.specular ?? 0.12))
++  const VMD_SHADING_GLSL = /* glsl */ `
++float vmdNdV = clamp(dot(normal, normalize(-vViewPosition)), 0.0, 1.0);
++float vmdEdge = 1.0 - vmdNdV * vmdNdV;
++vmdEdge = 1.0 - pow(vmdEdge, (1.0 - uVmdOutlineWidth) * 32.0);
++vec3 vmdOut = outgoingLight * (1.0 - uVmdOutline * (1.0 - vmdEdge));
++float vmdAlpha = diffuseColor.a;
++if (uVmdTransMode > 0.5) {
++  float vmdA = 1.0 + cos(3.14159265 * (1.0 - diffuseColor.a) * vmdNdV);
++  vmdA = vmdA * vmdA * 0.25;
++  vmdAlpha = vmdA;
++}
++gl_FragColor = vec4(vmdOut, vmdAlpha);
++`
++
++  function install_vmd_shading(material: Material, surface_settings: IsosurfaceSettings) {
++    material.onBeforeCompile = (shader) => {
++      shader.uniforms.uVmdOutline = { value: surface_settings.outline ?? 0 }
++      shader.uniforms.uVmdOutlineWidth = { value: surface_settings.outlineWidth ?? 0.6 }
++      shader.uniforms.uVmdTransMode = { value: surface_settings.transmode ?? 0 }
++      shader.fragmentShader = shader.fragmentShader.replace(
++        `gl_FragColor = vec4( outgoingLight, diffuseColor.a );`,
++        VMD_SHADING_GLSL,
++      )
++    }
++    material.needsUpdate = true
++  }
+
+   let all_volumes = $derived(volumes.length ? volumes : volume ? [volume] : [])
+
+@@ -718,7 +745,7 @@
+       equal to the UI value instead of making atoms inside appear nearly black. -->
+     {@const pass_opacity = transparent ? 1 - Math.sqrt(1 - opacity) : opacity}
+     <!-- Recreate materials when vertexColors toggles (needs shader recompile) -->
+-    {#key `${vertex_colored}-${settings.material}-${settings.flat_shading}`}
++    {#key `${vertex_colored}-${settings.material}-${settings.flat_shading}-${settings.outline}-${settings.outlineWidth}-${settings.transmode}`}
+       {#if settings.wireframe}
+         <T.Mesh geometry={entry.geometry} frustumCulled={false}>
+           <T.MeshBasicMaterial
+@@ -749,6 +776,7 @@
+               />
+             {:else if settings.material === `glossy`}
+               <T.MeshPhongMaterial
++                oncreate={(material) => install_vmd_shading(material, settings)}
+                 {color}
+                 vertexColors={vertex_colored}
+                 {transparent}
+@@ -761,6 +789,7 @@
+               />
+             {:else if settings.material === `pbr`}
+               <T.MeshStandardMaterial
++                oncreate={(material) => install_vmd_shading(material, settings)}
+                 {color}
+                 vertexColors={vertex_colored}
+                 {transparent}
+@@ -773,6 +802,7 @@
+               />
+             {:else}
+               <T.MeshLambertMaterial
++                oncreate={(material) => install_vmd_shading(material, settings)}
+                 {color}
+                 vertexColors={vertex_colored}
+                 {transparent}
+diff --git a/dist/isosurface/coloring.d.ts b/dist/isosurface/coloring.d.ts
+index 78e5333..4bc642a 100755
+--- a/dist/isosurface/coloring.d.ts
++++ b/dist/isosurface/coloring.d.ts
+@@ -1,7 +1,7 @@
+ import type { D3InterpolateName } from '../colors';
+ import type { Vec2 } from '../math';
+ import type { DataRange } from './types';
+-export declare const ISO_COLORMAPS: readonly ["interpolateViridis", "interpolatePlasma", "interpolateInferno", "interpolateMagma", "interpolateCividis", "interpolateTurbo", "interpolateRdBu", "interpolateRdYlBu", "interpolateSpectral", "interpolatePiYG", "interpolateBrBG", "interpolatePuOr"];
++export declare const ISO_COLORMAPS: readonly ["interpolateViridis", "interpolatePlasma", "interpolateInferno", "interpolateMagma", "interpolateCividis", "interpolateTurbo", "interpolateRdBu", "interpolateRdYlBu", "interpolateSpectral", "interpolatePiYG", "interpolateBrBG", "interpolatePuOr", "interpolateTransFlag"];
+ export type IsoColormap = (typeof ISO_COLORMAPS)[number];
+ export declare const DEFAULT_ISO_COLORMAP: IsoColormap;
+ export declare const is_signed_range: (data_range: DataRange) => boolean;
+diff --git a/dist/isosurface/coloring.js b/dist/isosurface/coloring.js
+index 1ce0559..2e913b1 100755
+--- a/dist/isosurface/coloring.js
++++ b/dist/isosurface/coloring.js
+@@ -15,6 +15,7 @@ export const ISO_COLORMAPS = [
+     `interpolatePiYG`,
+     `interpolateBrBG`,
+     `interpolatePuOr`,
++    `interpolateTransFlag`,
+ ];
+ export const DEFAULT_ISO_COLORMAP = `interpolateViridis`;
+ // A field counts as signed when it has significant values of both signs
+diff --git a/dist/isosurface/marching-cubes-worker.js b/dist/isosurface/marching-cubes-worker.js
+index 92762c2..859e06a 100755
+--- a/dist/isosurface/marching-cubes-worker.js
++++ b/dist/isosurface/marching-cubes-worker.js
+@@ -1,6 +1,7 @@
+ import { marching_cubes_typed, preflight_marching_cubes } from '../marching-cubes';
+
+ const ctx = globalThis;
++const is_shared_buffer = (buffer) => typeof SharedArrayBuffer !== `undefined` && buffer instanceof SharedArrayBuffer;
+
+ ctx.onmessage = (event) => {
+     const message = event.data;
+@@ -18,7 +19,7 @@ ctx.onmessage = (event) => {
+         }
+         const result = marching_cubes_typed(grid, iso_value, lattice, options);
+         const transfer = [result.positions.buffer, result.normals.buffer, result.indices.buffer];
+-        if (!(return_buffer instanceof SharedArrayBuffer)) transfer.push(return_buffer);
++        if (!is_shared_buffer(return_buffer)) transfer.push(return_buffer);
+         ctx.postMessage({
+             job_id,
+             ok: true,
+@@ -31,7 +32,7 @@ ctx.onmessage = (event) => {
+     } catch (error) {
+         const message_text = error instanceof Error ? error.message : String(error);
+         const transfer = [];
+-        if (return_buffer && !(return_buffer instanceof SharedArrayBuffer)) transfer.push(return_buffer);
++        if (return_buffer && !is_shared_buffer(return_buffer)) transfer.push(return_buffer);
+         ctx.postMessage({
+             job_id,
+             ok: false,
+diff --git a/dist/isosurface/types.d.ts b/dist/isosurface/types.d.ts
+index 53073e9..61c5df6 100755
+--- a/dist/isosurface/types.d.ts
++++ b/dist/isosurface/types.d.ts
+@@ -52,6 +52,9 @@ export interface IsosurfaceSettings {
+     shininess?: number;
+     specular?: number;
+     flat_shading?: boolean;
++    outline?: number;
++    outlineWidth?: number;
++    transmode?: number;
+     halo: number;
+     layers?: IsosurfaceLayer[];
+     display_range?: [Vec2, Vec2, Vec2];
+diff --git a/dist/isosurface/types.js b/dist/isosurface/types.js
+index 5478243..a4c036c 100755
+--- a/dist/isosurface/types.js
++++ b/dist/isosurface/types.js
+@@ -147,6 +147,9 @@ export const DEFAULT_ISOSURFACE_SETTINGS = {
+     shininess: 18,
+     specular: 0.12,
+     flat_shading: false,
++    outline: 0,
++    outlineWidth: 0.6,
++    transmode: 0,
+     halo: 0,
+ };
+ // Compute reasonable isosurface settings from a volume's data range.
+diff --git a/dist/plot/core/components/ColorBar.svelte b/dist/plot/core/components/ColorBar.svelte
+index e70198a..c486ee2 100755
+--- a/dist/plot/core/components/ColorBar.svelte
++++ b/dist/plot/core/components/ColorBar.svelte
+@@ -285,8 +285,8 @@
+       const func_name = color_scale.startsWith(`interpolate`)
+         ? color_scale
+         : `interpolate${color_scale}`
+-      if (func_name in d3_sc) {
+-        interpolator = d3_sc[func_name as D3InterpolateName]
++      if (func_name === `interpolateTransFlag` || func_name in d3_sc) {
++        interpolator = get_d3_interpolator(func_name as D3InterpolateName)
+       } else {
+         console.error(`Color scale '${color_scale}' not found. Falling back on 'Viridis'.`)
+       }
+diff --git a/package.json b/package.json
+index 4ef6f80..2af1d77 100755
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r24",
++  "version": "0.4.2-multiwfn.d8719d12.r26",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",

@@ -64,6 +64,58 @@ test('vendored Arcball package retains r19 volume release lifecycle', async () =
   assert.match(viewport, /\{on_geometry_error\}/)
 })
 
+test('vendored r26 preserves Multiwfn geometry contracts and adds material controls', async () => {
+  const [packageMetadata, declaration, implementation, coloring, geometryWorker, colorBar] = await Promise.all([
+    readFile(installed('../package.json'), 'utf8').then(JSON.parse),
+    readFile(installed('isosurface/types.d.ts'), 'utf8'),
+    readFile(installed('isosurface/Isosurface.svelte'), 'utf8'),
+    readFile(installed('isosurface/coloring.js'), 'utf8'),
+    readFile(installed('isosurface/marching-cubes-worker.js'), 'utf8'),
+    readFile(installed('plot/core/components/ColorBar.svelte'), 'utf8'),
+  ])
+  assert.equal(packageMetadata.version, '0.4.2-multiwfn.d8719d12.r26')
+  assert.match(declaration, /grid: ScalarGridLike;/)
+  assert.match(declaration, /geometry_memory_budget_bytes\?: number;/)
+  assert.match(declaration, /outline\?: number;/)
+  assert.match(declaration, /outlineWidth\?: number;/)
+  assert.match(declaration, /transmode\?: number;/)
+  assert.match(implementation, /request_isosurface_geometry/)
+  assert.match(implementation, /install_vmd_shading/)
+  assert.match(implementation, /settings\.outlineWidth/)
+  assert.match(implementation, /settings\.transmode/)
+  assert.match(coloring, /interpolateTransFlag/)
+  assert.match(geometryWorker, /typeof SharedArrayBuffer !== `undefined`/)
+  assert.doesNotMatch(geometryWorker, /!\(return_buffer instanceof SharedArrayBuffer\)/)
+  assert.match(colorBar, /func_name === `interpolateTransFlag`/)
+  const geometrySignature = implementation.slice(
+    implementation.indexOf('let geo_sig ='),
+    implementation.indexOf('let volume_sig ='),
+  )
+  assert.ok(geometrySignature)
+  assert.doesNotMatch(geometrySignature, /material|outline|transmode|flat_shading/)
+})
+
+test('vendored trans-flag colormap has exact pink, white, and blue stops', async () => {
+  const vite = await createServer({
+    configFile: false,
+    server: { middlewareMode: true, watch: null, hmr: false },
+    appType: 'custom',
+    optimizeDeps: { noDiscovery: true },
+  })
+  try {
+    const { get_d3_interpolator, TRANS_FLAG_STOPS } = await vite.ssrLoadModule(
+      '/node_modules/matterviz/dist/colors/index.js',
+    )
+    const interpolate = get_d3_interpolator('interpolateTransFlag')
+    assert.deepEqual(TRANS_FLAG_STOPS, ['#f5a9b8', '#ffffff', '#5bcefa'])
+    assert.equal(interpolate(0), '#f5a9b8')
+    assert.equal(interpolate(0.5), '#ffffff')
+    assert.equal(interpolate(1), '#5bcefa')
+  } finally {
+    await vite.close()
+  }
+})
+
 test('vendored MatterViz preserves explicitly absolute volume origins', async () => {
   const [declaration, implementation] = await Promise.all([
     readFile(installed('isosurface/types.d.ts'), 'utf8'),

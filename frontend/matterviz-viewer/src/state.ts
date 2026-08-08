@@ -19,6 +19,10 @@ export type WorkbenchIsosurfaceAppearance = {
   metalness?: number
   shininess?: number
   specular?: number
+  flatShading?: boolean
+  outline?: number
+  outlineWidth?: number
+  transmode?: number
   halo?: number
 }
 
@@ -36,6 +40,8 @@ export type WorkbenchStructureAppearance = {
   showSiteLabels?: boolean
   showSiteIndices?: boolean
   sphereSegments?: number
+  ambientLight?: number
+  directionalLight?: number
   backgroundColor?: string
   backgroundOpacity?: number
 }
@@ -186,6 +192,10 @@ const normalize_structure_appearance = (value: unknown): WorkbenchStructureAppea
   if (typeof showSiteIndices === 'boolean') appearance.showSiteIndices = showSiteIndices
   const sphereSegments = finite_integer(read('sphereSegments', 'sphere_segments'))
   if (sphereSegments !== undefined) appearance.sphereSegments = Math.min(64, Math.max(8, sphereSegments))
+  const ambientLight = clamp_finite(read('ambientLight', 'ambient_light'), 0, 4)
+  if (ambientLight !== undefined) appearance.ambientLight = ambientLight
+  const directionalLight = clamp_finite(read('directionalLight', 'directional_light'), 0, 4)
+  if (directionalLight !== undefined) appearance.directionalLight = directionalLight
   const backgroundColor = normalize_color(read('backgroundColor', 'background_color'))
   if (backgroundColor !== undefined) appearance.backgroundColor = backgroundColor
   const backgroundOpacity = clamp_finite(read('backgroundOpacity', 'background_opacity'), 0, 1)
@@ -224,12 +234,23 @@ const normalize_camera = (value: unknown): WorkbenchCameraState | undefined => {
 const normalize_appearance = (value: unknown): WorkbenchIsosurfaceAppearance | undefined => {
   const row = as_record(value)
   const appearance: WorkbenchIsosurfaceAppearance = {}
+  const read = (camel: string, snake: string): unknown => row[camel] ?? row[snake]
   if (typeof row.wireframe === 'boolean') appearance.wireframe = row.wireframe
-  if (row.material === 'matte' || row.material === 'glossy' || row.material === 'pbr') appearance.material = row.material
+  if (row.material === 'matte' || row.material === 'glossy' || row.material === 'pbr' || row.material === 'unlit') {
+    appearance.material = row.material
+  }
   for (const key of ['roughness', 'metalness', 'shininess', 'specular', 'halo'] as const) {
     const number = finite_number(row[key])
     if (number !== undefined) appearance[key] = number
   }
+  const flatShading = read('flatShading', 'flat_shading')
+  if (typeof flatShading === 'boolean') appearance.flatShading = flatShading
+  const outline = clamp_finite(row.outline, 0, 1)
+  if (outline !== undefined) appearance.outline = outline
+  const outlineWidth = clamp_finite(read('outlineWidth', 'outline_width'), 0, 1)
+  if (outlineWidth !== undefined) appearance.outlineWidth = outlineWidth
+  const transmode = clamp_finite(row.transmode, 0, 1)
+  if (transmode !== undefined) appearance.transmode = transmode
   return Object.keys(appearance).length ? appearance : undefined
 }
 
@@ -282,6 +303,7 @@ const ISO_COLORMAPS = new Set([
   'interpolateCividis', 'interpolateTurbo', 'interpolateRdBu', 'interpolateRdYlBu',
   'interpolateSpectral', 'interpolatePiYG', 'interpolateBrBG', 'interpolatePuOr',
   'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys',
+  'interpolateTransFlag',
 ])
 
 const normalize_layer_snapshot = (value: unknown): MatterVizWorkbenchState['volumes'][number] | undefined => {
@@ -471,6 +493,10 @@ export const restore_workbench_state = (
       const value = appearance[key]
       if (value !== undefined && Number.isFinite(value)) isosurfaceSettings[key] = value
     }
+    if (appearance.flatShading !== undefined) isosurfaceSettings.flat_shading = appearance.flatShading
+    if (appearance.outline !== undefined) isosurfaceSettings.outline = appearance.outline
+    if (appearance.outlineWidth !== undefined) isosurfaceSettings.outlineWidth = appearance.outlineWidth
+    if (appearance.transmode !== undefined) isosurfaceSettings.transmode = appearance.transmode
   }
   return {
     activeVolume: clamp_index(state.activeVolume, input.entries.length),
