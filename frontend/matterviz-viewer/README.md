@@ -6,11 +6,24 @@ It consumes the same Multiwfn session manifest and serialized backend API, so th
 calculation modules remain unchanged.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r23.tgz` in `vendor/`. It is based on the
-MatterViz `d8719d12` integration line plus the reviewed Multiwfn rendering,
-flat-grid, Worker, resource-release and Arcball patches recorded in the
-development log. The exact archive is pinned by both `package.json` and
-`pnpm-lock.yaml`; obsolete intermediate archives are not retained.
+`matterviz-0.4.2-multiwfn.d8719d12.r26.tgz` in `vendor/`. It applies the
+reviewable `vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r26.patch` to the
+r24 archive, preserving the reviewed Multiwfn flat-grid, Worker, geometry-budget,
+resource-release and Arcball patches while adding the material shader and
+trans-flag colormap. The exact r26 archive is pinned by both `package.json` and
+`pnpm-lock.yaml` and has SHA-256
+`29e6d1829cdf970be49a45c6417f1ee4781c39cd10c39f212a3a9a8c438461de`.
+The r24 archive remains as the reproducible patch base; the incompatible r25
+intermediate is intentionally not retained.
+
+To reproduce r26:
+
+```bash
+tmpdir="$(mktemp -d)"
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r24.tgz -C "$tmpdir"
+patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r26.patch
+npm pack --ignore-scripts --pack-destination vendor "$tmpdir/package"
+```
 
 ## Build
 

@@ -590,6 +590,8 @@
         ...(appearance.showSiteLabels !== undefined ? { show_site_labels: appearance.showSiteLabels } : {}),
         ...(appearance.showSiteIndices !== undefined ? { show_site_indices: appearance.showSiteIndices } : {}),
         ...(appearance.sphereSegments !== undefined ? { sphere_segments: appearance.sphereSegments } : {}),
+        ...(appearance.ambientLight !== undefined ? { ambient_light: appearance.ambientLight } : {}),
+        ...(appearance.directionalLight !== undefined ? { directional_light: appearance.directionalLight } : {}),
       }
       if (appearance.showGizmo !== undefined) showGizmo = appearance.showGizmo
       if (appearance.backgroundColor !== undefined) backgroundColor = appearance.backgroundColor
@@ -1484,6 +1486,7 @@
                     <option value="interpolateWarm">Warm</option>
                     <option value="interpolateRdYlGn">Red / yellow / green</option>
                     <option value="interpolateGreys">Greys</option>
+                    <option value="interpolateTransFlag">Trans flag (pink / white / blue)</option>
                   </select>
                 </label>
                 <label>

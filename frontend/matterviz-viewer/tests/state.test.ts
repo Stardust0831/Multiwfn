@@ -154,7 +154,7 @@ test('ignores malformed camera up and zoom while preserving valid camera fields'
 })
 
 test('preserves every colormap exposed by the layer controls', () => {
-  for (const colormap of ['interpolateRdBu', 'interpolateViridis', 'interpolateTurbo', 'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys']) {
+  for (const colormap of ['interpolateRdBu', 'interpolateViridis', 'interpolateTurbo', 'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys', 'interpolateTransFlag']) {
     const parsed = parse_workbench_state({
       format: 'multiwfn-matterviz-workbench',
       version: 1,
@@ -164,6 +164,55 @@ test('preserves every colormap exposed by the layer controls', () => {
     })
     assert.equal(parsed.volumes[0].colormap, colormap)
   }
+})
+
+test('round-trips material shader controls and scene lighting', () => {
+  const exported = create_workbench_state({
+    manifest: {},
+    entries: [{ path: 'density.cube' }],
+    isosurfaceSettings: {
+      material: 'unlit',
+      wireframe: false,
+      flat_shading: true,
+      outline: 0.45,
+      outlineWidth: 0.8,
+      transmode: 1,
+    },
+    activeVolume: 0,
+    atomSupercell: '1x1x1',
+    showBoundaryAtoms: true,
+    showUnitCell: true,
+    sceneProps: {
+      ambient_light: 1.25,
+      directional_light: 2.75,
+    },
+  })
+  const parsed = parse_workbench_state(JSON.parse(JSON.stringify(exported)))
+  assert.deepEqual(parsed.isosurface, {
+    wireframe: false,
+    material: 'unlit',
+    flatShading: true,
+    outline: 0.45,
+    outlineWidth: 0.8,
+    transmode: 1,
+  })
+  assert.deepEqual(parsed.structureAppearance, {
+    ambientLight: 1.25,
+    directionalLight: 2.75,
+  })
+  const restored = restore_workbench_state(parsed, {
+    entries: [{ path: 'density.cube' }],
+    isosurfaceSettings: {},
+  })
+  assert.equal(restored.isosurfaceSettings.material, 'unlit')
+  assert.equal(restored.isosurfaceSettings.flat_shading, true)
+  assert.equal(restored.isosurfaceSettings.outline, 0.45)
+  assert.equal(restored.isosurfaceSettings.outlineWidth, 0.8)
+  assert.equal(restored.isosurfaceSettings.transmode, 1)
+  assert.deepEqual(restored.structureAppearance, {
+    ambientLight: 1.25,
+    directionalLight: 2.75,
+  })
 })
 
 test('normalizes reversed persisted color ranges', () => {
@@ -272,6 +321,8 @@ test('clamps bounded structure appearance values and ignores malformed fields', 
       show_site_labels: false,
       showSiteIndices: Number.NaN,
       sphere_segments: 100,
+      ambient_light: -2,
+      directionalLight: 9,
       backgroundColor: '   ',
       background_opacity: -1,
     },
@@ -283,7 +334,31 @@ test('clamps bounded structure appearance values and ignores malformed fields', 
     bondThickness: 1,
     showSiteLabels: false,
     sphereSegments: 64,
+    ambientLight: 0,
+    directionalLight: 4,
     backgroundOpacity: 0,
+  })
+})
+
+test('clamps shader controls and rejects malformed material state', () => {
+  const parsed = parse_workbench_state({
+    format: 'multiwfn-matterviz-workbench',
+    version: 1,
+    activeVolume: 0,
+    volumes: [{ path: 'density.cube', volumeIndex: 0 }],
+    isosurface: {
+      material: 'invalid',
+      flat_shading: 'yes',
+      outline: -3,
+      outline_width: 4,
+      transmode: 8,
+    },
+    session: {},
+  })
+  assert.deepEqual(parsed.isosurface, {
+    outline: 0,
+    outlineWidth: 1,
+    transmode: 1,
   })
 })
 

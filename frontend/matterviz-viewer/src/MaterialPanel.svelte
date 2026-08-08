@@ -68,8 +68,10 @@
     settings = { ...settings, ...preset }
   }
 
-  const patch = (key: keyof IsosurfaceSettings, value: number | string | boolean): void => {
-    // @ts-expect-error writing a union of setting field types
+  const patch = <Key extends keyof IsosurfaceSettings>(
+    key: Key,
+    value: IsosurfaceSettings[Key],
+  ): void => {
     settings = { ...settings, [key]: value }
   }
 </script>
@@ -93,7 +95,10 @@
 
     <label>
       <span>Material</span>
-      <select value={settings.material ?? 'matte'} onchange={(ev) => patch('material', ev.currentTarget.value)}>
+      <select
+        value={settings.material ?? 'matte'}
+        onchange={(ev) => patch('material', ev.currentTarget.value as IsosurfaceSettings['material'])}
+      >
         <option value="matte">matte</option>
         <option value="glossy">glossy</option>
         <option value="pbr">pbr</option>
@@ -233,8 +238,5 @@
     opacity: 0.7;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-  }
-  .material-body button {
-    cursor: pointer;
   }
 </style>
