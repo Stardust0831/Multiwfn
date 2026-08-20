@@ -1104,8 +1104,14 @@ do while(.true.)
 			else if (iorb==0) then
 				exit
 			end if
-			write(*,"(a)") " Set output threshold, e.g. 0.001. If contribution of a pair of fragment orbitals to any of d,b,r is larger than this value then it will be printed."
-			read(*,*) thres
+			write(*,"(a)") " Set output threshold, e.g. 0.001. If contribution of a pair of fragment orbitals to any of d,b,r is larger than this value &
+            &then it will be printed. If pressing ENTER button directly, 0.001 will be used"
+			read(*,"(a)") c80tmp
+            if (c80tmp==" ") then
+                thres=0.001D0
+            else
+				read(c80tmp,*) thres
+            end if
 			if (iout==10) open(iout,file="CDA.txt",status="replace")
 			write(*,"(' Occupation number of orbital',i6,' of the complex:',f12.8)") iorb,occCDA(iorb,0)
 			if (iopshCDA==0) refocc=2D0 !Reference orbital occupation number

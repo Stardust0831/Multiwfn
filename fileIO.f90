@@ -3099,14 +3099,35 @@ if (infomode<2) write(*,*) "Loading grid data, please wait..."
 !Note that data in cube file is recorded in reverse order as Fortran array
 if (mo_number==0.or.mo_number==1) then !Commonly case, below code has the best compatibility
 	allocate(tmpreadcub(nz,ny,nx))
-	read(10,*) tmpreadcub(:,:,:)
-	do i=1,nx
-		do j=1,ny
-			do k=1,nz
-				cubmat(i,j,k)=tmpreadcub(k,j,i)
+	read(10,*,iostat=ierror) tmpreadcub(:,:,:)
+    if (ierror==0) then
+		do i=1,nx
+			do j=1,ny
+				do k=1,nz
+					cubmat(i,j,k)=tmpreadcub(k,j,i)
+				end do
 			end do
 		end do
-	end do
+    else !CP2K 2026.1 using 6E13.5E3 to output (http://bbs.keinsci.com/thread-60030-1-1.html), making Multiwfn compatible with it
+		write(*,*) "Unable to load grid data using free format, trying loading using 6E13.5E3..."
+        rewind(10)
+        call skiplines(10,ncenter+6)
+		read(10,"(6E13.5E3)",iostat=ierror) tmpreadcub(:,:,:)
+        if (ierror/=0) then
+			write(*,*) "Unable to load grid data, the format should be problematic"
+            write(*,*) "Press ENTER buton to exit"
+            read(*,*)
+            stop
+        else
+			do i=1,nx
+				do j=1,ny
+					do k=1,nz
+						cubmat(i,j,k)=tmpreadcub(k,j,i)
+					end do
+				end do
+			end do
+        end if
+    end if
 	deallocate(tmpreadcub)
 else !Load specified of many orbitals
 	do i=1,nx
@@ -4151,11 +4172,17 @@ call loclabel(10,"[Cell]",ifound,maxline=50)
 if (ifound==0) call loclabel(10,"[cell]",ifound,maxline=50)
 if (ifound==0) call loclabel(10,"[CELL]",ifound,maxline=50)
 if (ifound==1) then
-    read(10,*)
+    read(10,"(a)") c80tmp
+    iBohrunit=0
+    if (index(c80tmp,"AU")/=0.or.index(c80tmp,"Au")/=0) iBohrunit=1
     read(10,"(a)") c80tmp
     read(c80tmp,*,iostat=ierror) alen,blen,clen,anga,angb,angc
     if (ierror==0) then !Load as cell parameters
-        call abc2cellv(alen/b2a,blen/b2a,clen/b2a,anga,angb,angc)
+		if (iBohrunit==0) then
+	        call abc2cellv(alen/b2a,blen/b2a,clen/b2a,anga,angb,angc)
+        else
+	        call abc2cellv(alen,blen,clen,anga,angb,angc)
+        end if
         ifPBC=3
     else !Load as cell vectors
 		ipos=index(c80tmp,'A')
@@ -4180,9 +4207,11 @@ if (ifound==1) then
                 ifPBC=ifPBC+1
             end if
         end if
-        cellv1=cellv1/b2a
-        cellv2=cellv2/b2a
-        cellv3=cellv3/b2a
+		if (iBohrunit==0) then
+			cellv1=cellv1/b2a
+			cellv2=cellv2/b2a
+			cellv3=cellv3/b2a
+        end if
     end if
 else
 	call loadcellinfo_txt !Load cell information from [Cell].txt in current folder if available
@@ -4308,6 +4337,7 @@ if (iorca==1) then
     call skiplines(10,ncenter+1)
     read(10,*) c80tmp
     if (index(c80tmp,"[Pseudo]")/=0) then
+		write(*,*) "Loading [Pseudo] field"
 		do while(.true.)
 			read(10,"(a)",iostat=ierror) c80
 			if (ierror/=0.or.c80==" ".or.index(c80,'[')/=0) exit
@@ -4315,6 +4345,19 @@ if (iorca==1) then
             a(idx)%charge=ichg
             if (infomode==0) write(*,"(' Note: Nuclear charge of atom',i6,' has been set to',i4)") idx,ichg
 		end do
+    end if
+else !CP2K may also contain [Pseudo]
+	call loclabel(10,"[Pseudo]",ifound,maxline=ncenter+20)
+    if (ifound==1) then
+		write(*,*) "Loading [Pseudo] field"
+        read(10,*)
+        do iatm=1,ncenter
+            read(10,*) c80tmp,idx,ichg
+            if (ichg/=a(idx)%charge) then
+				a(idx)%charge=ichg
+				if (infomode==0) write(*,"(' Note: Nuclear charge of atom',i6,' has been changed to',i4)") idx,ichg
+            end if
+        end do
     end if
 end if
 
@@ -9400,6 +9443,11 @@ do iatm=1,ncenter_tmp
             exit
         end if
     end do
+    !Sometimes the label is e.g. Zr+4 and O-2, change them to Zr and O
+    itmp=index(c80tmp,'-')
+    if (itmp/=0) c80tmp(itmp:)=" "
+    itmp=index(c80tmp,'+')
+    if (itmp/=0) c80tmp(itmp:)=" "
     a_tmp(iatm)%name=trim(c80tmp)
     !Detect element index
     call elename2idx(a_tmp(iatm)%name,a_tmp(iatm)%index)
@@ -9408,7 +9456,6 @@ do iatm=1,ncenter_tmp
     call remove_parentheses(strarr(ifrtxlab))
     call remove_parentheses(strarr(ifrtylab))
     call remove_parentheses(strarr(ifrtzlab))
-    !write(*,"(i5,1x,a,1x,a,1x,a,1x,a)") iatm,trim(strarr(iatmsitelab)),trim(strarr(ifrtxlab)),trim(strarr(ifrtylab)),trim(strarr(ifrtzlab))
     read(strarr(ifrtxlab),*) a_tmp(iatm)%x
     read(strarr(ifrtylab),*) a_tmp(iatm)%y
     read(strarr(ifrtzlab),*) a_tmp(iatm)%z

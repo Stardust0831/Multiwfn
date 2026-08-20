@@ -260,14 +260,14 @@ else
 		write(*,*) "Please select a method to set up grid"
         if (ifPBC==0) then
 			write(*,"(a,f7.3,a)") " -10 Set extension distance of grid range for mode 1~4, current:",aug3D," Bohr"
-			write(*,*) "1 Low quality grid,    covering whole system, about 125000 points in total"
-			write(*,*) "2 Medium quality grid, covering whole system, about 512000 points in total"
-			write(*,*) "3 High quality grid,   covering whole system, about 1728000 points in total"
+			write(*,*) "1 Low-quality grid,    covering whole system, about 125000 points in total"
+			write(*,*) "2 Medium-quality grid, covering whole system, about 512000 points in total"
+			write(*,*) "3 High-quality grid,   covering whole system, about 1728000 points in total"
 			write(*,*) "4 Input the number of points or grid spacing in X,Y,Z, covering whole system"
         else
-			write(*,"(a,f4.2,a,i11)") " 1 Low quality grid, covering whole cell,    spacing=",spclowqual," Bohr, grids:",ntotlow
-			write(*,"(a,f4.2,a,i11)") " 2 Medium quality grid, covering whole cell, spacing=",spcmedqual," Bohr, grids:",ntotmed
-			write(*,"(a,f4.2,a,i11)") " 3 High quality grid, covering whole cell,   spacing=",spchighqual," Bohr, grids:",ntothigh
+			write(*,"(a,f4.2,a,i11)") " 1 Low-quality grid, covering whole cell,    spacing=",spclowqual," Bohr, grids:",ntotlow
+			write(*,"(a,f4.2,a,i11)") " 2 Medium-quality grid, covering whole cell, spacing=",spcmedqual," Bohr, grids:",ntotmed
+			write(*,"(a,f4.2,a,i11)") " 3 High-quality grid, covering whole cell,   spacing=",spchighqual," Bohr, grids:",ntothigh
 			write(*,*) "4 Input the number of points or grid spacing in X,Y,Z, covering whole cell"
         end if
 		write(*,*) "5 Input original point, grid spacings, and the number of points"
@@ -592,10 +592,10 @@ do while(.true.)
 	
 	write(*,*) "Please select a method for setting up grid"
 	write(*,"(a,f10.5,a)") " -10 Set grid extension distance for mode 1~6, current:",aug3D," Bohr"
-	write(*,"(a,f4.2,a,i14)") " 1 Low quality grid, spacing=",spclowqual," Bohr, number of grids:    ",ntotlow
-	write(*,"(a,f4.2,a,i14)") " 2 Medium quality grid, spacing=",spcmedqual," Bohr, number of grids: ",ntotmed
-	write(*,"(a,f4.2,a,i14)") " 3 High quality grid, spacing=",spchighqual," Bohr, number of grids:   ",ntothigh
-	write(*,"(a,f4.2,a,i14)") " 4 Lunatic quality grid, spacing=",spclunaqual," Bohr, number of grids:",ntotluna
+	write(*,"(a,f4.2,a,i14)") " 1 Low-quality grid, spacing=",spclowqual," Bohr, number of grids:    ",ntotlow
+	write(*,"(a,f4.2,a,i14)") " 2 Medium-quality grid, spacing=",spcmedqual," Bohr, number of grids: ",ntotmed
+	write(*,"(a,f4.2,a,i14)") " 3 High-quality grid, spacing=",spchighqual," Bohr, number of grids:   ",ntothigh
+	write(*,"(a,f4.2,a,i14)") " 4 Lunatic-quality grid, spacing=",spclunaqual," Bohr, number of grids:",ntotluna
 	write(*,*) "5 Only input grid spacing, automatically set other parameters"
 	write(*,*) "6 Only input the number of points in X,Y,Z, automatically set other parameters"
 	write(*,*) "7 Input original point, grid spacings, and number of points"

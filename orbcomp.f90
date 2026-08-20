@@ -1061,7 +1061,7 @@ end subroutine
 !atmcomp: The array returned, atmcomp(A,i) is contribution of atom A to orbital ibeg+i-1. The second index has length of iend-ibeg+1
 !ibeg,iend: The beginning and ending index of the orbitals to be computed, ranging from 1 to nmo
 !info=0: silent mode, info=1: print intermediate prompts
-!igrid=0: Use lowest acceptable grid (accurate to one decimal place), =1: Use medium quality grid
+!igrid=0: Use lowest acceptable grid (accurate to one decimal place), =1: Use medium-quality grid
 subroutine gen_orbatmcomp_space(itype,atmcomp,ibeg,iend,info,igrid)
 use defvar
 use util

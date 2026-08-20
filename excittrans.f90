@@ -3731,6 +3731,17 @@ call loadallexcinfo(1)
 call selexcit(istate)
 call loadexccoeff(istate,1)
 
+!SF-TDDFT is not supported, which contains a->b
+if (wfntype==1) then
+	do iexcitorb=1,excnorb
+		if (orbleft(iexcitorb)<=nbasis.and.orbright(iexcitorb)>nbasis) then
+			write(*,"(/,a)") " Error: This seems to be a spin-flip calculation, NTO is not supported for this case. Press ENTER button to return"
+			read(*,*)
+			return
+		end if
+	end do
+end if
+
 NTOvalcoeff=2
 if (allocated(CObasb)) NTOvalcoeff=1
 

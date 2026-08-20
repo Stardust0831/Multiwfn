@@ -1819,8 +1819,16 @@ if (method=="GFN1-xTB") then
     write(ifileid,"(a)") "        CHECK_ATOMIC_CHARGES F #xTB calculation often crashes without setting this to false"
     write(ifileid,"(a)") "      &END xTB"
 else if (method=="GFN2-xTB") then
+    !Suitable for <=2026.1
+    !write(ifileid,"(a)") "      METHOD xTB"
+    !write(ifileid,"(a)") "      &xTB"
+    !write(ifileid,"(a)") "        &TBLITE"
+    !write(ifileid,"(a)") "          METHOD GFN2"
+    !write(ifileid,"(a)") "        &END TBLITE"
+    !write(ifileid,"(a)") "      &END xTB"
     write(ifileid,"(a)") "      METHOD xTB"
     write(ifileid,"(a)") "      &xTB"
+    write(ifileid,"(a)") "        GFN_TYPE TBLITE"
     write(ifileid,"(a)") "        &TBLITE"
     write(ifileid,"(a)") "          METHOD GFN2"
     write(ifileid,"(a)") "        &END TBLITE"
@@ -2574,6 +2582,12 @@ if (imolden==1.or.ioutSbas==1.or.ioutKSbas==1.or.ioutcube>0.or.iatomcharge>0.or.
     if (imolden==1) then
         write(ifileid,"(a)") "      &MO_MOLDEN #Exporting .molden file containing wavefunction information"
         write(ifileid,"(a)") "        NDIGITS 9 #Output orbital coefficients if absolute value is larger than 1E-9"
+        if (ifPBC==0.or.PBCdir=="NONE") then
+            continue
+        else
+            write(ifileid,"(a)") "        WRITE_CELL T #Write cell information"
+        end if
+        write(ifileid,"(a)") "        WRITE_PSEUDO T #Write number of valence electrons of atoms"
         write(ifileid,"(a)") "      &END MO_MOLDEN"
     end if
     if (iDFTplusU==1) then

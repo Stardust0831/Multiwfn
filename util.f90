@@ -1917,7 +1917,7 @@ end do
 end subroutine
 
 
-!----- Convert a square matrix to an array. imode=1/2/3: Full matrix; Lower half matrix; Upper half matrix
+!----- Convert a square matrix to an array. imode=1/2/3: Full matrix; Lower half matrix; Upper half triangular matrix
 !For mode=1,2, "arr" should be nsize*(nsize+1)/2
 subroutine mat2arr(mat,arr,imode)
 implicit real*8 (a-h,o-z)

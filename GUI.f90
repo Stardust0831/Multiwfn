@@ -102,8 +102,8 @@ call wgapp(idisorbinfomenu,"Show all",idisorbinfo)
 if ((wfntype==0.or.wfntype==1.or.wfntype==2).and.allocated(CObasa)) then
 	call wgapp(idisorbinfomenu,"Show up to LUMO+10",idisorbinfo2)
 	call wgapp(idisorbinfomenu,"Show occupied orbitals",idisorbinfo3)
-else if (allocated(MOocc).and.MOocc(nmo)==0) then
-	call wgapp(idisorbinfomenu,"Show occupied orbitals",idisorbinfo3)
+else if (allocated(MOocc)) then
+    if (MOocc(nmo)==0) call wgapp(idisorbinfomenu,"Show occupied orbitals",idisorbinfo3)
 end if
 CALL WGPOP(idiswindow," Isosur#1 style",idisisosur1style)
 call wgapp(idisisosur1style,"Use solid face",idisisosur1solid)
@@ -258,8 +258,8 @@ call SWGCBK(idisorbinfo,showorbinfo1)
 if ((wfntype==0.or.wfntype==1.or.wfntype==2).and.allocated(CObasa)) then
 	call SWGCBK(idisorbinfo2,showorbinfo2)
 	call SWGCBK(idisorbinfo3,showorbinfo3)
-else if (allocated(MOocc).and.MOocc(nmo)==0) then
-	call SWGCBK(idisorbinfo3,showorbinfo3)
+else if (allocated(MOocc)) then
+	if (MOocc(nmo)==0) call SWGCBK(idisorbinfo3,showorbinfo3)
 end if
 call SWGCBK(idisisosur1solid,setisosur1solid) !Set style for isosur 1
 call SWGCBK(idisisosur1mesh,setisosur1line)
@@ -472,6 +472,7 @@ else if (iallowsetstyle==2) then
 	call wgapp(idisisosurallstyle,"Use points",idisisosurallpoint)
 	call wgapp(idisisosurallstyle,"Use solid face+mesh",idisisosurallsolidmesh)
 	call wgapp(idisisosurallstyle,"Use transparent face",idisisosuralltpr)
+	call wgapp(idisisosurallstyle,"Exchange colors of the two grid data",idisisosurallinvclr)
 end if
 CALL WGPOP(idiswindow,"Set view",idissetpersp)
 CALL wgapp(idissetpersp,"Set rotation of viewpoint",idissetangle)
@@ -567,6 +568,7 @@ else if (iallowsetstyle==2) then
 	call SWGCBK(idisisosurallpoint,setisosurallpoint)
 	call SWGCBK(idisisosurallsolidmesh,setisosurallsolidmesh)
 	call SWGCBK(idisisosuralltpr,setisosuralltpr)
+	call SWGCBK(idisisosurallinvclr,setisosurallinvclr)
 end if
 call SWGCBK(idissetangle,setviewangle)
 call SWGCBK(idissetcamrot,setcamrot)
@@ -2590,6 +2592,52 @@ read(inpstring,*) opacitycub2
 call drawmol
 CALL SWGWTH(20) !Recover default
 end subroutine
+
+
+!Exchange colors of two grid data
+subroutine setisosurallinvclr(id)
+integer,intent (in) :: id
+clrRcub2same_old=clrRcub2same
+clrGcub2same_old=clrGcub2same
+clrBcub2same_old=clrBcub2same
+clrRcub2same=clrRcub1same
+clrGcub2same=clrGcub1same
+clrBcub2same=clrBcub1same
+clrRcub1same=clrRcub2same_old
+clrGcub1same=clrGcub2same_old
+clrBcub1same=clrBcub2same_old
+clrRcub2oppo_old=clrRcub2oppo
+clrGcub2oppo_old=clrGcub2oppo
+clrBcub2oppo_old=clrBcub2oppo
+clrRcub2oppo=clrRcub1oppo
+clrGcub2oppo=clrGcub1oppo
+clrBcub2oppo=clrBcub1oppo
+clrRcub1oppo=clrRcub2oppo_old
+clrGcub1oppo=clrGcub2oppo_old
+clrBcub1oppo=clrBcub2oppo_old
+
+clrRcub2samemeshpt_old=clrRcub2samemeshpt
+clrGcub2samemeshpt_old=clrGcub2samemeshpt
+clrBcub2samemeshpt_old=clrBcub2samemeshpt
+clrRcub2samemeshpt=clrRcub1samemeshpt
+clrGcub2samemeshpt=clrGcub1samemeshpt
+clrBcub2samemeshpt=clrBcub1samemeshpt
+clrRcub1samemeshpt=clrRcub2samemeshpt_old
+clrGcub1samemeshpt=clrGcub2samemeshpt_old
+clrBcub1samemeshpt=clrBcub2samemeshpt_old
+clrRcub2oppomeshpt_old=clrRcub2oppomeshpt
+clrGcub2oppomeshpt_old=clrGcub2oppomeshpt
+clrBcub2oppomeshpt_old=clrBcub2oppomeshpt
+clrRcub2oppomeshpt=clrRcub1oppomeshpt
+clrGcub2oppomeshpt=clrGcub1oppomeshpt
+clrBcub2oppomeshpt=clrBcub1oppomeshpt
+clrRcub1oppomeshpt=clrRcub2oppomeshpt_old
+clrGcub1oppomeshpt=clrGcub2oppomeshpt_old
+clrBcub1oppomeshpt=clrBcub2oppomeshpt_old
+call drawmol
+end subroutine
+
+
 
 subroutine setlight(id)
 integer,intent (in) :: id

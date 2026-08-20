@@ -1585,15 +1585,15 @@ do while(.true.)
 	if (iselexttype==2) write(*,"(a)") " -10 Set grid extension distance for mode 1~6, current: Adaptive"
 	if (iselexttype==3) write(*,"(a)") " -10 Set grid extension distance for mode 1~6, current: Detect rho isosurface"
 	if (iselexttype==1.or.iselexttype==2) then
-		write(*,"(a,f4.2,a,i14)") " 1 Low quality grid, spacing=",spclowqual," Bohr, number of grids:    ",ntotlow
-		write(*,"(a,f4.2,a,i14)") " 2 Medium quality grid, spacing=",spcmedqual," Bohr, number of grids: ",ntotmed
-		write(*,"(a,f4.2,a,i14)") " 3 High quality grid, spacing=",spchighqual," Bohr, number of grids:   ",ntothigh
-		write(*,"(a,f4.2,a,i14)") " 4 Lunatic quality grid, spacing=",spclunaqual," Bohr, number of grids:",ntotluna
+		write(*,"(a,f4.2,a,i14)") " 1 Low-quality grid, spacing=",spclowqual," Bohr, number of grids:    ",ntotlow
+		write(*,"(a,f4.2,a,i14)") " 2 Medium-quality grid, spacing=",spcmedqual," Bohr, number of grids: ",ntotmed
+		write(*,"(a,f4.2,a,i14)") " 3 High-quality grid, spacing=",spchighqual," Bohr, number of grids:   ",ntothigh
+		write(*,"(a,f4.2,a,i14)") " 4 Lunatic-quality grid, spacing=",spclunaqual," Bohr, number of grids:",ntotluna
 	else
-		write(*,"(a,f4.2,a,i14)") " 1 Low quality grid, spacing=",spclowqual," Bohr, cost: 1x"
-		write(*,"(a,f4.2,a,i14)") " 2 Medium quality grid, spacing=",spcmedqual," Bohr, cost: 8x"
-		write(*,"(a,f4.2,a,i14)") " 3 High quality grid, spacing=",spchighqual," Bohr, cost: 36x"
-		write(*,"(a,f4.2,a,i14)") " 4 Lunatic quality grid, spacing=",spclunaqual," Bohr, cost: 120x"
+		write(*,"(a,f4.2,a,i14)") " 1 Low-quality grid, spacing=",spclowqual," Bohr, cost: 1x"
+		write(*,"(a,f4.2,a,i14)") " 2 Medium-quality grid, spacing=",spcmedqual," Bohr, cost: 8x"
+		write(*,"(a,f4.2,a,i14)") " 3 High-quality grid, spacing=",spchighqual," Bohr, cost: 36x"
+		write(*,"(a,f4.2,a,i14)") " 4 Lunatic-quality grid, spacing=",spclunaqual," Bohr, cost: 120x"
 	end if
 	write(*,*) "5 Only input grid spacing, automatically set other parameters"
 	write(*,*) "6 Only input the number of points in X,Y,Z, automatically set other parameters"

@@ -5310,8 +5310,8 @@ if (iset==1) then !Parameters fitted to Mulliken charge at HF/STO-3G, Int. J. Mo
 	Bparm(7,2)= 0.611D0
 	Aparm(8,2)= 2.580D0  !O,multi=2
 	Bparm(8,2)= 0.691D0
-else if (iset==2) then !Parameters fitted to CHELPG charges at B3LYP/6-31G*, J. Comput. Chem., 30, 1174 (2009)
-	write(*,"(a)") " Parameters have been set to those fitted to CHELPG charges at B3LYP/6-31G*, see J. Comput. Chem., 30, 1174 (2009)"
+else if (iset==2) then !Parameters fitted to MK charges at B3LYP/6-31G*, J. Comput. Chem., 30, 1174 (2009)
+	write(*,"(a)") " Parameters have been set to those fitted to MK charges at B3LYP/6-31G*, see J. Comput. Chem., 30, 1174 (2009)"
 	kappa=0.302D0
 	Aparm(35,1)= 2.659D0  !Br,multi=1
 	Bparm(35,1)= 1.802D0
@@ -5337,8 +5337,8 @@ else if (iset==2) then !Parameters fitted to CHELPG charges at B3LYP/6-31G*, J. 
 	Bparm(7,2)= 0.377D0
 	Aparm(8,2)= 2.789D0  !O,multi=2
 	Bparm(8,2)= 0.834D0
-else if (iset==3) then !Parameters fitted to CHELPG charges at HF/6-31G*, J. Comput. Chem., 30, 1174 (2009)
-	write(*,"(a)") " Parameters have been set to those fitted to CHELPG charges at HF/6-31G*, see J. Comput. Chem., 30, 1174 (2009)"
+else if (iset==3) then !Parameters fitted to MK charges at HF/6-31G*, J. Comput. Chem., 30, 1174 (2009)
+	write(*,"(a)") " Parameters have been set to those fitted to MK charges at HF/6-31G*, see J. Comput. Chem., 30, 1174 (2009)"
 	kappa=0.227D0
 	Aparm(35,1)= 2.615D0  !Br,multi=1
 	Bparm(35,1)= 1.436D0
