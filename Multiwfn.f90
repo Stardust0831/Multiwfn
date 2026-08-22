@@ -36,7 +36,7 @@ call set_color(C_BRIGHT_MAGENTA)
 write(*,*) "Multiwfn -- A Multifunctional Wavefunction Analyzer"
 call reset_color()
 call set_color(C_GREEN)
-write(*,*) "Version 2026.8.19 (release date is the same as version name)"
+write(*,*) "Version 2026.8.21 (release date is the same as version name)"
 call reset_color()
 write(*,*) "Developer: Tian Lu (Beijing Kein Research Center for Natural Sciences)"
 write(*,*) "Multiwfn official website: http://sobereva.com/multiwfn"
@@ -413,7 +413,7 @@ do while(.true.) !Main loop
 		    end if
             iorbvis=0 !Recover its status. iorbvis=0 makes saved image file has DISLIN prefix
             ishowdatarange=0 !Do not show data range if showing it
-            call setfil("dislin."//trim(graphformat)) !The file name of saved image file may have been modified (e.g. equal to orbital index), so recover to default
+            call setfil("dislin."//trim(graphformat)) !The file name of saved image file may have been modified (e.g. equals orbital index), so recover to default
 
             
 	    !!!-------------------------------------------------

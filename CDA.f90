@@ -123,7 +123,7 @@ do ifrag=0,nCDAfrag !Here we first gather basic information of complex(ifrag=0) 
 				exit
 			end if
 		end do
-		call loclabel(10,"NBsUse=",ifound,0) !NbsUse always equals to the actual number of MOs
+		call loclabel(10,"NBsUse=",ifound,0) !NbsUse always equals the actual number of MOs
 		read(10,*) c80tmp,nmoCDA(ifrag)
 		if (nmoCDA(ifrag)/=nbasistmp) then
 			write(*,"(a)") " Error: The number of basis functions is unequal to the number of orbitals! Some basis functions may be &

@@ -371,7 +371,7 @@ do while(.true.)
 	if (icurve_vertlinex==1) write(*,*) "4 Delete the vertical line"
 	write(*,"(' 5 Change the ratio of X and Y length, current:',f10.5)") curvexyratio
 	write(*,"(' 6 Find the positions of local minimum and maximum')")
-	write(*,"(' 7 Find the positions where function value equals to specified value')")
+	write(*,"(' 7 Find the positions where function value equals specified value')")
 	if (ilog10y==0) write(*,*) "8 Use logarithmic scaling of Y axis"
 	if (ilog10y==1) write(*,*) "8 Use linear scaling of Y axis"
 	write(*,"(a,a)") " 9 Change the line color, current: ",trim(colorname(iclrcurve))

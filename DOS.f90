@@ -112,7 +112,7 @@ call setfil("dislin."//trim(graphformat))
 ireadgautype=1
 if (ifiletype==0) then
 	!Read energy level information from text file, the first number in first row define how many energy levels
-	!in there, the second number in first row if equals to 1, means below data are only energies, if equals to 2,
+	!in there, the second number in first row if equals 1, means below data are only energies, if equals 2,
 	!means both strength and FWHM also present.
 	open(10,file=filename,status="old")
 	call loclabel(10,"Gaussian, Inc",igauout,maxline=100)

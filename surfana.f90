@@ -292,7 +292,7 @@ do while(.true.)
 	else if (isel==4) then
 		do while(.true.)
 			write(*,*)
-			write(*,*) "0 Return to upper level menu"
+			write(*,*) "0 Return to upper-level menu"
 			write(*,"(a,f7.4)") " 1 Set ratio of vdW radii used to extend spatial region for grids:",vdwmulti
 			if (ifelim==0) write(*,*) "2 Toggle if eliminating redundant vertices: No"
 			if (ifelim==1) write(*,"(a,f6.3,a)") " 2 Toggle if eliminating redundant vertices: Yes, criterion is",critmerge," Bohr"
@@ -431,7 +431,7 @@ if (isurftype==1.or.isurftype==2.or.isurftype==5.or.isurftype==6) then !Calculat
 		cubmattmp=0D0
 		!I found ihirshmode=1 is always a satisfactory choice, so I decide not bother users to select
 		!write(*,*) "Hirshfeld analysis requests atomic densities, please select how to obtain them"
-		!write(*,*) "1 Use build-in sphericalized atomic densities in free-states (recommended)"
+		!write(*,*) "1 Use built-in sphericalized atomic densities in free-states (recommended)"
 		!write(*,"(a)") " 2 Provide wavefunction file of involved elements by yourself or invoke Gaussian to automatically calculate them"
 		!read(*,*) ihirshmode
 		!if (ihirshmode==1) then
@@ -1355,7 +1355,7 @@ do while(.true.)
 	write(*,*) "                   ---------- Post-processing menu ----------"
 	write(*,*) "-3 Visualize the surface"
 	write(*,*) "-2 Export the grid data to surf.cub in current folder"
-	write(*,*) "-1 Return to upper level menu"
+	write(*,*) "-1 Return to upper-level menu"
 	write(*,*) "0 View molecular structure, surface minima and maxima"
 	write(*,*) "1 Export surface extrema as surfanalysis.txt in current folder"
 	write(*,*) "2 Export surface extrema as surfanalysis.pdb in current folder"

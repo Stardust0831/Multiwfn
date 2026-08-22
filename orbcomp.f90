@@ -704,7 +704,7 @@ if (ifPBC==0) then !Using atomic-center grids to calculate intermediate array
 		write(*,*)
 		if (itype==1) then
 			write(*,*) "Hirshfeld analysis requests atomic densities, please select how to obtain them"
-			write(*,*) "1 Use build-in sphericalized atomic densities in free-states (recommended)"
+			write(*,*) "1 Use built-in sphericalized atomic densities in free-states (recommended)"
 			write(*,"(a)") " 2 Provide wavefunction file of involved elements by yourself or invoke Gaussian to automatically calculate them"
 			read(*,*) ihirshmode
 		end if
@@ -1271,7 +1271,7 @@ call checkNPA(ifound);if (ifound==0) return
 call loadNAOinfo
 
 !Get actual number of MOs
-!Gaussian may eliminate some linear dependency basis functions, so MO may be smaller than numNAO. NBsUse always equals to actual number of MO
+!Gaussian may eliminate some linear dependency basis functions, so MO may be smaller than numNAO. NBsUse always equals actual number of MO
 call loclabel(10,"NBsUse=",ifound)
 if (ifound==1) then
 	read(10,"(a)") c80tmp

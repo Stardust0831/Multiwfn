@@ -827,56 +827,71 @@ do while(.true.)
         end if
         write(*,*)
 		if (ispectrum==1.or.ispectrum==2.or.ispectrum==5.or.ispectrum==6) then !Vibrational spectra, mode selection is viable
-			write(*,*) "Input the index range of the transitions you want to scaled"
-			write(*,*) "e.g. 1,3-6,22 means selecting transitions 1,3,4,5,6,22"
-            write(*,*) "If you want to select transitions according to frequency range, input ""f"" now"
+			write(*,"(a)") " Input index range of the transitions you want to scaled, e.g. 1,3-6,22"
+            write(*,"(a)") " If you want to select according to frequency range, input ""f"" now"
 			write(*,"(a)") " Note: Press ENTER button directly can select all modes. Input 0 can return"
             if (nsystem==1) write(*,"(a,i6,a)") " Note: There are",numdata," frequencies in total"
+            write(*,"(a)") "   To apply power-law scaling factor for all frequencies, directly input lambda_1 and lambda_2, e.g. 1.217240,0.969138 (this was fitted for B3LYP/6-31G*)"
 			read(*,"(a)") c200tmp
-            if (index(c200tmp,'f')/=0) then !Select according to frequency, applied to all systems
-				write(*,*) "Input lower limit of frequency in cm^-1, e.g. 1500"
-                read(*,*) flow
-				write(*,*) "Input upper limit of frequency in cm^-1, e.g. 4000"
-                read(*,*) fup
-				write(*,*) "Input scale factor, e.g. 0.97"
-                read(*,*) tmpval
-                nscl=0
-                do isystem=1,nsystem
-					do imode=1,numdataall(isystem)
-						if (dataxall(isystem,imode)>=flow.and.dataxall(isystem,imode)<=fup) then
-							dataxall(isystem,imode)=dataxall(isystem,imode)*tmpval
-                            nscl=nscl+1
-                        end if
+            !Check if two float numbers are inputted
+            ipower=0
+            read(c200tmp,*,iostat=ierror) tmp1,tmp2
+            if (ierror==0) then
+				if ((abs(tmp1-nint(tmp1))>1D-10.or.abs(tmp2-nint(tmp2))>1D-10).and.index(c200tmp,'-')==0) ipower=1
+            end if
+            if (ipower==0) then
+				if (index(c200tmp,'f')/=0) then !Select according to frequency, applied to all systems
+					write(*,*) "Input lower limit of frequency in cm^-1, e.g. 1500"
+					read(*,*) flow
+					write(*,*) "Input upper limit of frequency in cm^-1, e.g. 4000"
+					read(*,*) fup
+					write(*,*) "Input scale factor, e.g. 0.97"
+					read(*,*) tmpval
+					nscl=0
+					do isystem=1,nsystem
+						do imode=1,numdataall(isystem)
+							if (dataxall(isystem,imode)>=flow.and.dataxall(isystem,imode)<=fup) then
+								dataxall(isystem,imode)=dataxall(isystem,imode)*tmpval
+								nscl=nscl+1
+							end if
+						end do
 					end do
-                end do
-                write(*,"(' Done!',i8,' frequencies have been scaled')") nsclall
-			else if (c200tmp(1:1)=='0') then
-                cycle
-            else !Select according to index, or select 
-				if (c200tmp==' '.or.index(c200tmp,"all")/=0) then !Selected all modes
-					nmode=numdata
-					allocate(tmparr(numdata))
-					forall(itmp=1:numdata) tmparr(itmp)=itmp
-				else
-					call str2arr(c200tmp,nmode)
-					allocate(tmparr(nmode))
-					call str2arr(c200tmp,nmode,tmparr)
+					write(*,"(' Done!',i8,' frequencies have been scaled')") nsclall
+				else if (c200tmp(1:1)=='0') then
+					cycle
+				else !Select according to index, or select 
+					if (c200tmp==' '.or.index(c200tmp,"all")/=0) then !Selected all modes
+						nmode=numdata
+						allocate(tmparr(numdata))
+						forall(itmp=1:numdata) tmparr(itmp)=itmp
+					else
+						call str2arr(c200tmp,nmode)
+						allocate(tmparr(nmode))
+						call str2arr(c200tmp,nmode,tmparr)
+					end if
+					write(*,"(i6,' frequencies are selected')") nmode
+					write(*,"(/,a)") " Input scale factor, e.g. 0.97"
+					write(*,"(a)") " Note: If pressing ENTER button directly, 0.9614 will be used, which is recommended for B3LYP/6-31G* level. &
+					&If inputting 1.0, frequencies will correspond to the ones originally loaded from input file"
+					read(*,"(a)") c200tmp
+					if (c200tmp==" ") then
+						tmpval=0.9614D0
+					else
+						read(c200tmp,*) tmpval
+					end if
+					do idx=1,nmode
+						dataxall(:,tmparr(idx))=dataxall(:,tmparr(idx))*tmpval
+					end do
+					deallocate(tmparr)
+					write(*,*) "Done! Frequencies have been scaled"
 				end if
-				write(*,"(i6,' frequencies are selected')") nmode
-				write(*,"(/,a)") " Input scale factor, e.g. 0.97"
-				write(*,"(a)") " Note: If pressing ENTER button directly, 0.9614 will be used, which is recommended for B3LYP/6-31G* level. &
-				&If inputting 1.0, frequencies will correspond to the ones originally loaded from input file"
-				read(*,"(a)") c200tmp
-				if (c200tmp==" ") then
-					tmpval=0.9614D0
-				else
-					read(c200tmp,*) tmpval
-				end if
-				do idx=1,nmode
-					dataxall(:,tmparr(idx))=dataxall(:,tmparr(idx))*tmpval
+            else
+				do isystem=1,nsystem
+					do imode=1,numdataall(isystem)
+                        dataxall(isystem,imode)=tmp1*dataxall(isystem,imode)**tmp2
+					end do
 				end do
-				deallocate(tmparr)
-                write(*,*) "Done! Frequencies have been scaled"
+				write(*,*) "Done!"
             end if
 		else !Electronic spectra, use universal scaling
 			write(*,*) "Input the scale factor, e.g. 0.92"
@@ -2176,7 +2191,7 @@ do while(.true.)
 		if (ibroadfunc==1.or.ibroadfunc==3) then !Lorentzian function or Pseudo-Voigt function, see http://mathworld.wolfram.com/LorentzianFunction.html
 			do imol=1,nsystem
 				do idata=1,numdataall(imol) !Cycle each transition
-					preterm=strall(imol,idata)*0.5D0/pi*FWHMall(imol,idata) !Integral of the peak equals to str(idata)
+					preterm=strall(imol,idata)*0.5D0/pi*FWHMall(imol,idata) !Integral of the peak equals str(idata)
 					do ipoint=1,num1Dpoints
 						curveytmp(ipoint)=preterm/( (curvex(ipoint)-dataxall(imol,idata))**2+0.25D0*FWHMall(imol,idata)**2 )
 					end do
@@ -5124,7 +5139,7 @@ do while(.true.)
 		curveyall=0D0
 		do imol=1,nsystem
 			do iterm=1,shdnum(imol)
-				preterm=shdeffnatm(iterm,imol)*0.5D0/pi*FWHM_NMR !Integral of the peak equals to degeneracy
+				preterm=shdeffnatm(iterm,imol)*0.5D0/pi*FWHM_NMR !Integral of the peak equals degeneracy
 				do ipoint=1,num1Dpoints
 					curveytmp(ipoint)=preterm/( (curvex(ipoint)-shdval(iterm,imol))**2+0.25D0*FWHM_NMR**2 )
 				end do
@@ -5134,7 +5149,7 @@ do while(.true.)
         curveywei=0D0
         if (ishowweighted/=0) then
             do iterm=1,shdnumwei
-				preterm=shdeffnatmwei(iterm)*0.5D0/pi*FWHM_NMR !Integral of the peak equals to degeneracy
+				preterm=shdeffnatmwei(iterm)*0.5D0/pi*FWHM_NMR !Integral of the peak equals degeneracy
 				do ipoint=1,num1Dpoints
 					curveytmp(ipoint)=preterm/( (curvex(ipoint)-shdvalwei(iterm))**2+0.25D0*FWHM_NMR**2 )
 				end do

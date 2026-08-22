@@ -373,7 +373,7 @@ real*8,allocatable :: fiterr(:),fitrho(:) !Fitting error and fitted density at e
 integer :: npoint_CB=0
 real*8,allocatable :: radr_CB(:),radw_CB(:),rho_CB(:) !Position, weight and sphericalized density at second kind Gauss-Chebyshev points
 real*8 :: tol=1D-5 !Fitting tolerance. Should not be too small, otherwise it is too difficult to converge until reach maximum of function calls
-integer :: iscale=1 !=1: Scale coefficients so that integral equals to actual number of electrons, =0: Do not scale
+integer :: iscale=1 !=1: Scale coefficients so that integral equals actual number of electrons, =0: Do not scale
 integer :: isort=1,idelredun=1
 external :: atmdens_fiterr
 integer,parameter :: nsphpt=170 !Number of points used to calculate sphericalized radial density

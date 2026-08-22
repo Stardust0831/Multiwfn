@@ -259,7 +259,7 @@ end if
 end subroutine
 
 
-!!---------- Calculate Coulomb interaction between two fragment based on atomic charges in .chg file
+!!---------- Calculate Coulomb interaction between two fragments based on atomic charges in .chg file
 subroutine coulint_atmchg
 use defvar
 use util
@@ -911,13 +911,13 @@ call gen1cintgrid(gridatmorg,iradcut)
 if (chgtype==1.or.chgtype==2.or.chgtype==6.or.chgtype==7.or.chgtype==-7) then
     if (ifPBC==0) then
 	    write(*,*) "This task requests atomic densities, please select how to obtain them"
-	    write(*,*) "1 Use build-in sphericalized atomic densities in free-states (more convenient)"
+	    write(*,*) "1 Use built-in sphericalized atomic densities in free-states (more convenient)"
 	    write(*,"(a)") " 2 Provide wavefunction file of involved elements by yourself or invoke Gaussian to automatically calculate them"
 	    read(*,*) iatmdensmode
 	    if (iatmdensmode==2) call setpromol !In this routine reload first molecule at the end
     else
         iatmdensmode=1
-        write(*,"(a)") " Note: Build-in sphericalized atomic densities in free-states will be used in the calculation"
+        write(*,"(a)") " Note: Built-in sphericalized atomic densities in free-states will be used in the calculation"
     end if
 	write(*,"(' Radial grids:',i5,'    Angular grids:',i5,'   Total:',i10)") radpot,sphpot,radpot*sphpot
 	write(*,*) "Calculating, please wait..."
@@ -5519,7 +5519,7 @@ parma(53,1)=9.90D0; parmb(53,1)=7.96D0; parmc(53,1)=0.96D0 !One bond
 !Antechamber first determines Amber atom types, then convert to Gasgeiter types according to ATOMTYPE_GAS.DEF,&
 !then checks GASPARM.DAT to determine actual parameters, finally invokes "charge.c" to carry out Gasteiger calculation.&
 !The resulting Gasteiger type can be found from intermediate file ANTECHAMBER_GAS_AT.AC
-!The O1 in below information corresponds to oxygen in =O case
+!The O1 in the following information corresponds to oxygen in =O case
 !                  a       b       c      d     formal_charge
 ! GASPARM	h	  7.17	  6.24	 -0.56	 20.02	  0.00  !numbond=1
 ! GASPARM	c1	 10.39	  9.45	  0.73	 20.57	  0.00  !numbond=1 or 2

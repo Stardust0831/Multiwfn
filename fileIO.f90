@@ -571,7 +571,7 @@ if (index(c80,"P(S=P) Contraction coefficients")/=0) then
 end if
 
 if (infomode==0) write(*,*) "Loading orbitals..."
-!Note: Some basis maybe removed by linear dependence checking, hence the number of orbitals in .fch may less than nbasis(always equals to nmo in Multiwfn)
+!Note: Some basis maybe removed by linear dependence checking, hence the number of orbitals in .fch may less than nbasis(always equals nmo in Multiwfn)
 !Hence when reading information involving the number of orbitals in .fch, use nindbasis instead nmo
 !The expansion coefficients, energies in those undefined orbitals are all set to zero
 if (wfntype==0.or.wfntype==2.or.wfntype==3) then !Restricted/restricted open-shell, saveNO/NBO
@@ -3064,7 +3064,7 @@ end if
 
 if (ionlygrid==0) then
 	do i=1,ncenter
-		read(10,*) a(i)%index,a(i)%charge,a(i)%x,a(i)%y,a(i)%z !%value is its charge, if ECP was used, it not equal to atomindex
+		read(10,*) a(i)%index,a(i)%charge,a(i)%x,a(i)%y,a(i)%z !%value is its charge, if ECP was used, it is not equal to atomindex
 	end do
 	a%name=ind2name(a%index)
 else if (ionlygrid==1) then
@@ -3217,7 +3217,7 @@ if (allocated(cubmattmp)) deallocate(cubmattmp)
 allocate(cubmattmp(nx,ny,nz)) !nx,ny,nz is identical to cubmat that already loaded into memory
 
 do i=1,ncentertmp
-	read(10,*) !Skip a(i)%index,a(i)%charge,a(i)%x,a(i)%y,a(i)%z !%value is its charge, if ECP was used, it not equal to atomindex
+	read(10,*) !Skip a(i)%index,a(i)%charge,a(i)%x,a(i)%y,a(i)%z !%value is its charge, if ECP was used, it not equals atomindex
 end do
 
 if (mo_number==1) then
@@ -5261,7 +5261,7 @@ nbasisCar=nbasis
 
 if (infomode==0) write(*,*) "Loading orbitals..."
 
-!  "nmoactual" below is the actual number of MOs (for each spin in unrestricted case), less or equal to nbasis
+!  "nmoactual" below is the actual number of MOs (for each spin in unrestricted case), which is less or equal to nbasis
 !  In GAMESS-US, the actual number of orbitals is nbasis - A - B, where
 !A is "NUMBER OF SPHERICAL CONTAMINANTS DROPPED", namely the difference betweem number of spherical and cartesian basis functions
 !B is "NUMBER OF LINEARLY DEPENDENT MOS DROPPED", namely the number of removed linearly dependent basis functions

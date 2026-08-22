@@ -2183,7 +2183,7 @@ else if (isel==10) then !PLR
 else if (isel==11) then !Multicenter DI
 	do while(.true.)
 		write(*,*) "Input atom indices, e.g. 3,4,7,8,10    (Up to 10 atoms)"
-		write(*,*) "Input q can return to upper level menu"
+		write(*,*) "Input q can return to upper-level menu"
 		read(*,"(a)") c80inp
 		if (c80inp(1:1)=='q') then
 			exit

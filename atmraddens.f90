@@ -17623,7 +17623,7 @@ end subroutine
 !  The atomic wavefunction files are the same as those for generating subroutine genatmraddens
 !  The electron density quality produced by parameters given by this subroutine is evidently not as good as genatmraddens &
 !because the fitting is not pretty accurate, the advantage is that there is no upper limit of distance
-!  The density produced by the STOs is non-negative everywhere, and the integral equals to actual number of electrons
+!  The density produced by the STOs is non-negative everywhere, and the integral equals actual number of electrons
 
 !  Command of Multiwfn used for generating the codes in this subroutine (relative error minimization): 300-2-3-2-0-1-8
 !  I have visually checked fitted density vs. actual density on radial direction
@@ -18900,7 +18900,7 @@ end subroutine
 !  Fitting quality is better than genatmraddens_STOfit, but more expensive due to larger number of GTFs. Simply from Pearson coefficient,&
 !this GTF fitting is seemingly no always better than STO fitting, because nuclear region and tail region is better represented by STO, while&
 !for valence region, the present GTF fitting is always much better
-!  The density produced by the GTFs is non-negative everywhere, and the integral equals to actual number of electrons
+!  The density produced by the GTFs is non-negative everywhere, and the integral equals actual number of electrons
 !
 !  By default, relative error is minimized because I found fitting quality is best in this case. However, for Ar At Bi Bk Cf Cm Es Fe Gd Ir Kr Md Na Ne O Os Pb Po Pt Rn Xe &
 !the fitting is failed (by visualizing fitted radial density) perhaps due to poor initial exponents and coefficients, and H He Mo N also has less satisfactory fitting. So only for them,

@@ -890,7 +890,7 @@ do while(.true.)
 	write(*,*) "Input atom indices, e.g. 3,4,7,8,10   (number of centers is arbitrary)"
     write(*,"(a)") " Note: The input order must be in consistency with atomic connectivity. You can also input e.g. 4-10 if the indices are contiguous"
 	write(*,*) "Input -3/-4/-5/-6 will search all possible three/four/five/six-center bonds"
-	write(*,*) "Input 0 can return to upper level menu"
+	write(*,*) "Input 0 can return to upper-level menu"
 	read(*,"(a)") c2000tmp
 
 	if (c2000tmp(1:1)=='0') then

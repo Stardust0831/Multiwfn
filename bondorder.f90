@@ -9,9 +9,9 @@ do while(.true.)
 	write(*,*) "           ================ Bond order analysis ==============="
 	if (allocated(b)) then
 		if (allocated(frag1)) then
-			write(*,*) "-1 Redefine fragment 1 and 2 for options 1,3,4,7,8,10"
+			write(*,*) "-1 Redefine fragments 1 and 2 for options 1,3,4,7,8,10"
 		else
-			write(*,*) "-1 Define fragment 1 and 2 for options 1,3,4,7,8,10 (to be defined)"
+			write(*,*) "-1 Define fragments 1 and 2 for options 1,3,4,7,8,10 (to be defined)"
 		end if
 	end if
 	write(*,*) "0 Return"
@@ -454,7 +454,7 @@ real*8,pointer :: ptmat(:,:)
 
 do while(.true.)
 	write(*,*) "Input index of two atom (e.g. 3,5)"
-	write(*,*) "Note: Input 0,0 can return to upper level menu"
+	write(*,*) "Note: Input 0,0 can return to upper-level menu"
 	read(*,*) ind1,ind2
 
 	if (ind1==0.and.ind2==0) exit

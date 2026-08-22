@@ -3185,7 +3185,7 @@ if (itask==3.or.itask==4.or.itask==5.or.itask==6.or.itask==7.or.itask==8.or.itas
         write(ifileid,"(a)") "    KEEP_ANGLES F #If T, then cell angles will be kepted"
         write(ifileid,"(a)") "    KEEP_SYMMETRY F #If T, then cell symmetry specified by &CELL / SYMMETRY will be kepted"
         write(ifileid,"(a)") "    KEEP_SPACE_GROUP F #If T, then space group will be detected and preserved"
-        write(ifileid,"(a)") "    TYPE DIRECT_CELL_OPT #Geometry and cell are optimized at the same time. Can also be GEO_OPT, MD"
+        !write(ifileid,"(a)") "    TYPE DIRECT_CELL_OPT #Geometry and cell are optimized at the same time. Can also be GEO_OPT, MD". No longer available since CP2K 2026.2
         write(ifileid,"(a)") "    #The following thresholds of optimization convergence are the default ones"
         write(ifileid,"(a)") "    MAX_DR 3E-3 #Maximum geometry change"
         write(ifileid,"(a)") "    RMS_DR 1.5E-3 #RMS geometry change"
