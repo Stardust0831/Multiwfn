@@ -5672,7 +5672,7 @@ write(*,"(' CIE1931 xy:        ',2f18.10)") CIE_smallx,CIE_smally
 Rcomp =  3.2404542D0*sCIE_X  -1.5371385D0*sCIE_Y  -0.4985314D0*sCIE_Z
 Gcomp = -0.9692660D0*sCIE_X + 1.8760108D0*sCIE_Y + 0.0415560D0*sCIE_Z
 Bcomp =  0.0556434D0*sCIE_X  -0.2040259D0*sCIE_Y + 1.0572252D0*sCIE_Z
-write(*,"(a)") " Note the R,G,B values show below correspond to standard RGB (sRGB) color space"
+write(*,"(a)") " Note the R,G,B values shown below correspond to standard RGB (sRGB) color space"
 write(*,"(' RGB (0-1):  ',3f10.6)") Rcomp,Gcomp,Bcomp
 intRcomp=nint(Rcomp*255);intGcomp=nint(Gcomp*255);intBcomp=nint(Bcomp*255)
 write(*,"(' RGB (0-255):',3i6)") intRcomp,intGcomp,intBcomp

@@ -36,7 +36,7 @@ call set_color(C_BRIGHT_MAGENTA)
 write(*,*) "Multiwfn -- A Multifunctional Wavefunction Analyzer"
 call reset_color()
 call set_color(C_GREEN)
-write(*,*) "Version 2026.8.21 (release date is the same as version name)"
+write(*,*) "Version 2026.8.28 (release date is the same as version name)"
 call reset_color()
 write(*,*) "Developer: Tian Lu (Beijing Kein Research Center for Natural Sciences)"
 write(*,*) "Multiwfn official website: http://sobereva.com/multiwfn"
@@ -687,6 +687,7 @@ do while(.true.) !Main loop
 		    write(*,*) "16 Define one or two fragments for special purpose"
             write(*,*) "17 Generate promolecular wavefunction by calculating and combining atomic ones"
             if (allocated(cubmat)) write(*,*) "18 Set box information of grid data as cell information"
+            write(*,*) "19 Load grid data from a cube file (current system is not affected)"
             write(*,*) "88/89 Calculate two-electron integral between for four PGTFs/orbitals"
 		    write(*,*) "90 Calculate nuclear attractive energy between a fragment and an orbital"
 		    write(*,*) "91 Exchange orbital energies and occupations"
@@ -855,7 +856,17 @@ do while(.true.) !Main loop
             else if (i==18) then
 				call grid2cellinfo
                 write(*,*) "Done!"
-                call showcellinfo
+            else if (i==19) then
+				write(*,*) "Input path of .cub file, e.g. D:\test.cub"
+				do while(.true.)
+					read(*,"(a)") c200tmp
+					inquire(file=c200tmp,exist=alive)
+					if (alive) exit
+					write(*,*) "Cannot find the file, input again!"
+				end do
+				call readcube(c200tmp,0,1)
+                write(*,*)
+                write(*,*) "Grid date has been successfully loaded!"
             else if (i==88) then
 				call showGTF_ERI
             else if (i==89) then
