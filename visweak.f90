@@ -1184,7 +1184,7 @@ real*8 gradtmp(3),grad_inter(3),IGM_gradnorm_inter,vec1(3),vec2(3)
 integer iIGMtype
 integer,allocatable :: IGMfrag(:,:),IGMfragsize(:) !Definition of each fragment used in IGM, and the number of atoms in each fragment
 real*8,allocatable :: frag_grad(:,:,:,:,:) !frag_grad(1:3,nx,ny,nz,nfrag), gradient vector of each fragment at every point
-real*8,allocatable :: dg_inter(:,:,:),TFI_IGM(:,:,:)
+real*8,allocatable :: dg_inter(:,:,:),TFI_IGM(:,:,:),stddg_inter(:,:,:)
 logical,allocatable :: dogrid(:,:,:),dogridtmp(:,:,:)
 !The first index of avggrad and the first two indices of avghess correspond to components of gradient and Hessian, respectively
 real*8,allocatable :: avgdens(:,:,:),avggrad(:,:,:,:),avghess(:,:,:,:,:)
@@ -1457,7 +1457,8 @@ do while (.true.)
 	!if (iIGMtype==1) write(*,*) "6 Compute TFI(aIGM) and export to TFI_aIGM.cub in current folder"
 	!if (iIGMtype==-1) write(*,*) "6 Compute TFI(amIGM) and export to TFI_amIGM.cub in current folder"
 	!write(*,"(a)") " 7 Evaluate contribution of atomic pairs and atoms to interfragment interaction (atom and atomic pair delta-g indices as well as IBSIW index)"
-	read(*,*) isel
+	write(*,"(a)") " 8 Compute standard deviation of delta-g_inter and export to stddg_inter.cub in current folder"
+    read(*,*) isel
     
 	if (isel==-3) then
 		write(*,*) "Input lower limit and upper limit of Y axis  e.g. 0,1.5"
@@ -1577,6 +1578,53 @@ do while (.true.)
 		close(10)
         write(*,*) "Done!"
 		deallocate(TFI_IGM)
+        
+    else if (isel==8) then
+		call walltime(iwalltime1)
+		write(*,*) "Calculating standard deviation of delta-g_inter..."
+		allocate(stddg_inter(nx,ny,nz))
+        stddg_inter=0
+		open(10,file=filename,status="old")
+		do ifps=1,ifpsend
+			call readxyztrj(10)
+			if (ifps<ifpsstart) cycle
+			call showprog(ifps,nfps)
+			!$OMP PARALLEL DO SHARED(stddg_inter) PRIVATE(i,j,k,ifrag,gradtmp,grad_inter,IGM_gradnorm_inter,tmpx,tmpy,tmpz) schedule(dynamic) NUM_THREADS(nthreads)
+			do k=1,nz
+				do j=1,ny
+					do i=1,nx
+						call getgridxyz(i,j,k,tmpx,tmpy,tmpz)
+						grad_inter=0
+						IGM_gradnorm_inter=0
+						do ifrag=1,nIGMfrag
+							call IGMgrad_Hirshpromol(tmpx,tmpy,tmpz,IGMfrag(ifrag,1:IGMfragsize(ifrag)),gradtmp(:),rnouse) !Supports PBC
+							grad_inter(:)=grad_inter(:)+gradtmp(:)
+							IGM_gradnorm_inter=IGM_gradnorm_inter+dsqrt(sum(gradtmp**2))
+						end do
+						stddg_inter(i,j,k)=stddg_inter(i,j,k) + ( IGM_gradnorm_inter-dsqrt(sum(grad_inter**2)) - dg_inter(i,j,k) )**2
+					end do
+				end do
+			end do
+			!$OMP END PARALLEL DO
+		end do
+		close(10)
+        
+        do k=1,nz
+			do j=1,ny
+				do i=1,nx
+					stddg_inter(i,j,k)=dsqrt(stddg_inter(i,j,k)/nfps)
+				end do
+			end do
+		end do
+		write(*,*) "Exporting standard deviation of delta-g_inter to stddg_inter.cub..."
+		open(10,file="stddg_inter.cub",status="replace")
+		call outcube(stddg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
+		close(10)
+        write(*,*) "Done!"
+		deallocate(stddg_inter)
+		call walltime(iwalltime2)
+		write(*,"(' Calculation totally took up wall clock time',i10,' s')") iwalltime2-iwalltime1
+        
     end if
 end do
 
