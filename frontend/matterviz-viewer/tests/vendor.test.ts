@@ -30,7 +30,101 @@ test('vendored MatterViz declarations expose the bindable camera API', async () 
   assert.match(arcballImplementation, /let interaction_active = \$state\(false\)/)
 })
 
-test('vendored package exports CameraControlMode as a real public type', () => {
+test('vendored MatterViz exposes and threads ordered measurement interaction props', async () => {
+  const [
+    structureDeclaration,
+    viewportDeclaration,
+    sceneDeclaration,
+    structureImplementation,
+    viewportImplementation,
+    sceneImplementation,
+    structureIndex,
+  ] = await Promise.all([
+    readFile(installed('structure/Structure.svelte.d.ts'), 'utf8'),
+    readFile(installed('structure/StructureViewport.svelte.d.ts'), 'utf8'),
+    readFile(installed('structure/StructureScene.svelte.d.ts'), 'utf8'),
+    readFile(installed('structure/Structure.svelte'), 'utf8'),
+    readFile(installed('structure/StructureViewport.svelte'), 'utf8'),
+    readFile(installed('structure/StructureScene.svelte'), 'utf8'),
+    readFile(installed('structure/index.d.ts'), 'utf8'),
+  ])
+
+  const propDeclarations = [
+    /show_atom_tooltip\?: boolean;/,
+    /measure_selection_policy\?: MeasureSelectionPolicy;/,
+    /measure_geometry\?: MeasureGeometry;/,
+    /on_selected_bond_context\?: \(detail: SelectedBondContext\) => void;/,
+  ]
+  for (const declaration of [structureDeclaration, viewportDeclaration, sceneDeclaration]) {
+    for (const prop of propDeclarations) assert.match(declaration, prop)
+  }
+
+  for (const prop of [
+    'show_atom_tooltip',
+    'measure_selection_policy',
+    'measure_geometry',
+    'on_selected_bond_context',
+  ]) {
+    assert.ok(structureImplementation.includes(`    ${prop},`))
+    assert.ok(viewportImplementation.includes(`{${prop}}`))
+  }
+
+  assert.match(structureIndex, /export type MeasureGeometry = `combinatorial` \| `ordered`;/)
+  assert.match(structureIndex, /export type SelectedBondContext = \{/)
+  assert.match(structureIndex, /displayed_site_indices: \[number, number\];/)
+  assert.match(structureIndex, /source_site_indices: \[number, number\];/)
+  assert.match(structureIndex, /bond_order\?: BondOrder;/)
+  assert.match(structureIndex, /cell_shift\?: Vec3;/)
+  assert.match(structureIndex, /client_x: number;/)
+  assert.match(structureIndex, /client_y: number;/)
+  assert.ok(structureIndex.includes("export * from './measure';"))
+
+  assert.ok(sceneImplementation.includes('show_atom_tooltip = true'))
+  assert.ok(sceneImplementation.includes('measure_geometry = `combinatorial`'))
+  assert.ok(sceneImplementation.includes('{#if show_atom_tooltip && hovered_site'))
+  assert.ok(sceneImplementation.includes('add(`hover`, hovered_site, hovered_idx, `white`)'))
+  assert.ok(sceneImplementation.includes('measure.next_measured_sites('))
+  assert.ok(sceneImplementation.includes('measure.bond_angle('))
+  assert.ok(sceneImplementation.includes('measure.dihedral_angle('))
+  assert.ok(sceneImplementation.includes('distance_measurement(measured_sites[0], measured_sites[1])'))
+  assert.ok(sceneImplementation.includes('{@render ordered_angle_measurement('))
+  assert.ok(sceneImplementation.includes('{@render ordered_dihedral_measurement('))
+})
+
+test('vendored MatterViz only emits bond context for a selected visible bond', async () => {
+  const scene = await readFile(installed('structure/StructureScene.svelte'), 'utf8')
+
+  assert.ok(scene.includes('(measure_mode !== `distance` && measure_mode !== `angle`)'))
+  assert.ok(scene.includes('measured_sites.length !== 2'))
+  assert.ok(scene.includes('(site_idx != null && !measured_sites.includes(site_idx))'))
+  assert.ok(scene.includes('!selected_context_bond'))
+  assert.ok(scene.includes('const exact = bonds_to_render.find('))
+  assert.ok(scene.includes('const source_matches ='))
+  assert.ok(scene.includes('measure.positions_match(bond.pos_1, selected_site_a.xyz)'))
+  assert.ok(scene.includes('measure.positions_match(bond.pos_2, selected_site_b.xyz)'))
+  assert.ok(scene.includes('measure.positions_match(bond.pos_1, selected_site_b.xyz)'))
+  assert.ok(scene.includes('measure.positions_match(bond.pos_2, selected_site_a.xyz)'))
+  assert.ok(scene.includes('function suppress_selected_bond_pointerdown('))
+  assert.ok(scene.includes('native_event.button !== 2'))
+  const suppressionStart = scene.indexOf('function suppress_selected_bond_pointerdown(')
+  const suppressionEnd = scene.indexOf('const handle_atom_pointerdown', suppressionStart)
+  const suppression = scene.slice(suppressionStart, suppressionEnd)
+  assert.ok(suppression.includes('native_event.preventDefault?.()'))
+  assert.ok(suppression.includes('native_event.stopPropagation?.()'))
+  assert.ok(suppression.includes('native_event.stopImmediatePropagation?.()'))
+  assert.ok(suppression.includes('event.preventDefault?.()'))
+  assert.ok(suppression.includes('event.stopPropagation?.()'))
+  assert.ok(suppression.includes('event.stopImmediatePropagation?.()'))
+  assert.ok(scene.includes('if ((event.nativeEvent ?? event).button !== 0) return'))
+  assert.ok(scene.includes('oncontextmenu: (event: BondContextMenuEvent) =>'))
+  assert.ok(scene.includes('emit_selected_bond_context(event, site_idx)'))
+  assert.ok(scene.includes('{#if selected_context_bond}'))
+  assert.ok(scene.includes('suppress_selected_bond_pointerdown(event)'))
+  assert.ok(scene.includes('emit_selected_bond_context(event)'))
+  assert.ok(scene.includes('measure_mode === `edit-bonds` && bond_context_menu'))
+})
+
+test('vendored package exports interaction helpers and types from the public entry point', () => {
   const declarationPath = fileURLToPath(installed('index.d.ts'))
   const program = ts.createProgram([declarationPath], {
     allowJs: true,
@@ -45,7 +139,18 @@ test('vendored package exports CameraControlMode as a real public type', () => {
   const moduleSymbol = program.getTypeChecker().getSymbolAtLocation(source)
   assert.ok(moduleSymbol)
   const exported = program.getTypeChecker().getExportsOfModule(moduleSymbol)
-  assert.ok(exported.some((symbol) => symbol.name === 'CameraControlMode'))
+  const exportedNames = new Set(exported.map((symbol) => symbol.name))
+  for (const name of [
+    'CameraControlMode',
+    'MeasureGeometry',
+    'MeasureSelectionPolicy',
+    'SelectedBondContext',
+    'bond_angle',
+    'dihedral_angle',
+    'next_measured_sites',
+  ]) {
+    assert.ok(exportedNames.has(name), `expected MatterViz to export ${name}`)
+  }
 })
 
 test('vendored Arcball package retains r19 volume release lifecycle', async () => {

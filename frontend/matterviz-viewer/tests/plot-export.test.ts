@@ -21,6 +21,7 @@ test('uses maintained converters and never sends a client-selected path', () => 
 test('waits for a real scientific SVG and reports timeout', async () => {
   let ready = false
   const root = { querySelector: (selector: string) => {
+    if (selector === '.plot-error') return null
     if (selector === '.plot-loading') return ready ? null : {}
     return ready ? {} : null
   } } as unknown as HTMLElement
@@ -29,6 +30,11 @@ test('waits for a real scientific SVG and reports timeout', async () => {
   await pending
   const empty_root = { querySelector: () => null } as unknown as HTMLElement
   await assert.rejects(wait_for_plot_ready(empty_root, 5, 1), /Timed out waiting/)
+})
+
+test('reports a plot data error immediately instead of exporting an empty figure', async () => {
+  const root = { querySelector: (selector: string) => selector === '.plot-error' ? { textContent: 'Dataset 4 is unavailable' } : null } as unknown as HTMLElement
+  await assert.rejects(wait_for_plot_ready(root), /Dataset 4 is unavailable/)
 })
 
 test('fails closed when a scientific Canvas layer cannot be serialized', () => {

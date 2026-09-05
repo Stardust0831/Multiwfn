@@ -1,4 +1,11 @@
 :root {
+  color-scheme: light;
+  --text-color: #18202a;
+  --page-bg: #eef1f4;
+  --pane-bg: #ffffff;
+  --border-color: #cfd6df;
+  --accent-color: #1976b8;
+  --line-transition: none;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #18202a;
   background: #eef1f4;
@@ -16,14 +23,17 @@ html, body, #app {
 button, input, select { font: inherit; }
 
 .plot-only { display: grid; grid-template-rows: auto minmax(0, 1fr); width: 100%; height: 100%; min-width: 0; overflow: hidden; color: #000; background: #fff; --text-color: #000; --border-color: #000; }
+.plot-only, .plot-scene { max-width: none !important; margin: 0 !important; padding: 0 !important; }
 .plot-header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-height: 48px; padding: 10px 16px; background: #f8f9fb; border-bottom: 1px solid #cfd6df; }
 .plot-header span { color: #667085; font-size: 11px; letter-spacing: 0; }
+.plot-scene > .plot-header { padding-right: 90px; }
 .plot-panels { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; padding: 12px; }
 .plot-panel { display: grid; grid-template-rows: auto minmax(180px, var(--plot-height, 1fr)); min-height: 220px; flex: var(--plot-height, 1) 1 0; }
 .plot-panel h2 { margin: 0; padding: 0 4px 4px; color: #344054; font-size: 13px; font-weight: 600; }
 .plot-canvas { min-height: 0; border: 1px solid #d7dde5; border-radius: 5px; overflow: hidden; }
 .plot-canvas .matterviz-plot, .plot-canvas .plot-wrapper { width: 100%; height: 100%; }
 .scientific-scatter-plot { --plot-legend-max-width: 154px; --plot-legend-max-height: calc(100% - 54px); }
+.plot-canvas, .scene-plot { --scatter-height: 100%; --scatter-min-height: 180px; }
 .scientific-binned-plot { width: 100%; height: 100%; }
 .scientific-binned-plot > .color-bar { right: 22px !important; left: auto !important; top: 58px !important; }
 .plot-scene { position: relative; width: 100%; max-width: none !important; height: 100%; min-width: 0; overflow: hidden; color: #000; background: #fff; --text-color: #000; --border-color: #000; }
@@ -36,6 +46,7 @@ button, input, select { font: inherit; }
 @media (max-width: 800px) { .plot-panels { padding: 8px; gap: 8px; } .plot-panel { min-height: 200px; } }
 
 .workbench {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) 28px;
   width: 100%;
@@ -61,21 +72,39 @@ button, input, select { font: inherit; }
   background: #f8f9fb;
   border-bottom: 1px solid #cfd6df;
   min-width: 0;
-  overflow-x: auto;
 }
+
+.toolbar { flex-wrap: wrap; position: relative; z-index: 60; }
+.toolbar > button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
+.toolbar > .icon-button { width: 30px; padding: 0; flex: 0 0 30px; }
+.result-picker { min-width: 100px; flex: 1 1 180px; max-width: 330px; }
+.result-picker select { width: 100%; min-width: 0; text-overflow: ellipsis; }
+.result-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; isolation: isolate; z-index: 0; }
+.result-stage > .workspace, .result-document { position: absolute; inset: 0; }
+.result-document { min-width: 0; min-height: 0; background: #fff; }
+.result-stage > .inactive { visibility: hidden; opacity: 0; pointer-events: none; }
+.workbench-menu { position: fixed; z-index: 80; width: min(320px, calc(100vw - 16px)); padding: 8px; overflow: auto; border: 1px solid #b9c2ce; border-radius: 6px; background: #fff; box-shadow: 0 6px 20px rgb(23 32 42 / 16%); }
+.workbench-menu > button { display: flex; align-items: center; gap: 6px; width: 100%; height: auto; min-height: 32px; padding: 6px 8px; text-align: left; border-color: transparent; }
+.workbench-menu > label { justify-content: space-between; padding: 5px 8px; }
+.workbench-menu > label:has(input[type="checkbox"]) { justify-content: flex-start; }
+.workbench-menu > label > span { color: #344054; font-size: 12px; }
+.workbench-menu .menu-heading { margin: 4px 8px 6px; font-size: 11px; font-weight: 600; color: #667085; }
+.workbench-menu input[type="checkbox"] { height: 16px; width: 16px; }
+.workbench-menu select { max-width: 180px; }
 
 .brand { display: flex; align-items: baseline; gap: 7px; margin-right: 8px; }
 .brand strong { color: #18202a; font-size: 15px; }
 .brand span { color: #667085; font-size: 11px; }
 .camera-tools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
-  min-width: max-content;
-  padding-right: 8px;
-  border-right: 1px solid #d6dce4;
+  min-width: 0;
+  padding: 0 8px 8px;
+  border-bottom: 1px solid #d6dce4;
 }
-.camera-tools label { gap: 3px; }
+.camera-tools label { gap: 3px; width: 100%; margin-top: 4px; justify-content: space-between; }
 .camera-tools input[type="number"] { width: 62px; }
 .camera-tools button {
   display: inline-flex;
@@ -152,15 +181,21 @@ button:disabled { opacity: 0.45; cursor: default; }
 .tool-rail button > span { color: #1976b8; font-size: 16px; line-height: 1; }
 .tool-rail button small { max-width: 35px; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .tool-rail .rail-close { margin-top: auto; }
-.viewer-shell { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #fff; }
-.viewer-shell > .structure,
+.viewer-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto; position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #fff; }
+.scene-viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.scene-viewport > .structure,
 .viewer-shell :is(.matterviz-structure) {
   width: 100% !important;
   height: 100% !important;
 }
+.scene-viewport .measure-label { display: none !important; }
+.scene-readouts { min-width: 0; max-height: 140px; overflow: auto; border-top: 1px solid #cfd6df; background: #f8f9fb; color: #18202a; }
+.calculation-status { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 10px; font-size: 12px; }
+.calculation-status progress { width: 56px; height: 8px; flex: 0 0 56px; }
+.calculation-status span { overflow-wrap: anywhere; }
 .orbital-panel {
   display: grid;
-  grid-template-rows: auto minmax(120px, 1fr) auto;
+  grid-template-rows: auto auto minmax(60px, 1fr) auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -180,7 +215,11 @@ button:disabled { opacity: 0.45; cursor: default; }
 .orbital-panel > header small { color: #667085; }
 .orbital-panel > header > span { color: #18794e; font-size: 10px; }
 .orbital-panel > header > span.offline { color: #b54708; }
-.orbital-list { overflow: auto; padding: 5px; }
+.orbital-frontiers { display: flex; gap: 6px; padding: 6px 8px; }
+.orbital-frontiers:empty { padding: 0; }
+.orbital-frontiers button { flex: 1; font-size: 12px; }
+.orbital-frontiers button.active { border-color: #8fc0e1; background: #dceefa; }
+.orbital-list { grid-row: 3; overflow: auto; padding: 5px; }
 .orbital-list button {
   display: flex;
   align-items: center;
@@ -197,7 +236,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .orbital-list button.active { border-color: #8fc0e1; background: #dceefa; }
 .orbital-list button span { font-weight: 600; }
 .orbital-list button small { min-width: 0; overflow: hidden; color: #667085; text-overflow: ellipsis; white-space: nowrap; }
-.orbital-controls { display: grid; gap: 6px; padding: 8px; border-top: 1px solid #d7dde5; }
+.orbital-controls { grid-row: 4; display: grid; gap: 6px; padding: 8px; border-top: 1px solid #d7dde5; }
 .orbital-controls label { display: grid; gap: 3px; }
 .orbital-controls label span { color: #5c6675; font-size: 11px; }
 .orbital-controls input, .orbital-controls select, .orbital-controls > button { width: 100%; }
@@ -205,7 +244,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .orbital-navigation button { padding: 0; }
 .orbital-navigation input { width: 100%; }
 .orbital-controls p { margin: 0; color: #b54708; font-size: 10px; line-height: 1.35; }
-.loading, .empty {
+.empty {
   position: absolute;
   inset: 0;
   display: grid;
@@ -228,6 +267,8 @@ button:disabled { opacity: 0.45; cursor: default; }
   font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .statusbar.error { color: #b42318; }
+.statusbar > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statusbar > span:last-child { flex-shrink: 0; margin-left: 8px; }
 
 .log-panel,
 .layer-panel,
@@ -337,16 +378,19 @@ button:disabled { opacity: 0.45; cursor: default; }
 .panel-empty { padding: 14px; color: #667085; }
 
 @media (max-width: 900px) {
-  .toolbar { flex-wrap: wrap; overflow-x: hidden; }
+  .toolbar { flex-wrap: wrap; }
   .brand span { display: none; }
   .toolbar { gap: 5px; }
   .toolbar button { padding-inline: 7px; }
 }
 
 @media (max-width: 800px) {
-  .workspace { position: relative; grid-template-columns: 44px minmax(0, 1fr); }
+  .workspace, .workspace.inspector-closed { grid-template-columns: 44px minmax(0, 1fr); }
   .workspace.has-orbitals,
-  .workspace.inspector-closed.has-orbitals { grid-template-columns: 44px minmax(0, 1fr) 220px; }
-  .toolbar { flex-wrap: nowrap; overflow-x: auto; }
+  .workspace.inspector-closed.has-orbitals { grid-template-columns: 44px minmax(0, 1fr); }
+  .orbital-panel { position: absolute; top: 0; right: 0; bottom: 0; z-index: 35; width: min(240px, calc(100% - 48px)); box-shadow: -4px 0 16px rgb(23 32 42 / 12%); }
+  .toolbar { flex-wrap: wrap; }
   .periodic-bar { overflow-x: auto; }
+  .layer-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .result-picker { flex-basis: 140px; }
 }
