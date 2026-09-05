@@ -1453,11 +1453,11 @@ do while (.true.)
 	write(*,"(a)") " 3 Output averaged delta-g_inter and sign(lambda2)*rho to avgdg_inter.cub and avgsl2r.cub in current folder, respectively"
 	write(*,"(a)") " 4 Output averaged RDG to avgRDG.cub in current folder"
 	write(*,"(a)") " 5 Compute thermal fluctuation index (TFI) and export to thermflu.cub in current folder"
-    !I found the effect of mapping TFI onto dg_inter isosurface is poor (two sides of isosurface show very different color), so hidden these options
-	!if (iIGMtype==1) write(*,*) "6 Compute TFI(aIGM) and export to TFI_aIGM.cub in current folder"
+    !Option 6 of amIGM case has been merged into option 8
+ !   if (iIGMtype==1) write(*,*) "6 Compute TFI(aIGM) and export to TFI_aIGM.cub in current folder"
 	!if (iIGMtype==-1) write(*,*) "6 Compute TFI(amIGM) and export to TFI_amIGM.cub in current folder"
 	!write(*,"(a)") " 7 Evaluate contribution of atomic pairs and atoms to interfragment interaction (atom and atomic pair delta-g indices as well as IBSIW index)"
-	write(*,"(a)") " 8 Compute standard deviation of delta-g_inter and export to stddg_inter.cub in current folder"
+	write(*,"(a)") " 8 Compute and export grid data of standard deviation of delta-g_inter and TFI(amIGM)"
     read(*,*) isel
     
 	if (isel==-3) then
@@ -1521,7 +1521,8 @@ do while (.true.)
     else if (isel==5) then
         call calcexport_TFI(avgdens,ifpsstart,ifpsend)
         
-    else if (isel==6) then
+    else if (isel==6) then !This is fully meaningless
+		call walltime(iwalltime1)
 		if (iIGMtype==1) write(*,*) "Calculating grid data of TFI(aIGM)..."
 		if (iIGMtype==-1) write(*,*) "Calculating grid data of TFI(amIGM)..."
 		allocate(TFI_IGM(nx,ny,nz))
@@ -1536,6 +1537,9 @@ do while (.true.)
 			do k=1,nz
 				do j=1,ny
 					do i=1,nx
+						if (amIGMvdwscl/=0) then
+							if (dogrid(i,j,k).eqv..false.) cycle
+						end if
 						call getgridxyz(i,j,k,tmpx,tmpy,tmpz)
 						grad_inter=0
 						IGM_gradnorm_inter=0
@@ -1578,6 +1582,8 @@ do while (.true.)
 		close(10)
         write(*,*) "Done!"
 		deallocate(TFI_IGM)
+		call walltime(iwalltime2)
+		write(*,"(' Calculation totally took up wall clock time',i10,' s')") iwalltime2-iwalltime1
         
     else if (isel==8) then
 		call walltime(iwalltime1)
@@ -1593,6 +1599,9 @@ do while (.true.)
 			do k=1,nz
 				do j=1,ny
 					do i=1,nx
+						if (amIGMvdwscl/=0) then
+							if (dogrid(i,j,k).eqv..false.) cycle
+						end if
 						call getgridxyz(i,j,k,tmpx,tmpy,tmpz)
 						grad_inter=0
 						IGM_gradnorm_inter=0
@@ -1616,14 +1625,20 @@ do while (.true.)
 				end do
 			end do
 		end do
+		call walltime(iwalltime2)
+		write(*,"(' Calculation totally took up wall clock time',i10,' s')") iwalltime2-iwalltime1
+        write(*,*)
 		write(*,*) "Exporting standard deviation of delta-g_inter to stddg_inter.cub..."
 		open(10,file="stddg_inter.cub",status="replace")
 		call outcube(stddg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
+        stddg_inter(:,:,:)=stddg_inter(:,:,:)/dg_inter(:,:,:)
+		write(*,*) "Exporting TFI(amIGM) to TFI_amIGM.cub..."
+		open(10,file="TFI_amIGM.cub",status="replace")
+		call outcube(stddg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
+		close(10)
         write(*,*) "Done!"
 		deallocate(stddg_inter)
-		call walltime(iwalltime2)
-		write(*,"(' Calculation totally took up wall clock time',i10,' s')") iwalltime2-iwalltime1
         
     end if
 end do

@@ -1,6 +1,6 @@
 {
-  "archive_name": "Multiwfn_2026.8.31_src_Linux.zip",
-  "archive_url": "http://sobereva.com/multiwfn/misc/Multiwfn_2026.8.31_src_Linux.zip",
+  "archive_name": "Multiwfn_2026.9.1_src_Linux.zip",
+  "archive_url": "http://sobereva.com/multiwfn/misc/Multiwfn_2026.9.1_src_Linux.zip",
   "files": [
     "0123dim.f90",
     "AdNDP.f90",
@@ -77,5 +77,5 @@
     "util.f90",
     "visweak.f90"
   ],
-  "sha256": "8c516cbb7da9429e7c097f178dd38d6ed8524038590c09025558bcfe41546b76"
+  "sha256": "e4bca71ee45b62a68478a1d865c0a1794aecb352cdd851b47116a00dea87667e"
 }
