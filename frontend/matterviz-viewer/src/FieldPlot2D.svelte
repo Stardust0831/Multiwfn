@@ -87,6 +87,7 @@
 
   <ScatterPlot
     class="scientific-scatter-plot"
+    line_tween={{ duration: 0 }}
     series={series as never[]}
     x_axis={axis_config(axes.x1)}
     y_axis={axis_config(axes.y1)}

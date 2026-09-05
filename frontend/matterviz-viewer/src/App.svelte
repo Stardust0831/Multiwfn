@@ -10,14 +10,23 @@
     type IsosurfaceLayer,
     type IsosurfaceSettings,
     type VolumetricData,
+    type MeasureMode,
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
+  import WorkbenchMenu from './WorkbenchMenu.svelte'
+  import MeasurementReadout, { type BondResult } from './MeasurementReadout.svelte'
+  import { canvas_to_png_blob, scene_registry } from 'matterviz'
+  import { render_plot_document } from './plot-export'
+  import {
+    cached_plot_resolver, download_blob, import_plot_document, plot_data_csv,
+    serialize_plot_document, PLOT_FILE_LIMIT, PLOT_RESULT_LIMIT, type WorkbenchPlot,
+  } from './workbench-plots'
   import {
     estimate_esp_range,
     extract_esp_extrema_async,
@@ -68,17 +77,20 @@
     orbital_visibility,
     type VolumeCacheOptions,
   } from './volume-cache'
-  import { parse_plot, read_plot_dataset_response, type PlotArtifact, type PlotDataset, type PlotScene } from './plot'
+  import { parse_plot, plot_title, read_plot_dataset_response } from './plot'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
   let loadedManifestUrl = $state(manifest_url())
   let structure = $state<AnyStructure | undefined>()
+  let displayedStructure = $state<AnyStructure | undefined>()
   let volumetricData = $state<VolumetricData[] | undefined>()
   let volumeEntries = $state<ManifestEntry[]>([])
   let isosurfaceSettings = $state<IsosurfaceSettings>({ ...DEFAULT_ISOSURFACE_SETTINGS })
   let activeVolumeIdx = $state(0)
   let measuredSites = $state<number[]>([])
+  let measureMode = $state<MeasureMode>('distance')
+  let bondResults = $state<BondResult[]>([])
   let supercellScaling = $state('1x1x1')
   let showImageAtoms = $state(true)
   let showUnitCell = $state(true)
@@ -89,6 +101,8 @@
     show_cell_vectors: true,
   })
   let loading = $state(true)
+  let structureLoading = $state(false)
+  let workingMessage = $state('Loading session...')
   let returnPending = $state(false)
   let errorMessage = $state<string | undefined>()
   let viewerError = $state<string | undefined>()
@@ -99,6 +113,9 @@
   let quality = $state(120000)
   let espIsovalue = $state(0.001)
   let bondMethod = $state('mayer')
+  let viewerShell = $state<HTMLElement | undefined>()
+  let bondContextMenuElement = $state<HTMLElement | undefined>()
+  let bondContextMenu = $state<BondContextMenuState | undefined>()
   let logOpen = $state(false)
   let layerOpen = $state(false)
   let sliceOpen = $state(false)
@@ -135,7 +152,89 @@
     [key: string]: unknown
   }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
-  let plotArtifact = $state<PlotArtifact | PlotScene | undefined>()
+  let plots = $state<WorkbenchPlot[]>([])
+  let activeResult = $state('scene')
+  let openMenu = $state<string | undefined>()
+  let plotInput: HTMLInputElement
+  let resultStage: HTMLDivElement
+  let importingPlot = $state(false)
+  let savingResult = $state(false)
+  let orbitalPanelOpen = $state(true)
+  let orbitalListElement = $state<HTMLDivElement | undefined>()
+  const homoIndex = $derived(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex)
+  let suspendedSpin: unknown
+  const active_plot = $derived(plots.find((plot) => plot.id === activeResult))
+  const scene_available = $derived(Boolean(structure || volumetricData?.length))
+
+  const show_result = (id: string): void => {
+    if (activeResult === 'scene' && id !== 'scene') {
+      suspendedSpin = sceneProps.auto_rotate
+      sceneProps = { ...sceneProps, auto_rotate: 0 }
+    } else if (id === 'scene' && activeResult !== 'scene' && suspendedSpin !== undefined) {
+      sceneProps = { ...sceneProps, auto_rotate: suspendedSpin }
+      suspendedSpin = undefined
+    }
+    activeResult = id
+    openMenu = undefined
+    close_bond_context_menu()
+    layerOpen = false
+    logOpen = false
+  }
+
+  const open_plot_files = async (event: Event): Promise<void> => {
+    const input = event.currentTarget as HTMLInputElement
+    const files = [...(input.files ?? [])]
+    if (!files.length || importingPlot) return
+    importingPlot = true
+    openMenu = undefined
+    try {
+      if (plots.length + files.length > PLOT_RESULT_LIMIT) throw new Error(`Keep at most ${PLOT_RESULT_LIMIT} plots open`)
+      const imported: WorkbenchPlot[] = []
+      for (const file of files) {
+        if (file.size > PLOT_FILE_LIMIT) throw new Error(`${file.name} exceeds the 32 MiB plot import limit`)
+        imported.push({ id: crypto.randomUUID(), ...await import_plot_document(await file.text(), file.name) })
+      }
+      // Apply the whole group only after validation, retaining the current scene on errors.
+      plots = [...plots, ...imported]
+      show_result(imported[0].id)
+      errorMessage = undefined
+      set_status(`${imported.length} plot(s) opened`)
+    } catch (error) { report_error(error) }
+    finally { importingPlot = false; input.value = '' }
+  }
+
+  const close_plot = (): void => {
+    plots = plots.filter((plot) => plot.id !== activeResult)
+    show_result(scene_available ? 'scene' : plots[0]?.id ?? 'scene')
+  }
+
+  const save_result = async (format: 'png' | 'pdf' | 'svg' | 'csv' | 'json'): Promise<void> => {
+    if (savingResult) return
+    savingResult = true
+    openMenu = undefined
+    const plot = active_plot
+    try {
+      if (plot) {
+        if (format === 'csv' || format === 'json') {
+          const data = format === 'csv' ? await plot_data_csv(plot) : await serialize_plot_document(plot)
+          download_blob(new Blob([data], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json' }), `${plot_title(plot.artifact)}.${format}`)
+        } else {
+          const root = resultStage?.querySelector<HTMLElement>('.result-document:not(.inactive) [data-plot-document]')
+          if (!root) throw new Error('The active plot is not ready')
+          const bytes = await render_plot_document(root, format)
+          download_blob(new Blob([bytes.slice().buffer], { type: format === 'svg' ? 'image/svg+xml' : format === 'pdf' ? 'application/pdf' : 'image/png' }), `${plot_title(plot.artifact)}.${format}`)
+        }
+      } else {
+        const canvas = viewerShell?.querySelector<HTMLCanvasElement>('.structure canvas')
+        if (!canvas) throw new Error('The 3D scene is not ready')
+        const scene = scene_registry.get(canvas)
+        if (!scene) throw new Error('The 3D renderer is not ready for export')
+        download_blob(await canvas_to_png_blob(canvas, 150, scene.scene, scene.camera), 'Multiwfn-scene.png')
+      }
+      set_status(`${format.toUpperCase()} exported`)
+    } catch (error) { report_error(error) }
+    finally { savingResult = false }
+  }
 
   type ApiPayload = {
     ok?: boolean
@@ -150,6 +249,161 @@
     components?: Record<string, number>
   }
 
+  type BondPair = [number, number]
+
+  type SelectedBondContextDetail = {
+    displayed_site_indices: BondPair
+    source_site_indices: BondPair
+    bond_order?: number | 'aromatic'
+    cell_shift?: [number, number, number]
+    client_x: number
+    client_y: number
+  }
+
+  type BondContextMenuState = SelectedBondContextDetail & {
+    left: number
+    top: number
+    max_width: number
+    max_height: number
+  }
+
+  const CONTEXT_MENU_MARGIN = 8
+  let bondContextMenuGeneration = 0
+
+  const valid_bond_pair = (sites: readonly number[]): BondPair | undefined => {
+    if (sites.length !== 2) return undefined
+    const [first, second] = sites
+    if (!Number.isInteger(first) || !Number.isInteger(second) || first < 0 || second < 0 || first === second) {
+      return undefined
+    }
+    return [first, second]
+  }
+
+  const valid_source_bond_pair = (sites: readonly number[]): BondPair | undefined => {
+    const pair = valid_bond_pair(sites)
+    const sourceSiteCount = structure?.sites?.length
+    return pair && Number.isInteger(sourceSiteCount) && pair.every((siteIndex) => siteIndex < Number(sourceSiteCount))
+      ? pair
+      : undefined
+  }
+
+  const displayed_source_site_index = (siteIndex: number): number | undefined => {
+    const properties = displayedStructure?.sites?.[siteIndex]?.properties
+    const sourceIndex = properties?.orig_unit_cell_idx ?? properties?.orig_site_idx ?? siteIndex
+    return Number.isInteger(sourceIndex) && Number(sourceIndex) >= 0 ? Number(sourceIndex) : undefined
+  }
+
+  const selected_source_bond_pair = (): BondPair | undefined => {
+    const displayedPair = valid_bond_pair(measuredSites)
+    if (!displayedPair) return undefined
+    const first = displayed_source_site_index(displayedPair[0])
+    const second = displayed_source_site_index(displayedPair[1])
+    return first === undefined || second === undefined ? undefined : valid_source_bond_pair([first, second])
+  }
+
+  const same_unordered_pair = (first: BondPair, second: BondPair): boolean =>
+    (first[0] === second[0] && first[1] === second[1]) ||
+    (first[0] === second[1] && first[1] === second[0])
+
+  const close_bond_context_menu = (): void => {
+    bondContextMenuGeneration += 1
+    bondContextMenu = undefined
+  }
+
+  const context_menu_position = (
+    clientX: number,
+    clientY: number,
+    menuWidth = 260,
+    menuHeight = 280,
+  ): Pick<BondContextMenuState, 'left' | 'top' | 'max_width' | 'max_height'> => {
+    const bounds = viewerShell?.getBoundingClientRect() ?? {
+      left: 0,
+      top: 0,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }
+    const maxWidth = Math.max(0, bounds.width - CONTEXT_MENU_MARGIN * 2)
+    const maxHeight = Math.max(0, bounds.height - CONTEXT_MENU_MARGIN * 2)
+    const renderedWidth = Math.min(menuWidth, maxWidth)
+    const renderedHeight = Math.min(menuHeight, maxHeight)
+    const minimumLeft = bounds.left + CONTEXT_MENU_MARGIN
+    const minimumTop = bounds.top + CONTEXT_MENU_MARGIN
+    const maximumLeft = Math.max(minimumLeft, bounds.right - CONTEXT_MENU_MARGIN - renderedWidth)
+    const maximumTop = Math.max(minimumTop, bounds.bottom - CONTEXT_MENU_MARGIN - renderedHeight)
+    return {
+      left: Math.min(maximumLeft, Math.max(minimumLeft, clientX)),
+      top: Math.min(maximumTop, Math.max(minimumTop, clientY)),
+      max_width: maxWidth,
+      max_height: maxHeight,
+    }
+  }
+
+  const open_bond_context_menu = async (detail: SelectedBondContextDetail): Promise<void> => {
+    const displayedPair = valid_bond_pair(detail.displayed_site_indices)
+    const sourcePair = valid_source_bond_pair(detail.source_site_indices)
+    const currentSelection = valid_bond_pair(measuredSites)
+    const methods = manifest.bondAnalysis?.methods
+    if (
+      !displayedPair ||
+      !sourcePair ||
+      !currentSelection ||
+      !same_unordered_pair(displayedPair, currentSelection) ||
+      !methods ||
+      Object.keys(methods).length === 0
+    ) {
+      close_bond_context_menu()
+      return
+    }
+    const generation = bondContextMenuGeneration + 1
+    bondContextMenuGeneration = generation
+    const clientX = Number.isFinite(detail.client_x) ? detail.client_x : 0
+    const clientY = Number.isFinite(detail.client_y) ? detail.client_y : 0
+    bondContextMenu = {
+      ...detail,
+      displayed_site_indices: [...displayedPair],
+      source_site_indices: [...sourcePair],
+      client_x: clientX,
+      client_y: clientY,
+      ...context_menu_position(clientX, clientY),
+    }
+    await tick()
+    if (generation !== bondContextMenuGeneration || !bondContextMenu || !bondContextMenuElement) return
+    const position = context_menu_position(
+      clientX,
+      clientY,
+      bondContextMenuElement.offsetWidth,
+      bondContextMenuElement.offsetHeight,
+    )
+    bondContextMenu = { ...bondContextMenu, ...position }
+    await tick()
+    const firstAvailableMethod = bondContextMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+    if (firstAvailableMethod) firstAvailableMethod.focus()
+    else bondContextMenuElement?.focus()
+  }
+
+  const unavailable_bond_method_reason = (method: string): string | undefined => {
+    if (loading) return 'Another calculation is currently running'
+    const capability = manifest.bondAnalysis?.methods?.[method]
+    if (!capability) return `Unknown bond-order method: ${method}`
+    if (capability?.available === false) return capability.reason || 'Unavailable for this session'
+    return undefined
+  }
+
+  const BOND_METHOD_LABELS: Record<string, string> = {
+    mayer: 'Mayer',
+    gwbo: 'GWBO',
+    wiberg_lowdin: 'Wiberg-Löwdin',
+    mulliken: 'Mulliken',
+    fbo: 'FBO',
+  }
+
+  const bond_method_label = (method: string): string =>
+    BOND_METHOD_LABELS[method] ?? method
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (character) => character.toUpperCase())
+
   const add_log = (message: string, level: 'info' | 'error' = 'info'): void => {
     logEntries = [...logEntries, { timestamp: new Date().toLocaleTimeString(), level, message }]
   }
@@ -162,7 +416,7 @@
   const orbital_label = (item: { index: number; energy?: number; occupation?: number }): string => {
     const frontier = orbital_frontier_label(
       item.index,
-      manifest.orbitals?.homoIndex,
+      homoIndex,
       manifest.bondAnalysis?.openShell,
     )
     const energy = Number.isFinite(item.energy) ? `${Number(item.energy).toFixed(6)} Ha` : ''
@@ -639,8 +893,15 @@
       manifest = (await response.json()) as MultiwfnManifest
       const inlinePlot = (manifest as MultiwfnManifest & { plot?: unknown }).plot
       if (inlinePlot !== undefined) {
-        plotArtifact = parse_plot(inlinePlot)
+        plots = [{ id: 'native', native: true, artifact: parse_plot(inlinePlot),
+          resolver: cached_plot_resolver(async (datasetId) => {
+            const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
+            return read_plot_dataset_response(response, datasetId)
+          }),
+        }]
+        activeResult = 'native'
         manifestBase = new URL('.', url)
+        set_status(plot_title(plots[0].artifact))
         await signal_frontend_ready()
         loading = false
         return
@@ -702,7 +963,7 @@
   }
 
   const request_orbital = async (options: { forceRecompute?: boolean } = {}): Promise<void> => {
-    if (loading) return
+    if (loading || structureLoading) return
     const requestedIndex = orbitalIndex
     if (requestedIndex === 0) {
       errorMessage = undefined
@@ -727,6 +988,7 @@
       return
     }
     loading = true
+    workingMessage = `Calculating orbital ${requestedIndex}...`
     add_log(`Requesting orbital ${requestedIndex} at grid quality ${requestedQuality}`)
     try {
       if (cachedVolumeIdx === undefined) activate_orbital_volume(undefined)
@@ -815,7 +1077,9 @@
   }
 
   const request_esp = async (): Promise<void> => {
+    if (loading || structureLoading) return
     loading = true
+    workingMessage = 'Calculating ESP...'
     errorMessage = undefined
     add_log(`Requesting ESP surface at grid quality ${quality}, density isovalue ${espIsovalue}`)
     try {
@@ -828,6 +1092,7 @@
       if (!response.ok || !payload.ok || !payload.densityLayer || !payload.espLayer) {
         throw new Error(payload.message || 'ESP calculation failed')
       }
+      workingMessage = 'Loading ESP surfaces...'
       remove_volumes((entry) => entry.analysisKind === 'esp-density' || entry.analysisKind === 'esp-potential')
       const entries: ManifestEntry[] = [payload.densityLayer, payload.espLayer]
       const firstVolumeIdx = await apply_entries(entries, manifestBase, 'append')
@@ -847,30 +1112,58 @@
     }
   }
 
-  const request_bond = async (): Promise<void> => {
-    const selected = measuredSites.slice(-2)
-    if (selected.length !== 2 || selected[0] === selected[1]) {
+  const request_bond = async (options: { method?: string; pair?: BondPair } = {}): Promise<void> => {
+    if (loading || structureLoading) return
+    const selected = options.pair ? valid_source_bond_pair(options.pair) : selected_source_bond_pair()
+    if (!selected) {
       report_error(new Error('Select two atoms with the MatterViz measurement tool'))
+      return
+    }
+    const method = options.method ?? bondMethod
+    const capability = manifest.bondAnalysis?.methods?.[method]
+    if (!capability) {
+      report_error(new Error(`Unknown bond-order method: ${method}`))
+      return
+    }
+    if (capability.available === false) {
+      report_error(new Error(capability.reason || `${method} is unavailable for this session`))
       return
     }
     loading = true
     errorMessage = undefined
     const atom1 = selected[0] + 1
     const atom2 = selected[1] + 1
-    add_log(`Requesting ${bondMethod} bond order for atoms ${atom1} and ${atom2}`)
+    const sourceStructure = structure
+    workingMessage = `Calculating ${bond_method_label(method)} bond order...`
+    add_log(`Requesting ${method} bond order for atoms ${atom1} and ${atom2}`)
     try {
-      const params = new URLSearchParams({ atom1: String(atom1), atom2: String(atom2), method: bondMethod })
+      const params = new URLSearchParams({ atom1: String(atom1), atom2: String(atom2), method })
       const response = await fetch(api_url('/api/bond', params), { cache: 'no-store' })
       const payload = await read_api_payload(response)
       if (!response.ok || !payload.ok || !Number.isFinite(Number(payload.value))) {
         throw new Error(payload.message || 'Bond-order calculation failed')
       }
-      set_status(`${bondMethod}(${atom1}, ${atom2}) = ${Number(payload.value).toFixed(6)}`)
+      if (structure !== sourceStructure) return
+      const key = `${Math.min(atom1, atom2)}:${Math.max(atom1, atom2)}:${method}`
+      const names = selected.map((index) => `${sourceStructure?.sites[index]?.species?.[0]?.element ?? 'Atom'}${index + 1}`).join(' - ')
+      bondResults = [...bondResults.filter((result) => result.key !== key), {
+        key, atoms: names, method: bond_method_label(method), value: Number(payload.value),
+      }]
+      set_status(`${method}(${atom1}, ${atom2}) = ${Number(payload.value).toFixed(6)}`)
     } catch (error) {
       report_error(error)
     } finally {
       loading = false
     }
+  }
+
+  const request_context_bond = async (method: string): Promise<void> => {
+    const menu = bondContextMenu
+    const pair = menu ? valid_source_bond_pair(menu.source_site_indices) : undefined
+    if (!pair || unavailable_bond_method_reason(method)) return
+    close_bond_context_menu()
+    bondMethod = method
+    await request_bond({ method, pair: [...pair] })
   }
 
   const return_to_multiwfn = async (): Promise<void> => {
@@ -1084,27 +1377,89 @@
     isosurfaceSettings = { ...isosurfaceSettings, display_range: next }
   }
 
+  $effect(() => {
+    measuredSites
+    structure
+    displayedStructure
+    close_bond_context_menu()
+  })
+
+  $effect(() => {
+    structure
+    bondResults = []
+  })
+
+  // Scroll only this list, never the page or the molecular canvas.
+  $effect(() => {
+    const list = orbitalListElement
+    const selected = orbitalIndex
+    const frontier = homoIndex
+    const visible = activeResult === 'scene' && orbitalPanelOpen
+    if (!list || !visible) return
+    const frame = requestAnimationFrame(() => {
+      const target = list.querySelector<HTMLElement>(`[data-orbital-index="${selected || frontier}"]`)
+      if (!target) return
+      const next = selected === frontier ? list.querySelector<HTMLElement>(`[data-orbital-index="${Number(frontier) + 1}"]`) : undefined
+      const listRect = list.getBoundingClientRect()
+      const top = target.getBoundingClientRect().top - listRect.top + list.scrollTop
+      const bottom = (next ?? target).getBoundingClientRect().bottom - listRect.top + list.scrollTop
+      list.scrollTop = Math.max(0, (top + bottom - list.clientHeight) / 2)
+    })
+    return () => cancelAnimationFrame(frame)
+  })
+
   onMount(load_manifest)
+
+  onMount(() => {
+    if (window.innerWidth < 1000) inspectorOpen = false
+    if (window.innerWidth < 760) orbitalPanelOpen = false
+    const narrowViewport = window.matchMedia('(max-width: 800px)')
+    const collapse_sidebars = (event: MediaQueryListEvent): void => {
+      if (event.matches) { inspectorOpen = false; orbitalPanelOpen = false }
+    }
+    narrowViewport.addEventListener('change', collapse_sidebars)
+    const close_on_outside_pointer = (event: PointerEvent): void => {
+      if (!bondContextMenu || !bondContextMenuElement) return
+      if (event.target instanceof Node && bondContextMenuElement.contains(event.target)) return
+      close_bond_context_menu()
+    }
+    const close_on_escape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && bondContextMenu) close_bond_context_menu()
+    }
+    document.addEventListener('pointerdown', close_on_outside_pointer, true)
+    window.addEventListener('keydown', close_on_escape)
+    window.addEventListener('resize', close_bond_context_menu)
+    window.addEventListener('blur', close_bond_context_menu)
+    return () => {
+      narrowViewport.removeEventListener('change', collapse_sidebars)
+      document.removeEventListener('pointerdown', close_on_outside_pointer, true)
+      window.removeEventListener('keydown', close_on_escape)
+      window.removeEventListener('resize', close_bond_context_menu)
+      window.removeEventListener('blur', close_bond_context_menu)
+    }
+  })
 </script>
 
-{#if plotArtifact}
-  <MultiwfnPlotView
-    artifact={plotArtifact}
-    exportConfig={plot_export(manifest)}
-    onExported={return_to_multiwfn}
-    onExportError={report_error}
-    resolver={async (datasetId: number): Promise<PlotDataset> => {
-      const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
-      return read_plot_dataset_response(response, datasetId)
-    }}
-  />
-{:else}
-<main class="workbench" class:has-periodic={Boolean(manifest.periodic?.enabled)}>
+<main class="workbench" class:has-periodic={Boolean(manifest.periodic?.enabled) && activeResult === 'scene'}>
   <header class="toolbar">
     <div class="brand">
       <strong>Multiwfn</strong>
-      <span>MatterViz workbench</span>
+      <span>Workbench</span>
     </div>
+    <label class="result-picker">
+      <span>Result</span>
+      <select aria-label="Active result" value={activeResult} disabled={savingResult} onchange={(event) => show_result(event.currentTarget.value)}>
+        <option value="scene" disabled={!scene_available}>3D scene</option>
+        {#each plots as plot (plot.id)}<option value={plot.id}>{plot_title(plot.artifact)}</option>{/each}
+      </select>
+    </label>
+    <button type="button" title="Open numeric curves or a saved plot document" onclick={() => plotInput?.click()} disabled={importingPlot || savingResult}>
+      <Icon icon="Directory" width="16" height="16" /><span>Open plot</span>
+    </button>
+    <input class="hidden-file-input" bind:this={plotInput} type="file" accept=".txt,.dat,.csv,.json" multiple onchange={open_plot_files} />
+    {#if activeResult === 'scene'}
+    <WorkbenchMenu name="view" label="View" bind:active={openMenu}>
+    <div class="menu-heading">Camera</div>
     <div class="camera-tools" aria-label="Fixed-step camera controls">
       <label title="Rotation step in degrees">
         <span>Step (deg)</span>
@@ -1135,15 +1490,23 @@
       <button class="icon-button" type="button" title="Zoom out" aria-label="Zoom out" onclick={() => step_zoom('out')} disabled={!current_camera_pose()}><Icon icon="ZoomOut" width="16" height="16" /></button>
       <button class="icon-button" type="button" title="Zoom in" aria-label="Zoom in" onclick={() => step_zoom('in')} disabled={!current_camera_pose()}><Icon icon="ZoomIn" width="16" height="16" /></button>
     </div>
+    <label><input type="checkbox" bind:checked={inspectorOpen} /><span>Inspector</span></label>
+    {#if orbital_selection_available()}<label><input type="checkbox" bind:checked={orbitalPanelOpen} /><span>Orbitals</span></label>{/if}
+    <label><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} /><span>Axes</span></label>
+    <button type="button" onclick={() => { openMenu = undefined; open_panel('layers') }}>Volume layers ({volumeEntries.length})</button>
+    <button type="button" onclick={() => { openMenu = undefined; open_panel('slice') }} disabled={!volumetricData?.length}>2D Slice</button>
+    </WorkbenchMenu>
+    <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
+    <div class="menu-heading">Electrostatic potential</div>
     <label>
       <span>Density iso</span>
       <input type="number" min="0.000001" max="0.1" step="0.0001" bind:value={espIsovalue} />
     </label>
     <button
       type="button"
-      onclick={request_esp}
-      disabled={loading || manifest.espAnalysis?.available === false}
-      title={manifest.espAnalysis?.reason || ''}
+      onclick={() => { openMenu = undefined; void request_esp() }}
+      disabled={loading || manifest.espAnalysis?.available !== true}
+      title={manifest.espAnalysis?.reason || (manifest.espAnalysis?.available ? '' : 'No ESP calculation is available in this session')}
     >ESP surface</button>
     {#if manifest.bondAnalysis?.methods}
       <label>
@@ -1156,33 +1519,38 @@
       </label>
       <button
         type="button"
-        onclick={request_bond}
-        disabled={loading || measuredSites.length < 2 || manifest.bondAnalysis.methods[bondMethod]?.available === false}
-        title={manifest.bondAnalysis.methods[bondMethod]?.reason || 'Use the measurement tool to select two atoms'}
+        onclick={() => { openMenu = undefined; void request_bond() }}
+        disabled={loading || !selected_source_bond_pair() || Boolean(unavailable_bond_method_reason(bondMethod))}
+        title={unavailable_bond_method_reason(bondMethod) || 'Use the measurement tool to select two atoms'}
       >Calculate</button>
     {/if}
-    <button type="button" onclick={() => open_panel('layers')} aria-expanded={layerOpen}>Layers ({volumeEntries.length})</button>
-    <button type="button" onclick={() => open_panel('slice')} disabled={!volumetricData?.length} aria-expanded={sliceOpen}>2D Slice</button>
     {#if esp_pair()}
       <button type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>ESP legend</button>
       <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>Approx. ESP extrema</button>
     {/if}
-    <label>
-      <input
-        type="checkbox"
-        checked={showGizmo !== false}
-        onchange={(event) => set_show_gizmo(event.currentTarget.checked)}
-      />
-      <span>Axes</span>
-    </label>
-    <button type="button" onclick={() => stateInput?.click()}>Import</button>
-    <button type="button" onclick={export_state}>Export</button>
+    </WorkbenchMenu>
+    {/if}
+    <WorkbenchMenu name="save" label="Save" bind:active={openMenu}>
+      <button type="button" onclick={() => save_result('png')} disabled={savingResult || (!active_plot && !scene_available)}><Icon icon="Download" width="16" height="16" />PNG image</button>
+      {#if active_plot}
+        <button type="button" onclick={() => save_result('pdf')} disabled={savingResult}>PDF figure</button>
+        <button type="button" onclick={() => save_result('svg')} disabled={savingResult}>SVG figure</button>
+        <button type="button" onclick={() => save_result('csv')} disabled={savingResult}>CSV numeric data</button>
+        <button type="button" onclick={() => save_result('json')} disabled={savingResult}>Plot document (.json)</button>
+      {:else}
+        <button type="button" onclick={() => { export_state(); openMenu = undefined }} disabled={!scene_available}>Save display settings</button>
+        <button type="button" onclick={() => { stateInput?.click(); openMenu = undefined }} disabled={!scene_available || loading}>Restore display settings...</button>
+      {/if}
+    </WorkbenchMenu>
     <input class="hidden-file-input" bind:this={stateInput} type="file" accept="application/json,.json" onchange={import_state_file} />
-    <button type="button" onclick={() => open_panel('logs')} aria-expanded={logOpen}>Logs ({logEntries.length})</button>
-    <button class="return" type="button" onclick={return_to_multiwfn} disabled={returnPending}>Return</button>
+    {#if active_plot && !active_plot.native}
+      <button class="icon-button" type="button" title="Close current plot" aria-label="Close current plot" onclick={close_plot} disabled={savingResult}><Icon icon="Cross" width="16" height="16" /></button>
+    {/if}
+    <button class="icon-button" type="button" title="Operation log" aria-label="Operation log" onclick={() => open_panel('logs')} aria-expanded={logOpen}><Icon icon="Info" width="16" height="16" /></button>
+    <button class="return" type="button" title="Return to the Multiwfn calculation menu" onclick={return_to_multiwfn} disabled={returnPending || savingResult}>Return</button>
   </header>
 
-  {#if manifest.periodic?.enabled}
+  {#if manifest.periodic?.enabled && activeResult === 'scene'}
     <section class="periodic-bar" aria-label="Periodic surface range">
       <strong>Surface range</strong>
       {#each ['a', 'b', 'c'] as axis, axis_idx}
@@ -1226,7 +1594,8 @@
     </section>
   {/if}
 
-  <section class="workspace" class:inspector-closed={!inspectorOpen} class:has-orbitals={orbital_selection_available()}>
+  <div class="result-stage" bind:this={resultStage}>
+  <section class="workspace" class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
     <nav class="tool-rail" aria-label="Inspector tools">
       <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true }}>
         <span aria-hidden="true">S</span><small>Structure</small>
@@ -1242,6 +1611,11 @@
       <button type="button" class:active={layerOpen} aria-label={`Open volume layers (${volumeEntries.length})`} aria-expanded={layerOpen} onclick={() => open_panel('layers')}>
         <span aria-hidden="true">L</span><small>Layers</small>
       </button>
+      {#if orbital_selection_available()}
+      <button type="button" class:active={orbitalPanelOpen} aria-label="Toggle orbitals" aria-expanded={orbitalPanelOpen} onclick={() => orbitalPanelOpen = !orbitalPanelOpen}>
+        <span aria-hidden="true">O</span><small>Orbitals</small>
+      </button>
+      {/if}
       <button type="button" class="rail-close" aria-label="Close inspector" aria-expanded={inspectorOpen} onclick={() => inspectorOpen = false}>
         <span aria-hidden="true">&lt;</span><small>Hide</small>
       </button>
@@ -1272,31 +1646,74 @@
     {/if}
 
     <section class="viewer-shell">
+    <div class="scene-viewport" bind:this={viewerShell}>
       {#if structure}
         <Structure
           bind:structure
+          bind:displayed_structure={displayedStructure}
           bind:volumetric_data={volumetricData}
           bind:isosurface_settings={isosurfaceSettings}
           bind:active_volume_idx={activeVolumeIdx}
           bind:measured_sites={measuredSites}
+          bind:measure_mode={measureMode}
           bind:supercell_scaling={supercellScaling}
           bind:show_image_atoms={showImageAtoms}
           bind:lattice_props={latticeProps}
           bind:scene_props={sceneProps}
           bind:background_color={backgroundColor}
           bind:background_opacity={backgroundOpacity}
-          bind:loading
+          bind:loading={structureLoading}
           bind:error_msg={viewerError}
           on_camera_move={track_camera}
           on_camera_reset={track_camera}
           on_geometry_error={(message) => report_error(new Error(message))}
+          on_selected_bond_context={open_bond_context_menu}
+          show_atom_tooltip={false}
+          measure_selection_policy={{
+            distance: { max_sites: 2, overflow: 'restart' },
+            angle: { max_sites: 4, overflow: 'reject' },
+          }}
+          measure_geometry="ordered"
           show_controls="always"
           allow_file_drop={false}
         />
       {:else if !loading}
         <div class="empty">No structure is available in this session.</div>
       {/if}
-      {#if loading}<div class="loading">Working...</div>{/if}
+      {#if bondContextMenu && manifest.bondAnalysis?.methods}
+        <div
+          class="bond-analysis-menu"
+          role="menu"
+          tabindex="-1"
+          aria-label={`Calculate bond order for atoms ${bondContextMenu.source_site_indices[0] + 1} and ${bondContextMenu.source_site_indices[1] + 1}`}
+          bind:this={bondContextMenuElement}
+          style={`left: ${bondContextMenu.left}px; top: ${bondContextMenu.top}px; max-width: ${bondContextMenu.max_width}px; max-height: ${bondContextMenu.max_height}px;`}
+        >
+          <header role="presentation">
+            <strong>Bond order</strong>
+            <span>Atoms {bondContextMenu.source_site_indices[0] + 1}–{bondContextMenu.source_site_indices[1] + 1}</span>
+            {#if bondContextMenu.bond_order !== undefined}
+              <small>Displayed bond: {typeof bondContextMenu.bond_order === 'number' ? bondContextMenu.bond_order.toPrecision(4) : bondContextMenu.bond_order}</small>
+            {/if}
+          </header>
+          <div class="bond-analysis-methods" role="presentation">
+            {#each Object.entries(manifest.bondAnalysis.methods) as [method, capability]}
+              {@const unavailableReason = unavailable_bond_method_reason(method)}
+              <button
+                type="button"
+                role="menuitem"
+                aria-disabled={Boolean(unavailableReason)}
+                disabled={Boolean(unavailableReason)}
+                title={unavailableReason || `Calculate ${bond_method_label(method)} bond order`}
+                onclick={() => request_context_bond(method)}
+              >
+                <span>{bond_method_label(method)}</span>
+                {#if unavailableReason}<small>{capability.reason || unavailableReason}</small>{/if}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
       {#if sliceOpen}
         <SlicePanel
           volumes={volumetricData ?? []}
@@ -1318,21 +1735,42 @@
         {@const legendRange = current_esp_range()}
         <EspLegend min={legendRange[0]} max={legendRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
+    </div>
+    {#if loading || measuredSites.length || bondResults.length}
+      <div class="scene-readouts" aria-label="Calculation and measurement results">
+        {#if loading}
+          <div class="calculation-status" role="status"><progress aria-label={workingMessage}></progress><span>{workingMessage}</span></div>
+        {/if}
+        <MeasurementReadout structure={displayedStructure ?? structure} sites={measuredSites} mode={measureMode} bonds={bondResults}
+          on_clear_selection={() => measuredSites = []}
+          on_remove_bond={(key) => bondResults = bondResults.filter((result) => result.key !== key)} />
+      </div>
+    {/if}
     </section>
 
-    {#if orbital_selection_available()}
+    {#if orbital_selection_available() && orbitalPanelOpen}
       <aside class="orbital-panel" aria-label="Orbital controls">
         <header>
           <div><strong>Orbitals</strong><small>{orbital_count()}</small></div>
           <span class:offline={!orbitalBackendAvailable}>{orbitalBackendAvailable ? 'Connected' : 'Cached only'}</span>
         </header>
+        <div class="orbital-frontiers" aria-label="Frontier orbitals">
+          {#each [Number(homoIndex), Number(homoIndex) + 1] as index}
+            {@const label = orbital_frontier_label(index, homoIndex, manifest.bondAnalysis?.openShell)}
+            {#if label && index <= orbital_count()}
+              <button type="button" class:active={orbitalIndex === index} onclick={() => activate_orbital(index)}
+                disabled={loading || (!orbitalBackendAvailable && loaded_orbital_volume_index(volumeEntries, index) === undefined)}>{label} <strong>{index}</strong></button>
+            {/if}
+          {/each}
+        </div>
         {#if manifest.orbitals?.items?.length}
-          <div class="orbital-list" role="listbox" aria-label="Orbital list">
+          <div class="orbital-list" bind:this={orbitalListElement} role="listbox" aria-label="Orbital list">
             <button type="button" class:active={orbitalIndex === 0} role="option" aria-selected={orbitalIndex === 0} onclick={() => activate_orbital(0)} disabled={loading}>None</button>
             {#each manifest.orbitals.items as item}
               <button
                 type="button"
                 class:active={orbitalIndex === item.index}
+                data-orbital-index={item.index}
                 role="option"
                 aria-selected={orbitalIndex === item.index}
                 title={orbital_label(item)}
@@ -1340,7 +1778,7 @@
                 disabled={loading || (!orbitalBackendAvailable && loaded_orbital_volume_index(volumeEntries, item.index) === undefined)}
               >
                 <span>MO {item.index}</span>
-                <small>{orbital_frontier_label(item.index, manifest.orbitals?.homoIndex, manifest.bondAnalysis?.openShell) || (Number.isFinite(item.energy) ? `${Number(item.energy).toFixed(4)} Ha` : '')}</small>
+                <small>{orbital_frontier_label(item.index, homoIndex, manifest.bondAnalysis?.openShell) || (Number.isFinite(item.energy) ? `${Number(item.energy).toFixed(4)} Ha` : '')}</small>
               </button>
             {/each}
           </div>
@@ -1370,10 +1808,18 @@
     {/if}
 
   </section>
+  {#each plots as plot (plot.id)}
+    <section class="result-document" class:inactive={activeResult !== plot.id} inert={activeResult !== plot.id} aria-hidden={activeResult !== plot.id} aria-label={plot.artifact.title}>
+      <MultiwfnPlotView artifact={plot.artifact} resolver={plot.resolver}
+        exportConfig={plot.native ? plot_export(manifest) : undefined}
+        onExported={return_to_multiwfn} onExportError={report_error} />
+    </section>
+  {/each}
+  </div>
 
   <footer class="statusbar" class:error={Boolean(errorMessage)}>
-    <span>{errorMessage || status}</span>
-    <span>{volumetricData?.length || 0} volume(s)</span>
+    <span role="status">{savingResult ? 'Exporting...' : importingPlot ? 'Opening plot...' : errorMessage || status}</span>
+    <span>{active_plot ? '2D plot' : `${volumetricData?.length || 0} volume(s)`}</span>
   </footer>
 
   {#if layerOpen}
@@ -1531,7 +1977,7 @@
     </aside>
   {/if}
 
-  {#if espExtremaOpen && esp_pair()}
+  {#if activeResult === 'scene' && espExtremaOpen && esp_pair()}
     <aside class="esp-extrema-panel" aria-label="Approximate ESP surface extrema">
       <header>
         <strong>Approximate ESP extrema</strong>
@@ -1555,4 +2001,75 @@
     </aside>
   {/if}
 </main>
-{/if}
+
+<style>
+  .bond-analysis-menu {
+    position: fixed;
+    z-index: 70;
+    width: min(260px, calc(100vw - 16px));
+    overflow: auto;
+    color: #18202a;
+    background: #fff;
+    border: 1px solid #aeb8c5;
+    border-radius: 7px;
+    box-shadow: 0 12px 32px rgb(23 32 42 / 24%);
+  }
+
+  .bond-analysis-menu:focus {
+    outline: 2px solid #1976b8;
+    outline-offset: 1px;
+  }
+
+  .bond-analysis-menu > header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 10px;
+    padding: 9px 10px 8px;
+    background: #f5f7f9;
+    border-bottom: 1px solid #d6dce4;
+  }
+
+  .bond-analysis-menu > header strong {
+    font-size: 12px;
+  }
+
+  .bond-analysis-menu > header span,
+  .bond-analysis-menu > header small {
+    color: #667085;
+    font-size: 10px;
+  }
+
+  .bond-analysis-menu > header small {
+    grid-column: 1 / -1;
+  }
+
+  .bond-analysis-methods {
+    display: grid;
+    gap: 2px;
+    padding: 5px;
+  }
+
+  .bond-analysis-methods button {
+    display: grid;
+    justify-items: start;
+    width: 100%;
+    min-height: 32px;
+    height: auto;
+    padding: 6px 8px;
+    text-align: left;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .bond-analysis-methods button span {
+    font-weight: 600;
+  }
+
+  .bond-analysis-methods button small {
+    margin-top: 2px;
+    color: #667085;
+    font-size: 10px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+</style>

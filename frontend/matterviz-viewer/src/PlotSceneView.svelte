@@ -1,7 +1,7 @@
 <script lang="ts">
   import { BinnedScatterPlot, ScatterPlot } from 'matterviz'
   import type { UserContentProps } from 'matterviz/plot'
-  import { to_matterviz_axis, to_matterviz_bar_series, to_matterviz_data_series, to_matterviz_error_band, to_matterviz_fill_region, materialize_plot_layer, parse_plot_scene, release_plot_scene, resolve_plot_scene, type PlotDataset, type PlotDatasetResolver, type PlotScene, type PlotSceneLayer, type PlotScenePanel, type ResolvedPlotScene } from './plot'
+  import { plot_title, to_matterviz_axis, to_matterviz_bar_series, to_matterviz_data_series, to_matterviz_error_band, to_matterviz_fill_region, materialize_plot_layer, release_plot_scene, resolve_plot_scene, type PlotDataset, type PlotDatasetResolver, type PlotScene, type PlotSceneLayer, type PlotScenePanel, type ResolvedPlotScene } from './plot'
   import FieldPlot2D from './FieldPlot2D.svelte'
   import { IRI_COLOR_RANGE, iri_interaction_color } from './iri-plot'
   import { native_viewport_padding, SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING } from './scientific-plot'
@@ -90,7 +90,7 @@
 </script>
 
 <main class="plot-scene" aria-label="Multiwfn generic plot scene" style={`aspect-ratio: ${scene.page.width} / ${scene.page.height}`}>
-  <header class="plot-header"><strong>{scene.title}</strong>{#if scene.semanticKind}<span>{scene.semanticKind}</span>{/if}</header>
+  <header class="plot-header"><strong>{plot_title(scene)}</strong>{#if scene.semanticKind}<span>{scene.semanticKind}</span>{/if}</header>
   {#if load_error}<p class="plot-error">{load_error}</p>{:else if !loaded}<p class="plot-loading">Loading plot data...</p>{:else}
     <section class="scene-page" bind:clientWidth={page_width} bind:clientHeight={page_height}>
       {#each scene.panels as panel (panel.id)}
@@ -114,7 +114,7 @@
             {:else if route === 'binned-scatter'}
               <BinnedScatterPlot class="scientific-binned-plot" series={dense_points(panel)} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} {padding} density={dense_config()} children={binned_frame} fullscreen_toggle={true} />
             {:else}
-              <ScatterPlot class="scientific-scatter-plot" series={series(panel) as never[]} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} x2_axis={panel.axes.x2 ? axis_config(panel.axes.x2) : {}} y2_axis={panel.axes.y2 ? axis_config(panel.axes.y2) : {}} fill_regions={fills(panel) as never[]} error_bands={errors(panel) as never[]} {padding} user_content={annotations} legend={SCIENTIFIC_PLOT_LEGEND} controls={{ show: true }} fullscreen_toggle={true} pan={{ enabled: true }} />
+              <ScatterPlot class="scientific-scatter-plot" line_tween={{ duration: 0 }} series={series(panel) as never[]} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} x2_axis={panel.axes.x2 ? axis_config(panel.axes.x2) : {}} y2_axis={panel.axes.y2 ? axis_config(panel.axes.y2) : {}} fill_regions={fills(panel) as never[]} error_bands={errors(panel) as never[]} {padding} user_content={annotations} legend={SCIENTIFIC_PLOT_LEGEND} controls={{ show: true }} fullscreen_toggle={true} pan={{ enabled: true }} />
             {/if}
           </div>
         </article>

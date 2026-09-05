@@ -393,6 +393,10 @@ export const parse_plot = (value: unknown): PlotArtifact | PlotScene => {
   return parse_plot_artifact(value)
 }
 
+export const plot_title = (plot: PlotArtifact | PlotScene): string =>
+  /^click right mouse button to close(?: the window)?[.!]?$/i.test(plot.title.trim())
+    ? 'Multiwfn plot' : plot.title
+
 const dataset_array = (value: unknown, role: PlotArrayRole, datasetId: number): Float64Array | undefined => {
   if (value === undefined || value === null) return undefined
   if (value instanceof Float64Array) return value
@@ -495,12 +499,21 @@ export const to_matterviz_axis = (axis: PlotSceneAxis): { label: string; unit?: 
   label: axis.label, unit: axis.unit, range: axis.range, scale_type: axis.scale, ticks: axis.ticks, format: axis.format,
 })
 
-export const to_matterviz_data_series = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; x: Float64Array; y: Float64Array; markers: 'line' | 'points' | 'line+points'; x_axis: 'x1' | 'x2'; y_axis: 'y1' | 'y2'; visible?: boolean; line_style?: { stroke?: string; stroke_width?: number; line_dash?: string }; point_style?: { radius?: number; fill?: string; fill_opacity?: number; stroke?: string; stroke_opacity?: number } } => {
+// ScatterPlot maps coordinates into objects. TypedArray.map would coerce those
+// objects to NaN; keep binary transport data intact and adapt only at this boundary.
+const render_arrays = new WeakMap<Float64Array, number[]>()
+export const plot_render_values = (values: Float64Array): number[] => {
+  let result = render_arrays.get(values)
+  if (!result) { result = Array.from(values); render_arrays.set(values, result) }
+  return result
+}
+
+export const to_matterviz_data_series = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; x: number[]; y: number[]; markers: 'line' | 'points' | 'line+points'; x_axis: 'x1' | 'x2'; y_axis: 'y1' | 'y2'; visible?: boolean; line_style?: { stroke?: string; stroke_width?: number; line_dash?: string }; point_style?: { radius?: number; fill?: string; fill_opacity?: number; stroke?: string; stroke_opacity?: number } } => {
   const points = materialize_plot_layer(layer, dataset)
   const style = layer.style ?? {}
   const markers = layer.type === 'line' ? 'line' : layer.type === 'scatter' ? 'points' : 'line+points'
   return {
-    id: layer.id, label: layer.label, x: points.x, y: points.y, markers, x_axis: layer.xAxis ?? 'x1', y_axis: layer.yAxis ?? 'y1', visible: layer.visible,
+    id: layer.id, label: layer.label, x: plot_render_values(points.x), y: plot_render_values(points.y), markers, x_axis: layer.xAxis ?? 'x1', y_axis: layer.yAxis ?? 'y1', visible: layer.visible,
     line_style: { stroke: typeof style.color === 'string' ? style.color : undefined, stroke_width: typeof style.width === 'number' ? style.width : undefined, line_dash: typeof style.dash === 'string' ? style.dash : undefined },
     point_style: { radius: typeof style.markerSize === 'number' ? Math.max(1, style.markerSize / 10) : typeof style.radius === 'number' ? style.radius : undefined, fill: typeof style.color === 'string' ? style.color : undefined, fill_opacity: typeof style.opacity === 'number' ? style.opacity : undefined },
   }
@@ -515,7 +528,7 @@ export const to_matterviz_bar_series = (layer: PlotSceneLayer, dataset: PlotData
   return { id: layer.id, label: layer.label, x: points.x, y: points.y, baseline, x_axis: layer.xAxis ?? 'x1', y_axis: layer.yAxis ?? 'y1', color: typeof style.color === 'string' ? style.color : undefined, visible: layer.visible, bar_width: layer.width }
 }
 
-export const to_matterviz_fill_region = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; upper: { type: 'data'; values: Float64Array; x: Float64Array }; lower: { type: 'data'; values: Float64Array; x: Float64Array }; fill?: string; fill_opacity?: number; visible?: boolean } => {
+export const to_matterviz_fill_region = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; upper: { type: 'data'; values: number[]; x: number[] }; lower: { type: 'data'; values: number[]; x: number[] }; fill?: string; fill_opacity?: number; visible?: boolean } => {
   const points = materialize_plot_layer(layer, dataset)
   const lower_raw = dataset.lower
   const upper_raw = dataset.upper ?? points.y
@@ -525,7 +538,7 @@ export const to_matterviz_fill_region = (layer: PlotSceneLayer, dataset: PlotDat
   const style = layer.style ?? {}
   const lower_x = dataset.baseline ?? points.x
   if (lower_x.length !== lower.length) scene_fail(`dataset ${layer.datasetId} lower x/y lengths differ for ${layer.id}`)
-  return { id: layer.id, label: layer.label, upper: { type: 'data', values: upper, x: points.x }, lower: { type: 'data', values: lower, x: lower_x }, fill: typeof style.color === 'string' ? style.color : undefined, fill_opacity: typeof style.opacity === 'number' ? style.opacity : undefined, visible: layer.visible }
+  return { id: layer.id, label: layer.label, upper: { type: 'data', values: plot_render_values(upper), x: plot_render_values(points.x) }, lower: { type: 'data', values: plot_render_values(lower), x: plot_render_values(lower_x) }, fill: typeof style.color === 'string' ? style.color : undefined, fill_opacity: typeof style.opacity === 'number' ? style.opacity : undefined, visible: layer.visible }
 }
 
 export const to_matterviz_error_band = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; series: { series_id: string }; error: { upper: Float64Array; lower: Float64Array }; fill?: string; fill_opacity?: number } => {

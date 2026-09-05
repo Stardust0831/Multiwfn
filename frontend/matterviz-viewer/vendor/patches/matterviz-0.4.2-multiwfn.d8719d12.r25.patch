@@ -1,0 +1,1025 @@
+diff -ruN a/dist/structure/Structure.svelte b/dist/structure/Structure.svelte
+--- a/dist/structure/Structure.svelte	2026-07-15 08:00:00
++++ b/dist/structure/Structure.svelte	2026-09-04 19:11:17
+@@ -30,7 +30,9 @@
+     BondEditMode,
+     BondOrder,
+     Crystal,
++    MeasureGeometry,
+     MeasureMode,
++    SelectedBondContext,
+     StructureBond,
+     StructureView,
+   } from './'
+@@ -64,7 +66,7 @@
+   import CellSelect from './CellSelect.svelte'
+   import { BOND_ORDER_OPTIONS, merge_bond_edits, remap_bonds_after_deletion } from './bonding'
+   import type { StructureHandlerData } from './index'
+-  import { MAX_SELECTED_SITES } from './measure'
++  import { resolve_measure_selection_rule, type MeasureSelectionPolicy } from './measure'
+   import {
+     ensure_lattice_params,
+     normalize_fractional_coords,
+@@ -125,6 +127,10 @@
+     views = DEFAULT_STRUCTURE_VIEWS,
+     enable_measure_mode = $bindable(true),
+     measure_mode = $bindable<MeasureMode>(`distance`),
++    show_atom_tooltip = true,
++    measure_selection_policy = {},
++    measure_geometry = `combinatorial`,
++    on_selected_bond_context = undefined,
+     bond_edit_mode = $bindable<BondEditMode>(`add`),
+     bond_edit_order = $bindable<BondOrder>(1),
+     background_color = $bindable(),
+@@ -228,6 +234,10 @@
+     enable_info_pane?: boolean
+     enable_measure_mode?: boolean
+     measure_mode?: MeasureMode
++    show_atom_tooltip?: boolean
++    measure_selection_policy?: MeasureSelectionPolicy
++    measure_geometry?: MeasureGeometry
++    on_selected_bond_context?: (detail: SelectedBondContext) => void
+     bond_edit_mode?: BondEditMode
+     bond_edit_order?: BondOrder
+     info_pane_open?: boolean
+@@ -695,8 +705,15 @@
+   let is_measure_selection_mode = $derived(
+     measure_mode === `distance` || measure_mode === `angle`,
+   )
++  let active_measure_selection_rule = $derived(
++    measure_mode === `distance` || measure_mode === `angle`
++      ? resolve_measure_selection_rule(measure_selection_policy, measure_mode)
++      : undefined,
++  )
+   let show_measure_selection_limit = $derived(
+-    is_measure_selection_mode && measured_sites.length >= MAX_SELECTED_SITES,
++    is_measure_selection_mode &&
++      active_measure_selection_rule != null &&
++      measured_sites.length >= active_measure_selection_rule.max_sites,
+   )
+   let show_selection_reset = $derived(
+     has_bond_edits ||
+@@ -1053,6 +1070,10 @@
+     bond_edits_enabled,
+     bond_edit_order,
+     measure_mode,
++    show_atom_tooltip,
++    measure_selection_policy,
++    measure_geometry,
++    on_selected_bond_context,
+     atom_color_config,
+     sym_data,
+     active_sites: active_scene_sites,
+@@ -1656,7 +1677,7 @@
+           >
+             {#if show_measure_selection_limit}
+               <span class="selection-limit-text">
+-                {measured_sites.length}/{MAX_SELECTED_SITES}
++                {measured_sites.length}/{active_measure_selection_rule?.max_sites}
+               </span>
+             {:else}
+               <Icon
+@@ -1686,7 +1707,7 @@
+           {/if}
+           {#if measure_menu_open}
+             <div class="view-mode-dropdown">
+-              {#each [{ mode: `distance`, icon: `Ruler`, label: `Distance`, scale: 1.1 }, { mode: `angle`, icon: `Angle`, label: `Angle`, scale: 1.3 }, { mode: `edit-atoms`, icon: `Edit`, label: `Edit Atoms`, scale: 1.0 }, { mode: `edit-bonds`, icon: `Link`, label: `Edit Bonds`, scale: 1.0 }] as const as { mode, icon, label, scale } (mode)}
++              {#each [{ mode: `distance`, icon: `Ruler`, label: `Distance`, scale: 1.1 }, { mode: `angle`, icon: `Angle`, label: `Angle / Dihedral`, scale: 1.3 }, { mode: `edit-atoms`, icon: `Edit`, label: `Edit Atoms`, scale: 1.0 }, { mode: `edit-bonds`, icon: `Link`, label: `Edit Bonds`, scale: 1.0 }] as const as { mode, icon, label, scale } (mode)}
+                 <button
+                   class="view-mode-option"
+                   class:selected={measure_mode === mode}
+diff -ruN a/dist/structure/Structure.svelte.d.ts b/dist/structure/Structure.svelte.d.ts
+--- a/dist/structure/Structure.svelte.d.ts	2026-07-15 08:00:00
++++ b/dist/structure/Structure.svelte.d.ts	2026-09-04 19:11:39
+@@ -3,13 +3,14 @@
+ import Spinner from '../feedback/Spinner.svelte';
+ import type { IsosurfaceSettings, VolumetricData } from '../isosurface/types';
+ import { type FullscreenToggleProp } from '../layout';
+-import type { AnyStructure, BondEditMode, BondOrder, MeasureMode, StructureBond, StructureView } from './';
++import type { AnyStructure, BondEditMode, BondOrder, MeasureGeometry, MeasureMode, SelectedBondContext, StructureBond, StructureView } from './';
+ import type { CellType, SymmetrySettings } from '../symmetry';
+ import type { MoyoDataset } from '@spglib/moyo-wasm';
+ import type { ComponentProps, Snippet } from 'svelte';
+ import type { HTMLAttributes } from 'svelte/elements';
+ import { SvelteMap } from 'svelte/reactivity';
+ import type { AtomColorConfig } from './atom-properties';
++import type { MeasureSelectionPolicy } from './measure';
+ import type { StructureHandlerData } from './index';
+ import StructureControls from './StructureControls.svelte';
+ import StructureScene from './StructureScene.svelte';
+@@ -31,6 +32,10 @@
+     enable_info_pane?: boolean;
+     enable_measure_mode?: boolean;
+     measure_mode?: MeasureMode;
++    show_atom_tooltip?: boolean;
++    measure_selection_policy?: MeasureSelectionPolicy;
++    measure_geometry?: MeasureGeometry;
++    on_selected_bond_context?: (detail: SelectedBondContext) => void;
+     bond_edit_mode?: BondEditMode;
+     bond_edit_order?: BondOrder;
+     info_pane_open?: boolean;
+diff -ruN a/dist/structure/StructureScene.svelte b/dist/structure/StructureScene.svelte
+--- a/dist/structure/StructureScene.svelte	2026-07-16 05:19:06
++++ b/dist/structure/StructureScene.svelte	2026-09-04 21:12:38
+@@ -27,7 +27,9 @@
+     BondEditMode,
+     BondOrder,
+     BondPair,
++    MeasureGeometry,
+     MeasureMode,
++    SelectedBondContext,
+     Site,
+     StructureBond,
+   } from './'
+@@ -49,6 +51,7 @@
+   import { has_visible_symmetry_overlay } from '../symmetry/symmetry-elements'
+   import SymmetryElements from '../symmetry/SymmetryElements.svelte'
+   import * as measure from './measure'
++  import type { MeasureSelectionPolicy } from './measure'
+   import {
+     compute_slice_geometry,
+     merge_split_partial_sites,
+@@ -108,6 +111,9 @@
+     point?: Vector3
+   }
+
++  type AtomPointerEvent = PointerEvent & { nativeEvent?: PointerEvent }
++  type AtomClickEvent = MouseEvent & { nativeEvent?: MouseEvent }
++
+   const DEFAULT_CAMERA_UP: Vec3 = [0, 1, 0]
+
+   const normalize_camera_up = (value: unknown): Vec3 => {
+@@ -242,6 +248,10 @@
+     width = 0,
+     height = 0,
+     measure_mode = `distance`,
++    show_atom_tooltip = true,
++    measure_selection_policy = {},
++    measure_geometry = `combinatorial`,
++    on_selected_bond_context = undefined,
+     selected_sites = $bindable([]),
+     measured_sites = $bindable([]),
+     added_bonds = $bindable([]),
+@@ -378,6 +388,10 @@
+     height?: number
+     // measurement props
+     measure_mode?: MeasureMode
++    show_atom_tooltip?: boolean
++    measure_selection_policy?: MeasureSelectionPolicy
++    measure_geometry?: MeasureGeometry
++    on_selected_bond_context?: (detail: SelectedBondContext) => void
+     selected_sites?: number[]
+     measured_sites?: number[]
+     added_bonds?: StructureBond[]
+@@ -914,11 +928,37 @@
+
+   // Selection handlers shared by instanced atom meshes and per-site hit targets
+   // so the edit-bonds click semantics can't drift between the two paths
+-  const handle_atom_pointerdown = (site_idx: number, event: PointerEvent) => {
++  function suppress_selected_bond_pointerdown(
++    event: AtomPointerEvent,
++    site_idx?: number,
++  ): boolean {
++    const native_event = event.nativeEvent ?? event
++    if (
++      native_event.button !== 2 ||
++      !on_selected_bond_context ||
++      (measure_mode !== `distance` && measure_mode !== `angle`) ||
++      measured_sites.length !== 2 ||
++      (site_idx != null && !measured_sites.includes(site_idx)) ||
++      !selected_context_bond
++    )
++      return false
++    native_event.preventDefault?.()
++    native_event.stopPropagation?.()
++    native_event.stopImmediatePropagation?.()
++    event.preventDefault?.()
++    event.stopPropagation?.()
++    event.stopImmediatePropagation?.()
++    return true
++  }
++
++  const handle_atom_pointerdown = (site_idx: number, event: AtomPointerEvent) => {
++    if (suppress_selected_bond_pointerdown(event, site_idx)) return
++    if ((event.nativeEvent ?? event).button === 2) return
+     if (measure_mode !== `edit-bonds` || bond_edit_mode !== `add`) return
+     select_edit_bonds_site(site_idx, event)
+   }
+-  const handle_atom_click = (site_idx: number, event: MouseEvent) => {
++  const handle_atom_click = (site_idx: number, event: AtomClickEvent) => {
++    if ((event.nativeEvent ?? event).button !== 0) return
+     if (measure_mode === `edit-bonds`) {
+       if (bond_edit_mode !== `add`) return
+       if (skip_duplicate_edit_bonds_click(site_idx)) {
+@@ -929,6 +969,40 @@
+     toggle_selection(site_idx, event)
+   }
+
++  function emit_selected_bond_context(event: BondContextMenuEvent, site_idx?: number): void {
++    if (
++      !on_selected_bond_context ||
++      (measure_mode !== `distance` && measure_mode !== `angle`) ||
++      measured_sites.length !== 2 ||
++      (site_idx != null && !measured_sites.includes(site_idx)) ||
++      !selected_context_bond ||
++      !structure?.sites
++    )
++      return
++
++    const native_event = event.nativeEvent ?? event
++    native_event.preventDefault?.()
++    event.preventDefault?.()
++    event.stopPropagation?.()
++    const displayed_site_indices: [number, number] = [
++      measured_sites[0],
++      measured_sites[1],
++    ]
++    const source_site_indices: [number, number] = displayed_site_indices.map((idx) =>
++      get_orig_site_idx(structure.sites[idx], idx),
++    ) as [number, number]
++    on_selected_bond_context({
++      displayed_site_indices,
++      source_site_indices,
++      bond_order: selected_context_bond.bond_order,
++      cell_shift: selected_context_bond.cell_shift
++        ? ([...selected_context_bond.cell_shift] as Vec3)
++        : undefined,
++      client_x: Number.isFinite(native_event.clientX) ? native_event.clientX : 0,
++      client_y: Number.isFinite(native_event.clientY) ? native_event.clientY : 0,
++    })
++  }
++
+   // Pointer handlers for an instanced atom mesh: intersection events carry the
+   // hit `instanceId`, which indexes into the mesh's `atoms` array. One handler
+   // set per mesh instead of one per atom. Inactive grid panes render without
+@@ -949,8 +1023,11 @@
+       onpointerenter: wrap(set_atom_hover),
+       onpointermove: wrap(set_atom_hover),
+       onpointerleave: wrap(schedule_atom_hover_clear),
+-      onpointerdown: wrap<PointerEvent & InstanceEvent>(handle_atom_pointerdown),
+-      onclick: wrap<MouseEvent & InstanceEvent>(handle_atom_click),
++      onpointerdown: wrap<AtomPointerEvent & InstanceEvent>(handle_atom_pointerdown),
++      onclick: wrap<AtomClickEvent & InstanceEvent>(handle_atom_click),
++      oncontextmenu: wrap<BondContextMenuEvent & InstanceEvent>(
++        (site_idx, event) => emit_selected_bond_context(event, site_idx),
++      ),
+     }
+   }
+
+@@ -961,10 +1038,19 @@
+       ? {}
+       : {
+           ...atom_hover_props(site_idx),
+-          onpointerdown: (event: PointerEvent) => handle_atom_pointerdown(site_idx, event),
+-          onclick: (event: MouseEvent) => handle_atom_click(site_idx, event),
++          onpointerdown: (event: AtomPointerEvent) =>
++            handle_atom_pointerdown(site_idx, event),
++          onclick: (event: AtomClickEvent) => handle_atom_click(site_idx, event),
++          oncontextmenu: (event: BondContextMenuEvent) =>
++            emit_selected_bond_context(event, site_idx),
+         }
+
++  let active_measure_selection_rule = $derived(
++    measure_mode === `distance` || measure_mode === `angle`
++      ? measure.resolve_measure_selection_rule(measure_selection_policy, measure_mode)
++      : measure.DEFAULT_MEASURE_SELECTION_RULE,
++  )
++
+   function toggle_selection(site_index: number, evt?: Event) {
+     evt?.stopPropagation?.()
+     const event_with_native = evt as (Event & { nativeEvent?: unknown }) | undefined
+@@ -1029,22 +1115,19 @@
+       return
+     }
+
+-    if (
+-      !measured_sites.includes(site_index) &&
+-      measured_sites.length >= measure.MAX_SELECTED_SITES
+-    ) {
++    const next_selection = measure.next_measured_sites(
++      measured_sites,
++      site_index,
++      active_measure_selection_rule,
++    )
++    if (next_selection.limit_reached) {
+       console.warn(
+-        `Selection size limit reached (${measure.MAX_SELECTED_SITES}). Deselect some sites first.`,
++        `Selection size limit reached (${active_measure_selection_rule.max_sites}). Deselect some sites first.`,
+       )
+       return
+     }
+-
+-    measured_sites = measured_sites.includes(site_index)
+-      ? measured_sites.filter((idx) => idx !== site_index)
+-      : [...measured_sites, site_index]
+-    selected_sites = selected_sites.includes(site_index)
+-      ? selected_sites.filter((idx) => idx !== site_index)
+-      : [...selected_sites, site_index]
++    measured_sites = next_selection.sites
++    selected_sites = next_selection.sites
+   }
+
+   $effect(() => {
+@@ -1428,6 +1511,46 @@
+     return filtered_bond_pairs.filter((bond) => added_keys.has(bond_key_for(bond)))
+   })
+
++  // Resolve at most one context-click target for the current ordered pair. Prefer
++  // exact displayed indices, then fall back to original indices for PBC image atoms.
++  let selected_context_bond: BondPair | undefined = $derived.by(() => {
++    if (
++      !interactive ||
++      !on_selected_bond_context ||
++      (measure_mode !== `distance` && measure_mode !== `angle`) ||
++      measured_sites.length !== 2 ||
++      !structure?.sites
++    )
++      return
++    const [selected_a, selected_b] = measured_sites
++    const exact = bonds_to_render.find(
++      (bond) =>
++        (bond.site_idx_1 === selected_a && bond.site_idx_2 === selected_b) ||
++        (bond.site_idx_1 === selected_b && bond.site_idx_2 === selected_a),
++    )
++    if (exact) return exact
++
++    const selected_site_a = structure.sites[selected_a]
++    const selected_site_b = structure.sites[selected_b]
++    if (!selected_site_a || !selected_site_b) return
++    const source_a = get_orig_site_idx(selected_site_a, selected_a)
++    const source_b = get_orig_site_idx(selected_site_b, selected_b)
++    return bonds_to_render.find((bond) => {
++      const bond_a = get_orig_site_idx(structure.sites[bond.site_idx_1], bond.site_idx_1)
++      const bond_b = get_orig_site_idx(structure.sites[bond.site_idx_2], bond.site_idx_2)
++      const source_matches =
++        (bond_a === source_a && bond_b === source_b) ||
++        (bond_a === source_b && bond_b === source_a)
++      if (!source_matches) return false
++      return (
++        (measure.positions_match(bond.pos_1, selected_site_a.xyz) &&
++          measure.positions_match(bond.pos_2, selected_site_b.xyz)) ||
++        (measure.positions_match(bond.pos_1, selected_site_b.xyz) &&
++          measure.positions_match(bond.pos_2, selected_site_a.xyz))
++      )
++    })
++  })
++
+   let editable_bond_pairs = $derived(
+     interactive && bond_edits_enabled ? bonds_to_render.filter(can_edit_bond) : [],
+   )
+@@ -1979,6 +2102,135 @@
+   {/if}
+ {/snippet}
+
++{#snippet distance_measurement(idx_i: number, idx_j: number)}
++  {@const site_i = structure?.sites?.[idx_i]}
++  {@const site_j = structure?.sites?.[idx_j]}
++  {#if site_i && site_j}
++    {@const pos_i = site_i.xyz}
++    {@const pos_j = site_j.xyz}
++    <Cylinder from={pos_i} to={pos_j} thickness={0.12} color={measure_line_color} />
++    {@const label_pos = midpoint(pos_i, pos_j)}
++    {@const direct = math.euclidean_dist(pos_i, pos_j)}
++    {@const pbc_distance = lattice
++      ? measure.distance_pbc(pos_i, pos_j, lattice.matrix, undefined, lattice.pbc)
++      : direct}
++    {@const differ = lattice ? Math.abs(pbc_distance - direct) > 1e-6 : false}
++    <extras.HTML center position={label_pos}>
++      <span class="measure-label">
++        {#if differ}
++          PBC: {format_num(pbc_distance, float_fmt)} Å<br /><small>
++            Direct: {format_num(direct, float_fmt)} Å</small
++          >
++        {:else}
++          {format_num(pbc_distance, float_fmt)} Å
++        {/if}
++      </span>
++    </extras.HTML>
++  {/if}
++{/snippet}
++
++{#snippet ordered_angle_measurement(idx_a: number, idx_b: number, idx_c: number)}
++  {@const site_a = structure?.sites?.[idx_a]}
++  {@const site_b = structure?.sites?.[idx_b]}
++  {@const site_c = structure?.sites?.[idx_c]}
++  {#if site_a && site_b && site_c}
++    {@const angle_deg = measure.bond_angle(
++      site_a.xyz,
++      site_b.xyz,
++      site_c.xyz,
++      lattice?.matrix,
++      undefined,
++      lattice?.pbc,
++      `degrees`,
++    )}
++    {#if angle_deg != null}
++      {@const v1 = measure.displacement_pbc(
++        site_b.xyz,
++        site_a.xyz,
++        lattice?.matrix,
++        undefined,
++        lattice?.pbc,
++      )}
++      {@const v2 = measure.displacement_pbc(
++        site_b.xyz,
++        site_c.xyz,
++        lattice?.matrix,
++        undefined,
++        lattice?.pbc,
++      )}
++      {@const n1 = Math.hypot(...v1)}
++      {@const n2 = Math.hypot(...v2)}
++      {@const bisector = math.add(math.scale(v1, 1 / n1), math.scale(v2, 1 / n2))}
++      {@const bis_norm = Math.hypot(...bisector) || 1}
++      {@const offset_dir = math.scale(bisector, 1 / bis_norm)}
++      {@const label_pos = math.add(site_b.xyz, math.scale(offset_dir, 0.6))}
++      <Cylinder
++        from={site_b.xyz}
++        to={site_a.xyz}
++        thickness={0.05}
++        color={measure_line_color}
++      />
++      <Cylinder
++        from={site_b.xyz}
++        to={site_c.xyz}
++        thickness={0.05}
++        color={measure_line_color}
++      />
++      <extras.HTML center position={label_pos}>
++        <span class="measure-label">{format_num(angle_deg, float_fmt)}°</span>
++      </extras.HTML>
++    {/if}
++  {/if}
++{/snippet}
++
++{#snippet ordered_dihedral_measurement(
++  idx_a: number,
++  idx_b: number,
++  idx_c: number,
++  idx_d: number,
++)}
++  {@const site_a = structure?.sites?.[idx_a]}
++  {@const site_b = structure?.sites?.[idx_b]}
++  {@const site_c = structure?.sites?.[idx_c]}
++  {@const site_d = structure?.sites?.[idx_d]}
++  {#if site_a && site_b && site_c && site_d}
++    {@const dihedral_deg = measure.dihedral_angle(
++      site_a.xyz,
++      site_b.xyz,
++      site_c.xyz,
++      site_d.xyz,
++      lattice?.matrix,
++      undefined,
++      lattice?.pbc,
++      `degrees`,
++    )}
++    {#if dihedral_deg != null}
++      <Cylinder
++        from={site_a.xyz}
++        to={site_b.xyz}
++        thickness={0.05}
++        color={measure_line_color}
++      />
++      <Cylinder
++        from={site_b.xyz}
++        to={site_c.xyz}
++        thickness={0.05}
++        color={measure_line_color}
++      />
++      <Cylinder
++        from={site_c.xyz}
++        to={site_d.xyz}
++        thickness={0.05}
++        color={measure_line_color}
++      />
++      {@const label_pos = math.add(midpoint(site_b.xyz, site_c.xyz), [0, 0.35, 0])}
++      <extras.HTML center position={label_pos}>
++        <span class="measure-label">Dihedral: {format_num(dihedral_deg, float_fmt)}°</span>
++      </extras.HTML>
++    {/if}
++  {/if}
++{/snippet}
++
+ {#snippet site_label_snippet(site_idx: number)}
+   {@const site = structure!.sites[site_idx]}
+   {#if site}
+@@ -1993,6 +2245,11 @@
+         style:padding="{site_label_padding}px"
+         style:color={site_label_color}
+         onpointerdown={(event) => {
++          if (event.button === 2) {
++            suppress_selected_bond_pointerdown(event, site_idx)
++            return
++          }
++          if (event.button !== 0) return
+           event.preventDefault()
+           event.stopImmediatePropagation()
+           toggle_selection(site_idx, event)
+@@ -2001,6 +2258,7 @@
+           event.preventDefault()
+           event.stopImmediatePropagation()
+         }}
++        oncontextmenu={(event) => emit_selected_bond_context(event, site_idx)}
+         onkeydown={(event) => {
+           if (event.key !== `Enter` && event.key !== ` `) return
+           event.preventDefault()
+@@ -2235,7 +2493,11 @@
+             matrixAutoUpdate={false}
+             oncreate={(ref) => apply_bond_transform(ref, bond)}
+             onpointerdown={(event: BondPointerEvent) => {
+-              if (event.nativeEvent?.button === 2) return
++              if ((event.nativeEvent ?? event).button === 2) {
++                event.nativeEvent?.preventDefault()
++                event.stopPropagation()
++                return
++              }
+               event.stopPropagation()
+               if (is_delete_mode) {
+                 remove_bond(bond.site_idx_1, bond.site_idx_2, bond.cell_shift)
+@@ -2278,6 +2540,22 @@
+         {/each}
+       {/if}
+
++      <!-- A single transparent hit target for the selected visible bond. Keeping
++        this separate from edit-bonds preserves that mode's existing context menu. -->
++      {#if selected_context_bond}
++        <T.Mesh
++          matrixAutoUpdate={false}
++          oncreate={(ref) => apply_bond_transform(ref, selected_context_bond!)}
++          onpointerdown={(event: BondPointerEvent) =>
++            suppress_selected_bond_pointerdown(event)}
++          oncontextmenu={(event: BondContextMenuEvent) =>
++            emit_selected_bond_context(event)}
++        >
++          <T.CylinderGeometry args={[bond_thickness * 1.75, bond_thickness * 1.75, 1, 6]} />
++          <T.MeshBasicMaterial transparent opacity={0} depthWrite={false} />
++        </T.Mesh>
++      {/if}
++
+       {#if interactive && editable_atom_hit_targets.length > 0}
+         {#each editable_atom_hit_targets as atom_hit (atom_hit.site_idx)}
+           <T.Mesh
+@@ -2397,7 +2675,7 @@
+       {/if}
+
+       <!-- hovered site tooltip -->
+-      {#if hovered_site && !camera_is_moving && (atom_tooltip_active || active_sites.includes(hovered_idx ?? -1))}
++      {#if show_atom_tooltip && hovered_site && !camera_is_moving && (atom_tooltip_active || active_sites.includes(hovered_idx ?? -1))}
+         {@const abc = hovered_site.abc.map((val) => format_num(val, float_fmt)).join(`, `)}
+         {@const xyz = hovered_site.xyz.map((val) => format_num(val, float_fmt)).join(`, `)}
+         {@const bond_neighbors = (() => {
+@@ -2555,83 +2833,84 @@
+       <!-- Measurement overlays for measured sites -->
+       {#if structure?.sites && (measured_sites?.length ?? 0) > 0}
+         {#if measure_mode === `distance`}
+-          {#each measured_sites as idx_i, loop_idx (idx_i)}
+-            {#each measured_sites.slice(loop_idx + 1) as idx_j (idx_i + `-` + idx_j)}
+-              {@const site_i = structure.sites[idx_i]}
+-              {@const site_j = structure.sites[idx_j]}
+-              {@const pos_i = site_i.xyz}
+-              {@const pos_j = site_j.xyz}
+-              <Cylinder from={pos_i} to={pos_j} thickness={0.12} color={measure_line_color} />
+-              {@const midpoint = [
+-                (pos_i[0] + pos_j[0]) / 2,
+-                (pos_i[1] + pos_j[1]) / 2,
+-                (pos_i[2] + pos_j[2]) / 2,
+-              ] as Vec3}
+-              {@const direct = math.euclidean_dist(pos_i, pos_j)}
+-              {@const pbc = lattice
+-                ? measure.distance_pbc(pos_i, pos_j, lattice.matrix, undefined, lattice.pbc)
+-                : direct}
+-              {@const differ = lattice ? Math.abs(pbc - direct) > 1e-6 : false}
+-              <extras.HTML center position={midpoint}>
+-                <span class="measure-label">
+-                  {#if differ}
+-                    PBC: {format_num(pbc, float_fmt)} Å<br /><small>
+-                      Direct: {format_num(direct, float_fmt)} Å</small
+-                    >
+-                  {:else}
+-                    {format_num(pbc, float_fmt)} Å
+-                  {/if}
+-                </span>
+-              </extras.HTML>
++          {#if measure_geometry === `ordered`}
++            {#if measured_sites.length >= 2}
++              {@render distance_measurement(measured_sites[0], measured_sites[1])}
++            {/if}
++          {:else}
++            {#each measured_sites as idx_i, loop_idx (idx_i)}
++              {#each measured_sites.slice(loop_idx + 1) as idx_j (idx_i + `-` + idx_j)}
++                {@render distance_measurement(idx_i, idx_j)}
++              {/each}
+             {/each}
+-          {/each}
++          {/if}
+         {:else if measure_mode === `angle` && measured_sites.length >= 3}
+-          {#each measured_sites as idx_center (idx_center)}
+-            {@const center = structure.sites[idx_center]}
+-            {#each measured_sites.filter((idx) => idx !== idx_center) as idx_a, loop_idx (idx_center + `-` + idx_a)}
+-              {#each measured_sites
+-                .filter((idx) => idx !== idx_center)
+-                .slice(loop_idx + 1) as idx_b (idx_center + `-` + idx_a + `-` + idx_b)}
+-                {@const site_a = structure.sites[idx_a]}
+-                {@const site_b = structure.sites[idx_b]}
+-                {@const disp = (to: Vec3) =>
+-                  measure.displacement_pbc(
+-                    center.xyz,
+-                    to,
+-                    lattice?.matrix,
+-                    undefined,
+-                    lattice?.pbc,
+-                  )}
+-                {@const v1 = disp(site_a.xyz)}
+-                {@const v2 = disp(site_b.xyz)}
+-                {@const n1 = Math.hypot(v1[0], v1[1], v1[2])}
+-                {@const n2 = Math.hypot(v2[0], v2[1], v2[2])}
+-                {@const angle_deg = measure.angle_between_vectors(v1, v2, `degrees`)}
+-                {#if n1 > math.EPS && n2 > math.EPS}
+-                  <!-- draw rays from center to the two sites -->
+-                  <Cylinder
+-                    from={center.xyz}
+-                    to={site_a.xyz}
+-                    thickness={0.05}
+-                    color={measure_line_color}
+-                  />
+-                  <Cylinder
+-                    from={center.xyz}
+-                    to={site_b.xyz}
+-                    thickness={0.05}
+-                    color={measure_line_color}
+-                  />
+-                  {@const bisector = math.add(math.scale(v1, 1 / n1), math.scale(v2, 1 / n2))}
+-                  {@const bis_norm = Math.hypot(...bisector) || 1}
+-                  {@const offset_dir = math.scale(bisector, 1 / bis_norm)}
+-                  {@const label_pos = math.add(center.xyz, math.scale(offset_dir, 0.6))}
+-                  <extras.HTML center position={label_pos}>
+-                    <span class="measure-label">{format_num(angle_deg, float_fmt)}°</span>
+-                  </extras.HTML>
+-                {/if}
++          {#if measure_geometry === `ordered`}
++            {#if measured_sites.length >= 4}
++              {@render ordered_dihedral_measurement(
++                measured_sites[0],
++                measured_sites[1],
++                measured_sites[2],
++                measured_sites[3],
++              )}
++            {:else}
++              {@render ordered_angle_measurement(
++                measured_sites[0],
++                measured_sites[1],
++                measured_sites[2],
++              )}
++            {/if}
++          {:else}
++            {#each measured_sites as idx_center (idx_center)}
++              {@const center = structure.sites[idx_center]}
++              {#each measured_sites.filter((idx) => idx !== idx_center) as idx_a, loop_idx (idx_center + `-` + idx_a)}
++                {#each measured_sites
++                  .filter((idx) => idx !== idx_center)
++                  .slice(loop_idx + 1) as idx_b (idx_center + `-` + idx_a + `-` + idx_b)}
++                  {@const site_a = structure.sites[idx_a]}
++                  {@const site_b = structure.sites[idx_b]}
++                  {@const disp = (to: Vec3) =>
++                    measure.displacement_pbc(
++                      center.xyz,
++                      to,
++                      lattice?.matrix,
++                      undefined,
++                      lattice?.pbc,
++                    )}
++                  {@const v1 = disp(site_a.xyz)}
++                  {@const v2 = disp(site_b.xyz)}
++                  {@const n1 = Math.hypot(v1[0], v1[1], v1[2])}
++                  {@const n2 = Math.hypot(v2[0], v2[1], v2[2])}
++                  {@const angle_deg = measure.angle_between_vectors(v1, v2, `degrees`)}
++                  {#if n1 > math.EPS && n2 > math.EPS}
++                    <!-- draw rays from center to the two sites -->
++                    <Cylinder
++                      from={center.xyz}
++                      to={site_a.xyz}
++                      thickness={0.05}
++                      color={measure_line_color}
++                    />
++                    <Cylinder
++                      from={center.xyz}
++                      to={site_b.xyz}
++                      thickness={0.05}
++                      color={measure_line_color}
++                    />
++                    {@const bisector = math.add(
++                      math.scale(v1, 1 / n1),
++                      math.scale(v2, 1 / n2),
++                    )}
++                    {@const bis_norm = Math.hypot(...bisector) || 1}
++                    {@const offset_dir = math.scale(bisector, 1 / bis_norm)}
++                    {@const label_pos = math.add(center.xyz, math.scale(offset_dir, 0.6))}
++                    <extras.HTML center position={label_pos}>
++                      <span class="measure-label">{format_num(angle_deg, float_fmt)}°</span>
++                    </extras.HTML>
++                  {/if}
++                {/each}
+               {/each}
+             {/each}
+-          {/each}
++          {/if}
+         {/if}
+       {/if}
+     </T.Group>
+diff -ruN a/dist/structure/StructureScene.svelte.d.ts b/dist/structure/StructureScene.svelte.d.ts
+--- a/dist/structure/StructureScene.svelte.d.ts	2026-07-16 05:19:06
++++ b/dist/structure/StructureScene.svelte.d.ts	2026-09-04 19:11:39
+@@ -5,9 +5,10 @@
+ import type { SceneControlProps } from '../scene';
+ import type { CameraControlMode } from '../scene/camera-controls.svelte';
+ import type { LightingMode, MaterialStyle, ShowBonds, VectorColorMode, VectorLayerConfig } from '../settings';
+-import type { AnyStructure, BondEditMode, BondOrder, MeasureMode, Site, StructureBond } from './';
++import type { AnyStructure, BondEditMode, BondOrder, MeasureGeometry, MeasureMode, SelectedBondContext, Site, StructureBond } from './';
+ import { Lattice } from './';
+ import type { AtomColorConfig } from './atom-properties';
++import type { MeasureSelectionPolicy } from './measure';
+ import type { SymmetryElement } from '../symmetry';
+ import SymmetryElements from '../symmetry/SymmetryElements.svelte';
+ import type { MoyoDataset } from '@spglib/moyo-wasm';
+@@ -98,6 +99,10 @@
+     width?: number;
+     height?: number;
+     measure_mode?: MeasureMode;
++    show_atom_tooltip?: boolean;
++    measure_selection_policy?: MeasureSelectionPolicy;
++    measure_geometry?: MeasureGeometry;
++    on_selected_bond_context?: (detail: SelectedBondContext) => void;
+     selected_sites?: number[];
+     measured_sites?: number[];
+     added_bonds?: StructureBond[];
+diff -ruN a/dist/structure/StructureViewport.svelte b/dist/structure/StructureViewport.svelte
+--- a/dist/structure/StructureViewport.svelte	2026-07-16 07:50:16
++++ b/dist/structure/StructureViewport.svelte	2026-09-04 19:10:51
+@@ -15,7 +15,9 @@
+     AnyStructure,
+     BondEditMode,
+     BondOrder,
++    MeasureGeometry,
+     MeasureMode,
++    SelectedBondContext,
+     StructureBond,
+     StructureHandlerData,
+   } from './'
+@@ -27,6 +29,7 @@
+   import { WebGLRenderer, type Camera, type OrthographicCamera, type Scene } from 'three'
+   import { ArcballControls } from 'three/examples/jsm/controls/ArcballControls.js'
+   import type { AtomColorConfig } from './atom-properties'
++  import type { MeasureSelectionPolicy } from './measure'
+   import { reset_camera_to_snapshot, save_arcball_reset_snapshot } from './camera-state'
+   import StructureScene from './StructureScene.svelte'
+
+@@ -82,6 +85,10 @@
+     bond_edits_enabled = true,
+     bond_edit_order = 1,
+     measure_mode = `distance`,
++    show_atom_tooltip = true,
++    measure_selection_policy = {},
++    measure_geometry = `combinatorial`,
++    on_selected_bond_context = undefined,
+     atom_color_config = undefined,
+     sym_data = null,
+     active_sites = [],
+@@ -142,6 +149,10 @@
+     bond_edits_enabled?: boolean
+     bond_edit_order?: BondOrder
+     measure_mode?: MeasureMode
++    show_atom_tooltip?: boolean
++    measure_selection_policy?: MeasureSelectionPolicy
++    measure_geometry?: MeasureGeometry
++    on_selected_bond_context?: (detail: SelectedBondContext) => void
+     atom_color_config?: Partial<AtomColorConfig>
+     sym_data?: MoyoDataset | null
+     active_sites?: number[]
+@@ -498,6 +509,10 @@
+       bind:bond_edit_mode
+       {bond_edit_order}
+       {measure_mode}
++      {show_atom_tooltip}
++      {measure_selection_policy}
++      {measure_geometry}
++      {on_selected_bond_context}
+       {width}
+       {height}
+       {atom_color_config}
+diff -ruN a/dist/structure/StructureViewport.svelte.d.ts b/dist/structure/StructureViewport.svelte.d.ts
+--- a/dist/structure/StructureViewport.svelte.d.ts	2026-07-16 05:19:06
++++ b/dist/structure/StructureViewport.svelte.d.ts	2026-09-04 19:11:39
+@@ -2,12 +2,13 @@
+ import type { IsosurfaceSettings, VolumetricData } from '../isosurface/types';
+ import type { Vec3 } from '../math';
+ import type { CameraProjection } from '../settings';
+-import type { AnyStructure, BondEditMode, BondOrder, MeasureMode, StructureBond, StructureHandlerData } from './';
++import type { AnyStructure, BondEditMode, BondOrder, MeasureGeometry, MeasureMode, SelectedBondContext, StructureBond, StructureHandlerData } from './';
+ import type { MoyoDataset } from '@spglib/moyo-wasm';
+ import type { ComponentProps } from 'svelte';
+ import { SvelteMap } from 'svelte/reactivity';
+ import { type Camera, type Scene } from 'three';
+ import type { AtomColorConfig } from './atom-properties';
++import type { MeasureSelectionPolicy } from './measure';
+ import StructureScene from './StructureScene.svelte';
+ type $$ComponentProps = {
+     in_grid?: boolean;
+@@ -32,6 +33,10 @@
+     bond_edits_enabled?: boolean;
+     bond_edit_order?: BondOrder;
+     measure_mode?: MeasureMode;
++    show_atom_tooltip?: boolean;
++    measure_selection_policy?: MeasureSelectionPolicy;
++    measure_geometry?: MeasureGeometry;
++    on_selected_bond_context?: (detail: SelectedBondContext) => void;
+     atom_color_config?: Partial<AtomColorConfig>;
+     sym_data?: MoyoDataset | null;
+     active_sites?: number[];
+diff -ruN a/dist/structure/index.d.ts b/dist/structure/index.d.ts
+--- a/dist/structure/index.d.ts	2026-07-15 08:00:00
++++ b/dist/structure/index.d.ts	2026-09-04 19:05:51
+@@ -15,6 +15,7 @@
+ export { default as CanvasTooltip } from './CanvasTooltip.svelte';
+ export { default as Cylinder } from './Cylinder.svelte';
+ export { default as Lattice } from './Lattice.svelte';
++export * from './measure';
+ export * from './pbc';
+ export * from './polyhedra';
+ export * from './site';
+@@ -33,6 +34,7 @@
+ export { default as StructureViewport } from './StructureViewport.svelte';
+ export * from './supercell';
+ export type MeasureMode = `distance` | `angle` | `edit-bonds` | `edit-atoms`;
++export type MeasureGeometry = `combinatorial` | `ordered`;
+ export type BondEditMode = `add` | `delete`;
+ export type StructureView = {
+     label?: string;
+@@ -90,6 +92,14 @@
+     bond_order?: BondOrder;
+     cell_shift?: Vec3;
+     transform_matrix: Float32Array;
++};
++export type SelectedBondContext = {
++    displayed_site_indices: [number, number];
++    source_site_indices: [number, number];
++    bond_order?: BondOrder;
++    cell_shift?: Vec3;
++    client_x: number;
++    client_y: number;
+ };
+ export type { PerceivedBond, PerceptionOptions } from './bond-order-perception';
+ export { compose_perceived_bonds, perceive_bond_orders, } from './bond-order-perception';
+diff -ruN a/dist/structure/index.js b/dist/structure/index.js
+--- a/dist/structure/index.js	2026-07-15 08:00:00
++++ b/dist/structure/index.js	2026-09-04 19:05:51
+@@ -9,6 +9,7 @@
+ export { default as CanvasTooltip } from './CanvasTooltip.svelte';
+ export { default as Cylinder } from './Cylinder.svelte';
+ export { default as Lattice } from './Lattice.svelte';
++export * from './measure';
+ export * from './pbc';
+ export * from './polyhedra';
+ export * from './site';
+diff -ruN a/dist/structure/measure.d.ts b/dist/structure/measure.d.ts
+--- a/dist/structure/measure.d.ts	2026-07-15 08:00:00
++++ b/dist/structure/measure.d.ts	2026-09-04 20:23:31
+@@ -2,6 +2,23 @@
+ import type { Pbc } from './pbc';
+ export type AngleMode = `degrees` | `radians`;
+ export declare const MAX_SELECTED_SITES = 8;
++export type MeasureSelectionMode = `distance` | `angle`;
++export type MeasureSelectionOverflow = `reject` | `restart`;
++export type MeasureSelectionRule = {
++    max_sites: number;
++    overflow: MeasureSelectionOverflow;
++};
++export type MeasureSelectionPolicy = Partial<Record<MeasureSelectionMode, MeasureSelectionRule>>;
++export type MeasureSelectionResult = {
++    sites: number[];
++    limit_reached: boolean;
++};
++export declare const DEFAULT_MEASURE_SELECTION_RULE: Readonly<MeasureSelectionRule>;
++export declare function resolve_measure_selection_rule(policy: MeasureSelectionPolicy | undefined, mode: MeasureSelectionMode): MeasureSelectionRule;
++export declare function next_measured_sites(current_sites: readonly number[], site_index: number, rule?: MeasureSelectionRule): MeasureSelectionResult;
++export declare function positions_match(first: Vec3 | undefined, second: Vec3 | undefined, tolerance?: number): boolean;
+ export declare function displacement_pbc(from: Vec3, to: Vec3, lattice_matrix: Matrix3x3 | null | undefined, converters?: LatticeConverters, pbc?: Pbc): Vec3;
+ export { pbc_dist as distance_pbc } from '../math';
+ export declare function angle_between_vectors(v1: Vec3, v2: Vec3, mode?: AngleMode): number;
++export declare function bond_angle(point_a: Vec3, point_b: Vec3, point_c: Vec3, lattice_matrix?: Matrix3x3 | null, converters?: LatticeConverters, pbc?: Pbc, mode?: AngleMode): number | null;
++export declare function dihedral_angle(point_a: Vec3, point_b: Vec3, point_c: Vec3, point_d: Vec3, lattice_matrix?: Matrix3x3 | null, converters?: LatticeConverters, pbc?: Pbc, mode?: AngleMode): number | null;
+diff -ruN a/dist/structure/measure.js b/dist/structure/measure.js
+--- a/dist/structure/measure.js	2026-07-15 08:00:00
++++ b/dist/structure/measure.js	2026-09-04 20:23:31
+@@ -1,6 +1,56 @@
+ // functions for measuring distances and angles between structure sites
+-import { dot, min_image_displacement, subtract, to_degrees } from '../math';
++import { dot, EPS, min_image_displacement, subtract, to_degrees } from '../math';
+ export const MAX_SELECTED_SITES = 8;
++export const DEFAULT_MEASURE_SELECTION_RULE = Object.freeze({
++    max_sites: MAX_SELECTED_SITES,
++    overflow: `reject`,
++});
++// Normalize user-provided selection limits while keeping the historical 8/reject
++// behavior for omitted or invalid values.
++export function resolve_measure_selection_rule(policy, mode) {
++    const configured = policy?.[mode];
++    const max_sites = Number.isFinite(configured?.max_sites) && configured.max_sites > 0
++        ? Math.max(1, Math.floor(configured.max_sites))
++        : MAX_SELECTED_SITES;
++    return {
++        max_sites,
++        overflow: configured?.overflow === `restart` ? `restart` : `reject`,
++    };
++}
++// Pure selection transition shared by the scene and consumers' unit tests.
++// Selecting an existing site always deselects it. At capacity, `restart` starts
++// a new ordered selection with the clicked site; `reject` leaves state unchanged.
++export function next_measured_sites(current_sites, site_index, rule = DEFAULT_MEASURE_SELECTION_RULE) {
++    if (current_sites.includes(site_index)) {
++        return {
++            sites: current_sites.filter((idx) => idx !== site_index),
++            limit_reached: false,
++        };
++    }
++    const max_sites = Number.isFinite(rule?.max_sites) && rule.max_sites > 0
++        ? Math.max(1, Math.floor(rule.max_sites))
++        : MAX_SELECTED_SITES;
++    if (current_sites.length >= max_sites) {
++        if (rule?.overflow === `restart`) {
++            return { sites: [site_index], limit_reached: false };
++        }
++        return { sites: [...current_sites], limit_reached: true };
++    }
++    return { sites: [...current_sites, site_index], limit_reached: false };
++}
++// Compare Cartesian positions with a finite absolute tolerance. Kept pure so
++// selected-bond PBC image matching can be regression-tested without WebGL.
++export function positions_match(first, second, tolerance = 1e-6) {
++    return (Array.isArray(first) &&
++        Array.isArray(second) &&
++        first.length === 3 &&
++        second.length === 3 &&
++        Number.isFinite(tolerance) &&
++        tolerance >= 0 &&
++        first.every((value, idx) => Number.isFinite(value) &&
++            Number.isFinite(second[idx]) &&
++            Math.abs(value - second[idx]) <= tolerance));
++}
+ // Calculate minimum image displacement between two points under PBC
+ // If lattice_matrix is null/undefined, returns Euclidean displacement.
+ // pbc flags disable wrapping along non-periodic axes (e.g. slab vacuum directions).
+@@ -21,4 +71,43 @@
+     const clamped = Math.max(-1, Math.min(1, cos_angle));
+     const ang = Math.acos(clamped);
+     return mode === `degrees` ? to_degrees(ang) : ang;
++}
++// Ordered A-B-C bond angle with optional minimum-image displacements.
++// Unlike the legacy vector helper, an undefined angle is reported as null.
++export function bond_angle(point_a, point_b, point_c, lattice_matrix, converters, pbc, mode = `degrees`) {
++    const ba = displacement_pbc(point_b, point_a, lattice_matrix, converters, pbc);
++    const bc = displacement_pbc(point_b, point_c, lattice_matrix, converters, pbc);
++    if (Math.hypot(...ba) <= EPS || Math.hypot(...bc) <= EPS) {
++        return null;
++    }
++    const angle = angle_between_vectors(ba, bc, mode);
++    return Number.isFinite(angle) ? angle : null;
++}
++const cross_3d = (left, right) => [
++    left[1] * right[2] - left[2] * right[1],
++    left[2] * right[0] - left[0] * right[2],
++    left[0] * right[1] - left[1] * right[0],
++];
++// Signed A-B-C-D dihedral in [-180, 180] (or [-pi, pi]). Each segment uses
++// minimum-image displacement independently so the result remains correct when
++// an ordered chain crosses a periodic cell boundary. Degenerate chains return null.
++export function dihedral_angle(point_a, point_b, point_c, point_d, lattice_matrix, converters, pbc, mode = `degrees`) {
++    const ab = displacement_pbc(point_a, point_b, lattice_matrix, converters, pbc);
++    const bc = displacement_pbc(point_b, point_c, lattice_matrix, converters, pbc);
++    const cd = displacement_pbc(point_c, point_d, lattice_matrix, converters, pbc);
++    const bc_norm = Math.hypot(...bc);
++    const normal_abc = cross_3d(ab, bc);
++    const normal_bcd = cross_3d(bc, cd);
++    const norm_abc = Math.hypot(...normal_abc);
++    const norm_bcd = Math.hypot(...normal_bcd);
++    if (bc_norm <= EPS || norm_abc <= EPS || norm_bcd <= EPS) {
++        return null;
++    }
++    const denominator = norm_abc * norm_bcd;
++    const x = Math.max(-1, Math.min(1, dot(normal_abc, normal_bcd) / denominator));
++    const y = dot(cross_3d(normal_abc, normal_bcd), bc) / (denominator * bc_norm);
++    const angle = Math.atan2(y, x);
++    if (!Number.isFinite(angle))
++        return null;
++    return mode === `degrees` ? to_degrees(angle) : angle;
+ }
+diff -ruN a/package.json b/package.json
+--- a/package.json	2026-07-21 18:33:17
++++ b/package.json	2026-09-04 19:11:39
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r24",
++  "version": "0.4.2-multiwfn.d8719d12.r25",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",

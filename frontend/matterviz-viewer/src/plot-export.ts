@@ -426,6 +426,20 @@ const with_export_layout = async <T>(root: HTMLElement, dimensions: PlotExportDi
   }
 }
 
+export const render_plot_document = async (
+  root: HTMLElement,
+  format: PlotExportFormat | 'svg',
+  dimensions = plot_export_dimensions(root),
+): Promise<Uint8Array> => {
+  checked_dimensions(dimensions)
+  await wait_for_plot_ready(root)
+  return with_export_layout(root, dimensions, async () => {
+    const svg = plot_document_svg(root, dimensions)
+    if (format === 'svg') return new TextEncoder().encode(svg)
+    return format === 'png' ? rasterize_svg(svg, dimensions) : svg_to_pdf(svg, dimensions)
+  })
+}
+
 export const export_plot_document = async (
   root: HTMLElement,
   request: PlotExportRequest,
@@ -436,10 +450,7 @@ export const export_plot_document = async (
     ? { width: finite_dimension(request.width, 0), height: finite_dimension(request.height, 0) }
     : plot_export_dimensions(root)
   const dimensions = checked_dimensions(options.dimensions ?? requested_dimensions)
-  const bytes = await with_export_layout(root, dimensions, async () => {
-    const svg = plot_document_svg(root, dimensions)
-    return request.format === 'png' ? rasterize_svg(svg, dimensions) : svg_to_pdf(svg, dimensions)
-  })
+  const bytes = await render_plot_document(root, request.format, dimensions)
   // The authenticated host deliberately ignores client paths.  Send only the
   // capability token, preventing path injection and keeping endpoint shape
   // stable across hosts.
@@ -471,6 +482,8 @@ export const wait_for_plot_ready = async (
 ): Promise<void> => {
   const started = Date.now()
   while (true) {
+    const error = root.querySelector('.plot-error')
+    if (error) throw new Error(error.textContent || 'Plot rendering failed')
     const loading = root.querySelector('.plot-loading')
     if (!loading && root.querySelector('svg')) return
     if (Date.now() - started >= timeout_ms) {
