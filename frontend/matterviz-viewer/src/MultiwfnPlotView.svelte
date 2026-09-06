@@ -8,7 +8,7 @@
   import { SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING, scientific_series_color } from './scientific-plot'
   import { export_plot_document, wait_for_plot_ready, type PlotExportRequest } from './plot-export'
 
-  let { artifact, resolver, release, exportConfig, onExported, onExportError }: { artifact: PlotArtifact | PlotScene; resolver?: PlotDatasetResolver; release?: (datasetId: number, dataset: PlotDataset) => void; exportConfig?: PlotExportRequest; onExported?: () => void; onExportError?: (error: unknown) => void } = $props()
+  let { artifact, resolver, release, exportConfig, onExported, onExportError, showStickLabels = true }: { artifact: PlotArtifact | PlotScene; resolver?: PlotDatasetResolver; release?: (datasetId: number, dataset: PlotDataset) => void; exportConfig?: PlotExportRequest; onExported?: () => void; onExportError?: (error: unknown) => void; showStickLabels?: boolean } = $props()
   let plotRoot = $state<HTMLElement | undefined>()
   const plotId = $props.id()
   let exportStarted = false
@@ -83,7 +83,7 @@
                 {#if source.type === 'sticks' && view.series[series_index]?.visible !== false}
                   {@const y_scale = source.axis === 'y2' && y2_scale_fn ? y2_scale_fn : y_scale_fn}
                   <path d={stick_path(source, x_scale_fn, y_scale)} fill="none" stroke={scientific_series_color(source.color, series_index)} stroke-width={source.lineWidth ?? 2} stroke-dasharray={source.dash === 'dash' ? '6 4' : undefined} />
-                  {#each source.labels ?? [] as label, label_index}
+                  {#each showStickLabels ? source.labels ?? [] : [] as label, label_index}
                     {#if label}<text x={x_scale_fn(source.x[label_index])} y={y_scale(source.y[label_index]) - 5} text-anchor="middle" fill={scientific_series_color(source.color, series_index)} font-size="11">{label}</text>{/if}
                   {/each}
                 {/if}

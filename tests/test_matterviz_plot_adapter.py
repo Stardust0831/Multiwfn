@@ -14,6 +14,15 @@ HARNESS = ROOT / "tests" / "matterviz_plot_capture_harness.f90"
 
 
 class MatterVizPlotAdapterTests(unittest.TestCase):
+    def test_native_spectra_have_explicit_semantic_window_titles(self):
+        source = (ROOT / "spectrum.f90").read_text(encoding="utf-8")
+        semantic = GUI.split("function matterviz_scene_semantic_kind", 1)[1].split("end function", 1)[0]
+        for title, kind in [("Infrared spectrum", "ir"), ("Raman spectrum", "raman"),
+                            ("UV-Vis spectrum", "uvvis"), ("NMR spectrum", "nmr")]:
+            self.assertIn(f'call WINTIT("{title}")', source)
+            self.assertIn(f"case('{title}'); kind='{kind}'", semantic)
+        self.assertIn("select case(trim(matterviz_plot_title))", semantic)
+
     def test_scientific_sources_do_not_contain_matterviz_plot_hooks(self):
         for name in ("DOS.f90", "spectrum.f90", "Multiwfn.f90"):
             source = (ROOT / name).read_text(encoding="utf-8")

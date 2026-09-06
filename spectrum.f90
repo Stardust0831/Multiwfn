@@ -2550,7 +2550,14 @@ do while(.true.)
 		     if (ishowlevel==1) call axspos(510,1540)
         end if
 ! 		call center
-		if (isavepic==0) call WINTIT("Click right mouse button to close")
+		if (isavepic==0) then
+            select case(ispectrum)
+            case(1); call WINTIT("Infrared spectrum")
+            case(2); call WINTIT("Raman spectrum")
+            case(3); call WINTIT("UV-Vis spectrum")
+            case default; call WINTIT("Click right mouse button to close")
+            end select
+        end if
 		if (ishowlevel==0) CALL TICKS(1,'XY')
 		if (ishowlevel==1) CALL TICKS(0,'X')
 		call ERRMOD("ALL","OFF")
@@ -5215,7 +5222,7 @@ do while(.true.)
 		    CALL IMGFMT("RGB")
 		    CALL PAGE(3000,1875) !1.6:1
 		    call disini
-		    if (isavepic==0) call WINTIT("Click right mouse button to close")
+		    if (isavepic==0) call WINTIT("NMR spectrum")
 		    call ERRMOD("ALL","OFF")
 			if (isavepic==0.or.graphformat=="pdf ") then
 				CALL HWFONT

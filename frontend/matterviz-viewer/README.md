@@ -2,11 +2,12 @@
 
 This is an experimental MatterViz frontend developed independently from the legacy 3Dmol.js
 implementation.
-It consumes the same Multiwfn session manifest and serialized backend API, so the Fortran
-calculation modules remain unchanged.
+It consumes the Multiwfn session manifest and serialized backend API. Scientific
+calculation formulas remain unchanged; the surface-results display call passes
+read-only provenance and volume metadata to the GUI adapter.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.topology2.tgz` in `vendor/`. The r25 baseline applies the
+`matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz` in `vendor/`. The r25 baseline applies the
 reviewable `vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch` to the
 r24 archive, preserving the reviewed Multiwfn rendering, flat-grid, Worker,
 resource-release and Arcball changes while adding ordered measurement,
@@ -19,8 +20,11 @@ the native control dictionaries with the parent, preventing camera snapshots fro
 resetting auto-rotation, and adds the Trans Flag colormap (negative pink `#f5a9b8`,
 zero white, positive blue `#5bcefa`). Its odd-sized color lookup preserves exact
 white at zero. ESP uses this map by default; other volume defaults are unchanged.
-Earlier archives remain as reproducible bases. The current archive SHA-256 is
-`05ca32f4f7b3708422baf251d21cb759f653f03fde6505233341e1beec12c186`;
+The additional `r25.surface1.patch` exposes a separate `surface_view` mask that
+hides mounted volume meshes without hiding ordinary chemical bonds. No geometry
+extraction or scientific analysis is added to the vendor. Earlier archives remain
+as reproducible bases. The current archive SHA-256 is
+`33893d62a52936a0334dac1b580c98dcd5b39e6807afd2d5a93c03707a128a1c`;
 `package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
 To reproduce the topology package from r25:
@@ -30,6 +34,7 @@ tmpdir="$(mktemp -d)"
 tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$tmpdir"
 patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology1.patch
 patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology2.patch
+patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.patch
 npm pack --ignore-scripts --pack-destination vendor "$tmpdir/package"
 ```
 
@@ -80,6 +85,98 @@ Regression commands from the repository root:
 python3 -m unittest tests/test_matterviz_topology.py tests/test_matterviz_topology_vendor.py
 MULTIWFN_TOPOLOGY_FIXTURE=/path/to/input.fchk python3 -m unittest tests/test_matterviz_topology.py
 ```
+
+## Quantitative molecular surface results
+
+Run original main function **12**, configure and finish the analysis, then choose
+post-processing **0**. The native workbench displays the original improved
+marching-tetrahedra surface, mapped values, and retained local extrema, rather than
+re-extracting a cube or substituting the approximate ESP preview. Tools includes
+**Quantitative surface results...**, disabled with a reason when no original result
+has been published. This is a results viewer, not a new noninteractive surface
+calculation API. Post-processing -3 retains its original grid-isosurface behavior.
+
+The result panel provides opacity, wireframe, surface/extrema visibility, fit,
+extreme selection, and statistics. Values use the original facet-area weights and
+Multiwfn conversion constants. Total variance follows the original sum of positive
+and negative regional variances, not a pooled variance. Undefined one-sign/constant
+statistics display N/A. ESP includes charge balance, separation, MPI and the
+original 10 kcal/mol polar/nonpolar threshold. Unmapped analyses expose only
+geometry, volume, mass density and area. Unknown/custom mapped functions retain
+native units; the adapter does not guess an energy unit from numeric values.
+
+Manifest version 2 adds optional `surfaceAnalysis` version 1 with three independent
+binary dataset IDs, original function/surface types, volume (Bohr^3), isovalue,
+mass density and unit conversions. Arrays use the existing authenticated MWFNP2D
+channel, without a new HTTP or command protocol:
+
+- Vertices: x = interleaved xyz (Bohr), y = mapped values, z = original vertex IDs.
+- Facets: x = interleaved zero-based compact vertex indices, y = original areas
+  (Bohr^2), z = original facet values, u = original facet IDs.
+- Extrema: x = compact vertex index, y = -1/+1 minimum/maximum, z = original local
+  extreme number. Dataset ID 0 means no extrema; discarded extrema stay discarded.
+
+Snapshots validate references, finite values and a 256 MiB budget, never modify
+the original arrays, and release their temporary buffers after publication. The
+renderer orients a copy of triangle winding for consistent normals; original
+connectivity, coordinates and scalar values remain intact in CSV/JSON exports.
+PNG uses the shared 3D scene. Local display controls never invoke marching cubes,
+an extrema Worker or another backend calculation. Changing structures clears the
+result; orbitals/ESP temporarily replace its view, and Tools reopens it from memory.
+Atom/fragment decompositions, surface basins and fingerprint analysis are not
+included in this first results viewer.
+
+## Spectra in Tools
+
+Tools contains **Import spectrum outputs...**, **UV-Vis spectrum**, **Infrared
+spectrum**, **Raman spectrum**, and **NMR spectrum**. Entries without matching
+data remain disabled with a focusable explanation. Importing a calculation output
+does not replace the molecular structure or run another quantum-chemistry job.
+Files are inspected by their contents, not their extension; importing a wavefunction
+alone does not invent vibrational, excited-state, or shielding data.
+
+The direct importer supports these labelled Gaussian/ORCA output sections:
+
+- Gaussian harmonic IR intensities and Raman activities, anharmonic fundamental,
+  overtone and combination bands, final electric-dipole excited-state transitions,
+  and final isotropic magnetic shielding tensors.
+- ORCA 4/5/6 IR, Raman activity, electric-dipole absorption and isotropic shielding
+  tables. ORCA 6's extra energy column and zero-based nucleus IDs are handled
+  explicitly; SOC/velocity and frequency-dependent Raman tables are not substituted
+  for these quantities.
+
+Import limits are 64 MiB/file, 128 MiB/group, eight files/group, 32 parsed datasets,
+and 20,000 transitions/dataset. Inputs remain in the current page's memory, not in
+the original files or on the server. Invalid imports leave the existing results
+untouched. Use Open plot for saved self-contained Multiwfn plot JSON; already
+computed curves are not broadened a second time. Original main function 11 still
+supports its existing input formats and controls. Its four spectrum window titles
+now carry explicit semantic names so Tools can reopen those results, including
+multi-panel plots, without guessing scientific meaning from axis labels.
+
+The compact spectrum toolbar offers datasets, curve/sticks/both, Lorentzian or
+Gaussian FWHM, frequency scaling, and optional peak labels. Stick exports retain
+mode/state/nucleus labels even when on-screen labels are hidden. IR/Raman default to Lorentzian 8 cm^-1 and
+descending wavenumber. Anharmonic imports additionally expose band categories.
+Raman quantities are explicitly **activities**, not laser/temperature-corrected
+scattering intensities. The native Gaussian anharmonic activity conversion is
+preserved. Negative computed strengths are retained and shown, not clipped away.
+
+UV-Vis uses Gaussian FWHM 2/3 eV. Broadening is always performed in energy even
+when the horizontal axis is nm; curves show oscillator-strength density per eV,
+not an invented molar extinction coefficient. Sticks use a separate strength axis.
+NMR defaults to absolute isotropic shielding and unit strength per reported nucleus,
+with Lorentzian 0.5 ppm broadening. Chemical shifts require one selected element
+and either reference minus shielding or an explicitly supplied intercept plus
+slope times shielding. This does not simulate spin-spin coupling or multiplets.
+
+Parsing/broadening runs in a local Worker. Rapid edits supersede older work, and
+the eight most recent parameter results are cached. Structure/session changes
+invalidate imported spectrum jobs. Save retains PNG/PDF/SVG/CSV/plot JSON exports;
+the active-result selector returns to the retained 3D scene and restores Spin.
+Closing a generated plot preserves its imported dataset; the dataset remove button
+also clears its parameters and cached curves. Raw output imports are not restored
+after a page refresh; saved plot documents can be reopened without the backend.
 
 ## Build
 
