@@ -4,6 +4,7 @@ use iso_c_binding, only: c_char,c_int,c_int32_t,c_int64_t,c_intptr_t,c_double,c_
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 use matterviz_plot_capture
 use matterviz_topology
+use matterviz_surface
 #endif
 implicit none
 
@@ -26,6 +27,8 @@ integer*8 :: gui_cubmat_volume_id=-1,gui_cubmattmp_volume_id=-1
 type(topology_data) :: gui_topology
 integer(c_int64_t) :: gui_topology_id=0
 logical :: gui_topology_transaction=.false.
+type(surface_data) :: gui_surface
+integer(c_int64_t) :: gui_surface_ids(3)=0
 #endif
 
 type :: matterviz_json_sink
@@ -224,9 +227,25 @@ GUI_mode=4
 call launch_matterviz_gui("drawmoltopogui",4,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
-subroutine drawsurfanalysis
+subroutine drawsurfanalysis(surface_type,mapped_function,skip_mapping,surface_volume)
+integer,intent(in),optional :: surface_type,mapped_function,skip_mapping
+real*8,intent(in),optional :: surface_volume
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+character(len=160) :: message
+gui_surface=surface_data()
+if (present(surface_type).and.present(mapped_function).and.present(skip_mapping).and.present(surface_volume)) then
+    call capture_surface(gui_surface,surface_type,mapped_function,skip_mapping,surface_volume,message)
+    if (len_trim(message)/=0) then
+        write(*,'(a)') trim(message)
+        return
+    end if
+end if
+#endif
 GUI_mode=5
 call launch_matterviz_gui("drawsurfanalysis",5,0,0D0,0D0,0D0,0D0,0D0,0D0)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+gui_surface=surface_data()
+#endif
 end subroutine
 
 subroutine drawbasinintgui
@@ -784,6 +803,13 @@ function matterviz_scene_semantic_kind() result(kind)
 character(len=16) :: kind
 character(len=160) :: xlabel,ylabel
 kind=''
+select case(trim(matterviz_plot_title))
+case('Infrared spectrum'); kind='ir'
+case('Raman spectrum'); kind='raman'
+case('UV-Vis spectrum'); kind='uvvis'
+case('NMR spectrum'); kind='nmr'
+end select
+if (len_trim(kind)>0) return
 if (matterviz_plot_panel_count/=1) return
 xlabel=matterviz_plot_panels(1)%xlabel
 ylabel=matterviz_plot_panels(1)%ylabel
@@ -864,6 +890,8 @@ call reset_bond_analysis_cache()
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 gui_topology=topology_data()
 gui_topology_id=0
+gui_surface_ids=0
+if (trim(entry)/='drawsurfanalysis') gui_surface=surface_data()
 #endif
 call close_matterviz_transport()
 gui_volume_serial=0_c_int64_t
@@ -1114,14 +1142,14 @@ character(len=160) :: message
 #endif
 
 status=0
-if (allocated(cubmat).and.trim(entry)/="drawmolgui") then
+if (allocated(cubmat).and.trim(entry)/="drawmolgui".and.trim(entry)/="drawsurfanalysis") then
     published=publish_matterviz_volume(cubmat,1_8,4,4,gui_cubmat_volume_id,1,volume_status)
     if (.not.published) then
         status=volume_status
         return
     end if
 end if
-if (allocated(cubmattmp)) then
+if (allocated(cubmattmp).and.trim(entry)/='drawsurfanalysis') then
     published=publish_matterviz_volume(cubmattmp,2_8,4,4,gui_cubmattmp_volume_id,1,volume_status)
     if (.not.published) status=volume_status
 end if
@@ -1133,6 +1161,12 @@ if (status==0.and.trim(entry)=="drawmoltopogui") then
     else
         status=-1
     end if
+end if
+if (status==0.and.trim(entry)=='drawsurfanalysis'.and.allocated(gui_surface%xyz)) then
+    call publish_surface(status)
+    deallocate(gui_surface%xyz,gui_surface%values,gui_surface%vertex_ids,gui_surface%indices, &
+        gui_surface%areas,gui_surface%facet_values,gui_surface%facet_ids,gui_surface%extreme_vertex, &
+        gui_surface%extreme_kind,gui_surface%extreme_id)
 end if
 #endif
 end subroutine
@@ -2639,6 +2673,7 @@ call emit_bond_analysis_manifest(sink)
 call emit_esp_analysis_manifest(sink)
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 call emit_topology_capability(sink)
+if (all(gui_surface_ids(1:2)>0)) call emit_surface(sink)
 if (gui_topology_id>0) then
     call emit_matterviz_json(sink,'  "topology":')
     call emit_topology(sink,gui_topology,gui_topology_id)
@@ -2694,6 +2729,49 @@ call emit_matterviz_json(sink,line)
 end subroutine
 
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
+subroutine publish_surface(status)
+integer,intent(out) :: status
+integer(c_int32_t) :: roles(5)
+integer(c_int64_t) :: counts(5)
+real(c_double) :: dummy(1)
+dummy=0;roles=[1,2,3,4,0];counts=0
+gui_volume_serial=gui_volume_serial+1;gui_surface_ids(1)=gui_volume_serial
+counts(1)=size(gui_surface%xyz);counts(2:3)=size(gui_surface%values)
+status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,gui_surface_ids(1), &
+    gui_surface_ids(1),roles,gui_surface%xyz,gui_surface%values,gui_surface%vertex_ids,dummy,dummy, &
+    counts,3_c_int32_t,300000_c_int32_t))
+if (status/=0) return
+gui_volume_serial=gui_volume_serial+1;gui_surface_ids(2)=gui_volume_serial
+counts(1)=size(gui_surface%indices);counts(2:4)=size(gui_surface%areas)
+status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,gui_surface_ids(2), &
+    gui_surface_ids(2),roles,gui_surface%indices,gui_surface%areas,gui_surface%facet_values,gui_surface%facet_ids, &
+    dummy,counts,4_c_int32_t,300000_c_int32_t))
+if (status/=0.or.size(gui_surface%extreme_vertex)==0) return
+gui_volume_serial=gui_volume_serial+1;gui_surface_ids(3)=gui_volume_serial
+counts=0;counts(1:3)=size(gui_surface%extreme_vertex)
+status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,gui_surface_ids(3), &
+    gui_surface_ids(3),roles,gui_surface%extreme_vertex,gui_surface%extreme_kind,gui_surface%extreme_id,dummy,dummy, &
+    counts,3_c_int32_t,300000_c_int32_t))
+end subroutine
+
+subroutine emit_surface(sink)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=512) :: line
+call emit_matterviz_json(sink,'  "surfaceAnalysis": {"version":1,"coordinateUnit":"bohr",')
+write(line,'(a,3(i0,a))') '"vertices":',gui_surface_ids(1),',"facets":',gui_surface_ids(2), &
+    ',"extrema":',gui_surface_ids(3),','
+call emit_matterviz_json(sink,line)
+write(line,'(a,2(i0,a),a,a)') '"surfaceType":',gui_surface%surface_type,',"mappedFunction":', &
+    gui_surface%mapped_function,',"mapped":',trim(json_bool(gui_surface%mapped)),','
+call emit_matterviz_json(sink,line)
+write(line,'(a,3(es25.17e3,a))') '"isovalue":',gui_surface%isovalue,',"volume":',gui_surface%volume, &
+    ',"massDensity":',gui_surface%mass_density,','
+call emit_matterviz_json(sink,line)
+write(line,'(a,3(es25.17e3,a))') '"bohrToAngstrom":',gui_surface%bohr,',"hartreeToKcal":',gui_surface%kcal, &
+    ',"hartreeToEv":',gui_surface%ev,'},'
+call emit_matterviz_json(sink,line)
+end subroutine
+
 subroutine emit_topology_capability(sink)
 type(matterviz_json_sink),intent(inout) :: sink
 character(len=160) :: reason

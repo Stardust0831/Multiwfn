@@ -13,12 +13,19 @@
     type MeasureMode,
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
+  import { PerspectiveCamera, OrthographicCamera } from 'three'
   import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
   import TopologyPanel from './TopologyPanel.svelte'
   import AnalysisAction from './AnalysisAction.svelte'
   import TopologyOverlay from './TopologyOverlay.svelte'
+  import SurfaceAnalysisOverlay from './SurfaceAnalysisOverlay.svelte'
+  import SurfaceAnalysisPanel from './SurfaceAnalysisPanel.svelte'
+  import SpectrumControls from './SpectrumControls.svelte'
+  import { SPECTRUM_KINDS, SPECTRUM_NAMES, SPECTRUM_FILE_LIMIT, SPECTRUM_DATA_LIMIT, spectrum_defaults, spectrum_kind, type SpectrumData, type SpectrumKind, type SpectrumSettings } from './spectra'
+  import type { PlotArtifact } from './plot'
+  import { resolve_surface, surface_display_defaults, surface_document, surface_csv, type SurfaceResult } from './surface-analysis'
   import { AIM_DEFAULTS, resolve_topology, topology_display_defaults, topology_csv, topology_document, type TopologyResult, type TopologySelection } from './topology'
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
@@ -94,6 +101,18 @@
   let topologyOptions = $state({ ...AIM_DEFAULTS })
   let topologyDisplay = $state(topology_display_defaults())
   let topologyGeneration = 0
+  let surfaceResult = $state.raw<SurfaceResult>()
+  let surfacePanelOpen = $state(false)
+  let surfaceActive = $state(false)
+  let surfaceSelection = $state<number>()
+  let surfaceDisplay = $state(surface_display_defaults())
+  let surfaceFitPending = false
+  $effect(() => { if (topologyActive) surfaceActive = false })
+  const open_surface_results = () => {
+    if (!surfaceResult) return
+    openMenu = undefined; surfacePanelOpen = true; surfaceActive = true
+    topologyPanelOpen = false; topologyActive = false; inspectorOpen = false; orbitalPanelOpen = false
+  }
   const topologyCell = $derived(manifest.periodic?.enabled && manifest.periodic.cell?.a && manifest.periodic.cell.b && manifest.periodic.cell.c ? [manifest.periodic.cell.a, manifest.periodic.cell.b, manifest.periodic.cell.c] : undefined)
   let loadedManifestUrl = $state(manifest_url())
   let structure = $state<AnyStructure | undefined>()
@@ -106,6 +125,10 @@
       topologyResult = undefined
       topologyActive = false
       topologySelection = undefined
+      surfaceResult = undefined
+      surfaceActive = false
+      surfaceSelection = undefined
+      surfacePanelOpen = false
     }
   })
   let displayedStructure = $state<AnyStructure | undefined>()
@@ -184,6 +207,22 @@
   let resultStage: HTMLDivElement
   let importingPlot = $state(false)
   let savingResult = $state(false)
+  let spectrumInput: HTMLInputElement
+  let spectrumData = $state.raw<SpectrumData[]>([])
+  let spectrumSettings = $state<Record<string, SpectrumSettings>>({})
+  let importingSpectrum = $state(false)
+  let spectrumBusy = $state(false)
+  let spectrumGeneration = 0
+  let spectrumGeometryKey: string | undefined
+  let spectrumWorkerCancel: (() => void) | undefined
+  let spectrumTimer: ReturnType<typeof setTimeout> | undefined
+  const spectrumCache = new Map<string, PlotArtifact>()
+  const activeSpectrum = $derived(spectrumData.find((data) => activeResult === `spectrum:${data.id}`))
+  $effect(() => {
+    const key = geometryKey
+    if (spectrumGeometryKey !== undefined && key !== spectrumGeometryKey) untrack(reset_spectra)
+    spectrumGeometryKey = key
+  })
   let orbitalPanelOpen = $state(true)
   let orbitalListElement = $state<HTMLDivElement | undefined>()
   const homoIndex = $derived(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex)
@@ -191,7 +230,109 @@
   const active_plot = $derived(plots.find((plot) => plot.id === activeResult))
   const scene_available = $derived(Boolean(structure || volumetricData?.length))
 
+  const stop_spectrum_job = (): void => {
+    spectrumGeneration++
+    clearTimeout(spectrumTimer)
+    spectrumWorkerCancel?.()
+    spectrumWorkerCancel = undefined
+    spectrumBusy = false
+  }
+  const reset_spectra = (): void => {
+    stop_spectrum_job()
+    spectrumData = []; spectrumSettings = {}; spectrumCache.clear(); importingSpectrum = false
+    plots = plots.filter((plot) => !plot.id.startsWith('spectrum:'))
+    if (activeResult.startsWith('spectrum:')) show_result('scene')
+  }
+  const spectrum_job = <T,>(message: unknown): Promise<T> => new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./spectra.worker.ts', import.meta.url), { type: 'module' })
+    const finish = (): void => { worker.terminate(); clearTimeout(timeout); if (spectrumWorkerCancel === cancel) spectrumWorkerCancel = undefined }
+    const cancel = (): void => { finish(); reject(new DOMException('Spectrum request superseded', 'AbortError')) }
+    const timeout = setTimeout(() => { finish(); reject(new Error('Spectrum processing exceeded 60 seconds')) }, 60000)
+    spectrumWorkerCancel = cancel
+    worker.onmessage = (event): void => { finish(); if (event.data.ok) resolve(event.data.result as T); else reject(new Error(event.data.message)) }
+    worker.onerror = (event): void => { event.preventDefault(); finish(); reject(new Error(event.message || 'Spectrum worker could not start')) }
+    worker.postMessage(message)
+  })
+  const spectrum_reason = (kind: SpectrumKind): string => spectrumData.some((data) => data.kind === kind) || plots.some((plot) => spectrum_kind(plot.artifact) === kind)
+    ? '' : `No ${SPECTRUM_NAMES[kind]} data. Import an output containing ${kind === 'uvvis' ? 'excitation energies and oscillator strengths' : kind === 'nmr' ? 'isotropic magnetic shielding tensors' : kind === 'raman' ? 'frequencies and Raman activities' : 'frequencies and IR intensities'}.`
+  const build_spectrum = async (data: SpectrumData): Promise<void> => {
+    if (importingSpectrum) return
+    stop_spectrum_job()
+    const generation = spectrumGeneration
+    spectrumBusy = true
+    const options = $state.snapshot(spectrumSettings[data.id])
+    const key = `${data.id}:${JSON.stringify(options)}`
+    try {
+      const id = `spectrum:${data.id}`
+      if (!plots.some((plot) => plot.id === id) && plots.length >= PLOT_RESULT_LIMIT) throw new Error(`Keep at most ${PLOT_RESULT_LIMIT} plots open`)
+      const artifact = spectrumCache.get(key) ?? await spectrum_job<PlotArtifact>({ action: 'plot', data, options })
+      if (generation !== spectrumGeneration) return
+      spectrumCache.set(key, artifact)
+      while (spectrumCache.size > 8) spectrumCache.delete(spectrumCache.keys().next().value!)
+      plots = [...plots.filter((plot) => plot.id !== id), { id, artifact, resolver: async () => { throw new Error('Spectrum arrays are embedded in the plot') } }]
+      show_result(id)
+      errorMessage = undefined
+      set_status(`${SPECTRUM_NAMES[data.kind]} ready`)
+    } catch (error) { if (generation === spectrumGeneration) report_error(error) }
+    finally { if (generation === spectrumGeneration) spectrumBusy = false }
+  }
+  const select_spectrum = (id: string): void => {
+    const data = spectrumData.find((item) => item.id === id)
+    if (data) void build_spectrum(data)
+  }
+  const open_spectrum = (kind: SpectrumKind): void => {
+    openMenu = undefined
+    const existing = plots.find((plot) => plot.id === activeResult && spectrum_kind(plot.artifact) === kind)
+    if (existing) { show_result(existing.id); return }
+    const data = [...spectrumData].reverse().find((item) => item.kind === kind)
+    if (data) { select_spectrum(data.id); return }
+    const plot = plots.find((item) => spectrum_kind(item.artifact) === kind)
+    if (plot) show_result(plot.id)
+  }
+  const update_spectrum = (): void => {
+    const data = activeSpectrum
+    stop_spectrum_job()
+    if (data) { spectrumBusy = true; spectrumTimer = setTimeout(() => void build_spectrum(data), 150) }
+  }
+  const remove_spectrum = (): void => {
+    const data = activeSpectrum
+    if (!data) return
+    stop_spectrum_job()
+    spectrumData = spectrumData.filter((item) => item.id !== data.id)
+    delete spectrumSettings[data.id]
+    for (const key of spectrumCache.keys()) if (key.startsWith(`${data.id}:`)) spectrumCache.delete(key)
+    close_plot()
+  }
+  const import_spectrum_files = async (event: Event): Promise<void> => {
+    const input = event.currentTarget as HTMLInputElement
+    const files = [...(input.files ?? [])]
+    if (!files.length || importingSpectrum) return
+    stop_spectrum_job()
+    const generation = spectrumGeneration
+    importingSpectrum = true; openMenu = undefined
+    try {
+      if (files.length > 8) throw new Error('Import at most 8 spectrum outputs at once')
+      if (files.reduce((sum, file) => sum + file.size, 0) > 128 * 1024 * 1024) throw new Error('A spectrum import group may not exceed 128 MiB')
+      const imported: SpectrumData[] = []
+      for (const file of files) {
+        if (file.size > SPECTRUM_FILE_LIMIT) throw new Error(`${file.name} exceeds the 64 MiB spectrum limit`)
+        const text = await file.text()
+        if (generation !== spectrumGeneration) return
+        const parsed = await spectrum_job<SpectrumData[]>({ action: 'parse', text, name: file.name })
+        if (generation !== spectrumGeneration) return
+        imported.push(...parsed.map((data) => ({ ...data, id: crypto.randomUUID() })))
+      }
+      if (spectrumData.length + imported.length > SPECTRUM_DATA_LIMIT) throw new Error(`Keep at most ${SPECTRUM_DATA_LIMIT} spectrum datasets`)
+      spectrumData = [...spectrumData, ...imported]
+      for (const data of imported) spectrumSettings[data.id] = spectrum_defaults(data.kind)
+      errorMessage = undefined
+      set_status(`${imported.length} spectrum dataset(s) imported`)
+    } catch (error) { if (generation === spectrumGeneration) report_error(error) }
+    finally { if (generation === spectrumGeneration) importingSpectrum = false; input.value = '' }
+  }
+
   const show_result = (id: string): void => {
+    if (id !== activeResult && !importingSpectrum) stop_spectrum_job()
     if (activeResult === 'scene' && id !== 'scene') {
       suspendedSpin = sceneProps.auto_rotate
       sceneProps = { ...sceneProps, auto_rotate: 0 }
@@ -906,7 +1047,14 @@
   }
 
   const load_manifest = async (): Promise<void> => {
+    reset_spectra()
     topologyGeneration++
+    const generation = topologyGeneration
+    surfaceResult = undefined
+    surfaceActive = false
+    surfacePanelOpen = false
+    surfaceSelection = undefined
+    surfaceDisplay = surface_display_defaults()
     loadedGeometryKey = ''
     topologyResult = undefined
     topologyActive = false
@@ -971,6 +1119,16 @@
         topologyPanelOpen = true
         orbitalPanelOpen = false
       }
+      if (manifest.surfaceAnalysis) {
+        const result = await resolve_surface(manifest.surfaceAnalysis, async (datasetId) => {
+          const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
+          return read_plot_dataset_response(response, datasetId)
+        })
+        if (generation !== topologyGeneration) return
+        surfaceResult = result
+        surfaceFitPending = true
+        open_surface_results()
+      }
       if (String(manifest.multiwfnGui?.entry || '').toLowerCase().includes('drawmol')) {
         const initialVolumeIdx = initial_orbital_volume_index(
           volumeEntries,
@@ -991,7 +1149,7 @@
         refresh_esp_range(initialEsp.densityIdx, initialEsp.potentialIdx)
         espLegendOpen = true
       }
-      set_status(entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
+      set_status(surfaceResult ? 'Original quantitative surface results loaded' : entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
       if (startupState) apply_workbench_state(startupState)
       await signal_frontend_ready()
     } catch (error) {
@@ -1010,6 +1168,7 @@
       activate_orbital_volume(undefined)
       set_status('No orbital selected')
       topologyActive = false
+      surfaceActive = false
       return
     }
     if (!Number.isInteger(requestedIndex) || requestedIndex < 1 || requestedIndex > orbital_count()) {
@@ -1022,6 +1181,7 @@
       activate_orbital_volume(cachedVolumeIdx)
       set_status(`Orbital ${requestedIndex} loaded from session cache`)
       topologyActive = false
+      surfaceActive = false
       return
     }
     const requestedQuality = quality
@@ -1095,6 +1255,7 @@
       orbitalBackendAvailable = true
       activate_orbital_volume(activeIdx)
       topologyActive = false
+      surfaceActive = false
       set_status(`Orbital ${requestedIndex} loaded`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -1149,6 +1310,7 @@
       }
       set_status('ESP mapped onto the electron-density surface')
       topologyActive = false
+      surfaceActive = false
     } catch (error) {
       report_error(error)
     } finally {
@@ -1179,6 +1341,8 @@
       const result = await load_topology(payload.topology)
       if (generation !== topologyGeneration || geometry !== geometryKey) return
       topologyResult = result
+      surfaceActive = false
+      surfacePanelOpen = false
       topologySelection = undefined
       topologyActive = true
       topologyPanelOpen = true
@@ -1196,6 +1360,11 @@
     if (!topologyResult) return
     const text = format === 'json' ? topology_document(topologyResult) : topology_csv(topologyResult)
     download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-topology.${format}`)
+  }
+  const export_surface = (format: 'json' | 'csv'): void => {
+    if (!surfaceResult) return
+    const text = format === 'json' ? surface_document(surfaceResult) : surface_csv(surfaceResult)
+    download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-quantitative-surface.${format}`)
   }
 
   const request_bond = async (options: { method?: string; pair?: BondPair } = {}): Promise<void> => {
@@ -1394,6 +1563,31 @@
     }
   }
 
+  const fit_surface = (): void => {
+    const canvas = viewerShell?.querySelector('canvas')
+    const camera = canvas ? scene_registry.get(canvas)?.camera : undefined
+    if (!surfaceResult || !camera || !surfaceActive) return
+    const xyz = surfaceResult.xyz, scale = surfaceResult.metadata.bohrToAngstrom
+    const low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity]
+    for (let i = 0; i < xyz.length; i++) { const axis = i % 3; low[axis] = Math.min(low[axis], xyz[i] * scale); high[axis] = Math.max(high[axis], xyz[i] * scale) }
+    const pose = current_camera_pose() ?? normalize_camera_pose({ position: camera.position.toArray(), up: camera.up.toArray(),
+      target: [(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, (low[2] + high[2]) / 2], projection: camera instanceof OrthographicCamera ? 'orthographic' : 'perspective',
+      ...(camera instanceof OrthographicCamera ? { zoom: camera.zoom } : {}),
+    })
+    if (!pose) return
+    let radius = .1
+    for (let i = 0; i < xyz.length; i += 3) radius = Math.max(radius, Math.hypot(xyz[i] * scale - pose.target[0], xyz[i + 1] * scale - pose.target[1], xyz[i + 2] * scale - pose.target[2]))
+    radius *= 1.12
+    if (camera instanceof PerspectiveCamera) {
+      const halfAngle = Math.atan(Math.tan(camera.fov * Math.PI / 360) * Math.min(1, camera.aspect))
+      const distance = radius / Math.sin(halfAngle), old = Math.hypot(...pose.position.map((v, i) => v - pose.target[i]))
+      apply_camera_pose({ ...pose, position: pose.position.map((v, i) => pose.target[i] + (v - pose.target[i]) * distance / old) as [number, number, number] })
+    } else if (camera instanceof OrthographicCamera) {
+      apply_camera_pose({ ...pose, zoom: Math.min(camera.right - camera.left, camera.top - camera.bottom) / (2 * radius) })
+    }
+    surfaceFitPending = false
+  }
+
   const step_rotate = (direction: CameraDirection): void => {
     const pose = current_camera_pose()
     const step = normalize_camera_step(rotationStep, 'rotation')
@@ -1518,6 +1712,7 @@
     window.addEventListener('resize', close_bond_context_menu)
     window.addEventListener('blur', close_bond_context_menu)
     return () => {
+      stop_spectrum_job()
       narrowViewport.removeEventListener('change', collapse_sidebars)
       document.removeEventListener('pointerdown', close_on_outside_pointer, true)
       window.removeEventListener('keydown', close_on_escape)
@@ -1577,16 +1772,23 @@
       <button class="icon-button" type="button" title="Zoom out" aria-label="Zoom out" onclick={() => step_zoom('out')} disabled={!current_camera_pose()}><Icon icon="ZoomOut" width="16" height="16" /></button>
       <button class="icon-button" type="button" title="Zoom in" aria-label="Zoom in" onclick={() => step_zoom('in')} disabled={!current_camera_pose()}><Icon icon="ZoomIn" width="16" height="16" /></button>
     </div>
-    <label><input type="checkbox" bind:checked={inspectorOpen} /><span>Inspector</span></label>
+    <label><input type="checkbox" bind:checked={inspectorOpen} onchange={() => { surfacePanelOpen = false; topologyPanelOpen = false }} /><span>Inspector</span></label>
     {#if orbital_selection_available()}<label><input type="checkbox" bind:checked={orbitalPanelOpen} /><span>Orbitals</span></label>{/if}
     <label><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} /><span>Axes</span></label>
     <button type="button" onclick={() => { openMenu = undefined; open_panel('layers') }}>Volume layers ({volumeEntries.length})</button>
     <button type="button" onclick={() => { openMenu = undefined; open_panel('slice') }} disabled={!volumetricData?.length}>2D Slice</button>
-    {#if topologyResult}<button type="button" onclick={() => { openMenu = undefined; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>Topology view</button>{/if}
+    {#if topologyResult}<button type="button" onclick={() => { openMenu = undefined; surfaceActive = false; surfacePanelOpen = false; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>Topology view</button>{/if}
     </WorkbenchMenu>
     <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
+    <div class="menu-heading">Spectra</div>
+    <button type="button" onclick={() => spectrumInput?.click()} disabled={importingSpectrum}>Import spectrum outputs...</button>
+    {#each SPECTRUM_KINDS as kind}
+      <AnalysisAction reason={spectrum_reason(kind)} busy={importingSpectrum} onclick={() => open_spectrum(kind)}>{SPECTRUM_NAMES[kind]}</AnalysisAction>
+    {/each}
+    <div class="menu-heading">Quantitative molecular surface</div>
+    <AnalysisAction reason={surfaceResult ? '' : 'Run main function 12, then choose post-processing option 0 to view its results'} busy={false} onclick={open_surface_results}>Quantitative surface results...</AnalysisAction>
     <div class="menu-heading">Topology analysis (AIM)</div>
-    <AnalysisAction reason={topologyReason} busy={loading} onclick={() => { openMenu = undefined; topologyPanelOpen = true; inspectorOpen = false; orbitalPanelOpen = false }}>AIM critical points and paths...</AnalysisAction>
+    <AnalysisAction reason={topologyReason} busy={loading} onclick={() => { openMenu = undefined; surfacePanelOpen = false; topologyPanelOpen = true; inspectorOpen = false; orbitalPanelOpen = false }}>AIM critical points and paths...</AnalysisAction>
     <div class="menu-heading">Electrostatic potential</div>
     <label>
       <span>Density iso</span>
@@ -1676,16 +1878,17 @@
   {/if}
 
   <div class="result-stage" bind:this={resultStage}>
-  <section class="workspace" class:has-topology={topologyPanelOpen} class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen && !topologyPanelOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
+  <input class="hidden-file-input" bind:this={spectrumInput} type="file" accept=".out,.log,.txt,.output" multiple onchange={import_spectrum_files} />
+  <section class="workspace" class:has-topology={topologyPanelOpen || surfacePanelOpen} class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen && !topologyPanelOpen && !surfacePanelOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
     <nav class="tool-rail" aria-label="Inspector tools">
-      <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true; topologyPanelOpen = false }}>
+      <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
         <span aria-hidden="true">S</span><small>Structure</small>
       </button>
-      <button type="button" class:active={inspectorOpen && inspectorSection === 'surfaces'} aria-label="Open surfaces inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'surfaces'; inspectorOpen = true; topologyPanelOpen = false }}>
+      <button type="button" class:active={inspectorOpen && inspectorSection === 'surfaces'} aria-label="Open surfaces inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'surfaces'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
         <span aria-hidden="true">V</span><small>Surfaces</small>
       </button>
       {#if manifest.periodic?.enabled}
-        <button type="button" class:active={inspectorOpen && inspectorSection === 'cell'} aria-label="Open cell inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'cell'; inspectorOpen = true; topologyPanelOpen = false }}>
+        <button type="button" class:active={inspectorOpen && inspectorSection === 'cell'} aria-label="Open cell inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'cell'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
           <span aria-hidden="true">C</span><small>Cell</small>
         </button>
       {/if}
@@ -1697,12 +1900,12 @@
         <span aria-hidden="true">O</span><small>Orbitals</small>
       </button>
       {/if}
-      <button type="button" class="rail-close" aria-label="Close inspector" aria-expanded={inspectorOpen} onclick={() => inspectorOpen = false}>
+      <button type="button" class="rail-close" aria-label="Close inspector" aria-expanded={inspectorOpen || surfacePanelOpen || topologyPanelOpen} onclick={() => { inspectorOpen = false; surfacePanelOpen = false; topologyPanelOpen = false }}>
         <span aria-hidden="true">&lt;</span><small>Hide</small>
       </button>
     </nav>
 
-    {#if inspectorOpen && !topologyPanelOpen}
+    {#if inspectorOpen && !topologyPanelOpen && !surfacePanelOpen}
       <ViewerInspector
         bind:section={inspectorSection}
         scene_props={{ ...sceneProps, background_color: backgroundColor, background_opacity: backgroundOpacity }}
@@ -1726,7 +1929,9 @@
       />
     {/if}
 
-    {#if topologyPanelOpen}
+    {#if surfacePanelOpen && surfaceResult}
+      <SurfaceAnalysisPanel result={surfaceResult} bind:display={surfaceDisplay} bind:active={surfaceActive} bind:selection={surfaceSelection} onclose={() => surfacePanelOpen = false} onexport={export_surface} onfit={fit_surface} />
+    {:else if topologyPanelOpen}
       <TopologyPanel bind:options={topologyOptions} bind:display={topologyDisplay} bind:active={topologyActive} bind:selection={topologySelection} result={topologyResult} busy={loading} reason={topologyReason} cell={topologyCell} onrun={() => void request_topology()} onclose={() => topologyPanelOpen = false} onexport={export_topology} />
     {/if}
     <section class="viewer-shell">
@@ -1761,6 +1966,7 @@
           show_controls="always"
           allow_file_drop={false}
           topology_view={topologyActive && Boolean(topologyResult)}
+          surface_view={surfaceActive && Boolean(surfaceResult)}
           scene_children={topologyScene}
         />
       {:else if !loading}
@@ -1817,7 +2023,7 @@
           bind:manual_max={sliceManualMax}
         />
       {/if}
-      {#if !topologyActive && espLegendOpen && esp_pair()}
+      {#if !topologyActive && !surfaceActive && espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
         <EspLegend min={legendRange[0]} max={legendRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
@@ -1896,15 +2102,23 @@
   </section>
   {#each plots as plot (plot.id)}
     <section class="result-document" class:inactive={activeResult !== plot.id} inert={activeResult !== plot.id} aria-hidden={activeResult !== plot.id} aria-label={plot.artifact.title}>
+      {#if activeResult === plot.id && activeSpectrum}
+        <SpectrumControls data={activeSpectrum} datasets={spectrumData} bind:options={spectrumSettings[activeSpectrum.id]} busy={spectrumBusy} onpick={select_spectrum} onupdate={update_spectrum} onremove={remove_spectrum} />
+      {/if}
+      {#key plot.artifact}
+      <div class="result-plot">
       <MultiwfnPlotView artifact={plot.artifact} resolver={plot.resolver}
+        showStickLabels={plot.id.startsWith('spectrum:') ? spectrumSettings[plot.id.slice('spectrum:'.length)]?.labels === true : true}
         exportConfig={plot.native ? plot_export(manifest) : undefined}
         onExported={return_to_multiwfn} onExportError={report_error} />
+      </div>
+      {/key}
     </section>
   {/each}
   </div>
 
   <footer class="statusbar" class:error={Boolean(errorMessage)}>
-    <span role="status">{savingResult ? 'Exporting...' : importingPlot ? 'Opening plot...' : errorMessage || status}</span>
+    <span role="status">{savingResult ? 'Exporting...' : importingSpectrum ? 'Reading spectrum outputs...' : spectrumBusy ? 'Updating spectrum...' : importingPlot ? 'Opening plot...' : errorMessage || status}</span>
     <span>{active_plot ? '2D plot' : `${volumetricData?.length || 0} volume(s)`}</span>
   </footer>
 
@@ -2064,7 +2278,7 @@
     </aside>
   {/if}
 
-  {#if activeResult === 'scene' && !topologyActive && espExtremaOpen && esp_pair()}
+  {#if activeResult === 'scene' && !topologyActive && !surfaceActive && espExtremaOpen && esp_pair()}
     <aside class="esp-extrema-panel" aria-label="Approximate ESP surface extrema">
       <header>
         <strong>Approximate ESP extrema</strong>
@@ -2090,7 +2304,9 @@
 </main>
 
 {#snippet topologyScene()}
-  {#if topologyActive && topologyResult}
+  {#if surfaceActive && surfaceResult}
+    <SurfaceAnalysisOverlay result={surfaceResult} display={surfaceDisplay} selection={surfaceSelection} onready={() => { if (surfaceFitPending) fit_surface() }} onselect={(selection) => { surfaceSelection = selection; surfacePanelOpen = true; topologyPanelOpen = false }} />
+  {:else if topologyActive && topologyResult}
     <TopologyOverlay result={topologyResult} display={topologyDisplay} selection={topologySelection} cell={topologyCell} onselect={(selection) => { topologySelection = selection; topologyPanelOpen = true }} />
   {/if}
 {/snippet}

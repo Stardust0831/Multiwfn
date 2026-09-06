@@ -1437,7 +1437,7 @@ do while(.true.)
 			end if
 		end do
 		if (isel==0) then
-			call drawsurfanalysis
+			call drawsurfanalysis(isurftype,imapfunc,iskipmapfunc,totvol)
 		else if (isel==1) then
 			close(10)
 			write(*,"(a)") " Results have been outputted to surfanalysis.txt in current folder"
