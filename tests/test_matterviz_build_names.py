@@ -186,8 +186,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
             "const remove_volumes", 1
         )[0]
         self.assertIn("if (!esp_pair()) clear_esp_tools()", compact)
-        self.assertIn("{#if espExtremaOpen && esp_pair()}", VIEWER_APP)
-        self.assertIn("{#if espLegendOpen && esp_pair()}", VIEWER_APP)
+        self.assertIn("{#if activeResult === 'scene' && !topologyActive && espExtremaOpen && esp_pair()}", VIEWER_APP)
+        self.assertIn("{#if !topologyActive && espLegendOpen && esp_pair()}", VIEWER_APP)
 
     def test_mobile_esp_legend_keeps_tick_label_width(self):
         mobile = ESP_LEGEND.split("@media (max-width: 520px)", 1)[1]

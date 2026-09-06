@@ -15,11 +15,14 @@
   "dependencies": {
     "d3-contour": "^4.0.2",
     "jspdf": "^4.2.1",
-    "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz",
+    "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.topology2.tgz",
+    "@threlte/core": "8.5.16",
+    "three": "0.185.1",
     "svelte": "^5.56.4",
     "svg2pdf.js": "^2.7.0"
   },
   "devDependencies": {
+    "@types/three": "0.185.1",
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "svelte-check": "^4.7.2",
     "typescript": "^6.0.3",

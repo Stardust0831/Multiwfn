@@ -6,21 +6,79 @@ It consumes the same Multiwfn session manifest and serialized backend API, so th
 calculation modules remain unchanged.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.tgz` in `vendor/`. It applies the
+`matterviz-0.4.2-multiwfn.d8719d12.r25.topology2.tgz` in `vendor/`. The r25 baseline applies the
 reviewable `vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch` to the
 r24 archive, preserving the reviewed Multiwfn rendering, flat-grid, Worker,
 resource-release and Arcball changes while adding ordered measurement,
 angle/dihedral, hover-tooltip and selected-bond context-menu controls. The r25
-archive is pinned by both `package.json` and `pnpm-lock.yaml`; r24 remains as
-the reproducible patch base.
+archive remains unchanged. The additional `r25.topology1.patch` adds only a shared
+scene snippet and a topology display mask (atoms on, ordinary bonds and scalar surfaces
+hidden but still mounted), including the corresponding declarations. All topology
+business logic lives in this frontend. The additional `r25.topology2.patch` shares
+the native control dictionaries with the parent, preventing camera snapshots from
+resetting auto-rotation, and adds the Trans Flag colormap (negative pink `#f5a9b8`,
+zero white, positive blue `#5bcefa`). Its odd-sized color lookup preserves exact
+white at zero. ESP uses this map by default; other volume defaults are unchanged.
+Earlier archives remain as reproducible bases. The current archive SHA-256 is
+`05ca32f4f7b3708422baf251d21cb759f653f03fde6505233341e1beec12c186`;
+`package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
-To reproduce r25:
+To reproduce the topology package from r25:
 
 ```bash
 tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r24.tgz -C "$tmpdir"
-patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$tmpdir"
+patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology1.patch
+patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology2.patch
 npm pack --ignore-scripts --pack-destination vendor "$tmpdir/package"
+```
+
+## AIM topology workbench
+
+Tools groups AIM, ESP and bond-order analyses. Capability flags come from parsed
+backend arrays, not file extensions; disabled actions retain a focusable reason
+button. AIM requires nonperiodic atoms, valid GTFs, coefficients and occupations.
+Ordinary structures/cubes, old manifests and periodic inputs cannot start AIM;
+already generated topology remains viewable independently of this capability.
+
+`GET /api/topology` uses the existing session capability and shared computation
+lock. Options are `seeds` (bitmask 1/2/4/8), `distance`, `gradient`, `displacement`,
+`cycles`, `step` (Bohr), and `pathPoints`. Defaults are 15, 1.5, 1e-6, 1e-7,
+120, 0.03 and 451. The closed command is `topology aim ...`, with a 3600-second
+control deadline. The GUI adapter calls the original `findcp`, `findpath`, CP/path
+sorting and endpoint identification functions without entering `topo_main`,
+removing virtual orbitals, or changing the protected calculation sources.
+
+The adapter preserves valid CP/path prefixes and affected search parameters.
+Publication failures roll back; successful publication and response commit the
+new CLI-visible topology and clear obsolete interbasin surfaces. Wavefunctions,
+orbital occupations/counts and cube arrays are untouched. Search batches reserve
+CP capacity before entering parallel code; paths reserve two slots per CP, path
+points are bounded below the original fixed capacity, and the temporary atom
+distance table is limited to 512 MiB. Unconnected directions and the N-B+R-C
+count are reported without claiming the search is complete.
+
+Manifest `version: 2` gains optional `topologyAnalysis` and `topology`. Topology
+metadata retains original CP/path IDs, function ID, types, density/Laplacian and
+path endpoints. Coordinates use the existing `MWFNP2D` scientific-data channel:
+Float64 x/y/z arrays in Bohr, CPs first followed by complete path polylines.
+Dataset lifetime is independent of 2D plots; replacement releases only old
+topology arrays. Refreshing the page restores the latest result without computing.
+
+The scene extension renders instanced CP spheres and batched thick path segments
+in the molecule's scene coordinate system. Periodic integration steps are
+unwrapped, with endpoint CP images retaining the original IDs. The topology mask
+hides scalar surfaces and ordinary bonds without unmounting or extracting them.
+Display controls and object details are outside the canvas; CSV/JSON export keeps
+all raw coordinates, while PNG uses the shared scene. Display settings are saved
+separately in the existing workbench state. Changing the underlying geometry
+invalidates cached topology and in-flight results.
+
+Regression commands from the repository root:
+
+```bash
+python3 -m unittest tests/test_matterviz_topology.py tests/test_matterviz_topology_vendor.py
+MULTIWFN_TOPOLOGY_FIXTURE=/path/to/input.fchk python3 -m unittest tests/test_matterviz_topology.py
 ```
 
 ## Build

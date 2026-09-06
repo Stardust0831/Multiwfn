@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -29,6 +30,8 @@ struct Entry {
 struct State {
     entries: HashMap<u64, Entry>,
     bytes: usize,
+    topology_id: Option<u64>,
+    topology: Option<Value>,
 }
 
 pub struct PlotStore {
@@ -52,6 +55,8 @@ impl PlotStore {
             state: Mutex::new(State {
                 entries: HashMap::new(),
                 bytes: 0,
+                topology_id: None,
+                topology: None,
             }),
             max_bytes,
         }
@@ -96,6 +101,49 @@ impl PlotStore {
         let mut state = self.state.lock().expect("plot store lock");
         state.entries.clear();
         state.bytes = 0;
+        state.topology_id = None;
+        state.topology = None;
+    }
+
+    pub fn ids(&self) -> Vec<u64> {
+        self.state
+            .lock()
+            .expect("plot store lock")
+            .entries
+            .keys()
+            .copied()
+            .collect()
+    }
+
+    /// A topology replacement owns one dataset independently of ordinary plots.
+    pub fn finish_topology(&self, before: &[u64], topology: Option<&Value>) {
+        let mut state = self.state.lock().expect("plot store lock");
+        let accepted = topology
+            .and_then(|value| value.get("datasetId"))
+            .and_then(Value::as_u64);
+        let previous = state.topology_id;
+        state.entries.retain(|id, _| {
+            if Some(*id) == accepted {
+                return true;
+            }
+            if accepted.is_some() && Some(*id) == previous {
+                return false;
+            }
+            before.contains(id)
+        });
+        state.bytes = state.entries.values().map(|entry| entry.frame.len()).sum();
+        if accepted.is_some() {
+            state.topology_id = accepted.filter(|id| *id != 0);
+            state.topology = topology.cloned();
+        }
+    }
+
+    pub fn topology_metadata(&self) -> Option<Value> {
+        self.state.lock().expect("plot store lock").topology.clone()
+    }
+
+    pub fn set_initial_topology(&self, id: u64) {
+        self.state.lock().expect("plot store lock").topology_id = (id != 0).then_some(id);
     }
     pub fn len(&self) -> usize {
         self.state.lock().expect("plot store lock").entries.len()
@@ -123,6 +171,27 @@ mod tests {
             }],
         })
         .unwrap()
+    }
+
+    #[test]
+    fn topology_replacement_and_failure_keep_unrelated_plots_alive() {
+        let store = PlotStore::new();
+        store.insert(frame(1)).unwrap();
+        store.insert(frame(2)).unwrap();
+        store.set_initial_topology(2);
+        let before = store.ids();
+        store.insert(frame(3)).unwrap();
+        store.finish_topology(&before, None);
+        assert!(store.get(1).is_some() && store.get(2).is_some());
+        assert!(store.get(3).is_none());
+        store.insert(frame(4)).unwrap();
+        store.finish_topology(&before, Some(&serde_json::json!({"datasetId": 4})));
+        assert!(store.get(1).is_some() && store.get(4).is_some());
+        assert!(store.get(2).is_none());
+        assert_eq!(store.topology_metadata().unwrap()["datasetId"], 4);
+        store.finish_topology(&store.ids(), Some(&serde_json::json!({"datasetId": 0})));
+        assert_eq!(store.ids(), vec![1]);
+        assert_eq!(store.bytes(), frame(1).len());
     }
 
     #[test]

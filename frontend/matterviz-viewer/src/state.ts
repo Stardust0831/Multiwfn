@@ -1,6 +1,7 @@
 import type { CameraProjection, IsosurfaceLayer, IsosurfaceSettings, Vec3 } from 'matterviz'
 import type { ManifestEntry, MultiwfnManifest } from './manifest'
 import type { SliceAxis, SliceColormap } from './slice'
+import { normalize_topology_display, type TopologyDisplay } from './topology.ts'
 
 const WORKBENCH_SLICE_COLORMAPS = new Set(['Viridis', 'RdBu', 'Jet', 'Portland'])
 
@@ -85,6 +86,7 @@ export type MatterVizWorkbenchState = {
   structureAppearance?: WorkbenchStructureAppearance
   slice?: WorkbenchSliceState
   espLegend?: WorkbenchEspLegendState
+  topologyDisplay?: TopologyDisplay
   session: Pick<MultiwfnManifest, 'multiwfnGui' | 'bondAnalysis' | 'espAnalysis'>
 }
 
@@ -103,6 +105,7 @@ export type WorkbenchStateInput = {
   backgroundOpacity?: number
   slice?: WorkbenchSliceState
   espLegend?: WorkbenchEspLegendState
+  topologyDisplay?: TopologyDisplay
 }
 
 export type WorkbenchStateRestoration = {
@@ -113,6 +116,7 @@ export type WorkbenchStateRestoration = {
   structureAppearance?: WorkbenchStructureAppearance
   slice?: WorkbenchSliceState
   espLegend?: WorkbenchEspLegendState
+  topologyDisplay?: TopologyDisplay
 }
 
 const as_record = (value: unknown): Record<string, unknown> =>
@@ -278,6 +282,7 @@ const normalize_legend = (value: unknown): WorkbenchEspLegendState | undefined =
 }
 
 const ISO_COLORMAPS = new Set([
+  'interpolateTransFlag',
   'interpolateViridis', 'interpolatePlasma', 'interpolateInferno', 'interpolateMagma',
   'interpolateCividis', 'interpolateTurbo', 'interpolateRdBu', 'interpolateRdYlBu',
   'interpolateSpectral', 'interpolatePiYG', 'interpolateBrBG', 'interpolatePuOr',
@@ -364,6 +369,7 @@ export const create_workbench_state = (input: WorkbenchStateInput): MatterVizWor
     structureAppearance,
     slice: normalize_slice(input.slice),
     espLegend: normalize_legend(input.espLegend),
+    topologyDisplay: input.topologyDisplay ? normalize_topology_display(input.topologyDisplay) : undefined,
     session: {
       multiwfnGui: input.manifest.multiwfnGui,
       bondAnalysis: input.manifest.bondAnalysis,
@@ -418,6 +424,7 @@ export const parse_workbench_state = (value: unknown): MatterVizWorkbenchState =
     structureAppearance: normalize_structure_appearance(root.structureAppearance),
     slice: normalize_slice(root.slice),
     espLegend: normalize_legend(root.espLegend),
+    topologyDisplay: root.topologyDisplay ? normalize_topology_display(root.topologyDisplay) : undefined,
     session,
   }
 }
@@ -480,6 +487,7 @@ export const restore_workbench_state = (
     structureAppearance: state.structureAppearance,
     slice: state.slice,
     espLegend: state.espLegend,
+    topologyDisplay: state.topologyDisplay,
   }
 }
 

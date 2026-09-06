@@ -310,6 +310,16 @@ impl HttpService {
             format_host(&host),
             address.port()
         );
+        if let Some(data) = &session_data {
+            if let Ok(manifest) = serde_json::from_slice::<Value>(data.manifest_bytes()) {
+                if let Some(id) = manifest
+                    .pointer("/topology/datasetId")
+                    .and_then(Value::as_u64)
+                {
+                    plot_store.set_initial_topology(id);
+                }
+            }
+        }
         let service = Self {
             session,
             shutdown,
@@ -789,6 +799,11 @@ impl ServiceRunner {
             } else {
                 backend::request_esp(&self.session, &query, &self.backend_lock)
             }),
+            "/api/topology" if method == "GET" => Some(if self.session_data.is_some() {
+                self.request_control_topology(&query)
+            } else {
+                json!({"ok": false, "message": "AIM requires the native in-memory host"})
+            }),
             _ => None,
         };
         if method == "HEAD" && path.starts_with("/api/") {
@@ -813,6 +828,13 @@ impl ServiceRunner {
         }
         if path == "/session/manifest.json" {
             if let Some(data) = &self.session_data {
+                if let Some(topology) = self.plot_store.topology_metadata() {
+                    let mut manifest: Value =
+                        serde_json::from_slice(data.manifest_bytes()).expect("validated manifest");
+                    manifest["topology"] = topology;
+                    respond_json(&mut stream, &manifest, 200, method == "HEAD");
+                    return;
+                }
                 respond(
                     &mut stream,
                     200,
@@ -1138,6 +1160,32 @@ impl ServiceRunner {
             .as_ref()
             .expect("in-memory session control")
             .request(backend::reserve_request_id(), &command, timeout)
+    }
+
+    fn request_control_topology(&self, query: &[(String, String)]) -> Value {
+        let command = match backend::prepare_topology_request(query) {
+            Ok(value) => value,
+            Err(message) => return json!({"ok": false, "message": message}),
+        };
+        let _guard = self
+            .backend_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let before = self.plot_store.ids();
+        let result = self
+            .control_session
+            .as_ref()
+            .expect("in-memory session control")
+            .request(
+                backend::reserve_request_id(),
+                &command,
+                Duration::from_secs(3600),
+            );
+        let accepted = (result.get("ok").and_then(Value::as_bool) == Some(true))
+            .then(|| result.get("topology"))
+            .flatten();
+        self.plot_store.finish_topology(&before, accepted);
+        result
     }
 
     fn request_control_esp(&self, query: &[(String, String)]) -> Value {
