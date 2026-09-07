@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import { parse_surface_metadata, resolve_surface, surface_statistics, surface_document, surface_csv, surface_function, surface_color, surface_position, surface_range, surface_render_indices, type SurfaceMetadata } from '../src/surface-analysis.ts'
+import { parse_surface_log, SURFACE_LOG_LIMIT } from '../src/surface-log.ts'
 
 const metadata = (): SurfaceMetadata => ({ version: 1, coordinateUnit: 'bohr', vertices: 1, facets: 2, extrema: 3, surfaceType: 1, mappedFunction: 1, mapped: true, isovalue: .001, volume: 10, massDensity: .8, bohrToAngstrom: .529177210903, hartreeToKcal: 627.509474, hartreeToEv: 27.211386 })
 const arrays = () => [
@@ -103,4 +104,62 @@ test('surface view masks only volume meshes, retaining bonds, controls and the s
   assert.match(scene, /Isosurface rendering[\s\S]*?<T.Group visible=\{!topology_view && !surface_view\}>/)
   assert.match(scene, /<T.Group visible=\{!topology_view\}>/)
   assert.doesNotMatch(scene, /\{#if !surface_view/)
+})
+
+test('unknown metadata retains geometry without inventing mapping, volume or mass density', async () => {
+  const m: SurfaceMetadata = { ...metadata(), surfaceType: null, mappedFunction: null, mapped: null, volume: null, massDensity: null, extrema: 0, metadataSource: 'unconfirmed' }
+  const a = arrays(); a[0].y.fill(0); a[1].z.fill(0)
+  const r = await resolve_surface(m, async (id) => a[id - 1])
+  const doc = JSON.parse(surface_document(r))
+  assert.deepEqual(doc.statistics, { area: 10 })
+  assert.equal(doc.volume, null); assert.equal(doc.massDensity, null)
+  assert.equal(surface_function(m).esp, false)
+  assert.equal(surface_function(m).name, 'Mapping not confirmed')
+  assert.equal(r.extremeId.length, 0)
+  assert.throws(() => parse_surface_metadata({ ...m, mapped: true }))
+  assert.throws(() => parse_surface_metadata({ ...m, surfaceType: 99 }))
+  assert.throws(() => parse_surface_metadata({ ...m, mappedFunction: 99 }))
+})
+
+const summary = (volume = '12.34567', density = '0.8123', area = '10.00000') => `
+================= Summary of surface analysis =================
+Volume: ${volume} Bohr^3 ( 1.82938 Angstrom^3)
+Estimated density according to mass and volume (M/V): ${density} g/cm^3
+Overall surface area: ${area} Bohr^2 ( 2.80029 Angstrom^2)
+---------- Post-processing menu ----------
+`
+test('log import supplements only printed metadata and checks the current mesh area', async () => {
+  const r = await fixture(), snapshot = surface_document(r)
+  assert.deepEqual(parse_surface_log(summary(), r), { volume: 12.34567, massDensity: .8123 })
+  assert.deepEqual(parse_surface_log(summary('1.23D+1'), r), { volume: 12.3, massDensity: .8123 })
+  assert.equal(surface_document(r), snapshot)
+  const partial = summary().replace(/^Estimated density.*\n/m, '')
+  assert.deepEqual(parse_surface_log(partial, r), { volume: 12.34567, massDensity: null })
+  assert.deepEqual(parse_surface_log(summary('9') + summary('8'), r), { volume: 8, massDensity: .8123 })
+})
+test('bad, mismatched, ambiguous or truncated last log summaries leave data untouched', async () => {
+  const r = await fixture()
+  for (const text of [summary('NaN'), summary('Infinity'), summary('*****'), summary('-1'), summary('1e999'),
+    summary('1', '0.8', '99'), summary().replace('Bohr^2', 'Angstrom^2'),
+    summary() + '\n===== Summary of surface analysis =====\nVolume: 4 Bohr^3\n',
+    summary().replace('----------', 'Volume: 1 Bohr^3\n----------'),
+    'unrelated output', 'binary\x00', 'x'.repeat(SURFACE_LOG_LIMIT + 1)]) {
+    assert.throws(() => parse_surface_log(text, r))
+  }
+})
+test('surface confirmation and log import are guarded against stale structural sessions', async () => {
+  const app = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8')
+  const confirmation = app.split('const confirm_surface =')[1].split('const import_surface_log =')[0]
+  assert.equal((confirmation.match(/generation !== topologyGeneration \|\| geometry !== geometryKey/g) ?? []).length, 2)
+  assert.match(confirmation, /\/api\/surface/)
+  assert.doesNotMatch(confirmation, /\/api\/esp|\/api\/orbital|new Worker/)
+  const log = app.split('const import_surface_log =')[1].split('const clear_surface_log =')[0]
+  assert.match(log, /surfaceResult !== original/)
+  assert.match(log, /source: 'log'.*precision: 'printed'/)
+  const panel = await readFile(new URL('../src/SurfaceAnalysisPanel.svelte', import.meta.url), 'utf8')
+  assert.match(panel, /Mapping calculation completed/)
+  assert.match(panel, /fieldset disabled=\{busy\}/)
+  const overlay = await readFile(new URL('../src/SurfaceAnalysisOverlay.svelte', import.meta.url), 'utf8')
+  assert.match(overlay, /coordinates = \$derived\(result.xyz\)/)
+  assert.match(overlay, /current = untrack\(\(\) => result\)/)
 })

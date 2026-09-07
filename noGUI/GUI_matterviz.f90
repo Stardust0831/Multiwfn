@@ -29,6 +29,7 @@ integer(c_int64_t) :: gui_topology_id=0
 logical :: gui_topology_transaction=.false.
 type(surface_data) :: gui_surface
 integer(c_int64_t) :: gui_surface_ids(3)=0
+logical :: gui_surface_session=.false.
 #endif
 
 type :: matterviz_json_sink
@@ -227,24 +228,21 @@ GUI_mode=4
 call launch_matterviz_gui("drawmoltopogui",4,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
-subroutine drawsurfanalysis(surface_type,mapped_function,skip_mapping,surface_volume)
-integer,intent(in),optional :: surface_type,mapped_function,skip_mapping
-real*8,intent(in),optional :: surface_volume
+subroutine drawsurfanalysis
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 character(len=160) :: message
-gui_surface=surface_data()
-if (present(surface_type).and.present(mapped_function).and.present(skip_mapping).and.present(surface_volume)) then
-    call capture_surface(gui_surface,surface_type,mapped_function,skip_mapping,surface_volume,message)
-    if (len_trim(message)/=0) then
-        write(*,'(a)') trim(message)
-        return
-    end if
+call capture_surface(gui_surface,.false.,message)
+if (len_trim(message)/=0) then
+    write(*,'(a)') trim(message)
+    return
 end if
+gui_surface_session=.true.
 #endif
 GUI_mode=5
 call launch_matterviz_gui("drawsurfanalysis",5,0,0D0,0D0,0D0,0D0,0D0,0D0)
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 gui_surface=surface_data()
+gui_surface_session=.false.
 #endif
 end subroutine
 
@@ -1072,6 +1070,8 @@ do
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
     else if (istat==0.and.trim(action)=="topology") then
         call handle_topology_request(sink,command)
+    else if (istat==0.and.trim(action)=="surface") then
+        call handle_surface_request(sink,command)
 #endif
     else
         call write_gui_json_error(sink,"Unknown GUI request")
@@ -1164,9 +1164,7 @@ if (status==0.and.trim(entry)=="drawmoltopogui") then
 end if
 if (status==0.and.trim(entry)=='drawsurfanalysis'.and.allocated(gui_surface%xyz)) then
     call publish_surface(status)
-    deallocate(gui_surface%xyz,gui_surface%values,gui_surface%vertex_ids,gui_surface%indices, &
-        gui_surface%areas,gui_surface%facet_values,gui_surface%facet_ids,gui_surface%extreme_vertex, &
-        gui_surface%extreme_kind,gui_surface%extreme_id)
+    call release_surface_snapshot()
 end if
 #endif
 end subroutine
@@ -2729,12 +2727,57 @@ call emit_matterviz_json(sink,line)
 end subroutine
 
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
+subroutine release_surface_snapshot()
+if (.not.allocated(gui_surface%xyz)) return
+deallocate(gui_surface%xyz,gui_surface%values,gui_surface%vertex_ids,gui_surface%indices, &
+    gui_surface%areas,gui_surface%facet_values,gui_surface%facet_ids,gui_surface%extreme_vertex, &
+    gui_surface%extreme_kind,gui_surface%extreme_id)
+end subroutine
+
+subroutine handle_surface_request(sink,command)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=*),intent(in) :: command
+character(len=32) :: action
+character(len=160) :: message
+integer :: surface_type,mapped_function,mapped,status
+integer(c_int64_t) :: previous_ids(3)
+type(surface_data) :: previous
+if (.not.gui_surface_session) then
+    call write_gui_json_error(sink,'No live quantitative surface result is available');return
+end if
+read(command,*,iostat=status) action,surface_type,mapped_function,mapped
+if (status/=0) then
+    call write_gui_json_error(sink,'Malformed surface confirmation');return
+end if
+if (.not.any(surface_type==[1,2,5,6,10]).or..not.any(mapped==[0,1]).or. &
+    .not.any(mapped_function==[-4,-1,0,1,2,3,4,5,6,10,11,12,20,21,22])) then
+    call write_gui_json_error(sink,'Unsupported surface or mapped function type');return
+end if
+previous=gui_surface;previous_ids=gui_surface_ids
+call capture_surface(gui_surface,mapped==1,message)
+if (len_trim(message)/=0) then
+    gui_surface=previous
+    call write_gui_json_error(sink,trim(message));return
+end if
+gui_surface%surface_type=surface_type;gui_surface%mapped_function=mapped_function
+gui_surface%confirmed=.true.
+call publish_surface(status)
+call release_surface_snapshot()
+if (status/=0) then
+    gui_surface=previous;gui_surface_ids=previous_ids
+    call write_gui_json_error(sink,'Unable to publish the confirmed surface data');return
+end if
+call emit_matterviz_json(sink,'{')
+call emit_surface(sink)
+call emit_matterviz_json(sink,'"ok":true}')
+end subroutine
+
 subroutine publish_surface(status)
 integer,intent(out) :: status
 integer(c_int32_t) :: roles(5)
 integer(c_int64_t) :: counts(5)
 real(c_double) :: dummy(1)
-dummy=0;roles=[1,2,3,4,0];counts=0
+dummy=0;roles=[1,2,3,4,0];counts=0;gui_surface_ids=0
 gui_volume_serial=gui_volume_serial+1;gui_surface_ids(1)=gui_volume_serial
 counts(1)=size(gui_surface%xyz);counts(2:3)=size(gui_surface%values)
 status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,gui_surface_ids(1), &
@@ -2761,11 +2804,16 @@ call emit_matterviz_json(sink,'  "surfaceAnalysis": {"version":1,"coordinateUnit
 write(line,'(a,3(i0,a))') '"vertices":',gui_surface_ids(1),',"facets":',gui_surface_ids(2), &
     ',"extrema":',gui_surface_ids(3),','
 call emit_matterviz_json(sink,line)
-write(line,'(a,2(i0,a),a,a)') '"surfaceType":',gui_surface%surface_type,',"mappedFunction":', &
-    gui_surface%mapped_function,',"mapped":',trim(json_bool(gui_surface%mapped)),','
-call emit_matterviz_json(sink,line)
-write(line,'(a,3(es25.17e3,a))') '"isovalue":',gui_surface%isovalue,',"volume":',gui_surface%volume, &
-    ',"massDensity":',gui_surface%mass_density,','
+if (gui_surface%confirmed) then
+    write(line,'(a,2(i0,a),a,a)') '"surfaceType":',gui_surface%surface_type,',"mappedFunction":', &
+        gui_surface%mapped_function,',"mapped":',trim(json_bool(gui_surface%mapped)),','
+    call emit_matterviz_json(sink,line)
+    call emit_matterviz_json(sink,'"metadataSource":"user",')
+else
+    call emit_matterviz_json(sink,'"surfaceType":null,"mappedFunction":null,"mapped":null,"metadataSource":"unconfirmed",')
+end if
+call emit_matterviz_json(sink,'"volume":null,"massDensity":null,')
+write(line,'(a,es25.17e3,a)') '"isovalue":',gui_surface%isovalue,','
 call emit_matterviz_json(sink,line)
 write(line,'(a,3(es25.17e3,a))') '"bohrToAngstrom":',gui_surface%bohr,',"hartreeToKcal":',gui_surface%kcal, &
     ',"hartreeToEv":',gui_surface%ev,'},'

@@ -2,9 +2,9 @@
 
 This is an experimental MatterViz frontend developed independently from the legacy 3Dmol.js
 implementation.
-It consumes the Multiwfn session manifest and serialized backend API. Scientific
-calculation formulas remain unchanged; the surface-results display call passes
-read-only provenance and volume metadata to the GUI adapter.
+It consumes the Multiwfn session manifest and serialized backend API. Protected
+core sources are unchanged relative to the main-branch baseline. Data capture and
+user-confirmed metadata live entirely in the GUI adapters and frontend.
 
 The frontend consumes the reproducible prebuilt package
 `matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz` in `vendor/`. The r25 baseline applies the
@@ -90,11 +90,20 @@ MULTIWFN_TOPOLOGY_FIXTURE=/path/to/input.fchk python3 -m unittest tests/test_mat
 
 Run original main function **12**, configure and finish the analysis, then choose
 post-processing **0**. The native workbench displays the original improved
-marching-tetrahedra surface, mapped values, and retained local extrema, rather than
+marching-tetrahedra surface, rather than
 re-extracting a cube or substituting the approximate ESP preview. Tools includes
 **Quantitative surface results...**, disabled with a reason when no original result
 has been published. This is a results viewer, not a new noninteractive surface
 calculation API. Post-processing -3 retains its original grid-isosurface behavior.
+
+The first view is geometry-only: the original zero-argument `drawsurfanalysis`
+entry does not expose the surface type, mapped function or mapping-completion
+flag. Confirm **Result types** in the panel, including whether mapping was
+actually calculated. Only that explicit confirmation reads the existing mapped
+values and retained extrema. Selecting **None (geometry only)** never reads
+uninitialized mapped values or stale extrema. The adapter cannot independently
+verify a user's claim that mapping was calculated; confirm the actual CLI options.
+No calculation, terminal-input interception or generated core-source patch is used.
 
 The result panel provides opacity, wireframe, surface/extrema visibility, fit,
 extreme selection, and statistics. Values use the original facet-area weights and
@@ -102,13 +111,30 @@ Multiwfn conversion constants. Total variance follows the original sum of positi
 and negative regional variances, not a pooled variance. Undefined one-sign/constant
 statistics display N/A. ESP includes charge balance, separation, MPI and the
 original 10 kcal/mol polar/nonpolar threshold. Unmapped analyses expose only
-geometry, volume, mass density and area. Unknown/custom mapped functions retain
+geometry and area. Unknown/custom mapped functions retain
 native units; the adapter does not guess an energy unit from numeric values.
 
+Volume and mass density initially display N/A, not zero or a mesh-derived
+substitute. **Import statistics log** accepts a user-selected original Multiwfn
+text log (up to 8 MiB). It imports the last surface summary's printed volume in
+Bohr^3 and mass density in g/cm^3, after checking the printed area against the
+current mesh. An area match is a consistency check, not proof of dataset identity;
+the user must choose the corresponding run. JSON records the filename and printed
+precision. Missing statistics remain null; imported values can be cleared. Log
+imports never replace the mesh, mapped data, extrema or facet-weighted statistics.
+The log and its association are page-local and must be reimported after refresh.
+
 Manifest version 2 adds optional `surfaceAnalysis` version 1 with three independent
-binary dataset IDs, original function/surface types, volume (Bohr^3), isovalue,
-mass density and unit conversions. Arrays use the existing authenticated MWFNP2D
-channel, without a new HTTP or command protocol:
+binary dataset IDs, nullable function/surface types, nullable volume (Bohr^3) and
+mass density, original isovalue and unit conversions. `metadataSource` distinguishes
+unconfirmed types from user confirmation; older fully specified results still load.
+Authenticated `GET /api/surface?surfaceType=1&mappedFunction=1` confirms ESP, while
+`mappedFunction=none` confirms geometry-only. This sends a bounded read-only
+`surface` command over the existing serialized channel, never into the scientific
+core. It is available only while the original surface session is live. Successful
+replacement retires the previous surface datasets; failures discard partial new
+datasets without deleting other plots/topology. The refreshed manifest retains the
+confirmed types and dataset IDs. Arrays use the existing authenticated MWFNP2D channel:
 
 - Vertices: x = interleaved xyz (Bohr), y = mapped values, z = original vertex IDs.
 - Facets: x = interleaved zero-based compact vertex indices, y = original areas
@@ -150,9 +176,15 @@ and 20,000 transitions/dataset. Inputs remain in the current page's memory, not 
 the original files or on the server. Invalid imports leave the existing results
 untouched. Use Open plot for saved self-contained Multiwfn plot JSON; already
 computed curves are not broadened a second time. Original main function 11 still
-supports its existing input formats and controls. Its four spectrum window titles
-now carry explicit semantic names so Tools can reopen those results, including
-multi-panel plots, without guessing scientific meaning from axis labels.
+supports its existing input formats, titles and controls. Captured plots without
+an explicit spectrum kind initially remain general 2D results. Their **Plot type**
+selector allows explicit user confirmation as UV-Vis, IR, Raman or NMR, enabling
+the corresponding Tools entry. Confirmation changes only the semantic category;
+curves, axes, units and datasets remain unchanged, without re-broadening or a
+backend request. The selection can be corrected or reset to unspecified, and is
+included in saved plot documents. No type is guessed from ambiguous/custom axis
+labels. Direct spectrum imports and documents already carrying explicit kinds
+enable their Tools entries automatically.
 
 The compact spectrum toolbar offers datasets, curve/sticks/both, Lorentzian or
 Gaussian FWHM, frequency scaling, and optional peak labels. Stick exports retain

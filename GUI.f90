@@ -754,9 +754,7 @@ end subroutine
 
 
 !!----------------- A GUI for drawing molecule and surface minima and maxima for quantitative surface analysis
-subroutine drawsurfanalysis(surface_type,mapped_function,skip_mapping,surface_volume)
-integer,intent(in),optional :: surface_type,mapped_function,skip_mapping
-real*8,intent(in),optional :: surface_volume
+subroutine drawsurfanalysis
 GUI_mode=5
 isavepic=0
 CALL swgtit('Molecular structure, surface minima and maxima')

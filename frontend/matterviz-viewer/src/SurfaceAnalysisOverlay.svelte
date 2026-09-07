@@ -9,8 +9,10 @@
   let surface: Mesh<BufferGeometry, MeshStandardMaterial> | undefined
   let markers: InstancedMesh<SphereGeometry, MeshBasicMaterial> | undefined
   let revision = $state(0)
+  const coordinates = $derived(result.xyz)
   $effect(() => {
-    const current = result
+    void coordinates
+    const current = untrack(() => result)
     const geometry = new BufferGeometry()
     geometry.setAttribute('position', new BufferAttribute(Float32Array.from(current.xyz, (n) => n * current.metadata.bohrToAngstrom), 3))
     geometry.setIndex(new BufferAttribute(surface_render_indices(current), 1))
@@ -25,7 +27,7 @@
     markers.renderOrder = 30; group.add(markers)
     untrack(() => revision++)
     invalidate()
-    const frame = requestAnimationFrame(onready)
+    const frame = requestAnimationFrame(() => onready())
     return () => { cancelAnimationFrame(frame); group.clear(); geometry.dispose(); material.dispose(); markerGeometry.dispose(); markerMaterial.dispose(); surface = undefined; markers = undefined }
   })
   $effect(() => {

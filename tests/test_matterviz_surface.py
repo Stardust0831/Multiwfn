@@ -27,13 +27,19 @@ class SurfaceIntegration(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("SURFACE_HARNESS_OK", result.stdout)
 
-    def test_core_bridge_only_adds_read_only_arguments(self):
+    def test_original_zero_argument_boundary_and_explicit_mapping_confirmation(self):
         source = (ROOT / "surfana.f90").read_bytes()
-        self.assertEqual(source.count(b"call drawsurfanalysis(isurftype,imapfunc,iskipmapfunc,totvol)"), 1)
+        self.assertEqual(source.count(b"call drawsurfanalysis\n"), 1)
+        self.assertNotIn(b"call drawsurfanalysis(", source)
         for path in ["GUI.f90", "noGUI/GUI_empty.f90", "noGUI/GUI_matterviz.f90"]:
             text = (ROOT / path).read_text()
-            self.assertIn("subroutine drawsurfanalysis(surface_type,mapped_function,skip_mapping,surface_volume)", text)
-            self.assertIn("integer,intent(in),optional :: surface_type,mapped_function,skip_mapping", text)
+            self.assertIn("subroutine drawsurfanalysis\n", text)
+        gui = (ROOT / "noGUI/GUI_matterviz.f90").read_text()
+        initial = gui.split("subroutine drawsurfanalysis\n", 1)[1].split("end subroutine", 1)[0]
+        self.assertIn("capture_surface(gui_surface,.false.,message)", initial)
+        self.assertIn('"volume":null,"massDensity":null', gui)
+        self.assertIn('"metadataSource":"unconfirmed"', gui)
+        self.assertIn("capture_surface(gui_surface,mapped==1,message)", gui)
 
 
 if __name__ == "__main__":

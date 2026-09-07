@@ -85,6 +85,8 @@ button, input, select { font: inherit; }
 .result-stage > .workspace, .result-document { position: absolute; inset: 0; }
 .result-document { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; }
 .result-plot { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.plot-type-confirmation { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.plot-type-confirmation select { min-width: 0; max-width: 100%; }
 .result-stage > .inactive { visibility: hidden; opacity: 0; pointer-events: none; }
 .workbench-menu { position: fixed; z-index: 80; width: min(320px, calc(100vw - 16px)); padding: 8px; overflow: auto; border: 1px solid #b9c2ce; border-radius: 6px; background: #fff; box-shadow: 0 6px 20px rgb(23 32 42 / 16%); }
 .workbench-menu > button { display: flex; align-items: center; gap: 6px; width: 100%; height: auto; min-height: 32px; padding: 6px 8px; text-align: left; border-color: transparent; }

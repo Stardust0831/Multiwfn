@@ -184,6 +184,35 @@ pub fn prepare_esp_request(query: &[(String, String)]) -> Result<String, String>
     Ok(format!("esp {quality} {}", significant(isovalue)))
 }
 
+pub fn prepare_surface_request(query: &[(String, String)]) -> Result<String, String> {
+    let names = ["surfaceType", "mappedFunction"];
+    for (index, (name, _)) in query.iter().enumerate() {
+        if name == "cap" {
+            continue;
+        }
+        if !names.contains(&name.as_str()) || query[..index].iter().any(|(key, _)| key == name) {
+            return Err("Unknown or duplicate surface confirmation parameter".into());
+        }
+    }
+    let surface = scalar_or_default(query, "surfaceType", "")
+        .parse::<i32>()
+        .map_err(|_| "Confirm the surface type".to_owned())?;
+    if ![1, 2, 5, 6, 10].contains(&surface) {
+        return Err("Unsupported surface type".into());
+    }
+    let mapping = scalar_or_default(query, "mappedFunction", "");
+    if mapping == "none" {
+        return Ok(format!("surface {surface} 0 0"));
+    }
+    let mapping = mapping
+        .parse::<i32>()
+        .map_err(|_| "Confirm whether mapped values were calculated".to_owned())?;
+    if ![-4, -1, 0, 1, 2, 3, 4, 5, 6, 10, 11, 12, 20, 21, 22].contains(&mapping) {
+        return Err("Unsupported mapped function".into());
+    }
+    Ok(format!("surface {surface} {mapping} 1"))
+}
+
 pub fn prepare_topology_request(query: &[(String, String)]) -> Result<String, String> {
     let names = [
         "seeds",
@@ -235,6 +264,44 @@ pub fn prepare_topology_request(query: &[(String, String)]) -> Result<String, St
 #[cfg(test)]
 mod topology_tests {
     use super::prepare_topology_request;
+    #[test]
+    fn surface_confirmation_requires_explicit_whitelisted_types() {
+        use super::prepare_surface_request;
+        let valid = vec![
+            ("surfaceType".into(), "1".into()),
+            ("mappedFunction".into(), "1".into()),
+        ];
+        assert_eq!(prepare_surface_request(&valid).unwrap(), "surface 1 1 1");
+        assert_eq!(
+            prepare_surface_request(&[
+                ("surfaceType".into(), "10".into()),
+                ("mappedFunction".into(), "none".into())
+            ])
+            .unwrap(),
+            "surface 10 0 0"
+        );
+        assert!(prepare_surface_request(&[]).is_err());
+        for (key, value) in [
+            ("surfaceType", "99"),
+            ("surfaceType", "NaN"),
+            ("surfaceType", "1.0"),
+            ("mappedFunction", ""),
+            ("mappedFunction", "1\nreturn"),
+            ("mappedFunction", "99"),
+            ("volume", "12"),
+        ] {
+            let mut query = valid.clone();
+            if let Some(entry) = query.iter_mut().find(|(name, _)| name == key) {
+                entry.1 = value.into()
+            } else {
+                query.push((key.into(), value.into()))
+            }
+            assert!(prepare_surface_request(&query).is_err(), "{key}={value}");
+        }
+        let mut duplicated = valid;
+        duplicated.push(("surfaceType".into(), "1".into()));
+        assert!(prepare_surface_request(&duplicated).is_err());
+    }
     #[test]
     fn validates_bounded_finite_aim_parameters() {
         assert_eq!(

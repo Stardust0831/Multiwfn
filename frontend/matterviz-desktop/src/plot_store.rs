@@ -32,6 +32,7 @@ struct State {
     bytes: usize,
     topology_id: Option<u64>,
     topology: Option<Value>,
+    surface: Option<Value>,
 }
 
 pub struct PlotStore {
@@ -57,6 +58,7 @@ impl PlotStore {
                 bytes: 0,
                 topology_id: None,
                 topology: None,
+                surface: None,
             }),
             max_bytes,
         }
@@ -103,6 +105,7 @@ impl PlotStore {
         state.bytes = 0;
         state.topology_id = None;
         state.topology = None;
+        state.surface = None;
     }
 
     pub fn ids(&self) -> Vec<u64> {
@@ -144,6 +147,53 @@ impl PlotStore {
 
     pub fn set_initial_topology(&self, id: u64) {
         self.state.lock().expect("plot store lock").topology_id = (id != 0).then_some(id);
+    }
+
+    pub fn set_initial_surface(&self, surface: &Value) {
+        self.state.lock().expect("plot store lock").surface = Some(surface.clone());
+    }
+
+    pub fn surface_metadata(&self) -> Option<Value> {
+        self.state.lock().expect("plot store lock").surface.clone()
+    }
+
+    /// Retire only the previous surface datasets, or discard a failed partial publication.
+    pub fn finish_surface(&self, before: &[u64], surface: Option<&Value>) -> bool {
+        let ids = |value: &Value| -> Vec<u64> {
+            ["vertices", "facets", "extrema"]
+                .iter()
+                .filter_map(|key| value.get(key).and_then(Value::as_u64))
+                .filter(|id| *id != 0)
+                .collect()
+        };
+        let mut state = self.state.lock().expect("plot store lock");
+        let surface = surface.filter(|value| {
+            let all: Option<Vec<u64>> = ["vertices", "facets", "extrema"]
+                .iter()
+                .map(|key| value.get(key).and_then(Value::as_u64))
+                .collect();
+            all.is_some_and(|all| {
+                all[0] > 0
+                    && all[1] > 0
+                    && all[0] != all[1]
+                    && (all[2] == 0 || (all[2] != all[0] && all[2] != all[1]))
+                    && all
+                        .iter()
+                        .filter(|id| **id != 0)
+                        .all(|id| state.entries.contains_key(id) && !before.contains(id))
+            })
+        });
+        let previous = state.surface.as_ref().map(ids).unwrap_or_default();
+        let accepted = surface.map(ids).unwrap_or_default();
+        state.entries.retain(|id, _| {
+            accepted.contains(id)
+                || (before.contains(id) && (surface.is_none() || !previous.contains(id)))
+        });
+        state.bytes = state.entries.values().map(|entry| entry.frame.len()).sum();
+        if let Some(surface) = surface {
+            state.surface = Some(surface.clone());
+        }
+        surface.is_some()
     }
     pub fn len(&self) -> usize {
         self.state.lock().expect("plot store lock").entries.len()
@@ -192,6 +242,53 @@ mod tests {
         store.finish_topology(&store.ids(), Some(&serde_json::json!({"datasetId": 0})));
         assert_eq!(store.ids(), vec![1]);
         assert_eq!(store.bytes(), frame(1).len());
+    }
+
+    #[test]
+    fn surface_replacement_failure_and_refresh_keep_other_datasets() {
+        let store = PlotStore::new();
+        for id in 1..=5 {
+            store.insert(frame(id)).unwrap();
+        }
+        let original =
+            serde_json::json!({"vertices": 2, "facets": 3, "extrema": 4, "mapped": null});
+        store.set_initial_surface(&original);
+        let before = store.ids();
+        store.insert(frame(6)).unwrap();
+        store.finish_surface(&before, None);
+        assert!(store.get(6).is_none());
+        assert_eq!(store.surface_metadata().unwrap(), original);
+        store.insert(frame(6)).unwrap();
+        assert!(!store.finish_surface(
+            &before,
+            Some(&serde_json::json!({"vertices":6,"facets":99,"extrema":0}))
+        ));
+        assert!(store.get(6).is_none());
+        assert_eq!(store.surface_metadata().unwrap(), original);
+        for id in 6..=8 {
+            store.insert(frame(id)).unwrap();
+        }
+        let confirmed =
+            serde_json::json!({"vertices": 6, "facets": 7, "extrema": 8, "mapped": true});
+        store.finish_surface(&before, Some(&confirmed));
+        for id in [1, 5, 6, 7, 8] {
+            assert!(store.get(id).is_some());
+        }
+        for id in [2, 3, 4] {
+            assert!(store.get(id).is_none());
+        }
+        assert_eq!(store.surface_metadata().unwrap(), confirmed);
+        let before = store.ids();
+        store.insert(frame(9)).unwrap();
+        store.insert(frame(10)).unwrap();
+        store.finish_surface(
+            &before,
+            Some(&serde_json::json!({"vertices": 9, "facets": 10, "extrema": 0, "mapped": false})),
+        );
+        assert!(store.get(8).is_none());
+        assert_eq!(store.len(), 4);
+        store.clear();
+        assert!(store.surface_metadata().is_none());
     }
 
     #[test]

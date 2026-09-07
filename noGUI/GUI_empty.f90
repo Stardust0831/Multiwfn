@@ -23,9 +23,7 @@ end subroutine
 subroutine drawmoltopogui
 end subroutine
 
-subroutine drawsurfanalysis(surface_type,mapped_function,skip_mapping,surface_volume)
-integer,intent(in),optional :: surface_type,mapped_function,skip_mapping
-real*8,intent(in),optional :: surface_volume
+subroutine drawsurfanalysis
 end subroutine
 
 subroutine drawbasinintgui

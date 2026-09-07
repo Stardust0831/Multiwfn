@@ -31,6 +31,11 @@ export const spectrum_kind = (artifact: PlotArtifact | PlotScene): SpectrumKind 
   return SPECTRUM_KINDS.includes(kind as SpectrumKind) ? kind as SpectrumKind : undefined
 }
 
+export const confirm_spectrum_kind = (scene: PlotScene, kind: string): PlotScene => {
+  if (kind !== '' && !SPECTRUM_KINDS.includes(kind as SpectrumKind)) throw new Error('Unsupported spectrum type')
+  return { ...scene, semanticKind: kind || undefined }
+}
+
 const last_section = (lines: string[], pattern: RegExp): string[] => {
   for (let i = lines.length - 1; i >= 0; i--) if (pattern.test(lines[i])) return lines.slice(i + 1)
   return []

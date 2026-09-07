@@ -2,9 +2,14 @@ import type { PlotDataset, PlotDatasetResolver } from './plot'
 
 export type SurfaceMetadata = {
   version: 1; coordinateUnit: 'bohr'; vertices: number; facets: number; extrema: number
-  surfaceType: number; mappedFunction: number; mapped: boolean; isovalue: number; volume: number
-  massDensity: number; bohrToAngstrom: number; hartreeToKcal: number; hartreeToEv: number
+  surfaceType: number | null; mappedFunction: number | null; mapped: boolean | null; isovalue: number; volume: number | null
+  massDensity: number | null; bohrToAngstrom: number; hartreeToKcal: number; hartreeToEv: number
+  metadataSource?: 'unconfirmed' | 'user'
+  statisticsSource?: { source: 'log'; filename: string; precision: 'printed' }
 }
+export const SURFACE_TYPES: Record<number, string> = { 1: 'Electron-density surface', 2: 'Real-space function surface', 5: 'Hirshfeld surface', 6: 'Becke surface', 10: 'Grid isosurface' }
+export const SURFACE_FUNCTIONS: Record<number, string> = { '-1': 'User-defined function', 0: 'External mapped values', 1: 'Electrostatic potential', 2: 'Average local ionization energy', 3: 'ESP from atomic charges', 4: 'Local electron affinity', '-4': 'Local electron attachment energy', 5: 'Electron delocalization range', 6: 'Orbital overlap distance', 10: 'Pair density', 11: 'Electron density', 12: 'Sign(lambda2) rho', 20: 'd_i', 21: 'd_e', 22: 'd_norm' }
+export type SurfaceConfirmation = { surfaceType: number; mappedFunction: number | null }
 export type SurfaceResult = {
   metadata: SurfaceMetadata; xyz: Float64Array; values: Float64Array; vertexIds: Float64Array
   indices: Float64Array; areas: Float64Array; facetValues: Float64Array; facetIds: Float64Array
@@ -17,12 +22,17 @@ const integers = (values: Float64Array, min: number, max = Number.MAX_SAFE_INTEG
 export const parse_surface_metadata = (value: unknown): SurfaceMetadata => {
   if (!value || typeof value !== 'object') invalid()
   const m = value as SurfaceMetadata
-  if (m.version !== 1 || m.coordinateUnit !== 'bohr' || typeof m.mapped !== 'boolean'
+  if (m.version !== 1 || m.coordinateUnit !== 'bohr' || (m.mapped !== null && typeof m.mapped !== 'boolean')
     || ![m.vertices, m.facets].every((id) => Number.isSafeInteger(id) && id > 0)
     || !Number.isSafeInteger(m.extrema) || m.extrema < 0 || new Set([m.vertices, m.facets, m.extrema]).size !== 3
-    || !Number.isInteger(m.surfaceType) || !Number.isInteger(m.mappedFunction)
-    || ![m.isovalue, m.massDensity].every(Number.isFinite) || m.massDensity < 0
-    || ![m.volume, m.bohrToAngstrom, m.hartreeToKcal, m.hartreeToEv].every((n) => Number.isFinite(n) && n > 0)) invalid()
+    || (m.surfaceType !== null && (!Number.isInteger(m.surfaceType) || !(m.surfaceType in SURFACE_TYPES)))
+    || (m.mappedFunction !== null && (!Number.isInteger(m.mappedFunction) || !(m.mappedFunction in SURFACE_FUNCTIONS)))
+    || (m.mapped === true && m.mappedFunction === null)
+    || !Number.isFinite(m.isovalue)
+    || (m.massDensity !== null && (!Number.isFinite(m.massDensity) || m.massDensity < 0))
+    || (m.volume !== null && (!Number.isFinite(m.volume) || m.volume <= 0))
+    || ![m.bohrToAngstrom, m.hartreeToKcal, m.hartreeToEv].every((n) => Number.isFinite(n) && n > 0)
+    || (m.metadataSource !== undefined && !['unconfirmed', 'user'].includes(m.metadataSource))) invalid()
   return m
 }
 export const resolve_surface = async (value: unknown, resolver: PlotDatasetResolver): Promise<SurfaceResult> => {
@@ -50,10 +60,9 @@ export const resolve_surface = async (value: unknown, resolver: PlotDatasetResol
   return result
 }
 export const surface_function = (m: SurfaceMetadata) => {
-  const esp = [1, 3].includes(m.mappedFunction)
-  const energy = [2, 4, -4].includes(m.mappedFunction)
-  const names: Record<number, string> = { '-1': 'User-defined function', 0: 'External mapped values', 1: 'Electrostatic potential', 2: 'Average local ionization energy', 3: 'ESP from atomic charges', 4: 'Local electron affinity', '-4': 'Local electron attachment energy', 5: 'Electron delocalization range', 6: 'Orbital overlap distance', 10: 'Pair density', 11: 'Electron density', 12: 'Sign(lambda2) rho', 20: 'd_i', 21: 'd_e', 22: 'd_norm' }
-  return { name: m.mapped ? names[m.mappedFunction] || `Mapped function ${m.mappedFunction}` : 'Unmapped surface',
+  const esp = m.mapped === true && m.mappedFunction !== null && [1, 3].includes(m.mappedFunction)
+  const energy = m.mapped === true && m.mappedFunction !== null && [2, 4, -4].includes(m.mappedFunction)
+  return { name: m.mapped === null ? 'Mapping not confirmed' : m.mapped && m.mappedFunction !== null ? SURFACE_FUNCTIONS[m.mappedFunction] : 'Unmapped surface',
     esp, scale: esp ? m.hartreeToKcal : energy ? m.hartreeToEv : 1, unit: esp ? 'kcal/mol/e' : energy ? 'eV' : 'native units' }
 }
 export const surface_position = (r: SurfaceResult, vertex: number): [number, number, number] =>

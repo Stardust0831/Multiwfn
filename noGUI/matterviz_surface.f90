@@ -7,19 +7,19 @@ private
 public :: surface_data,capture_surface
 type surface_data
     integer :: surface_type=0,mapped_function=0
-    logical :: mapped=.false.
-    real(c_double) :: isovalue=0,volume=0,mass_density=0,bohr=0,kcal=0,ev=0
+    logical :: mapped=.false.,confirmed=.false.
+    real(c_double) :: isovalue=0,bohr=0,kcal=0,ev=0
     real(c_double),allocatable :: xyz(:),values(:),vertex_ids(:)
     real(c_double),allocatable :: indices(:),areas(:),facet_values(:),facet_ids(:)
     real(c_double),allocatable :: extreme_vertex(:),extreme_kind(:),extreme_id(:)
 end type
 contains
-subroutine capture_surface(data,surface_type,mapped_function,skip_mapping,surface_volume,message)
-use defvar, only: a,ncenter,atmwei,avogacst,b2a,au2kcal,au2ev
+subroutine capture_surface(data,read_mapping,message)
+use defvar, only: b2a,au2kcal,au2ev
 use surfvertex
 type(surface_data),intent(out) :: data
-integer,intent(in) :: surface_type,mapped_function,skip_mapping
-real(c_double),intent(in) :: surface_volume
+! Mapping is read only after explicit user confirmation; an unmapped run leaves it undefined.
+logical,intent(in) :: read_mapping
 character(len=*),intent(out) :: message
 integer,allocatable :: remap(:)
 integer :: nv,nt,ne,status,i,j,k,idx,kind,nlocal
@@ -30,11 +30,10 @@ if (.not.allocated(elimvtx).or..not.allocated(elimtri)) return
 if (nsurvtx<1.or.nsurtri<1) return
 if (nsurvtx>size(survtx).or.nsurvtx>size(elimvtx)) return
 if (nsurtri>size(surtriang).or.nsurtri>size(elimtri)) return
-if (.not.ieee_is_finite(surface_volume).or.surface_volume<=0) return
 if (.not.ieee_is_finite(surfisoval)) return
 nv=count(elimvtx(1:nsurvtx)==0);nt=count(elimtri(1:nsurtri)==0);ne=0
 if (nv==0.or.nt==0) return
-if (skip_mapping==0) then
+if (read_mapping) then
     if (nsurlocmin<0.or.nsurlocmin>size(surlocminidx)) return
     if (nsurlocmax<0.or.nsurlocmax>size(surlocmaxidx)) return
     ne=count(surlocminidx(1:nsurlocmin)/=0)+count(surlocmaxidx(1:nsurlocmax)/=0)
@@ -55,7 +54,7 @@ do i=1,nsurvtx
     j=j+1;remap(i)=j
     data%xyz(3*j-2:3*j)=[survtx(i)%x,survtx(i)%y,survtx(i)%z]
     data%values(j)=0
-    if (skip_mapping==0) data%values(j)=survtx(i)%value
+    if (read_mapping) data%values(j)=survtx(i)%value
     data%vertex_ids(j)=i
 end do
 j=0
@@ -69,10 +68,10 @@ do i=1,nsurtri
         data%indices(3*j-3+k)=remap(idx)-1
     end do
     data%areas(j)=surtriang(i)%area;data%facet_values(j)=0;data%facet_ids(j)=i
-    if (skip_mapping==0) data%facet_values(j)=surtriang(i)%value
+    if (read_mapping) data%facet_values(j)=surtriang(i)%value
 end do
 j=0
-if (skip_mapping==0) then
+if (read_mapping) then
     do kind=-1,1,2
         nlocal=nsurlocmin
         if (kind==1) nlocal=nsurlocmax
@@ -89,10 +88,9 @@ end if
 if (.not.all(ieee_is_finite(data%xyz)).or..not.all(ieee_is_finite(data%values))) goto 900
 if (.not.all(ieee_is_finite(data%areas)).or.any(data%areas<0)) goto 900
 if (.not.all(ieee_is_finite(data%facet_values))) goto 900
-data%surface_type=surface_type;data%mapped_function=mapped_function;data%mapped=skip_mapping==0
-data%isovalue=surfisoval;data%volume=surface_volume
+data%mapped=read_mapping
+data%isovalue=surfisoval
 data%bohr=b2a;data%kcal=au2kcal;data%ev=au2ev
-if (allocated(a).and.ncenter>0) data%mass_density=sum(atmwei(a%index))/avogacst*1D24/(surface_volume*b2a**3)
 message='';return
 900 data=surface_data()
 end subroutine

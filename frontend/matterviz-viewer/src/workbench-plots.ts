@@ -8,6 +8,7 @@ export type WorkbenchPlot = {
   artifact: PlotArtifact | PlotScene
   resolver: PlotDatasetResolver
   native?: boolean
+  spectrumTypeSource?: 'user'
 }
 export const PLOT_FILE_LIMIT = 32 * 1024 * 1024
 export const PLOT_RESULT_LIMIT = 8

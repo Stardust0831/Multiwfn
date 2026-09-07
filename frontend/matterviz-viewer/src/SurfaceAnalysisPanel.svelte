@@ -1,18 +1,32 @@
 <script lang="ts">
   import { Icon } from 'matterviz'
-  import { surface_statistics, surface_function, surface_position, surface_range, type SurfaceResult, type SurfaceDisplay } from './surface-analysis'
-  let { result, display = $bindable(), active = $bindable(false), selection = $bindable(), onclose, onexport, onfit }:
-    { result: SurfaceResult; display: SurfaceDisplay; active: boolean; selection: number | undefined; onclose: () => void; onexport: (format: 'json' | 'csv') => void; onfit: () => void } = $props()
+  import { SURFACE_TYPES, SURFACE_FUNCTIONS, surface_statistics, surface_function, surface_position, surface_range, type SurfaceResult, type SurfaceDisplay, type SurfaceConfirmation } from './surface-analysis'
+  let { result, display = $bindable(), active = $bindable(false), selection = $bindable(), busy = false, onclose, onexport, onfit, onconfirm, onlog, onclearlog }:
+    { result: SurfaceResult; display: SurfaceDisplay; active: boolean; selection: number | undefined; busy?: boolean; onclose: () => void; onexport: (format: 'json' | 'csv') => void; onfit: () => void; onconfirm: (value: SurfaceConfirmation) => void; onlog: (event: Event) => void; onclearlog: () => void } = $props()
   const stats = $derived(surface_statistics(result)), mapped = $derived(surface_function(result.metadata)), range = $derived(surface_range(result))
   const m = $derived(result.metadata), a2 = $derived(m.bohrToAngstrom ** 2)
   const format = (n: number | null, scale = 1) => n === null || !Number.isFinite(n) ? 'N/A' : (n * scale).toLocaleString('en-US', { maximumSignificantDigits: 8 })
-  const surfaceNames: Record<number, string> = { 1: 'Electron-density surface', 2: 'Real-space function surface', 5: 'Hirshfeld surface', 6: 'Becke surface', 10: 'Grid isosurface' }
+  let surfaceType = $state(''), mappedFunction = $state(''), mappingCalculated = $state(false)
+  let logInput: HTMLInputElement
+  $effect(() => {
+    surfaceType = m.surfaceType?.toString() ?? ''
+    mappedFunction = m.mapped === null ? '' : m.mapped === false ? 'none' : m.mappedFunction?.toString() ?? ''
+    mappingCalculated = m.mapped === true
+  })
 </script>
 
 <aside class="surface-analysis-panel" aria-label="Quantitative surface results">
   <header><strong>Quantitative surface</strong><button type="button" title="Close panel" aria-label="Close surface results panel" onclick={onclose}><Icon icon="Cross" width="16" /></button></header>
   <div class="body">
-    <div><strong>{mapped.name}</strong><p>{surfaceNames[m.surfaceType] || 'Molecular surface'} · iso {m.isovalue}</p></div>
+    <div><strong>{mapped.name}</strong><p>{m.surfaceType === null ? 'Surface type not confirmed' : SURFACE_TYPES[m.surfaceType]} · iso {m.isovalue}</p></div>
+    <fieldset disabled={busy}>
+      <legend>Result types</legend>
+      <label>Surface<select aria-label="Surface type" bind:value={surfaceType}><option value="" disabled>Not confirmed</option>{#each Object.entries(SURFACE_TYPES) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
+      <label>Calculated mapped function<select aria-label="Calculated mapped function" bind:value={mappedFunction} onchange={() => mappingCalculated = false}><option value="" disabled>Not confirmed</option><option value="none">None (geometry only)</option>{#each Object.entries(SURFACE_FUNCTIONS) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
+      {#if mappedFunction && mappedFunction !== 'none'}<label class="check"><input type="checkbox" bind:checked={mappingCalculated} />Mapping calculation completed</label>{/if}
+      <button type="button" disabled={!surfaceType || !mappedFunction || (mappedFunction !== 'none' && !mappingCalculated)} onclick={() => onconfirm({ surfaceType: Number(surfaceType), mappedFunction: mappedFunction === 'none' ? null : Number(mappedFunction) })}>Confirm types</button>
+      {#if m.metadataSource === 'user'}<p>Types: user-confirmed</p>{/if}
+    </fieldset>
     <label class="check"><input type="checkbox" bind:checked={active} />Surface analysis view</label>
     <button type="button" onclick={onfit} disabled={!active}><Icon icon="ZoomOut" width="14" />Fit surface</button>
     <label class="check"><input type="checkbox" bind:checked={display.surface} />Show surface</label>
@@ -49,6 +63,11 @@
         <dt>Skewness</dt><dd>{format(stats.skewness)}</dd><dt>Positive skewness</dt><dd>{format(stats.positiveSkewness)}</dd><dt>Negative skewness</dt><dd>{format(stats.negativeSkewness)}</dd>
       {/if}
     </dl>
+    <div class="log-import">
+      <input hidden type="file" accept=".txt,.log,.out,text/plain" bind:this={logInput} onchange={onlog} />
+      <button type="button" disabled={busy} onclick={() => logInput.click()}><Icon icon="ArrowUp" width="14" />Import statistics log</button>
+      {#if m.statisticsSource}<button type="button" disabled={busy} title="Clear imported statistics" aria-label="Clear imported statistics" onclick={onclearlog}><Icon icon="Cross" width="14" /></button><p>{m.statisticsSource.filename} · printed precision</p>{:else if m.volume === null}<p>Volume / mass density: not provided</p>{/if}
+    </div>
     <p>{result.values.length.toLocaleString()} vertices · {result.areas.length.toLocaleString()} facets</p>
     <div class="exports"><button type="button" onclick={() => onexport('csv')}><Icon icon="Download" width="14" />CSV</button><button type="button" onclick={() => onexport('json')}><Icon icon="Download" width="14" />Surface JSON</button></div>
   </div>
@@ -60,6 +79,7 @@
   button{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid #cdd5da;border-radius:4px;background:#f5f7f8;color:inherit;min-height:28px;cursor:pointer}
   .body{display:grid;gap:12px;padding:12px}.check{display:flex;align-items:center;gap:6px}.check input{width:16px;height:16px;margin:0}.field{display:grid;grid-template-columns:minmax(0,1fr) 114px;gap:8px;align-items:center}.field input,.field select{width:100%;min-width:0;box-sizing:border-box}select{font:inherit;padding:4px}
   p{font-size:11px;line-height:1.5;color:#57656c;margin:5px 0 0;overflow-wrap:anywhere}dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin:0;border-top:1px solid #dce2e5;padding-top:12px}dt,dd{overflow-wrap:anywhere}dt{color:#57656c}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}.readout{border-block:1px solid #dce2e5;padding:10px 0;overflow-wrap:anywhere}.exports{display:flex;gap:8px}
+  fieldset{display:grid;gap:8px;margin:0;padding:10px 0;border:0;border-block:1px solid #dce2e5;min-width:0}legend{font-weight:600}fieldset label:not(.check){display:grid;gap:5px}fieldset select{width:100%;min-width:0}button:disabled{cursor:default;opacity:.5}.log-import{display:flex;flex-wrap:wrap;gap:8px}.log-import p{flex-basis:100%}
   .bar{height:14px;border:1px solid #ccd4d9;background:linear-gradient(to right,#f5a9b8,#fff,#5bcefa)}.ticks{display:flex;justify-content:space-between;gap:4px;font-size:10px;font-variant-numeric:tabular-nums}.ticks span{min-width:0;overflow-wrap:anywhere}.legend p{text-align:center}
   @media(max-width:760px){.surface-analysis-panel{width:100%;max-height:42vh;border-right:0;border-bottom:1px solid #dce2e5}}
 </style>

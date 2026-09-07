@@ -23,9 +23,10 @@
   import SurfaceAnalysisOverlay from './SurfaceAnalysisOverlay.svelte'
   import SurfaceAnalysisPanel from './SurfaceAnalysisPanel.svelte'
   import SpectrumControls from './SpectrumControls.svelte'
-  import { SPECTRUM_KINDS, SPECTRUM_NAMES, SPECTRUM_FILE_LIMIT, SPECTRUM_DATA_LIMIT, spectrum_defaults, spectrum_kind, type SpectrumData, type SpectrumKind, type SpectrumSettings } from './spectra'
+  import { SPECTRUM_KINDS, SPECTRUM_NAMES, SPECTRUM_FILE_LIMIT, SPECTRUM_DATA_LIMIT, spectrum_defaults, spectrum_kind, confirm_spectrum_kind, type SpectrumData, type SpectrumKind, type SpectrumSettings } from './spectra'
   import type { PlotArtifact } from './plot'
-  import { resolve_surface, surface_display_defaults, surface_document, surface_csv, type SurfaceResult } from './surface-analysis'
+  import { resolve_surface, surface_display_defaults, surface_document, surface_csv, type SurfaceResult, type SurfaceConfirmation } from './surface-analysis'
+  import { parse_surface_log, SURFACE_LOG_LIMIT } from './surface-log'
   import { AIM_DEFAULTS, resolve_topology, topology_display_defaults, topology_csv, topology_document, type TopologyResult, type TopologySelection } from './topology'
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
@@ -404,6 +405,7 @@
 
   type ApiPayload = {
     topology?: unknown
+    surfaceAnalysis?: unknown
     ok?: boolean
     message?: string
     layer?: ManifestEntry
@@ -1120,10 +1122,7 @@
         orbitalPanelOpen = false
       }
       if (manifest.surfaceAnalysis) {
-        const result = await resolve_surface(manifest.surfaceAnalysis, async (datasetId) => {
-          const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
-          return read_plot_dataset_response(response, datasetId)
-        })
+        const result = await load_surface(manifest.surfaceAnalysis)
         if (generation !== topologyGeneration) return
         surfaceResult = result
         surfaceFitPending = true
@@ -1360,6 +1359,52 @@
     if (!topologyResult) return
     const text = format === 'json' ? topology_document(topologyResult) : topology_csv(topologyResult)
     download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-topology.${format}`)
+  }
+  const load_surface = (metadata: unknown) => resolve_surface(metadata, async (datasetId) => {
+    const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
+    return read_plot_dataset_response(response, datasetId)
+  })
+  const confirm_surface = async (confirmation: SurfaceConfirmation): Promise<void> => {
+    if (loading || structureLoading || !surfaceResult) return
+    const generation = topologyGeneration, geometry = geometryKey, previous = surfaceResult
+    loading = true
+    workingMessage = 'Reading confirmed surface data...'
+    try {
+      const params = new URLSearchParams({ surfaceType: String(confirmation.surfaceType), mappedFunction: confirmation.mappedFunction === null ? 'none' : String(confirmation.mappedFunction) })
+      const response = await fetch(api_url('/api/surface', params), { cache: 'no-store' })
+      const payload: ApiPayload = await response.json()
+      if (generation !== topologyGeneration || geometry !== geometryKey) return
+      if (!response.ok || !payload.ok || !payload.surfaceAnalysis) throw new Error(payload.message || 'Surface confirmation failed')
+      const result = await load_surface(payload.surfaceAnalysis)
+      if (generation !== topologyGeneration || geometry !== geometryKey) return
+      if (previous.metadata.statisticsSource) result.metadata = { ...result.metadata, volume: previous.metadata.volume, massDensity: previous.metadata.massDensity, statisticsSource: previous.metadata.statisticsSource }
+      surfaceResult = result
+      surfaceSelection = undefined
+      errorMessage = undefined
+      set_status('Surface types confirmed; original data loaded')
+    } catch (error) {
+      if (generation === topologyGeneration && geometry === geometryKey) report_error(error)
+    } finally { loading = false; workingMessage = '' }
+  }
+  const import_surface_log = async (event: Event): Promise<void> => {
+    const input = event.currentTarget as HTMLInputElement, file = input.files?.[0], original = surfaceResult
+    if (!file || !original || loading) { input.value = ''; return }
+    const generation = topologyGeneration
+    try {
+      if (file.size > SURFACE_LOG_LIMIT) throw new Error('Surface logs are limited to 8 MiB')
+      const text = await file.text()
+      if (generation !== topologyGeneration || surfaceResult !== original || loading) return
+      const stats = parse_surface_log(text, original)
+      surfaceResult = { ...original, metadata: { ...original.metadata, ...stats, statisticsSource: { source: 'log', filename: file.name, precision: 'printed' } } }
+      errorMessage = undefined
+      set_status('Printed surface statistics imported; area matches the current mesh')
+    } catch (error) {
+      if (generation === topologyGeneration && surfaceResult === original) report_error(error)
+    } finally { input.value = '' }
+  }
+  const clear_surface_log = (): void => {
+    if (!surfaceResult || loading) return
+    surfaceResult = { ...surfaceResult, metadata: { ...surfaceResult.metadata, volume: null, massDensity: null, statisticsSource: undefined } }
   }
   const export_surface = (format: 'json' | 'csv'): void => {
     if (!surfaceResult) return
@@ -1779,12 +1824,14 @@
     <button type="button" onclick={() => { openMenu = undefined; open_panel('slice') }} disabled={!volumetricData?.length}>2D Slice</button>
     {#if topologyResult}<button type="button" onclick={() => { openMenu = undefined; surfaceActive = false; surfacePanelOpen = false; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>Topology view</button>{/if}
     </WorkbenchMenu>
+    {/if}
     <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
     <div class="menu-heading">Spectra</div>
     <button type="button" onclick={() => spectrumInput?.click()} disabled={importingSpectrum}>Import spectrum outputs...</button>
     {#each SPECTRUM_KINDS as kind}
       <AnalysisAction reason={spectrum_reason(kind)} busy={importingSpectrum} onclick={() => open_spectrum(kind)}>{SPECTRUM_NAMES[kind]}</AnalysisAction>
     {/each}
+    {#if activeResult === 'scene'}
     <div class="menu-heading">Quantitative molecular surface</div>
     <AnalysisAction reason={surfaceResult ? '' : 'Run main function 12, then choose post-processing option 0 to view its results'} busy={false} onclick={open_surface_results}>Quantitative surface results...</AnalysisAction>
     <div class="menu-heading">Topology analysis (AIM)</div>
@@ -1811,8 +1858,8 @@
         reason={manifest.bondAnalysis?.methods?.[method]?.available !== true ? manifest.bondAnalysis?.methods?.[method]?.reason || 'Basis-function and density information is unavailable' : unavailable_bond_method_reason(method) || (!selected_source_bond_pair() ? 'Use the measurement tool to select two atoms' : '')}
       >{bond_method_label(method)}</AnalysisAction>
     {/each}
-    </WorkbenchMenu>
     {/if}
+    </WorkbenchMenu>
     <WorkbenchMenu name="save" label="Save" bind:active={openMenu}>
       <button type="button" onclick={() => save_result('png')} disabled={savingResult || (!active_plot && !scene_available)}><Icon icon="Download" width="16" height="16" />PNG image</button>
       {#if active_plot}
@@ -1930,7 +1977,7 @@
     {/if}
 
     {#if surfacePanelOpen && surfaceResult}
-      <SurfaceAnalysisPanel result={surfaceResult} bind:display={surfaceDisplay} bind:active={surfaceActive} bind:selection={surfaceSelection} onclose={() => surfacePanelOpen = false} onexport={export_surface} onfit={fit_surface} />
+      <SurfaceAnalysisPanel result={surfaceResult} bind:display={surfaceDisplay} bind:active={surfaceActive} bind:selection={surfaceSelection} busy={loading || structureLoading} onclose={() => surfacePanelOpen = false} onexport={export_surface} onfit={fit_surface} onconfirm={(value) => void confirm_surface(value)} onlog={(event) => void import_surface_log(event)} onclearlog={clear_surface_log} />
     {:else if topologyPanelOpen}
       <TopologyPanel bind:options={topologyOptions} bind:display={topologyDisplay} bind:active={topologyActive} bind:selection={topologySelection} result={topologyResult} busy={loading} reason={topologyReason} cell={topologyCell} onrun={() => void request_topology()} onclose={() => topologyPanelOpen = false} onexport={export_topology} />
     {/if}
@@ -2102,6 +2149,19 @@
   </section>
   {#each plots as plot (plot.id)}
     <section class="result-document" class:inactive={activeResult !== plot.id} inert={activeResult !== plot.id} aria-hidden={activeResult !== plot.id} aria-label={plot.artifact.title}>
+      {#if plot.native && plot.artifact.version === 2 && (!plot.artifact.semanticKind || plot.spectrumTypeSource === 'user')}
+        <label class="plot-type-confirmation">
+          <span>Plot type{plot.spectrumTypeSource === 'user' ? ' (user-confirmed)' : ''}</span>
+          <select aria-label="Confirm plot type" value={spectrum_kind(plot.artifact) || ''} onchange={(event) => {
+            if (plot.artifact.version !== 2) return
+            plot.artifact = confirm_spectrum_kind(plot.artifact, event.currentTarget.value)
+            plot.spectrumTypeSource = 'user'
+          }}>
+            <option value="">Unspecified 2D plot</option>
+            {#each SPECTRUM_KINDS as kind}<option value={kind}>{SPECTRUM_NAMES[kind]}</option>{/each}
+          </select>
+        </label>
+      {/if}
       {#if activeResult === plot.id && activeSpectrum}
         <SpectrumControls data={activeSpectrum} datasets={spectrumData} bind:options={spectrumSettings[activeSpectrum.id]} busy={spectrumBusy} onpick={select_spectrum} onupdate={update_spectrum} onremove={remove_spectrum} />
       {/if}

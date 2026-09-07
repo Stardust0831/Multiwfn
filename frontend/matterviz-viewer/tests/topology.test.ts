@@ -95,7 +95,8 @@ test('the overlay does not alter atom identities or scalar geometry', async () =
   assert.doesNotMatch(overlay, /marching|addIsosurface|fetch\(|measured_sites\s*=/)
   assert.match(overlay, /stopImmediatePropagation/)
   const app = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8')
-  assert.equal(app.match(/generation !== topologyGeneration \|\| geometry !== geometryKey/g)?.length, 2)
+  const request = app.split('const request_topology =')[1].split('const export_topology =')[0]
+  assert.equal(request.match(/generation !== topologyGeneration \|\| geometry !== geometryKey/g)?.length, 2)
   const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
   assert.match(css, /\.workspace\.has-topology \.structure\s*\{\s*--struct-min-width: 0px/)
 })

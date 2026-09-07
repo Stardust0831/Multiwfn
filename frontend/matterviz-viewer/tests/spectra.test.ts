@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { parse_plot_artifact } from '../src/plot.ts'
-import { broaden_value, parse_spectrum_output, spectrum_defaults, spectrum_kind, spectrum_peak_x, spectrum_plot, type SpectrumData } from '../src/spectra.ts'
+import { broaden_value, confirm_spectrum_kind, parse_spectrum_output, spectrum_defaults, spectrum_kind, spectrum_peak_x, spectrum_plot, type SpectrumData } from '../src/spectra.ts'
+import { parse_numeric_plot } from '../src/workbench-plots.ts'
 
 const gaussian = `Entering Gaussian System
 Harmonic frequencies (cm**-1)
@@ -175,6 +176,22 @@ test('incomplete mode blocks fail, while signed computed strengths retain a visi
   assert.equal(plot.panels[0].series[0].y[0], -1)
   assert.ok(plot.panels[0].yAxis.range[0] < -1)
 })
+test('user-confirmed native spectrum types preserve all original curves and axes', () => {
+  const { artifact } = parse_numeric_plot('100 2\n200 5\n', 'Original curve')
+  assert.equal(artifact.version, 2)
+  if (artifact.version !== 2) return
+  for (const kind of ['ir', 'raman', 'uvvis', 'nmr']) {
+    const confirmed = confirm_spectrum_kind(artifact, kind)
+    assert.equal(spectrum_kind(confirmed), kind)
+    assert.equal(confirmed.panels, artifact.panels)
+    assert.equal(confirmed.page, artifact.page)
+    assert.equal(confirmed.title, artifact.title)
+    assert.equal(spectrum_kind(confirm_spectrum_kind(confirmed, '')), undefined)
+  }
+  assert.equal(spectrum_kind(artifact), undefined)
+  assert.throws(() => confirm_spectrum_kind(artifact, 'dos'), /Unsupported/)
+})
+
 test('original plot kinds and Tools actions use explicit semantic metadata', () => {
   const artifact = spectrum_plot(parse_spectrum_output(gaussian, 'ir.out')[0], spectrum_defaults('ir'))
   assert.equal(spectrum_kind(artifact), 'ir')
