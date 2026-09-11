@@ -6,21 +6,33 @@ It consumes the same Multiwfn session manifest and serialized backend API, so th
 calculation modules remain unchanged.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.tgz` in `vendor/`. It applies the
-reviewable `vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch` to the
-r24 archive, preserving the reviewed Multiwfn rendering, flat-grid, Worker,
-resource-release and Arcball changes while adding ordered measurement,
-angle/dihedral, hover-tooltip and selected-bond context-menu controls. The r25
-archive is pinned by both `package.json` and `pnpm-lock.yaml`; r24 remains as
-the reproducible patch base.
+`matterviz-0.4.2-multiwfn.d8719d12.r25.material1.tgz` in `vendor/`. Its
+reviewable patch applies directly to main's r25 archive. The package retains
+ordered measurements, angle/dihedral and bond context menus, Arcball camera
+controls, flat grids, Worker meshing and immediate resource release.
 
-To reproduce r25:
+The material update adds bounded rim shading and angle-dependent transparency
+to the existing lit materials, fixes the shader hook against Three r185's
+unexpanded output include, and preserves zero/fully opaque alpha endpoints.
+Restoring a saved camera also reconciles its orientation after declarative pose
+setters, while identical live Arcball feedback preserves the current quaternion.
+The Trans Flag palette shares physical-zero semantics between vertex colors
+and colorbars, including asymmetric and one-sided ranges; its odd-sized LUT
+preserves exact white at zero. Worker buffer returns also support environments
+without SharedArrayBuffer.
+
+The retained lineage is r24 → r25 → r25.material1. PR #54's r26 archive was based
+on r24 and cannot replace main's r25 without losing measurement controls. The
+older r25 material build from PR #54 reused that version name; it is not this
+repository's r25 patch base. Use the retained archive and the lockfile integrity.
+
+To reproduce the material package (Node.js 24 and npm):
 
 ```bash
-tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r24.tgz -C "$tmpdir"
-patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch
-npm pack --ignore-scripts --pack-destination vendor "$tmpdir/package"
+material_tmpdir="$(mktemp -d)"
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$material_tmpdir"
+patch -d "$material_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.material1.patch
+npm pack --ignore-scripts --pack-destination vendor "$material_tmpdir/package"
 ```
 
 ## Build
@@ -60,6 +72,12 @@ uses two sites for distance, three for bond angle, and four for signed dihedral 
 ESP-colored density surfaces receive a robust symmetric color range, a draggable kcal/mol/e legend, and an
 on-demand bounded extrema table. The current MatterViz renderer does not expose a stable API for
 arbitrary 3D extrema markers, so extrema coordinates are listed rather than drawn in the scene.
+Explicit ESP layers default to pink/white/blue with white at zero. The legend follows
+the selected layer palette and manual range, including asymmetric limits.
+Surfaces offers Matte, Soft gloss, Satin and Unlit color finishes, with bounded
+rim, opacity and shading refinements. Finishes preserve scientific isovalues and
+layer colors; periodic boundary padding is under Cell. These settings are saved
+with the workbench state.
 Save > Save display settings writes a versioned JSON snapshot of layer, periodic, isosurface-material, and
 camera state. The same snapshot can be restored with Save > Restore display settings or a `state=` URL query;
 the browser and WebView launchers also accept `--state <path>` and expose only that selected file

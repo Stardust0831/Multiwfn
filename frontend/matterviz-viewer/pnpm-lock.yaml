@@ -15,8 +15,8 @@ importers:
         specifier: ^4.2.1
         version: 4.2.1
       matterviz:
-        specifier: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz
-        version: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4)
+        specifier: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.material1.tgz
+        version: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.material1.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4)
       svelte:
         specifier: ^5.56.4
         version: 5.56.4
@@ -556,9 +556,9 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz:
-    resolution: {integrity: sha512-9r8DbwH3RBDOF2fO24wbWUqqA0i8OxZnp9tvDIlQFTGWjaRoX6I4vyarHSnjdKU3jpCpnENt4MG3Q54C6X+T5w==, tarball: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz}
-    version: 0.4.2-multiwfn.d8719d12.r25
+  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.material1.tgz:
+    resolution: {integrity: sha512-XUyAyg+I+mCwncn713OiCyJRR7x+dJT2xSr6+TGQBzrEchrZQTu7Ro0AD3JluYgQVWA2KluwughYhs0xD2PljQ==, tarball: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.material1.tgz}
+    version: 0.4.2-multiwfn.d8719d12.r25.material1
     engines: {node: '>=24'}
     peerDependencies:
       svelte: ^5.0.0
@@ -1245,7 +1245,7 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4):
+  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.material1.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4):
     dependencies:
       '@spglib/moyo-wasm': 0.14.0
       '@sveltejs/kit': 2.69.2(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4)

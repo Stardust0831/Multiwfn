@@ -49,6 +49,7 @@ pub struct HttpService {
     shutdown: ShutdownSignal,
     listener: TcpListener,
     url: String,
+    entry_location: String,
     backend_lock: Arc<Mutex<()>>,
     capability: String,
     authority: String,
@@ -240,11 +241,6 @@ impl HttpService {
         } else {
             address.ip().to_string()
         };
-        let mut query = "manifest=/session/manifest.json".to_owned();
-        if state.is_some() {
-            query.push_str("&state=/session/workbench-state.json");
-        }
-        write!(query, "&cap={capability}").expect("write capability query");
         let authority = format!("{}:{}", format_host(&host), address.port());
         let shutdown = ShutdownSignal::new(address);
         let frontend_ready = Arc::new(AtomicBool::new(false));
@@ -298,23 +294,18 @@ impl HttpService {
             || session_data
                 .as_ref()
                 .is_some_and(|data| data.state_bytes().is_some());
-        if has_state && !query.contains("state=/session/workbench-state.json") {
-            let capability_suffix = format!("&cap={capability}");
-            query = query.replace(
-                &capability_suffix,
-                &format!("&state=/session/workbench-state.json{capability_suffix}"),
-            );
+        let mut entry_location = "/index.html?manifest=/session/manifest.json".to_owned();
+        if has_state {
+            entry_location.push_str("&state=/session/workbench-state.json");
         }
-        let url = format!(
-            "http://{}:{}/index.html?{query}",
-            format_host(&host),
-            address.port()
-        );
+        write!(entry_location, "&cap={capability}").expect("write capability query");
+        let url = format!("http://{authority}{entry_location}");
         let service = Self {
             session,
             shutdown,
             listener,
             url,
+            entry_location,
             backend_lock: Arc::new(Mutex::new(())),
             capability,
             authority,
@@ -360,6 +351,7 @@ impl HttpService {
             manifest,
             state,
             listener: self.listener.try_clone().expect("listener clone"),
+            entry_location: self.entry_location.clone(),
             shutdown: self.shutdown.clone(),
             backend_lock: self.backend_lock.clone(),
             capability: self.capability.clone(),
@@ -454,6 +446,7 @@ struct ServiceRunner {
     manifest: Option<PathBuf>,
     state: Option<PathBuf>,
     listener: TcpListener,
+    entry_location: String,
     shutdown: ShutdownSignal,
     backend_lock: Arc<Mutex<()>>,
     capability: String,
@@ -500,6 +493,7 @@ impl ServiceRunner {
             manifest: self.manifest.clone(),
             state: self.state.clone(),
             listener: self.listener.try_clone().expect("listener clone"),
+            entry_location: self.entry_location.clone(),
             shutdown: self.shutdown.clone(),
             backend_lock: self.backend_lock.clone(),
             capability: self.capability.clone(),
@@ -590,12 +584,7 @@ impl ServiceRunner {
             return;
         }
         if path == "/" || path.is_empty() {
-            let mut location = "/index.html?manifest=/session/manifest.json".to_owned();
-            if self.state.is_some() {
-                location.push_str("&state=/session/workbench-state.json");
-            }
-            write!(location, "&cap={}", self.capability).expect("write capability redirect");
-            respond_redirect(&mut stream, &location);
+            respond_redirect(&mut stream, &self.entry_location);
             return;
         }
         if path.starts_with("/api/") && !has_capability(&query, &self.capability) {
@@ -1764,7 +1753,7 @@ mod tests {
                     "cubes": []
                 },
                 "structure": {"sites": [], "charge": 0, "properties": {"bonds": []}},
-                "state": null
+                "state": {"camera": {"zoom": 2}}
             });
             let frame = encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap();
             bootstrap_write.write_all(&frame).unwrap();
@@ -1811,6 +1800,10 @@ mod tests {
         )
         .unwrap();
 
+        assert_root_redirect(&service, true);
+        let state = request(service.url(), "GET", "/session/workbench-state.json");
+        assert!(state.starts_with("HTTP/1.1 200 OK"));
+        assert!(state.ends_with(r#"{"camera":{"zoom":2}}"#));
         let manifest = request(service.url(), "GET", "/session/manifest.json");
         assert!(manifest.starts_with("HTTP/1.1 200 OK"));
         assert!(manifest.contains("\"multiwfn-matterviz-workbench\""));
@@ -1986,6 +1979,8 @@ mod tests {
         let (second, second_producer, second_session) =
             start_memory_session(&root.join("second"), "second");
 
+        assert_root_redirect(&first, false);
+        assert_root_redirect(&second, false);
         let first_manifest = request(first.url(), "GET", "/session/manifest.json");
         let second_manifest = request(second.url(), "GET", "/session/manifest.json");
         assert!(first_manifest.contains(r#""session":"first""#));
@@ -2914,6 +2909,61 @@ mod tests {
         join_service(service);
         drop(occupied);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn root_redirect_preserves_optional_file_state() {
+        for has_state in [false, true] {
+            let root = fixture(&format!("redirect-file-state-{has_state}"));
+            let frontend = root.join("frontend");
+            let session = root.join("session");
+            fs::create_dir_all(&frontend).unwrap();
+            fs::create_dir_all(&session).unwrap();
+            fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+            fs::write(session.join("manifest.json"), "{}").unwrap();
+            let state = has_state.then(|| session.join("saved-state.json"));
+            if let Some(path) = &state {
+                fs::write(path, r#"{"camera":{"zoom":2}}"#).unwrap();
+            }
+            let service = HttpService::start(AppConfig {
+                frontend,
+                session,
+                manifest: None,
+                state,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+            })
+            .unwrap();
+
+            assert_root_redirect(&service, has_state);
+
+            service.shutdown();
+            join_service(service);
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    fn assert_root_redirect(service: &HttpService, has_state: bool) {
+        let response = request(service.url(), "GET", "/");
+        assert!(response.starts_with("HTTP/1.1 302 Found"));
+        let location = response
+            .lines()
+            .find_map(|line| line.strip_prefix("Location: "))
+            .expect("root redirect location");
+        let page = Url::parse(service.url()).unwrap();
+        assert_eq!(page.join(location).unwrap(), page);
+        let state_paths: Vec<_> = page
+            .query_pairs()
+            .filter(|(name, _)| name == "state")
+            .map(|(_, value)| value.into_owned())
+            .collect();
+        let expected = if has_state {
+            vec!["/session/workbench-state.json"]
+        } else {
+            vec![]
+        };
+        assert_eq!(state_paths, expected);
     }
 
     fn request(base: &str, method: &str, path: &str) -> String {

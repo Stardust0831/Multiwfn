@@ -11,7 +11,35 @@ import {
   findMappedEspPair,
   findSurfaceExtrema,
   resolveEspLegendVisibility,
+  trans_flag_color_css,
+  esp_legend_gradient,
 } from '../src/esp.ts'
+
+test('ESP colors anchor white at physical zero across signed and one-sided ranges', () => {
+  for (const [min, max] of [[-5, 20], [20, -5], [0, 20], [-5, 0], [2, 20], [-5, -2]]) {
+    assert.equal(trans_flag_color_css(0, min, max), '#ffffff')
+  }
+  assert.equal(trans_flag_color_css(-5, -5, 20), '#f5a9b8')
+  assert.equal(trans_flag_color_css(20, -5, 20), '#5bcefa')
+  assert.equal(trans_flag_color_css(0, Number.NaN, 20), '#ffffff')
+  assert.equal(trans_flag_color_css(1, 1, 1), '#ffffff')
+})
+
+test('ESP legend follows the displayed range and the selected surface palette', () => {
+  const gradient = esp_legend_gradient(-5, 20)
+  assert.ok(gradient.includes('#5bcefa 0%'))
+  assert.ok(gradient.includes('#ffffff 80%'))
+  assert.ok(gradient.includes('#f5a9b8 100%'))
+  assert.equal(esp_legend_gradient(20, -5), gradient)
+  assert.equal(esp_legend_gradient(2, 2), '#ffffff')
+  assert.ok(!esp_legend_gradient(2, 20).includes('#ffffff'))
+  const sampled: number[] = []
+  const custom = esp_legend_gradient(-5, 20, (value) => { sampled.push(value); return '#123456' })
+  assert.equal(sampled[0], 20)
+  assert.equal(sampled.at(-1), -5)
+  assert.ok(sampled.includes(0))
+  assert.ok(!custom.includes('#5bcefa'))
+})
 
 test('ESP pairing requires explicit density and potential provenance plus the active mapping', () => {
   const compatible = () => true
