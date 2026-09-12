@@ -13,7 +13,7 @@
     type MeasureMode,
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
-  import { onMount, tick, untrack } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { PerspectiveCamera, OrthographicCamera } from 'three'
   import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
@@ -22,9 +22,6 @@
   import TopologyOverlay from './TopologyOverlay.svelte'
   import SurfaceAnalysisOverlay from './SurfaceAnalysisOverlay.svelte'
   import SurfaceAnalysisPanel from './SurfaceAnalysisPanel.svelte'
-  import SpectrumControls from './SpectrumControls.svelte'
-  import { SPECTRUM_KINDS, SPECTRUM_NAMES, SPECTRUM_FILE_LIMIT, SPECTRUM_DATA_LIMIT, spectrum_defaults, spectrum_kind, confirm_spectrum_kind, type SpectrumData, type SpectrumKind, type SpectrumSettings } from './spectra'
-  import type { PlotArtifact } from './plot'
   import { resolve_surface, surface_display_defaults, surface_document, surface_csv, type SurfaceResult, type SurfaceConfirmation } from './surface-analysis'
   import { parse_surface_log, SURFACE_LOG_LIMIT } from './surface-log'
   import { AIM_DEFAULTS, resolve_topology, topology_display_defaults, topology_csv, topology_document, type TopologyResult, type TopologySelection } from './topology'
@@ -208,22 +205,6 @@
   let resultStage: HTMLDivElement
   let importingPlot = $state(false)
   let savingResult = $state(false)
-  let spectrumInput: HTMLInputElement
-  let spectrumData = $state.raw<SpectrumData[]>([])
-  let spectrumSettings = $state<Record<string, SpectrumSettings>>({})
-  let importingSpectrum = $state(false)
-  let spectrumBusy = $state(false)
-  let spectrumGeneration = 0
-  let spectrumGeometryKey: string | undefined
-  let spectrumWorkerCancel: (() => void) | undefined
-  let spectrumTimer: ReturnType<typeof setTimeout> | undefined
-  const spectrumCache = new Map<string, PlotArtifact>()
-  const activeSpectrum = $derived(spectrumData.find((data) => activeResult === `spectrum:${data.id}`))
-  $effect(() => {
-    const key = geometryKey
-    if (spectrumGeometryKey !== undefined && key !== spectrumGeometryKey) untrack(reset_spectra)
-    spectrumGeometryKey = key
-  })
   let orbitalPanelOpen = $state(true)
   let orbitalListElement = $state<HTMLDivElement | undefined>()
   const homoIndex = $derived(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex)
@@ -231,109 +212,7 @@
   const active_plot = $derived(plots.find((plot) => plot.id === activeResult))
   const scene_available = $derived(Boolean(structure || volumetricData?.length))
 
-  const stop_spectrum_job = (): void => {
-    spectrumGeneration++
-    clearTimeout(spectrumTimer)
-    spectrumWorkerCancel?.()
-    spectrumWorkerCancel = undefined
-    spectrumBusy = false
-  }
-  const reset_spectra = (): void => {
-    stop_spectrum_job()
-    spectrumData = []; spectrumSettings = {}; spectrumCache.clear(); importingSpectrum = false
-    plots = plots.filter((plot) => !plot.id.startsWith('spectrum:'))
-    if (activeResult.startsWith('spectrum:')) show_result('scene')
-  }
-  const spectrum_job = <T,>(message: unknown): Promise<T> => new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./spectra.worker.ts', import.meta.url), { type: 'module' })
-    const finish = (): void => { worker.terminate(); clearTimeout(timeout); if (spectrumWorkerCancel === cancel) spectrumWorkerCancel = undefined }
-    const cancel = (): void => { finish(); reject(new DOMException('Spectrum request superseded', 'AbortError')) }
-    const timeout = setTimeout(() => { finish(); reject(new Error('Spectrum processing exceeded 60 seconds')) }, 60000)
-    spectrumWorkerCancel = cancel
-    worker.onmessage = (event): void => { finish(); if (event.data.ok) resolve(event.data.result as T); else reject(new Error(event.data.message)) }
-    worker.onerror = (event): void => { event.preventDefault(); finish(); reject(new Error(event.message || 'Spectrum worker could not start')) }
-    worker.postMessage(message)
-  })
-  const spectrum_reason = (kind: SpectrumKind): string => spectrumData.some((data) => data.kind === kind) || plots.some((plot) => spectrum_kind(plot.artifact) === kind)
-    ? '' : `No ${SPECTRUM_NAMES[kind]} data. Import an output containing ${kind === 'uvvis' ? 'excitation energies and oscillator strengths' : kind === 'nmr' ? 'isotropic magnetic shielding tensors' : kind === 'raman' ? 'frequencies and Raman activities' : 'frequencies and IR intensities'}.`
-  const build_spectrum = async (data: SpectrumData): Promise<void> => {
-    if (importingSpectrum) return
-    stop_spectrum_job()
-    const generation = spectrumGeneration
-    spectrumBusy = true
-    const options = $state.snapshot(spectrumSettings[data.id])
-    const key = `${data.id}:${JSON.stringify(options)}`
-    try {
-      const id = `spectrum:${data.id}`
-      if (!plots.some((plot) => plot.id === id) && plots.length >= PLOT_RESULT_LIMIT) throw new Error(`Keep at most ${PLOT_RESULT_LIMIT} plots open`)
-      const artifact = spectrumCache.get(key) ?? await spectrum_job<PlotArtifact>({ action: 'plot', data, options })
-      if (generation !== spectrumGeneration) return
-      spectrumCache.set(key, artifact)
-      while (spectrumCache.size > 8) spectrumCache.delete(spectrumCache.keys().next().value!)
-      plots = [...plots.filter((plot) => plot.id !== id), { id, artifact, resolver: async () => { throw new Error('Spectrum arrays are embedded in the plot') } }]
-      show_result(id)
-      errorMessage = undefined
-      set_status(`${SPECTRUM_NAMES[data.kind]} ready`)
-    } catch (error) { if (generation === spectrumGeneration) report_error(error) }
-    finally { if (generation === spectrumGeneration) spectrumBusy = false }
-  }
-  const select_spectrum = (id: string): void => {
-    const data = spectrumData.find((item) => item.id === id)
-    if (data) void build_spectrum(data)
-  }
-  const open_spectrum = (kind: SpectrumKind): void => {
-    openMenu = undefined
-    const existing = plots.find((plot) => plot.id === activeResult && spectrum_kind(plot.artifact) === kind)
-    if (existing) { show_result(existing.id); return }
-    const data = [...spectrumData].reverse().find((item) => item.kind === kind)
-    if (data) { select_spectrum(data.id); return }
-    const plot = plots.find((item) => spectrum_kind(item.artifact) === kind)
-    if (plot) show_result(plot.id)
-  }
-  const update_spectrum = (): void => {
-    const data = activeSpectrum
-    stop_spectrum_job()
-    if (data) { spectrumBusy = true; spectrumTimer = setTimeout(() => void build_spectrum(data), 150) }
-  }
-  const remove_spectrum = (): void => {
-    const data = activeSpectrum
-    if (!data) return
-    stop_spectrum_job()
-    spectrumData = spectrumData.filter((item) => item.id !== data.id)
-    delete spectrumSettings[data.id]
-    for (const key of spectrumCache.keys()) if (key.startsWith(`${data.id}:`)) spectrumCache.delete(key)
-    close_plot()
-  }
-  const import_spectrum_files = async (event: Event): Promise<void> => {
-    const input = event.currentTarget as HTMLInputElement
-    const files = [...(input.files ?? [])]
-    if (!files.length || importingSpectrum) return
-    stop_spectrum_job()
-    const generation = spectrumGeneration
-    importingSpectrum = true; openMenu = undefined
-    try {
-      if (files.length > 8) throw new Error('Import at most 8 spectrum outputs at once')
-      if (files.reduce((sum, file) => sum + file.size, 0) > 128 * 1024 * 1024) throw new Error('A spectrum import group may not exceed 128 MiB')
-      const imported: SpectrumData[] = []
-      for (const file of files) {
-        if (file.size > SPECTRUM_FILE_LIMIT) throw new Error(`${file.name} exceeds the 64 MiB spectrum limit`)
-        const text = await file.text()
-        if (generation !== spectrumGeneration) return
-        const parsed = await spectrum_job<SpectrumData[]>({ action: 'parse', text, name: file.name })
-        if (generation !== spectrumGeneration) return
-        imported.push(...parsed.map((data) => ({ ...data, id: crypto.randomUUID() })))
-      }
-      if (spectrumData.length + imported.length > SPECTRUM_DATA_LIMIT) throw new Error(`Keep at most ${SPECTRUM_DATA_LIMIT} spectrum datasets`)
-      spectrumData = [...spectrumData, ...imported]
-      for (const data of imported) spectrumSettings[data.id] = spectrum_defaults(data.kind)
-      errorMessage = undefined
-      set_status(`${imported.length} spectrum dataset(s) imported`)
-    } catch (error) { if (generation === spectrumGeneration) report_error(error) }
-    finally { if (generation === spectrumGeneration) importingSpectrum = false; input.value = '' }
-  }
-
   const show_result = (id: string): void => {
-    if (id !== activeResult && !importingSpectrum) stop_spectrum_job()
     if (activeResult === 'scene' && id !== 'scene') {
       suspendedSpin = sceneProps.auto_rotate
       sceneProps = { ...sceneProps, auto_rotate: 0 }
@@ -1049,7 +928,6 @@
   }
 
   const load_manifest = async (): Promise<void> => {
-    reset_spectra()
     topologyGeneration++
     const generation = topologyGeneration
     surfaceResult = undefined
@@ -1757,7 +1635,6 @@
     window.addEventListener('resize', close_bond_context_menu)
     window.addEventListener('blur', close_bond_context_menu)
     return () => {
-      stop_spectrum_job()
       narrowViewport.removeEventListener('change', collapse_sidebars)
       document.removeEventListener('pointerdown', close_on_outside_pointer, true)
       window.removeEventListener('keydown', close_on_escape)
@@ -1825,13 +1702,8 @@
     {#if topologyResult}<button type="button" onclick={() => { openMenu = undefined; surfaceActive = false; surfacePanelOpen = false; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>Topology view</button>{/if}
     </WorkbenchMenu>
     {/if}
-    <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
-    <div class="menu-heading">Spectra</div>
-    <button type="button" onclick={() => spectrumInput?.click()} disabled={importingSpectrum}>Import spectrum outputs...</button>
-    {#each SPECTRUM_KINDS as kind}
-      <AnalysisAction reason={spectrum_reason(kind)} busy={importingSpectrum} onclick={() => open_spectrum(kind)}>{SPECTRUM_NAMES[kind]}</AnalysisAction>
-    {/each}
     {#if activeResult === 'scene'}
+    <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
     <div class="menu-heading">Quantitative molecular surface</div>
     <AnalysisAction reason={surfaceResult ? '' : 'Run main function 12, then choose post-processing option 0 to view its results'} busy={false} onclick={open_surface_results}>Quantitative surface results...</AnalysisAction>
     <div class="menu-heading">Topology analysis (AIM)</div>
@@ -1858,8 +1730,8 @@
         reason={manifest.bondAnalysis?.methods?.[method]?.available !== true ? manifest.bondAnalysis?.methods?.[method]?.reason || 'Basis-function and density information is unavailable' : unavailable_bond_method_reason(method) || (!selected_source_bond_pair() ? 'Use the measurement tool to select two atoms' : '')}
       >{bond_method_label(method)}</AnalysisAction>
     {/each}
-    {/if}
     </WorkbenchMenu>
+    {/if}
     <WorkbenchMenu name="save" label="Save" bind:active={openMenu}>
       <button type="button" onclick={() => save_result('png')} disabled={savingResult || (!active_plot && !scene_available)}><Icon icon="Download" width="16" height="16" />PNG image</button>
       {#if active_plot}
@@ -1925,7 +1797,6 @@
   {/if}
 
   <div class="result-stage" bind:this={resultStage}>
-  <input class="hidden-file-input" bind:this={spectrumInput} type="file" accept=".out,.log,.txt,.output" multiple onchange={import_spectrum_files} />
   <section class="workspace" class:has-topology={topologyPanelOpen || surfacePanelOpen} class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen && !topologyPanelOpen && !surfacePanelOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
     <nav class="tool-rail" aria-label="Inspector tools">
       <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
@@ -2149,36 +2020,15 @@
   </section>
   {#each plots as plot (plot.id)}
     <section class="result-document" class:inactive={activeResult !== plot.id} inert={activeResult !== plot.id} aria-hidden={activeResult !== plot.id} aria-label={plot.artifact.title}>
-      {#if plot.native && plot.artifact.version === 2 && (!plot.artifact.semanticKind || plot.spectrumTypeSource === 'user')}
-        <label class="plot-type-confirmation">
-          <span>Plot type{plot.spectrumTypeSource === 'user' ? ' (user-confirmed)' : ''}</span>
-          <select aria-label="Confirm plot type" value={spectrum_kind(plot.artifact) || ''} onchange={(event) => {
-            if (plot.artifact.version !== 2) return
-            plot.artifact = confirm_spectrum_kind(plot.artifact, event.currentTarget.value)
-            plot.spectrumTypeSource = 'user'
-          }}>
-            <option value="">Unspecified 2D plot</option>
-            {#each SPECTRUM_KINDS as kind}<option value={kind}>{SPECTRUM_NAMES[kind]}</option>{/each}
-          </select>
-        </label>
-      {/if}
-      {#if activeResult === plot.id && activeSpectrum}
-        <SpectrumControls data={activeSpectrum} datasets={spectrumData} bind:options={spectrumSettings[activeSpectrum.id]} busy={spectrumBusy} onpick={select_spectrum} onupdate={update_spectrum} onremove={remove_spectrum} />
-      {/if}
-      {#key plot.artifact}
-      <div class="result-plot">
       <MultiwfnPlotView artifact={plot.artifact} resolver={plot.resolver}
-        showStickLabels={plot.id.startsWith('spectrum:') ? spectrumSettings[plot.id.slice('spectrum:'.length)]?.labels === true : true}
         exportConfig={plot.native ? plot_export(manifest) : undefined}
         onExported={return_to_multiwfn} onExportError={report_error} />
-      </div>
-      {/key}
     </section>
   {/each}
   </div>
 
   <footer class="statusbar" class:error={Boolean(errorMessage)}>
-    <span role="status">{savingResult ? 'Exporting...' : importingSpectrum ? 'Reading spectrum outputs...' : spectrumBusy ? 'Updating spectrum...' : importingPlot ? 'Opening plot...' : errorMessage || status}</span>
+    <span role="status">{savingResult ? 'Exporting...' : importingPlot ? 'Opening plot...' : errorMessage || status}</span>
     <span>{active_plot ? '2D plot' : `${volumetricData?.length || 0} volume(s)`}</span>
   </footer>
 

@@ -152,63 +152,24 @@ result; orbitals/ESP temporarily replace its view, and Tools reopens it from mem
 Atom/fragment decompositions, surface basins and fingerprint analysis are not
 included in this first results viewer.
 
-## Spectra in Tools
+## Scope of spectrum integration
 
-Tools contains **Import spectrum outputs...**, **UV-Vis spectrum**, **Infrared
-spectrum**, **Raman spectrum**, and **NMR spectrum**. Entries without matching
-data remain disabled with a focusable explanation. Importing a calculation output
-does not replace the molecular structure or run another quantum-chemistry job.
-Files are inspected by their contents, not their extension; importing a wavefunction
-alone does not invent vibrational, excited-state, or shielding data.
+Main function 0 does not offer spectrum output import, UV-Vis/IR/Raman/NMR
+analysis buttons, front-end spectrum parsing or broadening, or spectrum-specific
+type and settings controls. These additions are deferred to a follow-up PR at
+the original program's spectrum-drawing entry points, rather than a parallel
+analysis workflow inside the molecular viewer.
 
-The direct importer supports these labelled Gaussian/ORCA output sections:
+Original main function 11 and the existing generic 2D capture, display, and
+export pipeline remain unchanged. Open plot still accepts computed numeric
+curves and self-contained plot documents; it does not parse quantum-chemistry
+output files or broaden their transitions. Results without declared semantic
+types remain generic 2D plots, retaining their original data, axes, and units.
+The quantitative-surface type confirmation is separate and remains available.
 
-- Gaussian harmonic IR intensities and Raman activities, anharmonic fundamental,
-  overtone and combination bands, final electric-dipole excited-state transitions,
-  and final isotropic magnetic shielding tensors.
-- ORCA 4/5/6 IR, Raman activity, electric-dipole absorption and isotropic shielding
-  tables. ORCA 6's extra energy column and zero-based nucleus IDs are handled
-  explicitly; SOC/velocity and frequency-dependent Raman tables are not substituted
-  for these quantities.
-
-Import limits are 64 MiB/file, 128 MiB/group, eight files/group, 32 parsed datasets,
-and 20,000 transitions/dataset. Inputs remain in the current page's memory, not in
-the original files or on the server. Invalid imports leave the existing results
-untouched. Use Open plot for saved self-contained Multiwfn plot JSON; already
-computed curves are not broadened a second time. Original main function 11 still
-supports its existing input formats, titles and controls. Captured plots without
-an explicit spectrum kind initially remain general 2D results. Their **Plot type**
-selector allows explicit user confirmation as UV-Vis, IR, Raman or NMR, enabling
-the corresponding Tools entry. Confirmation changes only the semantic category;
-curves, axes, units and datasets remain unchanged, without re-broadening or a
-backend request. The selection can be corrected or reset to unspecified, and is
-included in saved plot documents. No type is guessed from ambiguous/custom axis
-labels. Direct spectrum imports and documents already carrying explicit kinds
-enable their Tools entries automatically.
-
-The compact spectrum toolbar offers datasets, curve/sticks/both, Lorentzian or
-Gaussian FWHM, frequency scaling, and optional peak labels. Stick exports retain
-mode/state/nucleus labels even when on-screen labels are hidden. IR/Raman default to Lorentzian 8 cm^-1 and
-descending wavenumber. Anharmonic imports additionally expose band categories.
-Raman quantities are explicitly **activities**, not laser/temperature-corrected
-scattering intensities. The native Gaussian anharmonic activity conversion is
-preserved. Negative computed strengths are retained and shown, not clipped away.
-
-UV-Vis uses Gaussian FWHM 2/3 eV. Broadening is always performed in energy even
-when the horizontal axis is nm; curves show oscillator-strength density per eV,
-not an invented molar extinction coefficient. Sticks use a separate strength axis.
-NMR defaults to absolute isotropic shielding and unit strength per reported nucleus,
-with Lorentzian 0.5 ppm broadening. Chemical shifts require one selected element
-and either reference minus shielding or an explicitly supplied intercept plus
-slope times shielding. This does not simulate spin-spin coupling or multiplets.
-
-Parsing/broadening runs in a local Worker. Rapid edits supersede older work, and
-the eight most recent parameter results are cached. Structure/session changes
-invalidate imported spectrum jobs. Save retains PNG/PDF/SVG/CSV/plot JSON exports;
-the active-result selector returns to the retained 3D scene and restores Spin.
-Closing a generated plot preserves its imported dataset; the dataset remove button
-also clears its parameters and cached curves. Raw output imports are not restored
-after a page refresh; saved plot documents can be reopened without the backend.
+An independent pure-GUI analysis application, including automated CLI input,
+batch plots, multiple views, and shared camera management, is also outside the
+scope of this change.
 
 ## Build
 
