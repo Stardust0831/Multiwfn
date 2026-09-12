@@ -459,7 +459,8 @@ export const esp_legend_gradient = (
 ): string => {
   const lower = Math.min(min, max)
   const upper = Math.max(min, max)
-  if (![lower, upper].every(Number.isFinite) || lower === upper) return '#ffffff'
+  if (![lower, upper].every(Number.isFinite)) return '#ffffff'
+  if (lower === upper) return color_at(lower, lower, upper)
   const fractions = new Set(Array.from({ length: 33 }, (_, index) => index / 32))
   if (lower < 0 && upper > 0) fractions.add(upper / (upper - lower))
   const stops = [...fractions].sort((a, b) => a - b).map((fraction) =>

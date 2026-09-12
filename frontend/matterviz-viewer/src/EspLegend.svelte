@@ -31,7 +31,7 @@
   $: gradient = esp_legend_gradient(min, max, (value, lower, upper) =>
     colormap === 'interpolateTransFlag'
       ? trans_flag_color(value, [lower, upper])
-      : get_d3_interpolator(colormap)((value - lower) / (upper - lower)))
+      : get_d3_interpolator(colormap)(lower === upper ? 0.5 : (value - lower) / (upper - lower)))
   $: available_width = Math.max(0, Number(container_width) || parent_width)
   $: available_height = Math.max(0, Number(container_height) || parent_height)
   $: {
