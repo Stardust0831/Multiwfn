@@ -2,26 +2,174 @@
 
 This is an experimental MatterViz frontend developed independently from the legacy 3Dmol.js
 implementation.
-It consumes the same Multiwfn session manifest and serialized backend API, so the Fortran
-calculation modules remain unchanged.
+It consumes the Multiwfn session manifest and serialized backend API. Protected
+core sources are unchanged relative to the main-branch baseline. Data capture and
+user-confirmed metadata live entirely in the GUI adapters and frontend.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.tgz` in `vendor/`. It applies the
+`matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz` in `vendor/`. The r25 baseline applies the
 reviewable `vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch` to the
 r24 archive, preserving the reviewed Multiwfn rendering, flat-grid, Worker,
 resource-release and Arcball changes while adding ordered measurement,
 angle/dihedral, hover-tooltip and selected-bond context-menu controls. The r25
-archive is pinned by both `package.json` and `pnpm-lock.yaml`; r24 remains as
-the reproducible patch base.
+archive remains unchanged. The additional `r25.topology1.patch` adds only a shared
+scene snippet and a topology display mask (atoms on, ordinary bonds and scalar surfaces
+hidden but still mounted), including the corresponding declarations. All topology
+business logic lives in this frontend. The additional `r25.topology2.patch` shares
+the native control dictionaries with the parent, preventing camera snapshots from
+resetting auto-rotation, and adds the Trans Flag colormap (negative pink `#f5a9b8`,
+zero white, positive blue `#5bcefa`). Its odd-sized color lookup preserves exact
+white at zero. ESP uses this map by default; other volume defaults are unchanged.
+The additional `r25.surface1.patch` exposes a separate `surface_view` mask that
+hides mounted volume meshes without hiding ordinary chemical bonds. No geometry
+extraction or scientific analysis is added to the vendor. Earlier archives remain
+as reproducible bases. The current archive SHA-256 is
+`33893d62a52936a0334dac1b580c98dcd5b39e6807afd2d5a93c03707a128a1c`;
+`package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
-To reproduce r25:
+To reproduce the topology package from r25:
 
 ```bash
 tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r24.tgz -C "$tmpdir"
-patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$tmpdir"
+patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology1.patch
+patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology2.patch
+patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.patch
 npm pack --ignore-scripts --pack-destination vendor "$tmpdir/package"
 ```
+
+## AIM topology workbench
+
+Tools groups AIM, ESP and bond-order analyses. Capability flags come from parsed
+backend arrays, not file extensions; disabled actions retain a focusable reason
+button. AIM requires nonperiodic atoms, valid GTFs, coefficients and occupations.
+Ordinary structures/cubes, old manifests and periodic inputs cannot start AIM;
+already generated topology remains viewable independently of this capability.
+
+`GET /api/topology` uses the existing session capability and shared computation
+lock. Options are `seeds` (bitmask 1/2/4/8), `distance`, `gradient`, `displacement`,
+`cycles`, `step` (Bohr), and `pathPoints`. Defaults are 15, 1.5, 1e-6, 1e-7,
+120, 0.03 and 451. The closed command is `topology aim ...`, with a 3600-second
+control deadline. The GUI adapter calls the original `findcp`, `findpath`, CP/path
+sorting and endpoint identification functions without entering `topo_main`,
+removing virtual orbitals, or changing the protected calculation sources.
+
+The adapter preserves valid CP/path prefixes and affected search parameters.
+Publication failures roll back; successful publication and response commit the
+new CLI-visible topology and clear obsolete interbasin surfaces. Wavefunctions,
+orbital occupations/counts and cube arrays are untouched. Search batches reserve
+CP capacity before entering parallel code; paths reserve two slots per CP, path
+points are bounded below the original fixed capacity, and the temporary atom
+distance table is limited to 512 MiB. Unconnected directions and the N-B+R-C
+count are reported without claiming the search is complete.
+
+Manifest `version: 2` gains optional `topologyAnalysis` and `topology`. Topology
+metadata retains original CP/path IDs, function ID, types, density/Laplacian and
+path endpoints. Coordinates use the existing `MWFNP2D` scientific-data channel:
+Float64 x/y/z arrays in Bohr, CPs first followed by complete path polylines.
+Dataset lifetime is independent of 2D plots; replacement releases only old
+topology arrays. Refreshing the page restores the latest result without computing.
+
+The scene extension renders instanced CP spheres and batched thick path segments
+in the molecule's scene coordinate system. Periodic integration steps are
+unwrapped, with endpoint CP images retaining the original IDs. The topology mask
+hides scalar surfaces and ordinary bonds without unmounting or extracting them.
+Display controls and object details are outside the canvas; CSV/JSON export keeps
+all raw coordinates, while PNG uses the shared scene. Display settings are saved
+separately in the existing workbench state. Changing the underlying geometry
+invalidates cached topology and in-flight results.
+
+Regression commands from the repository root:
+
+```bash
+python3 -m unittest tests/test_matterviz_topology.py tests/test_matterviz_topology_vendor.py
+MULTIWFN_TOPOLOGY_FIXTURE=/path/to/input.fchk python3 -m unittest tests/test_matterviz_topology.py
+```
+
+## Quantitative molecular surface results
+
+Run original main function **12**, configure and finish the analysis, then choose
+post-processing **0**. The native workbench displays the original improved
+marching-tetrahedra surface, rather than
+re-extracting a cube or substituting the approximate ESP preview. Tools includes
+**Quantitative surface results...**, disabled with a reason when no original result
+has been published. This is a results viewer, not a new noninteractive surface
+calculation API. Post-processing -3 retains its original grid-isosurface behavior.
+
+The first view is geometry-only: the original zero-argument `drawsurfanalysis`
+entry does not expose the surface type, mapped function or mapping-completion
+flag. Confirm **Result types** in the panel, including whether mapping was
+actually calculated. Only that explicit confirmation reads the existing mapped
+values and retained extrema. Selecting **None (geometry only)** never reads
+uninitialized mapped values or stale extrema. The adapter cannot independently
+verify a user's claim that mapping was calculated; confirm the actual CLI options.
+No calculation, terminal-input interception or generated core-source patch is used.
+
+The result panel provides opacity, wireframe, surface/extrema visibility, fit,
+extreme selection, and statistics. Values use the original facet-area weights and
+Multiwfn conversion constants. Total variance follows the original sum of positive
+and negative regional variances, not a pooled variance. Undefined one-sign/constant
+statistics display N/A. ESP includes charge balance, separation, MPI and the
+original 10 kcal/mol polar/nonpolar threshold. Unmapped analyses expose only
+geometry and area. Unknown/custom mapped functions retain
+native units; the adapter does not guess an energy unit from numeric values.
+
+Volume and mass density initially display N/A, not zero or a mesh-derived
+substitute. **Import statistics log** accepts a user-selected original Multiwfn
+text log (up to 8 MiB). It imports the last surface summary's printed volume in
+Bohr^3 and mass density in g/cm^3, after checking the printed area against the
+current mesh. An area match is a consistency check, not proof of dataset identity;
+the user must choose the corresponding run. JSON records the filename and printed
+precision. Missing statistics remain null; imported values can be cleared. Log
+imports never replace the mesh, mapped data, extrema or facet-weighted statistics.
+The log and its association are page-local and must be reimported after refresh.
+
+Manifest version 2 adds optional `surfaceAnalysis` version 1 with three independent
+binary dataset IDs, nullable function/surface types, nullable volume (Bohr^3) and
+mass density, original isovalue and unit conversions. `metadataSource` distinguishes
+unconfirmed types from user confirmation; older fully specified results still load.
+Authenticated `GET /api/surface?surfaceType=1&mappedFunction=1` confirms ESP, while
+`mappedFunction=none` confirms geometry-only. This sends a bounded read-only
+`surface` command over the existing serialized channel, never into the scientific
+core. It is available only while the original surface session is live. Successful
+replacement retires the previous surface datasets; failures discard partial new
+datasets without deleting other plots/topology. The refreshed manifest retains the
+confirmed types and dataset IDs. Arrays use the existing authenticated MWFNP2D channel:
+
+- Vertices: x = interleaved xyz (Bohr), y = mapped values, z = original vertex IDs.
+- Facets: x = interleaved zero-based compact vertex indices, y = original areas
+  (Bohr^2), z = original facet values, u = original facet IDs.
+- Extrema: x = compact vertex index, y = -1/+1 minimum/maximum, z = original local
+  extreme number. Dataset ID 0 means no extrema; discarded extrema stay discarded.
+
+Snapshots validate references, finite values and a 256 MiB budget, never modify
+the original arrays, and release their temporary buffers after publication. The
+renderer orients a copy of triangle winding for consistent normals; original
+connectivity, coordinates and scalar values remain intact in CSV/JSON exports.
+PNG uses the shared 3D scene. Local display controls never invoke marching cubes,
+an extrema Worker or another backend calculation. Changing structures clears the
+result; orbitals/ESP temporarily replace its view, and Tools reopens it from memory.
+Atom/fragment decompositions, surface basins and fingerprint analysis are not
+included in this first results viewer.
+
+## Scope of spectrum integration
+
+Main function 0 does not offer spectrum output import, UV-Vis/IR/Raman/NMR
+analysis buttons, front-end spectrum parsing or broadening, or spectrum-specific
+type and settings controls. These additions are deferred to a follow-up PR at
+the original program's spectrum-drawing entry points, rather than a parallel
+analysis workflow inside the molecular viewer.
+
+Original main function 11 and the existing generic 2D capture, display, and
+export pipeline remain unchanged. Open plot still accepts computed numeric
+curves and self-contained plot documents; it does not parse quantum-chemistry
+output files or broaden their transitions. Results without declared semantic
+types remain generic 2D plots, retaining their original data, axes, and units.
+The quantitative-surface type confirmation is separate and remains available.
+
+An independent pure-GUI analysis application, including automated CLI input,
+batch plots, multiple views, and shared camera management, is also outside the
+scope of this change.
 
 ## Build
 

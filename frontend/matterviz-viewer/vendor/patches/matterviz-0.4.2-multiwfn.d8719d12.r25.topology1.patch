@@ -1,0 +1,177 @@
+diff --git a/dist/structure/Structure.svelte b/dist/structure/Structure.svelte
+index 9822b4c..17bf491 100755
+--- a/dist/structure/Structure.svelte
++++ b/dist/structure/Structure.svelte
+@@ -198,6 +198,8 @@
+     // Active volume index when multiple volumes are present
+     active_volume_idx = $bindable(0),
+     children,
++    scene_children,
++    topology_view = false,
+     top_right_controls,
+     on_file_load,
+     on_error,
+@@ -298,6 +300,8 @@
+     // Atom coloring configuration
+     atom_color_config?: Partial<AtomColorConfig>
+     children?: Snippet<[{ structure?: AnyStructure; fullscreen: boolean }]>
++    scene_children?: Snippet
++    topology_view?: boolean
+     on_file_load?: EventHandler
+     on_error?: EventHandler
+     on_fullscreen_change?: EventHandler
+@@ -1060,6 +1064,8 @@
+     structure: internal_displayed_structure,
+     base_structure: cell_transformed_structure,
+     scene_props,
++    scene_children,
++    topology_view,
+     gizmo: scene_gizmo,
+     lattice_props,
+     volumetric_data,
+diff --git a/dist/structure/Structure.svelte.d.ts b/dist/structure/Structure.svelte.d.ts
+index b2171a4..f4f9601 100755
+--- a/dist/structure/Structure.svelte.d.ts
++++ b/dist/structure/Structure.svelte.d.ts
+@@ -76,6 +76,8 @@ type $$ComponentProps = {
+         fullscreen: boolean;
+     }]>;
+     on_file_load?: EventHandler;
++    scene_children?: Snippet;
++    topology_view?: boolean;
+     on_error?: EventHandler;
+     on_fullscreen_change?: EventHandler;
+     on_camera_move?: EventHandler;
+diff --git a/dist/structure/StructureScene.svelte b/dist/structure/StructureScene.svelte
+index 9d92219..289e3a6 100755
+--- a/dist/structure/StructureScene.svelte
++++ b/dist/structure/StructureScene.svelte
+@@ -296,6 +296,8 @@
+     active_volume_idx = 0,
+     volume_scaling = [1, 1, 1],
+     interactive = true,
++    scene_children,
++    topology_view = false,
+   }: SceneControlProps & {
+     structure?: AnyStructure
+     base_structure?: AnyStructure // The original structure without image atoms, used for property color calculation
+@@ -433,6 +435,8 @@
+     // When false, render the scene without hover/edit raycast helpers. Used by multi-side
+     // view so inactive panes skip interaction-only work while the active pane stays editable.
+     interactive?: boolean
++    scene_children?: Snippet
++    topology_view?: boolean
+     on_camera_change?: () => void // Internal camera change synchronization callback
+   } = $props()
+
+@@ -2326,7 +2330,8 @@
+ <T.Group position={rotation_target}>
+   <T.Group {rotation}>
+     <T.Group position={neg_rotation_target}>
+-      {#if show_atoms}
++      {@render scene_children?.()}
++      {#if show_atoms || topology_view}
+         <!-- Instanced rendering for full-occupancy atoms: one InstancedMesh for
+           base atoms and one for PBC image atoms (which ghost + lose interaction
+           in edit-atoms mode). Pointer events are resolved via raycast instanceId. -->
+@@ -2449,6 +2454,7 @@
+       {/each}
+
+       <!-- Instanced bond rendering with gradient colors -->
++      <T.Group visible={!topology_view}>
+       {#if instanced_bond_groups.length > 0}
+         {#each instanced_bond_groups as group (group.thickness + group.instances.length)}
+           {@render bond_instanced_mesh_snippet(group)}
+@@ -2636,6 +2642,7 @@
+         </extras.HTML>
+       {/if}
+
++      </T.Group>
+       <!-- highlight hovered, active and selected sites. The target list is a pulse-
+         independent $derived; only the opacity reads the per-frame pulse value so the
+         array isn't rebuilt every animation frame. -->
+@@ -2815,6 +2822,7 @@
+       {/if}
+
+       <!-- Isosurface rendering from volumetric data (CHGCAR, .cube files) -->
++      <T.Group visible={!topology_view}>
+       {#if volumetric_data && isosurface_settings}
+         {@const volume_list = Array.isArray(volumetric_data)
+           ? volumetric_data
+@@ -2831,6 +2839,7 @@
+       {/if}
+
+       <!-- Measurement overlays for measured sites -->
++      </T.Group>
+       {#if structure?.sites && (measured_sites?.length ?? 0) > 0}
+         {#if measure_mode === `distance`}
+           {#if measure_geometry === `ordered`}
+diff --git a/dist/structure/StructureScene.svelte.d.ts b/dist/structure/StructureScene.svelte.d.ts
+index 4b0c0fb..3038b68 100755
+--- a/dist/structure/StructureScene.svelte.d.ts
++++ b/dist/structure/StructureScene.svelte.d.ts
+@@ -138,6 +138,8 @@ type $$ComponentProps = SceneControlProps & {
+     active_volume_idx?: number;
+     volume_scaling?: Vec3;
+     interactive?: boolean;
++    scene_children?: Snippet;
++    topology_view?: boolean;
+     on_camera_change?: () => void;
+ };
+ declare const StructureScene: import("svelte").Component<$$ComponentProps, {}, "cursor" | "camera" | "scene" | "site_label_offset" | "vector_configs" | "orbit_controls" | "camera_up" | "camera_zoom" | "hovered_idx" | "hovered_site" | "polyhedra_rendered_elements" | "camera_is_moving" | "selected_sites" | "measured_sites" | "added_bonds" | "removed_bonds" | "bond_order_overrides" | "bond_edit_mode" | "active_sites" | "rotation_target_ref" | "initial_computed_zoom" | "hidden_elements" | "hidden_prop_vals" | "element_radius_overrides" | "site_radius_overrides" | "add_atom_mode" | "add_element" | "dragging_atoms">;
+diff --git a/dist/structure/StructureViewport.svelte b/dist/structure/StructureViewport.svelte
+index 7359dd3..8caff2c 100755
+--- a/dist/structure/StructureViewport.svelte
++++ b/dist/structure/StructureViewport.svelte
+@@ -75,6 +75,8 @@
+     structure = undefined,
+     base_structure = undefined,
+     scene_props = {},
++    scene_children,
++    topology_view = false,
+     gizmo = false,
+     lattice_props = {},
+     volumetric_data = undefined,
+@@ -139,6 +141,8 @@
+     structure?: AnyStructure
+     base_structure?: AnyStructure
+     scene_props?: ComponentProps<typeof StructureScene>
++    scene_children?: import('svelte').Snippet
++    topology_view?: boolean
+     gizmo?: boolean | ComponentProps<typeof StructureScene>[`gizmo`]
+     lattice_props?: ComponentProps<typeof StructureScene>[`lattice_props`]
+     volumetric_data?: VolumetricData | VolumetricData[]
+@@ -472,6 +476,8 @@
+       {structure}
+       {base_structure}
+       {...scene_props}
++      {scene_children}
++      {topology_view}
+       {...in_grid ? { auto_rotate: 0 } : {}}
+       {camera_position}
+       {camera_target}
+diff --git a/dist/structure/StructureViewport.svelte.d.ts b/dist/structure/StructureViewport.svelte.d.ts
+index cc9e357..7a411cb 100755
+--- a/dist/structure/StructureViewport.svelte.d.ts
++++ b/dist/structure/StructureViewport.svelte.d.ts
+@@ -11,6 +11,8 @@ import type { AtomColorConfig } from './atom-properties';
+ import type { MeasureSelectionPolicy } from './measure';
+ import StructureScene from './StructureScene.svelte';
+ type $$ComponentProps = {
++    scene_children?: import('svelte').Snippet;
++    topology_view?: boolean;
+     in_grid?: boolean;
+     active?: boolean;
+     label?: string;
+diff --git a/package.json b/package.json
+index 991c96c..8279a18 100755
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25",
++  "version": "0.4.2-multiwfn.d8719d12.r25.topology1",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",

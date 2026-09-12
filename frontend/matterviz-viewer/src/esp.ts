@@ -12,6 +12,14 @@ export const ESP_COLORS = Object.freeze({
   positive: '#5bcefa',
 })
 
+export const ESP_COLORMAP = 'interpolateTransFlag'
+
+export const surface_colormap = (
+  colorSource: ManifestEntry | undefined,
+  fallback: NonNullable<IsosurfaceLayer['colormap']>,
+): NonNullable<IsosurfaceLayer['colormap']> =>
+  colorSource?.analysisKind === 'esp-potential' ? ESP_COLORMAP : fallback
+
 export type Vec3 = [number, number, number]
 export type LegendPosition = { left: number; top: number }
 export type EspVolume = Partial<VolumetricData> | Record<string, unknown>

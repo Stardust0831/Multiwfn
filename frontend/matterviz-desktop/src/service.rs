@@ -310,6 +310,19 @@ impl HttpService {
             format_host(&host),
             address.port()
         );
+        if let Some(data) = &session_data {
+            if let Ok(manifest) = serde_json::from_slice::<Value>(data.manifest_bytes()) {
+                if let Some(id) = manifest
+                    .pointer("/topology/datasetId")
+                    .and_then(Value::as_u64)
+                {
+                    plot_store.set_initial_topology(id);
+                }
+                if let Some(surface) = manifest.get("surfaceAnalysis") {
+                    plot_store.set_initial_surface(surface);
+                }
+            }
+        }
         let service = Self {
             session,
             shutdown,
@@ -789,6 +802,16 @@ impl ServiceRunner {
             } else {
                 backend::request_esp(&self.session, &query, &self.backend_lock)
             }),
+            "/api/topology" if method == "GET" => Some(if self.session_data.is_some() {
+                self.request_control_topology(&query)
+            } else {
+                json!({"ok": false, "message": "AIM requires the native in-memory host"})
+            }),
+            "/api/surface" if method == "GET" => Some(if self.session_data.is_some() {
+                self.request_control_surface(&query)
+            } else {
+                json!({"ok": false, "message": "Surface confirmation requires a live native session"})
+            }),
             _ => None,
         };
         if method == "HEAD" && path.starts_with("/api/") {
@@ -813,6 +836,20 @@ impl ServiceRunner {
         }
         if path == "/session/manifest.json" {
             if let Some(data) = &self.session_data {
+                let topology = self.plot_store.topology_metadata();
+                let surface = self.plot_store.surface_metadata();
+                if topology.is_some() || surface.is_some() {
+                    let mut manifest: Value =
+                        serde_json::from_slice(data.manifest_bytes()).expect("validated manifest");
+                    if let Some(topology) = topology {
+                        manifest["topology"] = topology;
+                    }
+                    if let Some(surface) = surface {
+                        manifest["surfaceAnalysis"] = surface;
+                    }
+                    respond_json(&mut stream, &manifest, 200, method == "HEAD");
+                    return;
+                }
                 respond(
                     &mut stream,
                     200,
@@ -1138,6 +1175,63 @@ impl ServiceRunner {
             .as_ref()
             .expect("in-memory session control")
             .request(backend::reserve_request_id(), &command, timeout)
+    }
+
+    fn request_control_surface(&self, query: &[(String, String)]) -> Value {
+        let command = match backend::prepare_surface_request(query) {
+            Ok(value) => value,
+            Err(message) => return json!({"ok": false, "message": message}),
+        };
+        let _guard = self
+            .backend_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.plot_store.surface_metadata().is_none() {
+            return json!({"ok": false, "message": "No live quantitative surface result is available"});
+        }
+        let before = self.plot_store.ids();
+        let result = self
+            .control_session
+            .as_ref()
+            .expect("in-memory session control")
+            .request(
+                backend::reserve_request_id(),
+                &command,
+                Duration::from_secs(900),
+            );
+        let accepted = (result.get("ok").and_then(Value::as_bool) == Some(true))
+            .then(|| result.get("surfaceAnalysis"))
+            .flatten();
+        if !self.plot_store.finish_surface(&before, accepted) && accepted.is_some() {
+            return json!({"ok": false, "message": "Invalid surface dataset response"});
+        }
+        result
+    }
+
+    fn request_control_topology(&self, query: &[(String, String)]) -> Value {
+        let command = match backend::prepare_topology_request(query) {
+            Ok(value) => value,
+            Err(message) => return json!({"ok": false, "message": message}),
+        };
+        let _guard = self
+            .backend_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let before = self.plot_store.ids();
+        let result = self
+            .control_session
+            .as_ref()
+            .expect("in-memory session control")
+            .request(
+                backend::reserve_request_id(),
+                &command,
+                Duration::from_secs(3600),
+            );
+        let accepted = (result.get("ok").and_then(Value::as_bool) == Some(true))
+            .then(|| result.get("topology"))
+            .flatten();
+        self.plot_store.finish_topology(&before, accepted);
+        result
     }
 
     fn request_control_esp(&self, query: &[(String, String)]) -> Value {
@@ -1831,6 +1925,136 @@ mod tests {
         service.shutdown();
         join_service(service);
         assert!(!session.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn surface_confirmation_is_authenticated_serial_and_refreshable() {
+        use crate::plot_protocol::{encode, PlotArray, PlotData, PlotRole};
+        let root = fixture("surface-confirmation");
+        let frontend = root.join("frontend");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        let (mut request_read, request_write) = pipe_pair();
+        let (response_read, mut response_write) = pipe_pair();
+        let (store_tx, store_rx) = std::sync::mpsc::channel::<Arc<crate::plot_store::PlotStore>>();
+        let frame = |id| {
+            encode(&PlotData {
+                dataset_id: id,
+                arrays: vec![PlotArray {
+                    role: PlotRole::X,
+                    values: vec![1.],
+                    body_offset: 0,
+                }],
+            })
+            .unwrap()
+        };
+        let producer = std::thread::spawn(move || {
+            assert_eq!(
+                decode_frame(&read_control_frame(&mut request_read))
+                    .unwrap()
+                    .header
+                    .message_type,
+                MessageType::Hello
+            );
+            let init = serde_json::json!({"format":"multiwfn-matterviz-control","version":1,"kind":"session_init",
+                "manifest":{"format":"multiwfn-matterviz-workbench","version":2,"cubes":[],
+                    "surfaceAnalysis":{"vertices":2,"facets":3,"extrema":0,"mapped":null}}, "structure":null});
+            response_write
+                .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&init)).unwrap())
+                .unwrap();
+            let store = store_rx.recv().unwrap();
+            for (command, first, mapped) in [
+                ("surface 1 1 1", 4, true),
+                ("surface 1 0 0", 7, false),
+                ("surface 1 0 0", 8, false),
+            ] {
+                let request = decode_frame(&read_control_frame(&mut request_read)).unwrap();
+                assert_eq!(request.body.as_ref().unwrap()["command"], command);
+                store.insert(frame(first)).unwrap();
+                let result = if first == 7 {
+                    serde_json::json!({"ok":false,"message":"Test partial publication failed"})
+                } else {
+                    store.insert(frame(first + 1)).unwrap();
+                    if mapped {
+                        store.insert(frame(first + 2)).unwrap();
+                    }
+                    serde_json::json!({"ok":true,"surfaceAnalysis":{"vertices":first,"facets":first+1,
+                        "extrema":if mapped {first+2} else {0},"mapped":mapped,"metadataSource":"user","volume":null}})
+                };
+                let response = serde_json::json!({"format":"multiwfn-matterviz-control","version":1,"kind":"response",
+                    "request_id":request.header.request_id,"result":result});
+                response_write
+                    .write_all(
+                        &encode_frame(
+                            MessageType::Response,
+                            request.header.request_id,
+                            Some(&response),
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap();
+            }
+            assert_eq!(
+                decode_frame(&read_control_frame(&mut request_read))
+                    .unwrap()
+                    .header
+                    .message_type,
+                MessageType::Shutdown
+            );
+        });
+        let service = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session: root.join("unused"),
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".into(),
+                port: 0,
+                transport: None,
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(response_read),
+                write_pipe: into_raw_pipe(request_write),
+            }),
+        )
+        .unwrap();
+        for id in 1..=3 {
+            service.plot_store.insert(frame(id)).unwrap();
+        }
+        store_tx.send(service.plot_store.clone()).unwrap();
+        assert!(request(
+            service.url(),
+            "GET",
+            "/api/surface?surfaceType=1&mappedFunction=1"
+        )
+        .starts_with("HTTP/1.1 403"));
+        let invalid = authorized_path(
+            service.url(),
+            "/api/surface?surfaceType=99&mappedFunction=1",
+        );
+        assert!(request(service.url(), "GET", &invalid).contains("Unsupported surface type"));
+        let mapped = authorized_path(service.url(), "/api/surface?surfaceType=1&mappedFunction=1");
+        assert!(request(service.url(), "GET", &mapped).starts_with("HTTP/1.1 200"));
+        assert!(service.plot_store.get(2).is_none());
+        assert!(service.plot_store.get(1).is_some());
+        let none = authorized_path(
+            service.url(),
+            "/api/surface?surfaceType=1&mappedFunction=none",
+        );
+        assert!(request(service.url(), "GET", &none).contains("Test partial publication failed"));
+        assert!(service.plot_store.get(7).is_none());
+        let manifest = request(service.url(), "GET", "/session/manifest.json");
+        assert!(manifest.contains("\"mapped\":true") && manifest.contains("\"vertices\":4"));
+        assert!(request(service.url(), "GET", &none).starts_with("HTTP/1.1 200"));
+        let manifest = request(service.url(), "GET", "/session/manifest.json");
+        assert!(manifest.contains("\"mapped\":false") && manifest.contains("\"extrema\":0"));
+        assert_eq!(service.plot_store.len(), 3);
+        service.signal_return().unwrap();
+        producer.join().unwrap();
+        service.shutdown();
+        join_service(service);
         let _ = fs::remove_dir_all(root);
     }
 

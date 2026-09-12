@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@threlte/core':
+        specifier: 8.5.16
+        version: 8.5.16(svelte@5.56.4)(three@0.185.1)
       d3-contour:
         specifier: ^4.0.2
         version: 4.0.2
@@ -15,18 +18,24 @@ importers:
         specifier: ^4.2.1
         version: 4.2.1
       matterviz:
-        specifier: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz
-        version: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4)
+        specifier: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz
+        version: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4)
       svelte:
         specifier: ^5.56.4
         version: 5.56.4
       svg2pdf.js:
         specifier: ^2.7.0
         version: 2.7.0(jspdf@4.2.1)
+      three:
+        specifier: 0.185.1
+        version: 0.185.1
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.2.0
         version: 7.2.0(svelte@5.56.4)(vite@8.1.4)
+      '@types/three':
+        specifier: 0.185.1
+        version: 0.185.1
       svelte-check:
         specifier: ^4.7.2
         version: 4.7.2(picomatch@4.0.5)(svelte@5.56.4)(typescript@6.0.3)
@@ -556,9 +565,9 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz:
-    resolution: {integrity: sha512-9r8DbwH3RBDOF2fO24wbWUqqA0i8OxZnp9tvDIlQFTGWjaRoX6I4vyarHSnjdKU3jpCpnENt4MG3Q54C6X+T5w==, tarball: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz}
-    version: 0.4.2-multiwfn.d8719d12.r25
+  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz:
+    resolution: {integrity: sha512-EmVtfBki1KfzuiLZpg4oEWKfPk+u2KM039oE4Dz1KLIz1SxRoxGZvKSvon0sOKQDKEPp4CNtzJWfNhpo0kai2Q==, tarball: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz}
+    version: 0.4.2-multiwfn.d8719d12.r25.surface1
     engines: {node: '>=24'}
     peerDependencies:
       svelte: ^5.0.0
@@ -1245,7 +1254,7 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4):
+  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4):
     dependencies:
       '@spglib/moyo-wasm': 0.14.0
       '@sveltejs/kit': 2.69.2(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4))(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4)

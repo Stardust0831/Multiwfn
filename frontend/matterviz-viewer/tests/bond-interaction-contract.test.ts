@@ -22,7 +22,9 @@ test('bond calculations require exactly two source atoms and context requests sn
   assert.ok(source.includes('if (sites.length !== 2) return undefined'))
   assert.ok(source.includes('pair.every((siteIndex) => siteIndex < Number(sourceSiteCount))'))
   assert.ok(source.includes('orig_unit_cell_idx ?? properties?.orig_site_idx ?? siteIndex'))
-  assert.ok(source.includes('disabled={loading || !selected_source_bond_pair()'))
+  assert.ok(source.includes("!selected_source_bond_pair() ? 'Use the measurement tool to select two atoms'"))
+  const action = await readFile(new URL('../src/AnalysisAction.svelte', import.meta.url), 'utf8')
+  assert.ok(action.includes('disabled={busy || Boolean(reason)}'))
 
   const snapshot = source.indexOf('const pair = menu ? valid_source_bond_pair(menu.source_site_indices) : undefined')
   const closeMenu = source.indexOf('close_bond_context_menu()', snapshot)

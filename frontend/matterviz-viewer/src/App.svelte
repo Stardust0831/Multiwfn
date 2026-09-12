@@ -14,8 +14,17 @@
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
   import { onMount, tick } from 'svelte'
+  import { PerspectiveCamera, OrthographicCamera } from 'three'
   import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
+  import TopologyPanel from './TopologyPanel.svelte'
+  import AnalysisAction from './AnalysisAction.svelte'
+  import TopologyOverlay from './TopologyOverlay.svelte'
+  import SurfaceAnalysisOverlay from './SurfaceAnalysisOverlay.svelte'
+  import SurfaceAnalysisPanel from './SurfaceAnalysisPanel.svelte'
+  import { resolve_surface, surface_display_defaults, surface_document, surface_csv, type SurfaceResult, type SurfaceConfirmation } from './surface-analysis'
+  import { parse_surface_log, SURFACE_LOG_LIMIT } from './surface-log'
+  import { AIM_DEFAULTS, resolve_topology, topology_display_defaults, topology_csv, topology_document, type TopologyResult, type TopologySelection } from './topology'
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
@@ -28,11 +37,13 @@
     serialize_plot_document, PLOT_FILE_LIMIT, PLOT_RESULT_LIMIT, type WorkbenchPlot,
   } from './workbench-plots'
   import {
+    ESP_COLORS,
     estimate_esp_range,
     extract_esp_extrema_async,
     find_declared_esp_pair,
     find_mapped_esp_pair,
     resolve_esp_legend_visibility,
+    surface_colormap,
     type EspExtremaResult,
     type LegendPosition,
   } from './esp'
@@ -81,8 +92,43 @@
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
+  let topologyPanelOpen = $state(false)
+  let topologyActive = $state(false)
+  let topologyResult = $state.raw<TopologyResult>()
+  let topologySelection = $state<TopologySelection>()
+  let topologyOptions = $state({ ...AIM_DEFAULTS })
+  let topologyDisplay = $state(topology_display_defaults())
+  let topologyGeneration = 0
+  let surfaceResult = $state.raw<SurfaceResult>()
+  let surfacePanelOpen = $state(false)
+  let surfaceActive = $state(false)
+  let surfaceSelection = $state<number>()
+  let surfaceDisplay = $state(surface_display_defaults())
+  let surfaceFitPending = false
+  $effect(() => { if (topologyActive) surfaceActive = false })
+  const open_surface_results = () => {
+    if (!surfaceResult) return
+    openMenu = undefined; surfacePanelOpen = true; surfaceActive = true
+    topologyPanelOpen = false; topologyActive = false; inspectorOpen = false; orbitalPanelOpen = false
+  }
+  const topologyCell = $derived(manifest.periodic?.enabled && manifest.periodic.cell?.a && manifest.periodic.cell.b && manifest.periodic.cell.c ? [manifest.periodic.cell.a, manifest.periodic.cell.b, manifest.periodic.cell.c] : undefined)
   let loadedManifestUrl = $state(manifest_url())
   let structure = $state<AnyStructure | undefined>()
+  let loadedGeometryKey = $state('')
+  const geometryKey = $derived(JSON.stringify(structure?.sites.map((site) => site.xyz) ?? []))
+  const topologyReason = $derived(loadedGeometryKey && geometryKey !== loadedGeometryKey ? 'The displayed geometry no longer matches the loaded wavefunction' : manifest.topologyAnalysis?.aim?.available === true ? '' : manifest.topologyAnalysis?.aim?.reason || 'The loaded input does not provide AIM wavefunction data')
+  $effect(() => {
+    if (loadedGeometryKey && geometryKey !== loadedGeometryKey) {
+      topologyGeneration++
+      topologyResult = undefined
+      topologyActive = false
+      topologySelection = undefined
+      surfaceResult = undefined
+      surfaceActive = false
+      surfaceSelection = undefined
+      surfacePanelOpen = false
+    }
+  })
   let displayedStructure = $state<AnyStructure | undefined>()
   let volumetricData = $state<VolumetricData[] | undefined>()
   let volumeEntries = $state<ManifestEntry[]>([])
@@ -237,6 +283,8 @@
   }
 
   type ApiPayload = {
+    topology?: unknown
+    surfaceAnalysis?: unknown
     ok?: boolean
     message?: string
     layer?: ManifestEntry
@@ -493,10 +541,11 @@
 
   const layer_for_entry = (entry: ManifestEntry, volume_idx: number): IsosurfaceLayer => {
     const signed = entry.mode === 'signed' || entry.role === 'orbital'
+    const espPotential = entry.analysisKind === 'esp-potential'
     return {
       isovalue: Math.abs(Number(entry.isovalue ?? (signed ? 0.02 : 0.001))),
-      color: signed ? '#2563eb' : '#9ca3af',
-      negative_color: '#dc2626',
+      color: espPotential ? ESP_COLORS.positive : signed ? '#2563eb' : '#9ca3af',
+      negative_color: espPotential ? ESP_COLORS.negative : '#dc2626',
       opacity: Number(entry.opacity ?? 0.82),
       visible: entry.visible !== false,
       show_negative: signed,
@@ -727,7 +776,7 @@
     const color = auto_color_config(colorVolume.data_range)
     update_layer(volumeIdx, {
       color_volume_idx: colorVolumeIdx,
-      colormap: color.colormap,
+      colormap: surface_colormap(volumeEntries[colorVolumeIdx], color.colormap),
       color_range: color.color_range,
     })
     if (!esp_pair()) clear_esp_tools()
@@ -862,6 +911,7 @@
     sliceManualMax = slice?.manualMax === undefined ? '' : String(slice.manualMax)
     espLegendOpen = resolve_esp_legend_visibility(restored.espLegend?.visible, esp_pair())
     espLegendPosition = restored.espLegend?.position ?? { left: 16, top: 16 }
+    if (restored.topologyDisplay) topologyDisplay = restored.topologyDisplay
     const restoredEspRange = linked_esp_range()
     if (restoredEspRange) espRange = restoredEspRange
     set_status('MatterViz workbench state restored')
@@ -874,9 +924,21 @@
     const text = await fetch_text(resolve_entry_url(entry, manifestBase))
     const loaded = inject_manifest_lattice(parse_any_structure(text, entry.path), manifest, { override: true })
     structure = loaded
+    loadedGeometryKey = JSON.stringify(loaded.sites.map((site) => site.xyz))
   }
 
   const load_manifest = async (): Promise<void> => {
+    topologyGeneration++
+    const generation = topologyGeneration
+    surfaceResult = undefined
+    surfaceActive = false
+    surfacePanelOpen = false
+    surfaceSelection = undefined
+    surfaceDisplay = surface_display_defaults()
+    loadedGeometryKey = ''
+    topologyResult = undefined
+    topologyActive = false
+    topologySelection = undefined
     loading = true
     errorMessage = undefined
     try {
@@ -931,6 +993,19 @@
       const entries = cube_entries(manifest)
       if (manifest.structure?.path) await load_structure()
       if (entries.length) await apply_entries(entries, manifestBase)
+      if (manifest.topology) {
+        topologyResult = await load_topology(manifest.topology)
+        topologyActive = true
+        topologyPanelOpen = true
+        orbitalPanelOpen = false
+      }
+      if (manifest.surfaceAnalysis) {
+        const result = await load_surface(manifest.surfaceAnalysis)
+        if (generation !== topologyGeneration) return
+        surfaceResult = result
+        surfaceFitPending = true
+        open_surface_results()
+      }
       if (String(manifest.multiwfnGui?.entry || '').toLowerCase().includes('drawmol')) {
         const initialVolumeIdx = initial_orbital_volume_index(
           volumeEntries,
@@ -951,7 +1026,7 @@
         refresh_esp_range(initialEsp.densityIdx, initialEsp.potentialIdx)
         espLegendOpen = true
       }
-      set_status(entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
+      set_status(surfaceResult ? 'Original quantitative surface results loaded' : entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
       if (startupState) apply_workbench_state(startupState)
       await signal_frontend_ready()
     } catch (error) {
@@ -969,6 +1044,8 @@
       errorMessage = undefined
       activate_orbital_volume(undefined)
       set_status('No orbital selected')
+      topologyActive = false
+      surfaceActive = false
       return
     }
     if (!Number.isInteger(requestedIndex) || requestedIndex < 1 || requestedIndex > orbital_count()) {
@@ -980,6 +1057,8 @@
     if (cachedVolumeIdx !== undefined && !options.forceRecompute) {
       activate_orbital_volume(cachedVolumeIdx)
       set_status(`Orbital ${requestedIndex} loaded from session cache`)
+      topologyActive = false
+      surfaceActive = false
       return
     }
     const requestedQuality = quality
@@ -1052,6 +1131,8 @@
       orbitalIndex = requestedIndex
       orbitalBackendAvailable = true
       activate_orbital_volume(activeIdx)
+      topologyActive = false
+      surfaceActive = false
       set_status(`Orbital ${requestedIndex} loaded`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -1105,11 +1186,108 @@
         espExtrema = undefined
       }
       set_status('ESP mapped onto the electron-density surface')
+      topologyActive = false
+      surfaceActive = false
     } catch (error) {
       report_error(error)
     } finally {
       loading = false
     }
+  }
+
+  const load_topology = (value: unknown): Promise<TopologyResult> => resolve_topology(value, async (datasetId) => {
+    const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
+    return read_plot_dataset_response(response, datasetId)
+  })
+
+  const request_topology = async (): Promise<void> => {
+    if (loading || structureLoading || topologyReason) return
+    const generation = topologyGeneration
+    const geometry = geometryKey
+    loading = true
+    workingMessage = 'Calculating AIM critical points and paths...'
+    errorMessage = undefined
+    add_log('Starting AIM critical-point search and path generation')
+    try {
+      const params = new URLSearchParams(Object.entries(topologyOptions).map(([key, value]) => [key, String(value)]))
+      const response = await fetch(api_url('/api/topology', params), { cache: 'no-store' })
+      const payload = await read_api_payload(response)
+      if (generation !== topologyGeneration || geometry !== geometryKey) return
+      if (!response.ok || !payload.ok || !payload.topology) throw new Error(payload.message || 'AIM calculation failed')
+      workingMessage = 'Loading topology coordinates...'
+      const result = await load_topology(payload.topology)
+      if (generation !== topologyGeneration || geometry !== geometryKey) return
+      topologyResult = result
+      surfaceActive = false
+      surfacePanelOpen = false
+      topologySelection = undefined
+      topologyActive = true
+      topologyPanelOpen = true
+      activeResult = 'scene'
+      set_status(`AIM: ${result.metadata.criticalPoints.length} critical points, ${result.metadata.paths.length} paths`)
+      add_log(`AIM finished: N-B+R-C = ${result.metadata.eulerCount}; unconnected path directions: ${result.metadata.missingPathDirections}`)
+    } catch (error) {
+      if (generation === topologyGeneration && geometry === geometryKey) report_error(error)
+    } finally {
+      loading = false
+    }
+  }
+
+  const export_topology = (format: 'json' | 'csv'): void => {
+    if (!topologyResult) return
+    const text = format === 'json' ? topology_document(topologyResult) : topology_csv(topologyResult)
+    download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-topology.${format}`)
+  }
+  const load_surface = (metadata: unknown) => resolve_surface(metadata, async (datasetId) => {
+    const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
+    return read_plot_dataset_response(response, datasetId)
+  })
+  const confirm_surface = async (confirmation: SurfaceConfirmation): Promise<void> => {
+    if (loading || structureLoading || !surfaceResult) return
+    const generation = topologyGeneration, geometry = geometryKey, previous = surfaceResult
+    loading = true
+    workingMessage = 'Reading confirmed surface data...'
+    try {
+      const params = new URLSearchParams({ surfaceType: String(confirmation.surfaceType), mappedFunction: confirmation.mappedFunction === null ? 'none' : String(confirmation.mappedFunction) })
+      const response = await fetch(api_url('/api/surface', params), { cache: 'no-store' })
+      const payload: ApiPayload = await response.json()
+      if (generation !== topologyGeneration || geometry !== geometryKey) return
+      if (!response.ok || !payload.ok || !payload.surfaceAnalysis) throw new Error(payload.message || 'Surface confirmation failed')
+      const result = await load_surface(payload.surfaceAnalysis)
+      if (generation !== topologyGeneration || geometry !== geometryKey) return
+      if (previous.metadata.statisticsSource) result.metadata = { ...result.metadata, volume: previous.metadata.volume, massDensity: previous.metadata.massDensity, statisticsSource: previous.metadata.statisticsSource }
+      surfaceResult = result
+      surfaceSelection = undefined
+      errorMessage = undefined
+      set_status('Surface types confirmed; original data loaded')
+    } catch (error) {
+      if (generation === topologyGeneration && geometry === geometryKey) report_error(error)
+    } finally { loading = false; workingMessage = '' }
+  }
+  const import_surface_log = async (event: Event): Promise<void> => {
+    const input = event.currentTarget as HTMLInputElement, file = input.files?.[0], original = surfaceResult
+    if (!file || !original || loading) { input.value = ''; return }
+    const generation = topologyGeneration
+    try {
+      if (file.size > SURFACE_LOG_LIMIT) throw new Error('Surface logs are limited to 8 MiB')
+      const text = await file.text()
+      if (generation !== topologyGeneration || surfaceResult !== original || loading) return
+      const stats = parse_surface_log(text, original)
+      surfaceResult = { ...original, metadata: { ...original.metadata, ...stats, statisticsSource: { source: 'log', filename: file.name, precision: 'printed' } } }
+      errorMessage = undefined
+      set_status('Printed surface statistics imported; area matches the current mesh')
+    } catch (error) {
+      if (generation === topologyGeneration && surfaceResult === original) report_error(error)
+    } finally { input.value = '' }
+  }
+  const clear_surface_log = (): void => {
+    if (!surfaceResult || loading) return
+    surfaceResult = { ...surfaceResult, metadata: { ...surfaceResult.metadata, volume: null, massDensity: null, statisticsSource: undefined } }
+  }
+  const export_surface = (format: 'json' | 'csv'): void => {
+    if (!surfaceResult) return
+    const text = format === 'json' ? surface_document(surfaceResult) : surface_csv(surfaceResult)
+    download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-quantitative-surface.${format}`)
   }
 
   const request_bond = async (options: { method?: string; pair?: BondPair } = {}): Promise<void> => {
@@ -1251,6 +1429,7 @@
         ...(Number.isFinite(Number(sliceManualMax)) && sliceManualMax.trim() !== '' ? { manualMax: Number(sliceManualMax) } : {}),
       },
       espLegend: { visible: espLegendOpen, position: espLegendPosition },
+      topologyDisplay,
     }))
     set_status('MatterViz workbench state exported')
   }
@@ -1305,6 +1484,31 @@
       auto_rotate: 0,
       ...(pose.zoom !== undefined ? { camera_zoom: pose.zoom } : { camera_zoom: undefined }),
     }
+  }
+
+  const fit_surface = (): void => {
+    const canvas = viewerShell?.querySelector('canvas')
+    const camera = canvas ? scene_registry.get(canvas)?.camera : undefined
+    if (!surfaceResult || !camera || !surfaceActive) return
+    const xyz = surfaceResult.xyz, scale = surfaceResult.metadata.bohrToAngstrom
+    const low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity]
+    for (let i = 0; i < xyz.length; i++) { const axis = i % 3; low[axis] = Math.min(low[axis], xyz[i] * scale); high[axis] = Math.max(high[axis], xyz[i] * scale) }
+    const pose = current_camera_pose() ?? normalize_camera_pose({ position: camera.position.toArray(), up: camera.up.toArray(),
+      target: [(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, (low[2] + high[2]) / 2], projection: camera instanceof OrthographicCamera ? 'orthographic' : 'perspective',
+      ...(camera instanceof OrthographicCamera ? { zoom: camera.zoom } : {}),
+    })
+    if (!pose) return
+    let radius = .1
+    for (let i = 0; i < xyz.length; i += 3) radius = Math.max(radius, Math.hypot(xyz[i] * scale - pose.target[0], xyz[i + 1] * scale - pose.target[1], xyz[i + 2] * scale - pose.target[2]))
+    radius *= 1.12
+    if (camera instanceof PerspectiveCamera) {
+      const halfAngle = Math.atan(Math.tan(camera.fov * Math.PI / 360) * Math.min(1, camera.aspect))
+      const distance = radius / Math.sin(halfAngle), old = Math.hypot(...pose.position.map((v, i) => v - pose.target[i]))
+      apply_camera_pose({ ...pose, position: pose.position.map((v, i) => pose.target[i] + (v - pose.target[i]) * distance / old) as [number, number, number] })
+    } else if (camera instanceof OrthographicCamera) {
+      apply_camera_pose({ ...pose, zoom: Math.min(camera.right - camera.left, camera.top - camera.bottom) / (2 * radius) })
+    }
+    surfaceFitPending = false
   }
 
   const step_rotate = (direction: CameraDirection): void => {
@@ -1490,44 +1694,42 @@
       <button class="icon-button" type="button" title="Zoom out" aria-label="Zoom out" onclick={() => step_zoom('out')} disabled={!current_camera_pose()}><Icon icon="ZoomOut" width="16" height="16" /></button>
       <button class="icon-button" type="button" title="Zoom in" aria-label="Zoom in" onclick={() => step_zoom('in')} disabled={!current_camera_pose()}><Icon icon="ZoomIn" width="16" height="16" /></button>
     </div>
-    <label><input type="checkbox" bind:checked={inspectorOpen} /><span>Inspector</span></label>
+    <label><input type="checkbox" bind:checked={inspectorOpen} onchange={() => { surfacePanelOpen = false; topologyPanelOpen = false }} /><span>Inspector</span></label>
     {#if orbital_selection_available()}<label><input type="checkbox" bind:checked={orbitalPanelOpen} /><span>Orbitals</span></label>{/if}
     <label><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} /><span>Axes</span></label>
     <button type="button" onclick={() => { openMenu = undefined; open_panel('layers') }}>Volume layers ({volumeEntries.length})</button>
     <button type="button" onclick={() => { openMenu = undefined; open_panel('slice') }} disabled={!volumetricData?.length}>2D Slice</button>
+    {#if topologyResult}<button type="button" onclick={() => { openMenu = undefined; surfaceActive = false; surfacePanelOpen = false; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>Topology view</button>{/if}
     </WorkbenchMenu>
+    {/if}
+    {#if activeResult === 'scene'}
     <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
+    <div class="menu-heading">Quantitative molecular surface</div>
+    <AnalysisAction reason={surfaceResult ? '' : 'Run main function 12, then choose post-processing option 0 to view its results'} busy={false} onclick={open_surface_results}>Quantitative surface results...</AnalysisAction>
+    <div class="menu-heading">Topology analysis (AIM)</div>
+    <AnalysisAction reason={topologyReason} busy={loading} onclick={() => { openMenu = undefined; surfacePanelOpen = false; topologyPanelOpen = true; inspectorOpen = false; orbitalPanelOpen = false }}>AIM critical points and paths...</AnalysisAction>
     <div class="menu-heading">Electrostatic potential</div>
     <label>
       <span>Density iso</span>
       <input type="number" min="0.000001" max="0.1" step="0.0001" bind:value={espIsovalue} />
     </label>
-    <button
-      type="button"
+    <AnalysisAction
       onclick={() => { openMenu = undefined; void request_esp() }}
-      disabled={loading || manifest.espAnalysis?.available !== true}
-      title={manifest.espAnalysis?.reason || (manifest.espAnalysis?.available ? '' : 'No ESP calculation is available in this session')}
-    >ESP surface</button>
-    {#if manifest.bondAnalysis?.methods}
-      <label>
-        <span>Bond</span>
-        <select bind:value={bondMethod}>
-          {#each Object.entries(manifest.bondAnalysis.methods) as [method, capability]}
-            <option value={method} disabled={capability.available === false}>{method}</option>
-          {/each}
-        </select>
-      </label>
-      <button
-        type="button"
-        onclick={() => { openMenu = undefined; void request_bond() }}
-        disabled={loading || !selected_source_bond_pair() || Boolean(unavailable_bond_method_reason(bondMethod))}
-        title={unavailable_bond_method_reason(bondMethod) || 'Use the measurement tool to select two atoms'}
-      >Calculate</button>
-    {/if}
+      busy={loading}
+      reason={manifest.espAnalysis?.available === true ? '' : manifest.espAnalysis?.reason || 'No ESP calculation is available in this session'}
+    >ESP surface</AnalysisAction>
     {#if esp_pair()}
       <button type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>ESP legend</button>
       <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>Approx. ESP extrema</button>
     {/if}
+    <div class="menu-heading">Bond-order analysis</div>
+    {#each ['mayer', 'gwbo', 'wiberg_lowdin', 'mulliken', 'fbo'] as method}
+      <AnalysisAction
+        onclick={() => { openMenu = undefined; bondMethod = method; void request_bond() }}
+        busy={loading}
+        reason={manifest.bondAnalysis?.methods?.[method]?.available !== true ? manifest.bondAnalysis?.methods?.[method]?.reason || 'Basis-function and density information is unavailable' : unavailable_bond_method_reason(method) || (!selected_source_bond_pair() ? 'Use the measurement tool to select two atoms' : '')}
+      >{bond_method_label(method)}</AnalysisAction>
+    {/each}
     </WorkbenchMenu>
     {/if}
     <WorkbenchMenu name="save" label="Save" bind:active={openMenu}>
@@ -1595,16 +1797,16 @@
   {/if}
 
   <div class="result-stage" bind:this={resultStage}>
-  <section class="workspace" class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
+  <section class="workspace" class:has-topology={topologyPanelOpen || surfacePanelOpen} class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen && !topologyPanelOpen && !surfacePanelOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
     <nav class="tool-rail" aria-label="Inspector tools">
-      <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true }}>
+      <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
         <span aria-hidden="true">S</span><small>Structure</small>
       </button>
-      <button type="button" class:active={inspectorOpen && inspectorSection === 'surfaces'} aria-label="Open surfaces inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'surfaces'; inspectorOpen = true }}>
+      <button type="button" class:active={inspectorOpen && inspectorSection === 'surfaces'} aria-label="Open surfaces inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'surfaces'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
         <span aria-hidden="true">V</span><small>Surfaces</small>
       </button>
       {#if manifest.periodic?.enabled}
-        <button type="button" class:active={inspectorOpen && inspectorSection === 'cell'} aria-label="Open cell inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'cell'; inspectorOpen = true }}>
+        <button type="button" class:active={inspectorOpen && inspectorSection === 'cell'} aria-label="Open cell inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'cell'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
           <span aria-hidden="true">C</span><small>Cell</small>
         </button>
       {/if}
@@ -1616,12 +1818,12 @@
         <span aria-hidden="true">O</span><small>Orbitals</small>
       </button>
       {/if}
-      <button type="button" class="rail-close" aria-label="Close inspector" aria-expanded={inspectorOpen} onclick={() => inspectorOpen = false}>
+      <button type="button" class="rail-close" aria-label="Close inspector" aria-expanded={inspectorOpen || surfacePanelOpen || topologyPanelOpen} onclick={() => { inspectorOpen = false; surfacePanelOpen = false; topologyPanelOpen = false }}>
         <span aria-hidden="true">&lt;</span><small>Hide</small>
       </button>
     </nav>
 
-    {#if inspectorOpen}
+    {#if inspectorOpen && !topologyPanelOpen && !surfacePanelOpen}
       <ViewerInspector
         bind:section={inspectorSection}
         scene_props={{ ...sceneProps, background_color: backgroundColor, background_opacity: backgroundOpacity }}
@@ -1645,6 +1847,11 @@
       />
     {/if}
 
+    {#if surfacePanelOpen && surfaceResult}
+      <SurfaceAnalysisPanel result={surfaceResult} bind:display={surfaceDisplay} bind:active={surfaceActive} bind:selection={surfaceSelection} busy={loading || structureLoading} onclose={() => surfacePanelOpen = false} onexport={export_surface} onfit={fit_surface} onconfirm={(value) => void confirm_surface(value)} onlog={(event) => void import_surface_log(event)} onclearlog={clear_surface_log} />
+    {:else if topologyPanelOpen}
+      <TopologyPanel bind:options={topologyOptions} bind:display={topologyDisplay} bind:active={topologyActive} bind:selection={topologySelection} result={topologyResult} busy={loading} reason={topologyReason} cell={topologyCell} onrun={() => void request_topology()} onclose={() => topologyPanelOpen = false} onexport={export_topology} />
+    {/if}
     <section class="viewer-shell">
     <div class="scene-viewport" bind:this={viewerShell}>
       {#if structure}
@@ -1676,6 +1883,9 @@
           measure_geometry="ordered"
           show_controls="always"
           allow_file_drop={false}
+          topology_view={topologyActive && Boolean(topologyResult)}
+          surface_view={surfaceActive && Boolean(surfaceResult)}
+          scene_children={topologyScene}
         />
       {:else if !loading}
         <div class="empty">No structure is available in this session.</div>
@@ -1731,7 +1941,7 @@
           bind:manual_max={sliceManualMax}
         />
       {/if}
-      {#if espLegendOpen && esp_pair()}
+      {#if !topologyActive && !surfaceActive && espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
         <EspLegend min={legendRange[0]} max={legendRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
@@ -1917,6 +2127,7 @@
                     value={layer.colormap || 'interpolateRdBu'}
                     onchange={(event) => update_layer(volumeIdx, { colormap: event.currentTarget.value as IsosurfaceLayer['colormap'] })}
                   >
+                    <option value="interpolateTransFlag">Trans flag (pink / white / blue)</option>
                     <option value="interpolateRdBu">Red / blue</option>
                     <option value="interpolateViridis">Viridis</option>
                     <option value="interpolateTurbo">Turbo</option>
@@ -1977,7 +2188,7 @@
     </aside>
   {/if}
 
-  {#if activeResult === 'scene' && espExtremaOpen && esp_pair()}
+  {#if activeResult === 'scene' && !topologyActive && !surfaceActive && espExtremaOpen && esp_pair()}
     <aside class="esp-extrema-panel" aria-label="Approximate ESP surface extrema">
       <header>
         <strong>Approximate ESP extrema</strong>
@@ -2001,6 +2212,14 @@
     </aside>
   {/if}
 </main>
+
+{#snippet topologyScene()}
+  {#if surfaceActive && surfaceResult}
+    <SurfaceAnalysisOverlay result={surfaceResult} display={surfaceDisplay} selection={surfaceSelection} onready={() => { if (surfaceFitPending) fit_surface() }} onselect={(selection) => { surfaceSelection = selection; surfacePanelOpen = true; topologyPanelOpen = false }} />
+  {:else if topologyActive && topologyResult}
+    <TopologyOverlay result={topologyResult} display={topologyDisplay} selection={topologySelection} cell={topologyCell} onselect={(selection) => { topologySelection = selection; topologyPanelOpen = true }} />
+  {/if}
+{/snippet}
 
 <style>
   .bond-analysis-menu {

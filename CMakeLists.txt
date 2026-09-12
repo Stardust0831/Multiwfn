@@ -162,7 +162,7 @@ set(MULTIWFN_CORE_SOURCES
 )
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
-  list(INSERT MULTIWFN_CORE_SOURCES 0 noGUI/matterviz_plot_capture.f90)
+  list(INSERT MULTIWFN_CORE_SOURCES 0 noGUI/matterviz_plot_capture.f90 noGUI/matterviz_topology.f90 noGUI/matterviz_surface.f90)
 endif()
 
 set(MULTIWFN_GUI_SOURCE GUI.f90)

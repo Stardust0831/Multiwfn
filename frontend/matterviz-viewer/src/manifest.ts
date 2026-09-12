@@ -48,6 +48,9 @@ export type BondAnalysis = {
 }
 
 export type MultiwfnManifest = {
+  topologyAnalysis?: { periodicSupported?: boolean; aim?: BondMethodCapability }
+  topology?: unknown
+  surfaceAnalysis?: unknown
   plotExport?: PlotExport
   multiwfnGui?: MultiwfnGui
   bondAnalysis?: BondAnalysis
