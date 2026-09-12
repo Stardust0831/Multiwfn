@@ -28,6 +28,7 @@
     serialize_plot_document, PLOT_FILE_LIMIT, PLOT_RESULT_LIMIT, type WorkbenchPlot,
   } from './workbench-plots'
   import {
+    ESP_COLORS,
     estimate_esp_range,
     extract_esp_extrema_async,
     find_declared_esp_pair,
@@ -493,10 +494,11 @@
 
   const layer_for_entry = (entry: ManifestEntry, volume_idx: number): IsosurfaceLayer => {
     const signed = entry.mode === 'signed' || entry.role === 'orbital'
+    const potential = entry.analysisKind === 'esp-potential'
     return {
       isovalue: Math.abs(Number(entry.isovalue ?? (signed ? 0.02 : 0.001))),
-      color: signed ? '#2563eb' : '#9ca3af',
-      negative_color: '#dc2626',
+      color: potential ? ESP_COLORS.positive : signed ? '#2563eb' : '#9ca3af',
+      negative_color: potential ? ESP_COLORS.negative : '#dc2626',
       opacity: Number(entry.opacity ?? 0.82),
       visible: entry.visible !== false,
       show_negative: signed,
@@ -727,7 +729,8 @@
     const color = auto_color_config(colorVolume.data_range)
     update_layer(volumeIdx, {
       color_volume_idx: colorVolumeIdx,
-      colormap: color.colormap,
+      colormap: volumeEntries[colorVolumeIdx]?.analysisKind === 'esp-potential'
+        ? 'interpolateTransFlag' : color.colormap,
       color_range: color.color_range,
     })
     if (!esp_pair()) clear_esp_tools()
@@ -774,6 +777,12 @@
   }
 
   const current_esp_range = (): [number, number] => linked_esp_range() ?? espRange
+
+  const current_esp_colormap = (): NonNullable<IsosurfaceLayer['colormap']> => {
+    const pair = esp_pair()
+    return (isosurfaceSettings.layers ?? []).find((layer) => layer.volume_idx === pair?.densityIdx)?.colormap
+      ?? 'interpolateTransFlag'
+  }
 
   const state_url = (): URL | undefined => {
     const value = new URL(window.location.href).searchParams.get('state')
@@ -1733,7 +1742,7 @@
       {/if}
       {#if espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
-        <EspLegend min={legendRange[0]} max={legendRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
+        <EspLegend min={legendRange[0]} max={legendRange[1]} colormap={current_esp_colormap()} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
     </div>
     {#if loading || measuredSites.length || bondResults.length}
@@ -1918,6 +1927,7 @@
                     onchange={(event) => update_layer(volumeIdx, { colormap: event.currentTarget.value as IsosurfaceLayer['colormap'] })}
                   >
                     <option value="interpolateRdBu">Red / blue</option>
+                    <option value="interpolateTransFlag">Pink / white / blue</option>
                     <option value="interpolateViridis">Viridis</option>
                     <option value="interpolateTurbo">Turbo</option>
                     <option value="interpolateCool">Cool</option>

@@ -1,6 +1,7 @@
 import type { CameraProjection, IsosurfaceLayer, IsosurfaceSettings, Vec3 } from 'matterviz'
 import type { ManifestEntry, MultiwfnManifest } from './manifest'
 import type { SliceAxis, SliceColormap } from './slice'
+import { normalize_surface_appearance } from './material.ts'
 
 const WORKBENCH_SLICE_COLORMAPS = new Set(['Viridis', 'RdBu', 'Jet', 'Portland'])
 
@@ -19,6 +20,10 @@ export type WorkbenchIsosurfaceAppearance = {
   metalness?: number
   shininess?: number
   specular?: number
+  flatShading?: boolean
+  outline?: number
+  outlineWidth?: number
+  transmode?: number
   halo?: number
 }
 
@@ -223,14 +228,13 @@ const normalize_camera = (value: unknown): WorkbenchCameraState | undefined => {
 
 const normalize_appearance = (value: unknown): WorkbenchIsosurfaceAppearance | undefined => {
   const row = as_record(value)
-  const appearance: WorkbenchIsosurfaceAppearance = {}
-  if (typeof row.wireframe === 'boolean') appearance.wireframe = row.wireframe
-  if (row.material === 'matte' || row.material === 'glossy' || row.material === 'pbr') appearance.material = row.material
-  for (const key of ['roughness', 'metalness', 'shininess', 'specular', 'halo'] as const) {
-    const number = finite_number(row[key])
-    if (number !== undefined) appearance[key] = number
-  }
-  return Object.keys(appearance).length ? appearance : undefined
+  const { flat_shading, ...appearance } = normalize_surface_appearance({
+    ...row,
+    flat_shading: row.flatShading ?? row.flat_shading,
+  })
+  const result: WorkbenchIsosurfaceAppearance = appearance
+  if (flat_shading !== undefined) result.flatShading = flat_shading
+  return Object.keys(result).length ? result : undefined
 }
 
 const normalize_color = (value: unknown): string | undefined =>
@@ -281,7 +285,7 @@ const ISO_COLORMAPS = new Set([
   'interpolateViridis', 'interpolatePlasma', 'interpolateInferno', 'interpolateMagma',
   'interpolateCividis', 'interpolateTurbo', 'interpolateRdBu', 'interpolateRdYlBu',
   'interpolateSpectral', 'interpolatePiYG', 'interpolateBrBG', 'interpolatePuOr',
-  'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys',
+  'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys', 'interpolateTransFlag',
 ])
 
 const normalize_layer_snapshot = (value: unknown): MatterVizWorkbenchState['volumes'][number] | undefined => {
@@ -463,11 +467,12 @@ export const restore_workbench_state = (
     ...input.isosurfaceSettings,
     layers,
   }
-  const appearance = state.isosurface
+  const appearance = normalize_appearance(state.isosurface)
   if (appearance) {
     if (appearance.wireframe !== undefined) isosurfaceSettings.wireframe = appearance.wireframe
     if (appearance.material !== undefined) isosurfaceSettings.material = appearance.material
-    for (const key of ['roughness', 'metalness', 'shininess', 'specular', 'halo'] as const) {
+    if (appearance.flatShading !== undefined) isosurfaceSettings.flat_shading = appearance.flatShading
+    for (const key of ['roughness', 'metalness', 'shininess', 'specular', 'halo', 'outline', 'outlineWidth', 'transmode'] as const) {
       const value = appearance[key]
       if (value !== undefined && Number.isFinite(value)) isosurfaceSettings[key] = value
     }

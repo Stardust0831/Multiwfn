@@ -129,6 +129,41 @@ test('rejects unsupported state versions and ignores malformed optional fields',
   assert.equal(parsed.periodic?.displayRange, undefined)
 })
 
+test('clamps surface appearance on import, export and direct restore without filling omitted fields', () => {
+  const malformed = {
+    material: 'unlit', flatShading: true,
+    roughness: '-1', metalness: 4, shininess: 400, specular: -1, halo: 2,
+    outline: 2, outlineWidth: -1, transmode: 1,
+  }
+  const snapshot = {
+    format: 'multiwfn-matterviz-workbench', version: 1, activeVolume: 0,
+    volumes: [{ path: 'density.cube', volumeIndex: 0 }], session: {}, isosurface: malformed,
+  }
+  const expected = {
+    material: 'unlit', flatShading: true,
+    roughness: 0, metalness: 1, shininess: 120, specular: 0, halo: 1,
+    outline: 1, outlineWidth: 0, transmode: 1,
+  }
+  assert.deepEqual(parse_workbench_state(snapshot).isosurface, expected)
+  const exported = create_workbench_state({
+    manifest: {}, entries: [{ path: 'density.cube' }],
+    isosurfaceSettings: { ...malformed, flat_shading: true }, activeVolume: 0,
+    atomSupercell: '1x1x1', showBoundaryAtoms: false, showUnitCell: false,
+  })
+  assert.deepEqual(exported.isosurface, expected)
+  const restored = restore_workbench_state(snapshot, { entries: [{ path: 'density.cube' }], isosurfaceSettings: {} })
+  assert.deepEqual(restored.isosurfaceSettings, {
+    layers: [], material: 'unlit', flat_shading: true,
+    roughness: 0, metalness: 1, shininess: 120, specular: 0, halo: 1,
+    outline: 1, outlineWidth: 0, transmode: 1,
+  })
+  assert.equal(parse_workbench_state({ ...snapshot, isosurface: {
+    material: 'invalid', flatShading: 'yes', roughness: Number.NaN, halo: Number.POSITIVE_INFINITY,
+    outline: Number.NaN, outlineWidth: Number.NEGATIVE_INFINITY, transmode: 7,
+  } }).isosurface, undefined)
+  assert.equal(parse_workbench_state({ ...snapshot, isosurface: {} }).isosurface, undefined)
+})
+
 test('ignores malformed camera up and zoom while preserving valid camera fields', () => {
   const parsed = parse_workbench_state({
     format: 'multiwfn-matterviz-workbench',
@@ -154,7 +189,7 @@ test('ignores malformed camera up and zoom while preserving valid camera fields'
 })
 
 test('preserves every colormap exposed by the layer controls', () => {
-  for (const colormap of ['interpolateRdBu', 'interpolateViridis', 'interpolateTurbo', 'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys']) {
+  for (const colormap of ['interpolateRdBu', 'interpolateViridis', 'interpolateTurbo', 'interpolateCool', 'interpolateWarm', 'interpolateRdYlGn', 'interpolateGreys', 'interpolateTransFlag']) {
     const parsed = parse_workbench_state({
       format: 'multiwfn-matterviz-workbench',
       version: 1,
