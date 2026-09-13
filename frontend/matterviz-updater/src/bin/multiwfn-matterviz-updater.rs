@@ -266,12 +266,28 @@ fn require_asset_digest(
 }
 
 fn command_stage(root: &Path) -> Result<Option<String>, Error> {
+    stage_with_registry(root, &embedded_key_registry()?)
+}
+
+fn stage_with_registry(
+    root: &Path,
+    registry: &[matterviz_updater::PublicKeyEntry],
+) -> Result<Option<String>, Error> {
+    if load_transaction(root)?.is_some() {
+        return Err(Error::Conflict(
+            "unfinished transaction requires recovery".into(),
+        ));
+    }
     let candidate =
         load_candidate(root)?.ok_or_else(|| Error::Invalid("run check before stage".into()))?;
-    let registry = embedded_key_registry()?;
-    matterviz_updater::verify_signed_manifest(&candidate.manifest, &registry)?;
+    matterviz_updater::verify_signed_manifest(&candidate.manifest, registry)?;
     if candidate.manifest.manifest.tag != candidate.tag {
         return Err(Error::Signature("candidate tag mismatch".into()));
+    }
+    if candidate.target != host_target()? {
+        return Err(Error::Signature(
+            "candidate target does not match this host".into(),
+        ));
     }
     let target = candidate
         .manifest
@@ -300,10 +316,17 @@ fn command_stage(root: &Path) -> Result<Option<String>, Error> {
     }
     let result = (|| {
         let m = extract_archive(&bytes, &dir)?;
-        matterviz_updater::authenticate_target_inventory(&dir, &m, &registry)?;
         if matterviz_updater::manifest_sha256(&m)? != target.install_manifest_sha256 {
             return Err(Error::Signature("install manifest digest mismatch".into()));
         }
+        let current_proof = matterviz_updater::read_inventory_proof(root)?;
+        matterviz_updater::preflight_authenticated_transaction(
+            root,
+            &dir,
+            &m,
+            &current_proof,
+            registry,
+        )?;
         Ok::<(), Error>(())
     })();
     match result {
@@ -787,7 +810,15 @@ fn conflict_list(error: &Error) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{target_for, wait_for_processes};
+    use super::*;
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    use ed25519_dalek::{pkcs8::EncodePrivateKey, SigningKey};
+    use matterviz_updater::{
+        inventory_directory, manifest_sha256, sha256_hex, sign_inventory_proof, sign_manifest,
+        write_install_manifest, PublicKeyEntry, ReleaseManifestV1, ReleaseTarget, CHANNEL,
+        INSTALL_MANIFEST_NAME, INSTALL_PROOF_NAME, REPOSITORY,
+    };
+    use std::io::{Cursor, Write};
 
     #[test]
     fn rejects_unsupported_platforms() {
@@ -798,5 +829,215 @@ mod tests {
     #[test]
     fn native_process_wait_accepts_already_absent_processes() {
         wait_for_processes(2_147_483_647, 2_147_483_647).unwrap();
+    }
+
+    fn signed_stage_fixture() -> (tempfile::TempDir, PathBuf, Vec<PublicKeyEntry>) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("install");
+        let source = directory.path().join("source");
+        fs::create_dir_all(root.join("resources/tools")).unwrap();
+        fs::create_dir_all(source.join("resources/tools")).unwrap();
+        fs::write(root.join("settings.ini"), b"original settings").unwrap();
+        fs::write(root.join("resources/tools/host"), b"old host").unwrap();
+        fs::write(source.join("settings.ini"), b"new defaults").unwrap();
+        fs::write(source.join("resources/tools/host"), b"new host").unwrap();
+        fs::write(source.join("added"), b"new managed file").unwrap();
+        let target_id = host_target().unwrap();
+        let current = inventory_directory(&root, &target_id, "matterviz-preview-1").unwrap();
+        let target = inventory_directory(&source, &target_id, "matterviz-preview-2").unwrap();
+        let key = SigningKey::from_bytes(&[13_u8; 32]);
+        let private = B64.encode(key.to_pkcs8_der().unwrap().as_bytes());
+        let registry = vec![PublicKeyEntry {
+            version: 1,
+            key_id: "test".into(),
+            public_key: B64.encode(key.verifying_key().to_bytes()),
+        }];
+        for (path, manifest) in [(&root, &current), (&source, &target)] {
+            write_install_manifest(path, manifest).unwrap();
+            let proof = sign_inventory_proof(manifest, "test", &private).unwrap();
+            fs::write(
+                path.join(INSTALL_PROOF_NAME),
+                serde_json::to_vec(&proof).unwrap(),
+            )
+            .unwrap();
+        }
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for name in [
+            "settings.ini",
+            "resources/tools/host",
+            "added",
+            INSTALL_MANIFEST_NAME,
+            INSTALL_PROOF_NAME,
+        ] {
+            archive
+                .start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            archive
+                .write_all(&fs::read(source.join(name)).unwrap())
+                .unwrap();
+        }
+        let bytes = archive.finish().unwrap().into_inner();
+        let archive_path = directory.path().join("target.zip");
+        fs::write(&archive_path, &bytes).unwrap();
+        let manifest = sign_manifest(
+            &ReleaseManifestV1 {
+                version: 1,
+                repository: REPOSITORY.into(),
+                channel: CHANNEL.into(),
+                tag: target.release_tag.clone(),
+                targets: vec![ReleaseTarget {
+                    target: target_id.clone(),
+                    archive_name: "target.zip".into(),
+                    archive_size: bytes.len() as u64,
+                    archive_sha256: sha256_hex(&bytes),
+                    install_manifest_sha256: manifest_sha256(&target).unwrap(),
+                }],
+            },
+            "test",
+            &private,
+        )
+        .unwrap();
+        save_candidate(
+            &root,
+            &CandidateState {
+                install_root: root.display().to_string(),
+                tag: target.release_tag,
+                target: target_id,
+                archive_path: archive_path.display().to_string(),
+                archive_url: String::new(),
+                manifest,
+            },
+        )
+        .unwrap();
+        (directory, root, registry)
+    }
+
+    #[test]
+    fn staging_rejects_current_file_changes_and_unknown_collisions_before_ready() {
+        for collision in [false, true] {
+            let (_directory, root, registry) = signed_stage_fixture();
+            let path = if collision {
+                "added"
+            } else {
+                "resources/tools/host"
+            };
+            fs::write(root.join(path), b"user data").unwrap();
+            let before =
+                inventory_directory(&root, &host_target().unwrap(), "matterviz-preview-1").unwrap();
+            let manifest = fs::read(root.join(INSTALL_MANIFEST_NAME)).unwrap();
+            let proof = fs::read(root.join(INSTALL_PROOF_NAME)).unwrap();
+            let error = stage_with_registry(&root, &registry).unwrap_err();
+            assert!(
+                error.to_string().contains(if collision {
+                    "unknown file collision"
+                } else {
+                    "modified managed file"
+                }),
+                "{error}"
+            );
+            assert!(
+                !stage_dir(&root).exists(),
+                "failed preflight must not report staged_ready"
+            );
+            assert!(!matterviz_updater::transaction_dir(&root).exists());
+            assert_eq!(
+                inventory_directory(&root, &host_target().unwrap(), "matterviz-preview-1").unwrap(),
+                before
+            );
+            assert_eq!(
+                fs::read(root.join(INSTALL_MANIFEST_NAME)).unwrap(),
+                manifest
+            );
+            assert_eq!(fs::read(root.join(INSTALL_PROOF_NAME)).unwrap(), proof);
+        }
+    }
+
+    #[test]
+    fn staging_preserves_settings_and_install_rechecks_later_file_changes() {
+        let (_directory, root, registry) = signed_stage_fixture();
+        fs::write(root.join("settings.ini"), b"user settings").unwrap();
+        fs::write(root.join("user-sentinel.txt"), b"keep").unwrap();
+        let before =
+            inventory_directory(&root, &host_target().unwrap(), "matterviz-preview-1").unwrap();
+        assert_eq!(
+            stage_with_registry(&root, &registry).unwrap().as_deref(),
+            Some("matterviz-preview-2")
+        );
+        assert_eq!(
+            inventory_directory(&root, &host_target().unwrap(), "matterviz-preview-1").unwrap(),
+            before
+        );
+        assert!(stage_dir(&root).is_dir());
+        assert!(!matterviz_updater::transaction_dir(&root).exists());
+
+        fs::write(root.join("resources/tools/host"), b"changed after staging").unwrap();
+        let target = read_install_manifest(&stage_dir(&root)).unwrap();
+        let proof = matterviz_updater::read_inventory_proof(&root).unwrap();
+        assert!(apply_authenticated_transaction(
+            &root,
+            &stage_dir(&root),
+            &target,
+            &proof,
+            &registry
+        )
+        .is_err());
+        assert!(!matterviz_updater::transaction_dir(&root).exists());
+        assert_eq!(
+            fs::read(root.join("settings.ini")).unwrap(),
+            b"user settings"
+        );
+        assert_eq!(
+            fs::read(root.join("resources/tools/host")).unwrap(),
+            b"changed after staging"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_checks_existing_nested_directory_writability() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_directory, root, registry) = signed_stage_fixture();
+        let tools = root.join("resources/tools");
+        let permissions = fs::metadata(&tools).unwrap().permissions();
+        fs::set_permissions(&tools, fs::Permissions::from_mode(0o555)).unwrap();
+        let probe = tools.join("permission-check");
+        if fs::write(&probe, b"probe").is_ok() {
+            // Privileged test runners can bypass directory permissions.
+            fs::remove_file(probe).unwrap();
+            fs::set_permissions(tools, permissions).unwrap();
+            return;
+        }
+        let result = stage_with_registry(&root, &registry);
+        fs::set_permissions(tools, permissions).unwrap();
+        assert!(
+            matches!(result, Err(Error::Io(ref error)) if error.kind() == io::ErrorKind::PermissionDenied),
+            "{result:?}"
+        );
+        assert!(!stage_dir(&root).exists());
+        assert!(!matterviz_updater::transaction_dir(&root).exists());
+        assert_eq!(
+            fs::read(root.join("resources/tools/host")).unwrap(),
+            b"old host"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn staging_rejects_read_only_stale_write_probe_on_windows() {
+        let (_directory, root, registry) = signed_stage_fixture();
+        let probe = root.join(".multiwfn-updater-write-probe");
+        fs::write(&probe, b"stale probe").unwrap();
+        let permissions = fs::metadata(&probe).unwrap().permissions();
+        let mut read_only = permissions.clone();
+        read_only.set_readonly(true);
+        fs::set_permissions(&probe, read_only).unwrap();
+        let result = stage_with_registry(&root, &registry);
+        fs::set_permissions(probe, permissions).unwrap();
+        assert!(
+            matches!(result, Err(Error::Conflict(ref message)) if message.contains("write probe is read-only")),
+            "{result:?}"
+        );
+        assert!(!stage_dir(&root).exists());
+        assert!(!matterviz_updater::transaction_dir(&root).exists());
     }
 }

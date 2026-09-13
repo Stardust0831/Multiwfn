@@ -884,6 +884,16 @@ pub fn authenticate_target_inventory(
     target: &InstallManifestV1,
     registry: &[PublicKeyEntry],
 ) -> Result<InstalledInventoryProof> {
+    let proof = authenticate_target_inventory_metadata(target_root, target, registry)?;
+    verify_inventory(target_root, target)?;
+    Ok(proof)
+}
+
+fn authenticate_target_inventory_metadata(
+    target_root: &Path,
+    target: &InstallManifestV1,
+    registry: &[PublicKeyEntry],
+) -> Result<InstalledInventoryProof> {
     let proof = read_inventory_proof(target_root)?;
     verify_inventory_proof(&proof, registry)?;
     if proof.repository != REPOSITORY
@@ -896,7 +906,6 @@ pub fn authenticate_target_inventory(
             "target inventory proof does not bind package".into(),
         ));
     }
-    verify_inventory(target_root, target)?;
     Ok(proof)
 }
 
@@ -1192,7 +1201,19 @@ fn validate_transaction_state(state: &TransactionState) -> Result<()> {
             let relative = source_path.strip_prefix(&stage).map_err(|_| {
                 Error::Conflict("transaction source escapes candidate stage".into())
             })?;
-            validate_rel_path(&relative.to_string_lossy())?;
+            // Journal sources are native paths, unlike portable inventory
+            // paths. Validate components before normalizing Windows separators.
+            if relative
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+            {
+                return Err(Error::Conflict("unsafe transaction source".into()));
+            }
+            validate_rel_path(
+                &relative
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/"),
+            )?;
         }
     }
     Ok(())
@@ -1460,13 +1481,14 @@ fn move_remove(state: &mut TransactionState, txn: &Path, root: &Path, rel: &str)
     Ok(())
 }
 
-/// Apply a target inventory transactionally.  All conflict checks happen before
-/// the first rename, so ordinary conflicts are all-or-nothing.
-pub fn apply_transaction(
+/// Check the complete file plan without changing installed payloads or creating
+/// a journal. Installation repeats these checks because files can change after
+/// staging, while the user finishes the current Multiwfn session.
+fn preflight_transaction(
     install_root: &Path,
     target_root: &Path,
     target: &InstallManifestV1,
-) -> Result<TransactionState> {
+) -> Result<Option<InstallManifestV1>> {
     if !install_root.is_dir() {
         return Err(Error::Invalid("install root is not a directory".into()));
     }
@@ -1476,23 +1498,18 @@ pub fn apply_transaction(
             "transaction target must be the candidate stage".into(),
         ));
     }
-    let probe = install_root.join(".multiwfn-updater-write-probe");
-    if let Some(metadata) = existing_nolink(&probe)? {
-        if !metadata.is_file() {
-            return Err(Error::Invalid(format!(
-                "write probe is not a regular file: {}",
-                probe.display()
-            )));
-        }
-        fs::remove_file(&probe)?;
+    if existing_nolink(&transaction_dir(install_root))?.is_some() {
+        return Err(Error::Conflict("unfinished transaction exists".into()));
     }
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&probe)
-        .map_err(Error::Io)?
-        .sync_all()?;
-    fs::remove_file(&probe)?;
+    if let Some(metadata) = existing_nolink(&install_root.join(".multiwfn-updater-write-probe"))? {
+        if !metadata.is_file() {
+            return Err(Error::Invalid("write probe is not a regular file".into()));
+        }
+        #[cfg(windows)]
+        if metadata.permissions().readonly() {
+            return Err(Error::Conflict("write probe is read-only".into()));
+        }
+    }
     validate_install_manifest(target)?;
     verify_inventory(target_root, target)?;
     let current = read_install_manifest(install_root).ok();
@@ -1514,7 +1531,6 @@ pub fn apply_transaction(
         .as_ref()
         .map(|m| m.files.iter().map(|f| (f.path.clone(), f)).collect())
         .unwrap_or_default();
-    let target_map: BTreeMap<_, _> = target.files.iter().map(|f| (f.path.clone(), f)).collect();
     for f in &target.files {
         let path = path_for(install_root, &f.path);
         if f.policy == FilePolicy::Managed
@@ -1550,6 +1566,98 @@ pub fn apply_transaction(
             }
             parent = p.parent();
         }
+    }
+    // Renames need writable source/destination directories, including existing
+    // nested directories and the installation's parent for the sibling journal.
+    let mut directories = BTreeSet::from([install_root.to_path_buf()]);
+    if let Some(parent) = install_root.parent() {
+        directories.insert(parent.to_path_buf());
+    }
+    for file in target.files.iter().chain(
+        current
+            .iter()
+            .flat_map(|manifest| &manifest.files)
+            .filter(|file| file.policy == FilePolicy::Managed),
+    ) {
+        if file.policy == FilePolicy::Preserve
+            && existing_nolink(&path_for(install_root, &file.path))?.is_some()
+        {
+            continue;
+        }
+        let destination = path_for(install_root, &file.path);
+        let mut parent = destination.parent();
+        while let Some(directory) = parent {
+            if existing_nolink(directory)?.is_some() {
+                directories.insert(directory.to_path_buf());
+                break;
+            }
+            parent = directory.parent();
+        }
+    }
+    for directory in directories {
+        probe_directory_writable(&directory)?;
+    }
+    Ok(current)
+}
+
+fn probe_directory_writable(directory: &Path) -> Result<()> {
+    let probe = directory.join(format!(
+        ".multiwfn-updater-write-probe-{:032x}",
+        rand::random::<u128>()
+    ));
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)?;
+    let synced = file.sync_all();
+    drop(file);
+    let removed = fs::remove_file(&probe);
+    synced?;
+    removed?;
+    Ok(())
+}
+
+/// Authenticate and preflight a candidate before offering installation in the
+/// GUI. This full verification is deliberately excluded from status polling.
+pub fn preflight_authenticated_transaction(
+    install_root: &Path,
+    target_root: &Path,
+    target: &InstallManifestV1,
+    current_proof: &InstalledInventoryProof,
+    registry: &[PublicKeyEntry],
+) -> Result<()> {
+    let current = read_install_manifest(install_root)?;
+    authenticate_current_inventory_metadata(&current, current_proof, registry, &target.target)?;
+    if !is_newer_preview(&target.release_tag, Some(&current.release_tag)) {
+        return Err(Error::Conflict(
+            "candidate release is not newer than installed release".into(),
+        ));
+    }
+    authenticate_target_inventory_metadata(target_root, target, registry)?;
+    // The shared preflight hashes both authenticated inventories exactly once.
+    preflight_transaction(install_root, target_root, target)?;
+    Ok(())
+}
+
+/// Apply a target inventory transactionally. All conflict checks happen before
+/// the first rename, so ordinary conflicts are all-or-nothing.
+pub fn apply_transaction(
+    install_root: &Path,
+    target_root: &Path,
+    target: &InstallManifestV1,
+) -> Result<TransactionState> {
+    let current = preflight_transaction(install_root, target_root, target)?;
+    let target_map: BTreeMap<_, _> = target.files.iter().map(|f| (f.path.clone(), f)).collect();
+    // Remove a probe left by versions that used one fixed filename.
+    let probe = install_root.join(".multiwfn-updater-write-probe");
+    if let Some(metadata) = existing_nolink(&probe)? {
+        if !metadata.is_file() {
+            return Err(Error::Invalid(format!(
+                "write probe is not a regular file: {}",
+                probe.display()
+            )));
+        }
+        fs::remove_file(&probe)?;
     }
     for f in &target.files {
         sync_regular_file(&path_for(target_root, &f.path))?;
@@ -2519,6 +2627,108 @@ mod tests {
         assert!(apply_transaction(d.path(), stage_dir(d.path()).as_path(), &target).is_err());
         assert_eq!(fs::read(d.path().join("app")).unwrap(), b"old");
         assert!(!transaction_dir(d.path()).exists());
+    }
+
+    fn nested_transaction_fixture(root: &Path) -> InstallManifestV1 {
+        let app = path_for(root, "resources/tools/host");
+        ensure_parent(&app).unwrap();
+        fs::write(app, b"old host").unwrap();
+        let current = InstallManifestV1 {
+            version: 1,
+            target: "test-platform".into(),
+            release_tag: "matterviz-preview-1".into(),
+            files: vec![file_entry(
+                "resources/tools/host",
+                b"old host",
+                FilePolicy::Managed,
+            )],
+        };
+        write_install_manifest(root, &current).unwrap();
+        let target = InstallManifestV1 {
+            release_tag: "matterviz-preview-2".into(),
+            files: vec![
+                file_entry("resources/tools/host", b"new host", FilePolicy::Managed),
+                file_entry(
+                    "resources/frontend/index.html",
+                    b"page",
+                    FilePolicy::Managed,
+                ),
+            ],
+            ..current
+        };
+        stage_with_manifest(
+            root,
+            &target,
+            &[
+                ("resources/tools/host", b"new host"),
+                ("resources/frontend/index.html", b"page"),
+            ],
+        );
+        target
+    }
+
+    #[test]
+    fn native_nested_journals_can_be_confirmed_and_rolled_back() {
+        for rollback in [false, true] {
+            let d = tempdir().unwrap();
+            let target = nested_transaction_fixture(d.path());
+            let state = apply_transaction(d.path(), &stage_dir(d.path()), &target).unwrap();
+            assert_eq!(load_transaction(d.path()).unwrap(), Some(state.clone()));
+            assert_eq!(
+                state.entries[0].source.as_deref(),
+                path_for(&stage_dir(d.path()), "resources/tools/host").to_str(),
+            );
+            if rollback {
+                rollback_last(d.path()).unwrap();
+                assert_eq!(
+                    fs::read(d.path().join("resources/tools/host")).unwrap(),
+                    b"old host"
+                );
+                assert!(!d.path().join("resources/frontend/index.html").exists());
+                assert_eq!(
+                    read_install_manifest(d.path()).unwrap().release_tag,
+                    "matterviz-preview-1"
+                );
+            } else {
+                confirm_transaction(d.path()).unwrap();
+                assert_eq!(
+                    fs::read(d.path().join("resources/tools/host")).unwrap(),
+                    b"new host"
+                );
+            }
+            assert!(!transaction_dir(d.path()).exists());
+            assert!(!candidate_dir(d.path()).exists());
+        }
+    }
+
+    #[test]
+    fn native_nested_journal_rolls_back_after_an_interrupted_replace() {
+        let d = tempdir().unwrap();
+        let target = nested_transaction_fixture(d.path());
+        INJECT_FAILURE_AFTER_RENAME.with(|flag| flag.set(true));
+        assert!(apply_transaction(d.path(), &stage_dir(d.path()), &target).is_err());
+        assert_eq!(
+            fs::read(d.path().join("resources/tools/host")).unwrap(),
+            b"old host"
+        );
+        assert!(!d.path().join("resources/frontend/index.html").exists());
+        assert!(!transaction_dir(d.path()).exists());
+    }
+
+    #[test]
+    fn native_journal_validation_still_rejects_sources_outside_the_stage() {
+        let d = tempdir().unwrap();
+        let target = nested_transaction_fixture(d.path());
+        let mut state = apply_transaction(d.path(), &stage_dir(d.path()), &target).unwrap();
+        for source in [
+            stage_dir(d.path()).join("..").join("outside"),
+            d.path().join("resources/tools/host"),
+        ] {
+            state.entries[0].source = Some(source.display().to_string());
+            assert!(validate_transaction_state(&state).is_err());
+        }
+        // The on-disk journal remains valid; cleanup uses its original source.
+        rollback_last(d.path()).unwrap();
     }
 
     #[test]

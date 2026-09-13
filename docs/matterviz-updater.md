@@ -62,6 +62,12 @@ staging area, per-file backups, atomic renames and a versioned journal. A
 failure rolls operations back in reverse order. An interrupted transaction is
 recoverable and blocks a new update until resumed or rolled back.
 
+Staging authenticates the installed managed files and checks target-path
+conflicts and directory writability before reporting ready. Write checks use
+temporary probe files, without replacing installed payloads. The detached
+helper repeats the checks immediately before applying the transaction; local
+status polling verifies metadata only and does not rehash the installation.
+
 The detached helper waits for both MatterViz Host and Multiwfn to exit. The UI
 closes visualization and asks the user to exit Multiwfn normally with `q`; it
 does not kill the scientific process. Old managed files remain available until
