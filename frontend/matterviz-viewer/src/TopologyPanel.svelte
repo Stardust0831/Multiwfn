@@ -2,10 +2,20 @@
   import { Icon } from 'matterviz'
   import AnalysisAction from './AnalysisAction.svelte'
   import { AIM_DEFAULTS, CP_NAMES, CP_COLORS, topology_position, topology_path_points, topology_path_length, type AimOptions, type TopologyResult, type TopologySelection, type TopologyDisplay } from './topology'
+  import { TOPOLOGY_LABEL_LIMIT } from './topology-labels'
+  import { AIM_NUMBER_FIELDS, aim_number_error, valid_aim_number, type AimNumberField } from './topology-options'
   let { options = $bindable({ ...AIM_DEFAULTS }), display = $bindable(), active = $bindable(false), result, selection = $bindable(), busy, reason, cell, onrun, onclose, onexport }:
     { options: AimOptions; display: TopologyDisplay; active: boolean; result?: TopologyResult; selection: TopologySelection; busy: boolean; reason: string; cell?: number[][]; onrun: () => void; onclose: () => void; onexport: (format: 'json' | 'csv') => void } = $props()
   const selectedCP = $derived(selection?.kind === 'cp' ? result?.metadata.criticalPoints.find((cp) => cp.id === selection?.id) : undefined)
   const selectedPath = $derived(selection?.kind === 'path' ? result?.metadata.paths.find((path) => path.id === selection?.id) : undefined)
+  let invalidFields = $state<Partial<Record<keyof AimOptions, boolean>>>({})
+  const invalidField = $derived(AIM_NUMBER_FIELDS.find((field) => invalidFields[field.key]))
+  const inputReason = $derived(invalidField ? aim_number_error(invalidField) : '')
+  const setNumber = (field: AimNumberField, event: Event) => {
+    const value = (event.currentTarget as HTMLInputElement).valueAsNumber
+    invalidFields[field.key] = !valid_aim_number(field, value)
+    if (!invalidFields[field.key]) options = { ...options, [field.key]: value }
+  }
 </script>
 
 <aside class="topology-panel" aria-label="AIM topology analysis">
@@ -16,19 +26,13 @@
         {#each ['Nuclear positions', 'Atomic pair midpoints', 'Three-atom centers', 'Four-atom centers'] as label, index}
           <label class="check"><input type="checkbox" checked={Boolean(options.seeds & (1 << index))} onchange={(event) => options = { ...options, seeds: event.currentTarget.checked ? options.seeds | (1 << index) : options.seeds & ~(1 << index) }} />{label}</label>
         {/each}
-        {#each [
-          { key: 'distance', label: 'Distance factor', min: 0.1, max: 5, step: 0.1 },
-          { key: 'gradient', label: 'Gradient threshold (a.u.)', min: 1e-12, max: 1e-2, step: 'any' },
-          { key: 'displacement', label: 'Displacement (Bohr)', min: 1e-12, max: 1e-2, step: 'any' },
-          { key: 'cycles', label: 'Maximum iterations', min: 1, max: 1000, step: 1 },
-          { key: 'step', label: 'Path step (Bohr)', min: 1e-4, max: 0.2, step: 0.005 },
-          { key: 'pathPoints', label: 'Maximum path points', min: 3, max: 1499, step: 1 },
-        ] as field}
-          <label class="field"><span>{field.label}</span><input type="number" min={field.min} max={field.max} step={field.step} value={options[field.key as keyof AimOptions]} oninput={(event) => options = { ...options, [field.key]: event.currentTarget.valueAsNumber }} /></label>
+        {#each AIM_NUMBER_FIELDS as field}
+          <label class="field"><span>{field.label}</span><input type="number" min={field.min} max={field.max} step={field.step} value={options[field.key]} aria-invalid={invalidFields[field.key] || undefined} oninput={(event) => setNumber(field, event)} /></label>
         {/each}
       </fieldset>
     </details>
-    <AnalysisAction reason={reason || (options.seeds === 0 ? 'Select at least one starting-point method' : '')} {busy} onclick={onrun}>{busy ? 'Calculating...' : result ? 'Recalculate AIM' : 'Run AIM analysis'}</AnalysisAction>
+    <AnalysisAction reason={reason || inputReason || (options.seeds === 0 ? 'Select at least one starting-point method' : '')} {busy} onclick={onrun}>{busy ? 'Calculating...' : result ? 'Recalculate AIM' : 'Run AIM analysis'}</AnalysisAction>
+    {#if inputReason}<p class="reason" role="status">{inputReason}</p>{/if}
     {#if reason}<p class="reason">{reason}</p>{/if}
     {#if result}
       <label class="check"><input type="checkbox" bind:checked={active} />Topology view</label>
@@ -43,6 +47,7 @@
       {#if result.metadata.paths.some((path) => path.type === 0)}<label class="check"><input type="checkbox" bind:checked={display.pathTypes[0]} />Other paths</label>{/if}
       {#if result.metadata.criticalPoints.some((cp) => cp.type === 0)}<label class="check"><input type="checkbox" bind:checked={display.cpTypes[0]} />Unclassified CPs</label>{/if}
       <label class="check"><input type="checkbox" bind:checked={display.labels} />CP and path numbers</label>
+      {#if display.labels}<p class="reason">Up to {TOPOLOGY_LABEL_LIMIT} numbers are shown to keep the view readable. Use Inspect to select any CP or path.</p>{/if}
       <label class="field"><span>CP radius (Å)</span><input type="range" min="0.03" max="0.3" step="0.01" bind:value={display.radius} /></label>
       <label class="field"><span>Path width</span><input type="range" min="1" max="6" step="0.5" bind:value={display.width} /></label>
       <label class="field"><span>Inspect</span><select aria-label="Inspect topology object" value={selection ? `${selection.kind}:${selection.id}` : ''} onchange={(event) => { const [kind, id] = event.currentTarget.value.split(':'); selection = id ? { kind: kind as 'cp' | 'path', id: Number(id) } : undefined }}>

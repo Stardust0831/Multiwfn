@@ -1,11 +1,12 @@
 <script lang="ts">
   import { T, useThrelte } from '@threlte/core'
   import { onMount } from 'svelte'
-  import { BufferGeometry, CanvasTexture, Color, Group, InstancedMesh, Matrix4, MeshBasicMaterial, Raycaster, SphereGeometry, Sprite, SpriteMaterial, Vector2 } from 'three'
+  import { BufferGeometry, CanvasTexture, Color, Group, InstancedMesh, LinearFilter, Matrix4, MeshBasicMaterial, Raycaster, SphereGeometry, Sprite, SpriteMaterial, Vector2 } from 'three'
   import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
   import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
   import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
   import { CP_COLORS, topology_scene_data, type TopologyDisplay, type TopologyResult, type TopologySelection } from './topology'
+  import { create_topology_labels, topology_label_targets } from './topology-labels'
   let { result, display, selection, cell, onselect }: { result: TopologyResult; display: TopologyDisplay; selection: TopologySelection; cell?: number[][]; onselect: (selection: TopologySelection) => void } = $props()
   const { renderer, camera, invalidate } = useThrelte()
   const group = new Group()
@@ -15,14 +16,14 @@
   let pathIndices: number[] = []
   let geometries: BufferGeometry[] = []
   let materials: Array<MeshBasicMaterial | LineMaterial | SpriteMaterial> = []
-  let labels: Sprite[] = []
   let sceneData = $state.raw<ReturnType<typeof topology_scene_data>>()
-  const clearLabels = () => {
-    labels.forEach((sprite) => { group.remove(sprite); sprite.material.map?.dispose(); sprite.material.dispose() }); labels = []
-  }
+  const labels = create_topology_labels(
+    (target) => label(target.text, target.position),
+    (sprite) => { group.remove(sprite); sprite.material.map?.dispose(); sprite.material.dispose() },
+  )
 
   const clear = () => {
-    clearLabels(); group.clear(); geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose())
+    labels.clear(); group.clear(); geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose())
     geometries = []; materials = []; cpIndices = []; pathIndices = []
     pointsMesh = undefined; lines = undefined
   }
@@ -32,9 +33,12 @@
     context.fillStyle = 'rgba(255,255,255,0.92)'; context.fillRect(0, 0, 128, 48)
     context.fillStyle = '#263238'; context.font = 'bold 27px sans-serif'; context.textAlign = 'center'; context.fillText(text, 64, 34)
     const texture = new CanvasTexture(canvas)
+    texture.generateMipmaps = false
+    texture.minFilter = LinearFilter
     const material = new SpriteMaterial({ map: texture, depthTest: false, depthWrite: false, toneMapped: false })
     const sprite = new Sprite(material); sprite.position.set(position[0] + .2, position[1] + .15, position[2]); sprite.scale.set(.5, .1875, 1)
-    sprite.renderOrder = 30; sprite.raycast = () => {}; labels.push(sprite); group.add(sprite)
+    sprite.renderOrder = 30; sprite.raycast = () => {}; group.add(sprite)
+    return sprite
   }
   $effect(() => {
     const current = result
@@ -97,13 +101,12 @@
     lines.geometry.instanceCount = offset
     starts.needsUpdate = true; ends.needsUpdate = true; firstColors.needsUpdate = true; lastColors.needsUpdate = true
     lines.material.linewidth = Number(display.width)
-    clearLabels()
-    if (display.labels) {
-      for (const cp of data.points) if (display.cpTypes[cp.type]) label(`CP ${cp.id}`, cp.position)
-      for (const path of data.paths) if (display.pathTypes[path.type]) {
-        label(`P ${path.id}`, path.points[Math.floor(path.points.length / 2)])
-      }
-    }
+    invalidate()
+  })
+  $effect(() => {
+    // Label resources depend on data and visibility, never appearance or selection.
+    const data = sceneData
+    labels.sync(data ? topology_label_targets(data, display) : [])
     invalidate()
   })
   onMount(() => {

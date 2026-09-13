@@ -7,7 +7,7 @@ core sources are unchanged relative to the main-branch baseline. Data capture an
 user-confirmed metadata live entirely in the GUI adapters and frontend.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.tgz` in `vendor/`. The r25 baseline applies the
+`matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.picking1.tgz` in `vendor/`. The r25 baseline applies the
 reviewable `vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch` to the
 r24 archive, preserving the reviewed Multiwfn rendering, flat-grid, Worker,
 resource-release and Arcball changes while adding ordered measurement,
@@ -21,10 +21,15 @@ resetting auto-rotation, and adds the Trans Flag colormap (negative pink `#f5a9b
 zero white, positive blue `#5bcefa`). Its odd-sized color lookup preserves exact
 white at zero. ESP uses this map by default; other volume defaults are unchanged.
 The additional `r25.surface1.patch` exposes a separate `surface_view` mask that
-hides mounted volume meshes without hiding ordinary chemical bonds. No geometry
-extraction or scientific analysis is added to the vendor. Earlier archives remain
+hides mounted volume meshes without hiding ordinary chemical bonds. The incremental
+`r25.surface1.picking1.patch` unmounts hidden bond hit targets and their HTML menu
+in topology view, prevents atom/label right-clicks from targeting hidden bonds, and
+clears the previous bond menu/hover when switching views. Topology still shows atoms
+and supports picking when the ordinary view's atom toggle is off;
+bond, polyhedra and volume rendering resources remain mounted. No geometry extraction
+or scientific analysis is added to the vendor. Earlier archives remain
 as reproducible bases. The current archive SHA-256 is
-`33893d62a52936a0334dac1b580c98dcd5b39e6807afd2d5a93c03707a128a1c`;
+`4043470e8540d54797c0f0c21f67d62ba140e4ffc55f1d8c0bbaea37380898ef`;
 `package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
 To reproduce the topology package from r25:
@@ -35,8 +40,22 @@ tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$tmpdir"
 patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology1.patch
 patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology2.patch
 patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.patch
+patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.picking1.patch
 npm pack --ignore-scripts --pack-destination vendor "$tmpdir/package"
+sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.picking1.tgz
 ```
+
+The checksum above identifies the retained archive. To verify a repack across npm
+versions, `tests/test_matterviz_topology_vendor.py` compares every extracted package
+file against an independent patch replay, avoiding tar metadata differences.
+
+`pnpm test:topology-picking` runs the installed scene in Chromium with real Three.js
+raycasting and Threlte event registration. It requires Playwright and its Chromium
+browser. An external Playwright install can be selected with `PLAYWRIGHT_MODULE`
+(the absolute path to its `index.mjs`); `PLAYWRIGHT_CHROMIUM_EXECUTABLE` optionally
+selects an existing Chromium executable. `KEEP_BROWSER_FIXTURE=1` retains the
+temporary fixture and JSON evidence. The test checks hidden-bond deletion and
+context menus, atom/partial-occupancy/label interaction, and retained bond geometry.
 
 ## AIM topology workbench
 
@@ -45,6 +64,15 @@ backend arrays, not file extensions; disabled actions retain a focusable reason
 button. AIM requires nonperiodic atoms, valid GTFs, coefficients and occupations.
 Ordinary structures/cubes, old manifests and periodic inputs cannot start AIM;
 already generated topology remains viewable independently of this capability.
+
+Editing atom coordinates, elements, occupancies, site count, cell vectors,
+periodicity or charge invalidates wavefunction-dependent AIM/surface results.
+Late manifest responses cannot reactivate a result after such an edit. Display
+labels and visual settings do not invalidate the scientific input identity.
+CP/path labels share a limit of 256, including periodic images, and reuse their
+resources during size/selection changes. Inspect still lists every CP/path.
+Invalid numerical AIM input retains the last valid value and disables Run until
+corrected, rather than silently changing the requested scientific parameter.
 
 `GET /api/topology` uses the existing session capability and shared computation
 lock. Options are `seeds` (bitmask 1/2/4/8), `distance`, `gradient`, `displacement`,

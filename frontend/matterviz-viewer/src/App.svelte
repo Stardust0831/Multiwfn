@@ -89,6 +89,7 @@
     type VolumeCacheOptions,
   } from './volume-cache'
   import { parse_plot, plot_title, read_plot_dataset_response } from './plot'
+  import { analysis_structure_key } from './analysis-structure'
 
   let manifest = $state<MultiwfnManifest>({})
   let manifestBase = $state(new URL('/session/', window.location.href))
@@ -115,8 +116,8 @@
   let loadedManifestUrl = $state(manifest_url())
   let structure = $state<AnyStructure | undefined>()
   let loadedGeometryKey = $state('')
-  const geometryKey = $derived(JSON.stringify(structure?.sites.map((site) => site.xyz) ?? []))
-  const topologyReason = $derived(loadedGeometryKey && geometryKey !== loadedGeometryKey ? 'The displayed geometry no longer matches the loaded wavefunction' : manifest.topologyAnalysis?.aim?.available === true ? '' : manifest.topologyAnalysis?.aim?.reason || 'The loaded input does not provide AIM wavefunction data')
+  const geometryKey = $derived(analysis_structure_key(structure))
+  const topologyReason = $derived(loadedGeometryKey && geometryKey !== loadedGeometryKey ? 'The displayed structure no longer matches the loaded wavefunction' : manifest.topologyAnalysis?.aim?.available === true ? '' : manifest.topologyAnalysis?.aim?.reason || 'The loaded input does not provide AIM wavefunction data')
   $effect(() => {
     if (loadedGeometryKey && geometryKey !== loadedGeometryKey) {
       topologyGeneration++
@@ -603,6 +604,7 @@
       const parsedStructure = parsed[parsedStructureIdx]?.structure
       if (parsedStructure) {
         structure = inject_manifest_lattice(parsedStructure, manifest, { override: true })
+        loadedGeometryKey = analysis_structure_key(structure)
       }
     }
     const previousLayers = mode === 'append' ? (isosurfaceSettings.layers ?? []) : []
@@ -924,7 +926,7 @@
     const text = await fetch_text(resolve_entry_url(entry, manifestBase))
     const loaded = inject_manifest_lattice(parse_any_structure(text, entry.path), manifest, { override: true })
     structure = loaded
-    loadedGeometryKey = JSON.stringify(loaded.sites.map((site) => site.xyz))
+    loadedGeometryKey = analysis_structure_key(loaded)
   }
 
   const load_manifest = async (): Promise<void> => {
@@ -994,17 +996,24 @@
       if (manifest.structure?.path) await load_structure()
       if (entries.length) await apply_entries(entries, manifestBase)
       if (manifest.topology) {
-        topologyResult = await load_topology(manifest.topology)
-        topologyActive = true
-        topologyPanelOpen = true
-        orbitalPanelOpen = false
+        const geometry = geometryKey
+        const result = await load_topology(manifest.topology)
+        // Discard stale analysis without skipping the startup-ready handshake below.
+        if (generation === topologyGeneration && geometry === geometryKey) {
+          topologyResult = result
+          topologyActive = true
+          topologyPanelOpen = true
+          orbitalPanelOpen = false
+        }
       }
       if (manifest.surfaceAnalysis) {
+        const geometry = geometryKey
         const result = await load_surface(manifest.surfaceAnalysis)
-        if (generation !== topologyGeneration) return
-        surfaceResult = result
-        surfaceFitPending = true
-        open_surface_results()
+        if (generation === topologyGeneration && geometry === geometryKey) {
+          surfaceResult = result
+          surfaceFitPending = true
+          open_surface_results()
+        }
       }
       if (String(manifest.multiwfnGui?.entry || '').toLowerCase().includes('drawmol')) {
         const initialVolumeIdx = initial_orbital_volume_index(
