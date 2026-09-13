@@ -913,6 +913,29 @@ mod tests {
     }
 
     #[test]
+    fn candidate_replacement_preserves_the_download_and_staged_files() {
+        let (_directory, root, registry) = signed_stage_fixture();
+        stage_with_registry(&root, &registry).unwrap();
+        let mut candidate = load_candidate(&root).unwrap().unwrap();
+        let archive_before = fs::read(&candidate.archive_path).unwrap();
+        let staged_before = fs::read(stage_dir(&root).join("resources/tools/host")).unwrap();
+        candidate.archive_url = "https://example.invalid/replaced-download-location".into();
+
+        save_candidate(&root, &candidate).unwrap();
+
+        assert_eq!(load_candidate(&root).unwrap(), Some(candidate.clone()));
+        assert_eq!(fs::read(&candidate.archive_path).unwrap(), archive_before);
+        assert_eq!(
+            fs::read(stage_dir(&root).join("resources/tools/host")).unwrap(),
+            staged_before
+        );
+        assert!(!matterviz_updater::state_path(&root)
+            .with_extension("json.tmp")
+            .exists());
+        assert!(!matterviz_updater::transaction_dir(&root).exists());
+    }
+
+    #[test]
     fn staging_rejects_current_file_changes_and_unknown_collisions_before_ready() {
         for collision in [false, true] {
             let (_directory, root, registry) = signed_stage_fixture();

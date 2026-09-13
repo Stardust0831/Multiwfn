@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use zeroize::Zeroizing;
@@ -536,7 +536,7 @@ pub fn write_install_manifest(root: &Path, manifest: &InstallManifestV1) -> Resu
     let bytes = canonical_json(manifest)?;
     let path = root.join(INSTALL_MANIFEST_NAME);
     let temp = path.with_extension("json.tmp");
-    fs::write(&temp, bytes)?;
+    write_synced_file(&temp, &bytes)?;
     durable_replace(&temp, &path)?;
     if let Some(parent) = path.parent() {
         sync_directory(parent)?;
@@ -1227,8 +1227,7 @@ fn write_state(dir: &Path, state: &TransactionState) -> Result<()> {
     if bytes.len() > MAX_JOURNAL_BYTES {
         return Err(Error::Limit("transaction journal exceeds 16 MiB".into()));
     }
-    fs::write(&tmp, bytes)?;
-    File::open(&tmp)?.sync_all()?;
+    write_synced_file(&tmp, &bytes)?;
     durable_replace(&tmp, &path)?;
     sync_directory(dir)?;
     if let Some(parent) = dir.parent() {
@@ -1348,9 +1347,24 @@ fn retire_directory(path: &Path) -> Result<()> {
     retire_directory_with_cleanup(path, true).map(|_| ())
 }
 
+fn write_synced_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    // Keep the write handle until flushing completes. On Windows, flushing a
+    // handle reopened by File::open fails with ERROR_ACCESS_DENIED.
+    let mut file = File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    Ok(())
+}
+
 fn sync_regular_file(path: &Path) -> Result<()> {
     check_regular_file(path)?;
-    File::open(path)?.sync_all()?;
+    // FlushFileBuffers requires GENERIC_WRITE on Windows. Unix fsync accepts a
+    // read handle, including staged executable files without write permission.
+    OpenOptions::new()
+        .read(true)
+        .write(cfg!(windows))
+        .open(path)?
+        .sync_all()?;
     Ok(())
 }
 
@@ -1858,8 +1872,7 @@ pub fn save_candidate(install_root: &Path, candidate: &CandidateState) -> Result
     fs::create_dir_all(&dir)?;
     let path = state_path(install_root);
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, canonical_json(candidate)?)?;
-    File::open(&tmp)?.sync_all()?;
+    write_synced_file(&tmp, &canonical_json(candidate)?)?;
     durable_replace(&tmp, &path)?;
     sync_directory(&dir)?;
     if let Some(parent) = dir.parent() {
@@ -2488,7 +2501,8 @@ mod tests {
         fs::write(d.path().join("app"), b"new").unwrap();
         let txn = transaction_dir(d.path());
         fs::create_dir_all(txn.join("backups")).unwrap();
-        fs::write(txn.join("backups/0000000000000000"), b"old").unwrap();
+        let backup = backup_path(&txn, 0);
+        fs::write(&backup, b"old").unwrap();
         let state = TransactionState {
             version: 1,
             install_root: d.path().display().to_string(),
@@ -2496,7 +2510,7 @@ mod tests {
             entries: vec![JournalEntry {
                 operation: "replace".into(),
                 path: "app".into(),
-                backup: Some(txn.join("backups/0000000000000000").display().to_string()),
+                backup: Some(backup.display().to_string()),
                 source: None,
                 phase: "applied".into(),
             }],
@@ -2624,7 +2638,11 @@ mod tests {
         };
         stage_with_manifest(d.path(), &target, &[("app", b"new")]);
         INJECT_FAILURE_AFTER_RENAME.with(|flag| flag.set(true));
-        assert!(apply_transaction(d.path(), stage_dir(d.path()).as_path(), &target).is_err());
+        let result = apply_transaction(d.path(), stage_dir(d.path()).as_path(), &target);
+        assert!(
+            matches!(result, Err(Error::Io(ref error)) if error.to_string() == "injected post-rename failure"),
+            "{result:?}"
+        );
         assert_eq!(fs::read(d.path().join("app")).unwrap(), b"old");
         assert!(!transaction_dir(d.path()).exists());
     }
@@ -2706,7 +2724,11 @@ mod tests {
         let d = tempdir().unwrap();
         let target = nested_transaction_fixture(d.path());
         INJECT_FAILURE_AFTER_RENAME.with(|flag| flag.set(true));
-        assert!(apply_transaction(d.path(), &stage_dir(d.path()), &target).is_err());
+        let result = apply_transaction(d.path(), &stage_dir(d.path()), &target);
+        assert!(
+            matches!(result, Err(Error::Io(ref error)) if error.to_string() == "injected post-rename failure"),
+            "{result:?}"
+        );
         assert_eq!(
             fs::read(d.path().join("resources/tools/host")).unwrap(),
             b"old host"
@@ -2737,7 +2759,7 @@ mod tests {
         fs::create_dir(d.path().join("app")).unwrap();
         let txn = transaction_dir(d.path());
         fs::create_dir_all(txn.join("backups")).unwrap();
-        let backup = txn.join("backups/0000000000000000");
+        let backup = backup_path(&txn, 0);
         fs::write(&backup, b"old").unwrap();
         let state = TransactionState {
             version: 1,
@@ -2754,7 +2776,10 @@ mod tests {
             pending_confirm: true,
         };
         write_state(&txn, &state).unwrap();
-        assert!(rollback_last(d.path()).is_err());
+        assert!(matches!(
+            rollback_last(d.path()),
+            Err(Error::Conflict(message)) if message.contains("rollback encountered non-file")
+        ));
         assert!(transaction_dir(d.path()).is_dir());
         assert!(transaction_dir(d.path()).join("journal.json").is_file());
     }

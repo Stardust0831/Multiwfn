@@ -197,6 +197,13 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-openblas
 
+      - name: Build MatterViz updater
+        working-directory: frontend/matterviz-updater
+        shell: bash
+        run: |
+          cargo test --locked
+          cargo build --release --locked
+
       - name: Build MatterViz frontend
         working-directory: frontend/matterviz-viewer
         shell: bash
@@ -211,15 +218,10 @@ jobs:
 
       - name: Build MatterViz desktop shell
         working-directory: frontend/matterviz-desktop
+        shell: bash
         run: |
           cargo test --locked
           cargo check --locked
-          cargo build --release --locked
-
-      - name: Build MatterViz updater
-        working-directory: frontend/matterviz-updater
-        run: |
-          cargo test --locked
           cargo build --release --locked
 
       - name: Test C-to-Rust binary volume transport
