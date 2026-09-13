@@ -16,7 +16,8 @@ class TopologyVendor(unittest.TestCase):
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), "52b5475da106a6faf9daabc440c327f3f9e2998fa1efda4d1ed35d046c041118")
         with tempfile.TemporaryDirectory(prefix="workbench-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"
-            base.mkdir(); target.mkdir()
+            base.mkdir()
+            target.mkdir()
             subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".tgz")), "-C", str(base)], check=True)
             subprocess.run(["tar", "-xzf", str(archive), "-C", str(target)], check=True)
             with (VENDOR / "patches" / (VERSION + ".workbench1.patch")).open("rb") as patch:
@@ -56,7 +57,8 @@ class TopologyVendor(unittest.TestCase):
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), "4043470e8540d54797c0f0c21f67d62ba140e4ffc55f1d8c0bbaea37380898ef")
         with tempfile.TemporaryDirectory(prefix="bond-picking-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"
-            base.mkdir(); target.mkdir()
+            base.mkdir()
+            target.mkdir()
             subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".surface1.tgz")), "-C", str(base)], check=True)
             subprocess.run(["tar", "-xzf", str(archive), "-C", str(target)], check=True)
             with (VENDOR / "patches" / (VERSION + ".surface1.picking1.patch")).open("rb") as patch:
@@ -72,7 +74,8 @@ class TopologyVendor(unittest.TestCase):
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), "33893d62a52936a0334dac1b580c98dcd5b39e6807afd2d5a93c03707a128a1c")
         with tempfile.TemporaryDirectory(prefix="surface-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"
-            base.mkdir(); target.mkdir()
+            base.mkdir()
+            target.mkdir()
             subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".topology2.tgz")), "-C", str(base)], check=True)
             subprocess.run(["tar", "-xzf", str(archive), "-C", str(target)], check=True)
             with (VENDOR / "patches" / (VERSION + ".surface1.patch")).open("rb") as patch:
@@ -87,7 +90,8 @@ class TopologyVendor(unittest.TestCase):
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), "05ca32f4f7b3708422baf251d21cb759f653f03fde6505233341e1beec12c186")
         with tempfile.TemporaryDirectory(prefix="camera-esp-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"
-            base.mkdir(); target.mkdir()
+            base.mkdir()
+            target.mkdir()
             subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".topology1.tgz")), "-C", str(base)], check=True)
             subprocess.run(["tar", "-xzf", str(archive), "-C", str(target)], check=True)
             with (VENDOR / "patches" / (VERSION + ".topology2.patch")).open("rb") as patch:
@@ -102,7 +106,8 @@ class TopologyVendor(unittest.TestCase):
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), "62111bf2085538beec5652f7d3c28d0193409525743969adbc935151e18cbb52")
         with tempfile.TemporaryDirectory(prefix="topology-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"
-            base.mkdir(); target.mkdir()
+            base.mkdir()
+            target.mkdir()
             subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".tgz")), "-C", str(base)], check=True)
             subprocess.run(["tar", "-xzf", str(archive), "-C", str(target)], check=True)
             with (VENDOR / "patches" / (VERSION + ".topology1.patch")).open("rb") as patch:
