@@ -108,6 +108,11 @@ test('resolves one typed dataset and materializes line data without inline array
   const line = scene.panels[0].layers[0]
   assert.deepEqual(Array.from(materialize_plot_layer(line, resolved.datasets.get(1)! ).x), [1, 2])
   assert.equal(to_matterviz_data_series(line, resolved.datasets.get(1)!).markers, 'line')
+  const rendered = to_matterviz_data_series(line, resolved.datasets.get(1)!)
+  assert.equal(Array.isArray(rendered.x), true)
+  assert.deepEqual(rendered.x.map((x, index) => ({ x, y: rendered.y[index] })), [{ x: 1, y: 1 }, { x: 2, y: 2 }])
+  assert.equal(rendered.x, to_matterviz_data_series(line, resolved.datasets.get(1)!).x)
+  assert.ok(resolved.datasets.get(1)!.x instanceof Float64Array)
   assert.equal(resolved.datasets.get(1)!.baseline?.length, 2)
 })
 

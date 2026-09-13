@@ -2,7 +2,7 @@
   import { ScatterPlot } from 'matterviz'
   import type { RefLine, UserContentProps } from 'matterviz/plot'
   import { tick, untrack } from 'svelte'
-  import { stick_path, to_matterviz_series, type PlotArtifact, type PlotPanel } from './plot'
+  import { plot_title, stick_path, to_matterviz_series, type PlotArtifact, type PlotPanel } from './plot'
   import PlotSceneView from './PlotSceneView.svelte'
   import type { PlotDataset, PlotDatasetResolver, PlotScene } from './plot'
   import { SCIENTIFIC_PLOT_LEGEND, SCIENTIFIC_PLOT_PADDING, scientific_series_color } from './scientific-plot'
@@ -10,6 +10,7 @@
 
   let { artifact, resolver, release, exportConfig, onExported, onExportError }: { artifact: PlotArtifact | PlotScene; resolver?: PlotDatasetResolver; release?: (datasetId: number, dataset: PlotDataset) => void; exportConfig?: PlotExportRequest; onExported?: () => void; onExportError?: (error: unknown) => void } = $props()
   let plotRoot = $state<HTMLElement | undefined>()
+  const plotId = $props.id()
   let exportStarted = false
   let exportError = $state<string | undefined>()
   $effect(() => {
@@ -65,7 +66,7 @@
 {:else}
 <main bind:this={plotRoot} class="plot-only" data-plot-document data-export-width="1600" data-export-height="900" aria-label="Multiwfn plot viewer">
   <header class="plot-header">
-    <strong>{v1_artifact.title}</strong>
+    <strong>{plot_title(v1_artifact)}</strong>
     <span>{v1_artifact.kind.toUpperCase()}</span>
   </header>
   <section class="plot-panels">
@@ -74,7 +75,7 @@
         {#if view.panel.title}<h2>{view.panel.title}</h2>{/if}
         <div class="plot-canvas">
           {#snippet scientific_content({ width, height, x_scale_fn, y_scale_fn, y2_scale_fn, pad }: UserContentProps)}
-            {@const clip_id = `spectrum-sticks-${panel_index}`}
+            {@const clip_id = `spectrum-sticks-${plotId}-${panel_index}`}
             <defs><clipPath id={clip_id}><rect x={pad.l} y={pad.t} width={width - pad.l - pad.r} height={height - pad.t - pad.b} /></clipPath></defs>
             <rect class="scientific-plot-frame" x={pad.l} y={pad.t} width={width - pad.l - pad.r} height={height - pad.t - pad.b} fill="none" stroke="#000" stroke-width="1" shape-rendering="crispEdges" pointer-events="none" />
             <g class="spectrum-sticks" clip-path={`url(#${clip_id})`} pointer-events="none">
@@ -91,6 +92,7 @@
           {/snippet}
           <ScatterPlot
             class="scientific-scatter-plot"
+            line_tween={{ duration: 0 }}
             bind:series={view.series}
             bind:x_axis={view.x_axis}
             bind:y_axis={view.y_axis}
