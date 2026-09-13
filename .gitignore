@@ -41,6 +41,9 @@ venv/
 node_modules/
 dist/
 
+# Rust build output
+target/
+
 # Generated GUI session data
 multiwfn_3dmol_session/
 

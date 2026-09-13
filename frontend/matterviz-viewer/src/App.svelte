@@ -18,6 +18,7 @@
   import EspLegend from './EspLegend.svelte'
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
+  import UpdateModal from './UpdateModal.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
   import WorkbenchMenu from './WorkbenchMenu.svelte'
   import MeasurementReadout, { type BondResult } from './MeasurementReadout.svelte'
@@ -66,6 +67,7 @@
     type WorkbenchCameraState,
   } from './state'
   import { signal_frontend_ready } from './startup'
+  import { create_update_client, type UpdateStatus } from './update'
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
   import {
     adapt_matterviz_volume,
@@ -152,6 +154,10 @@
     [key: string]: unknown
   }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
+  let updateStatus = $state<UpdateStatus | undefined>()
+  let updateOpen = $state(false)
+  const updaterBuildEnabled = import.meta.env.VITE_MATTERVIZ_PRERELEASE_UPDATER === '1'
+  const updateClient = updaterBuildEnabled ? create_update_client(new URL(window.location.href)) : undefined
   let plots = $state<WorkbenchPlot[]>([])
   let activeResult = $state('scene')
   let openMenu = $state<string | undefined>()
@@ -483,6 +489,16 @@
       throw new Error(`Backend returned HTTP ${response.status} without JSON`)
     }
     return response.json() as Promise<ApiPayload>
+  }
+
+  const load_update_status = async (): Promise<void> => {
+    if (!updateClient || !new URL(window.location.href).searchParams.get('cap')) return
+    try {
+      const next = await updateClient.status()
+      updateStatus = next.visible ? next : undefined
+    } catch {
+      updateStatus = undefined
+    }
   }
 
   const fetch_text = async (url: URL): Promise<string> => {
@@ -1408,7 +1424,10 @@
     return () => cancelAnimationFrame(frame)
   })
 
-  onMount(load_manifest)
+  onMount(() => {
+    void load_manifest()
+    void load_update_status()
+  })
 
   onMount(() => {
     if (window.innerWidth < 1000) inspectorOpen = false
@@ -1547,6 +1566,11 @@
       <button class="icon-button" type="button" title="Close current plot" aria-label="Close current plot" onclick={close_plot} disabled={savingResult}><Icon icon="Cross" width="16" height="16" /></button>
     {/if}
     <button class="icon-button" type="button" title="Operation log" aria-label="Operation log" onclick={() => open_panel('logs')} aria-expanded={logOpen}><Icon icon="Info" width="16" height="16" /></button>
+    {#if updaterBuildEnabled && updateStatus?.visible}
+      <button class="icon-button update-toolbar-button" type="button" title="Open updater" aria-label="Open updater" onclick={() => updateOpen = true}>
+        <Icon icon={updateStatus.state === 'available' ? 'Download' : 'Version'} width="16" height="16" />
+      </button>
+    {/if}
     <button class="return" type="button" title="Return to the Multiwfn calculation menu" onclick={return_to_multiwfn} disabled={returnPending || savingResult}>Return</button>
   </header>
 
@@ -1999,6 +2023,10 @@
         </div>
       {/if}
     </aside>
+  {/if}
+
+  {#if updaterBuildEnabled && updateStatus?.visible}
+    <UpdateModal open={updateOpen} page={new URL(window.location.href)} initial_status={updateStatus} onstatus={(status) => updateStatus = status} onclose={() => updateOpen = false} />
   {/if}
 </main>
 
