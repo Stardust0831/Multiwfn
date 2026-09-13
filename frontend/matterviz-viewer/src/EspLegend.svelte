@@ -1,14 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { get_d3_interpolator, trans_flag_color, type D3InterpolateName } from 'matterviz/colors'
   import {
     clampLegendPosition,
     espLegendTicks,
+    esp_legend_gradient,
     type EspLegendTick,
     type LegendPosition,
   } from './esp'
 
   export let min = -0.05
   export let max = 0.05
+  export let colormap: D3InterpolateName = 'interpolateTransFlag'
   export let ticks: EspLegendTick[] | undefined = undefined
   export let visible = true
   export let position: LegendPosition = { left: 16, top: 16 }
@@ -25,6 +28,10 @@
   let measured_position: LegendPosition = { left: 16, top: 16 }
 
   $: legend_ticks = ticks?.length ? ticks : espLegendTicks(min, max, 5)
+  $: gradient = esp_legend_gradient(min, max, (value, lower, upper) =>
+    colormap === 'interpolateTransFlag'
+      ? trans_flag_color(value, [lower, upper])
+      : get_d3_interpolator(colormap)(lower === upper ? 0.5 : (value - lower) / (upper - lower)))
   $: available_width = Math.max(0, Number(container_width) || parent_width)
   $: available_height = Math.max(0, Number(container_height) || parent_height)
   $: {
@@ -124,7 +131,7 @@
     <button type="button" aria-label="Hide ESP legend" title="Hide ESP legend" onclick={close}>×</button>
   </header>
   <div class="legend-scale">
-    <div class="legend-gradient" aria-hidden="true"></div>
+    <div class="legend-gradient" style:background={gradient} aria-hidden="true"></div>
     <div class="legend-ticks">
       {#each legend_ticks as tick}
         <span>{tick.label}</span>
@@ -190,7 +197,6 @@
     height: 168px;
     border: 1px solid #b8c0cc;
     border-radius: 4px;
-    background: linear-gradient(to bottom, #5bcefa 0%, #ffffff 50%, #f5a9b8 100%);
   }
   .legend-ticks {
     display: flex;

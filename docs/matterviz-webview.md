@@ -4,17 +4,29 @@
 frontend. It owns both the session HTTP service and the operating-system
 WebView; no Python service, adapter, or runtime is bundled or launched.
 
-The Multiwfn backend creates a fresh `multiwfn_matterviz_session_*` directory
-for each GUI launch. It then starts the host directly:
+In normal use, the C/Fortran adapter starts the host directly with inherited
+control and volume pipes. Fortran sends a versioned `session_init` message;
+Rust validates and retains the manifest, structure and optional display state
+in memory before opening HTTP and the WebView. Binary scalar fields travel on
+the separate volume channel. The stable `/session/manifest.json` and
+`/session/structure.json` URLs project these in-memory objects, and
+`/api/volume/<id>` serves the resident volume data.
+
+`/api/return`, window close and host shutdown use the control channel to return
+to Multiwfn. The formal runtime creates no session directory, request/response
+files, stop flag or temporary Cube. A pipe failure ends that session; it does
+not silently switch to files. See the [control protocol](matterviz-control-protocol.md)
+and [volume protocol](matterviz-volume-protocol.md) for ownership and framing.
+
+File-backed startup remains an explicit diagnostic compatibility mode:
 
 ```text
 matterviz-desktop --frontend <dist> --session <session> --manifest <manifest>
 ```
 
-The host serves the frontend and session files from loopback, including the
-existing `/api/return` endpoint. A return request writes `gui_stop.flag`, stops
-the service, and closes the host process. The manifest and artifacts remain in
-the session directory for the lifetime of the GUI.
+Only this diagnostic mode serves session files and writes `gui_stop.flag` on
+return. Its manifest and artifacts remain in the selected session directory.
+Both modes serve the built frontend assets from the package resources.
 
 Each managed launch creates a random API capability in the WebView URL. The
 frontend propagates it to orbital, bond, ESP and Return requests. The service
@@ -38,13 +50,15 @@ and tests remain development-only and are not copied into a package.
 
 ## Development
 
-Build the frontend, then start the native host with a session manifest:
+Build the frontend, then use a small file-backed session to diagnose the host
+without running Multiwfn. This example deliberately uses the compatibility
+mode above:
 
 ```sh
 pnpm --dir frontend/matterviz-viewer install --frozen-lockfile
 pnpm --dir frontend/matterviz-viewer build
 mkdir -p multiwfn_matterviz_session
-printf '{"structure":{"path":"structure.json","format":"json"},"cubes":[]}' \
+printf '{"cubes":[]}' \
   > multiwfn_matterviz_session/manifest.json
 cargo run --manifest-path frontend/matterviz-desktop/Cargo.toml -- \
   --frontend frontend/matterviz-viewer/dist \
@@ -53,9 +67,13 @@ cargo run --manifest-path frontend/matterviz-desktop/Cargo.toml -- \
   --port 18765
 ```
 
-Use `GET http://127.0.0.1:18765/session/manifest.json` to verify that the
-service has started. `GET http://127.0.0.1:18765/api/return` requests a clean
-shutdown. `--host`, `--port`, and `--startup-timeout` are available for local
+Use the launched WebView URL, which includes its generated `cap` parameter,
+to verify the session. `GET /session/manifest.json` reads the manifest;
+`/api/return?cap=<capability>` requests an authenticated clean shutdown.
+`--state <path>` optionally exposes one selected display-state file at
+`/session/workbench-state.json`. Returning to the host root URL preserves
+that state reference in both diagnostic and native in-memory sessions.
+`--host`, `--port`, and `--startup-timeout` are available for local
 development and CI; managed launches may set `MULTIWFN_MATTERVIZ_HOST` and
 `MULTIWFN_MATTERVIZ_PORT` when a fixed test endpoint is required.
 
@@ -90,10 +108,11 @@ The resulting package contains `Multiwfn_MatterVizGUI` (or `.exe`),
 `multiwfn_matterviz_file_dialog.py` launchers and has no Python runtime
 requirement.
 
-Linux and Windows extracted-package checks start the Rust host directly, poll
-the session manifest route, call `/api/return`, and require a clean process exit
-with `gui_stop.flag`. macOS extracted checks remain limited to non-interactive
-binary/resource validation because WKWebView needs an interactive desktop.
+The extracted-package smoke checks exercise file-backed diagnostic startup
+and shutdown, including `gui_stop.flag`; this is not evidence of native pipe
+operation. The C/Rust integration harness and real-orbital tests cover the
+inherited transport. Native visual acceptance must additionally verify the
+WebView on each platform; WKWebView requires an interactive macOS desktop.
 
 ## Static validation
 
@@ -109,6 +128,17 @@ With Rust available:
 cargo test --manifest-path frontend/matterviz-desktop/Cargo.toml --locked
 cargo check --manifest-path frontend/matterviz-desktop/Cargo.toml --locked
 ```
+
+On a machine without the desktop WebView development libraries, the existing
+integration crate compiles the actual Rust service/transport modules and the
+C publisher without Tauri:
+
+```sh
+cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked
+cargo clippy --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --all-targets -- -D warnings
+```
+
+These checks cover HTTP and pipe behavior, not native window rendering.
 
 The default capability file grants no filesystem, shell, process, or other
 frontend IPC permissions. The current host needs no Tauri command bridge; any
