@@ -120,7 +120,7 @@ export const poll_update_status = (options: UpdatePollOptions): (() => void) => 
       const status = await options.client.status()
       if (cancelled) return
       options.onStatus(status)
-      if (is_update_active(status.state)) pending = timer.setTimeout(() => void run(), interval)
+      if (!cancelled && is_update_active(status.state)) pending = timer.setTimeout(() => void run(), interval)
     } catch (error) {
       if (!cancelled) options.onError(error)
     }
@@ -129,5 +129,88 @@ export const poll_update_status = (options: UpdatePollOptions): (() => void) => 
   return () => {
     cancelled = true
     if (pending !== undefined) timer.clearTimeout(pending)
+  }
+}
+
+type UpdateClient = ReturnType<typeof create_update_client>
+export type UpdateAction = 'check' | 'stage' | 'install'
+
+type UpdateModalSessionOptions = {
+  client: (signal: AbortSignal) => UpdateClient
+  onStatus: (status: UpdateStatus) => void
+  onBusy: (busy: boolean) => void
+  onError: (error: unknown) => void
+  timer?: UpdatePollOptions['timer']
+}
+
+// Closing the modal stops observing the updater; the backend operation continues.
+// Each opening reads its current status before deciding whether to resume polling.
+export const create_update_modal_session = (options: UpdateModalSessionOptions) => {
+  let open = false
+  let destroyed = false
+  let busy = false
+  let generation = 0
+  let controller: AbortController | undefined
+  let stop_poll: (() => void) | undefined
+
+  const set_busy = (next: boolean): void => {
+    busy = next
+    options.onBusy(next)
+  }
+
+  const cancel = (): void => {
+    generation += 1
+    stop_poll?.()
+    stop_poll = undefined
+    controller?.abort()
+    controller = undefined
+  }
+
+  const current = (request_generation: number): boolean =>
+    open && !destroyed && request_generation === generation
+
+  const request = async (action: UpdateAction | 'status'): Promise<void> => {
+    cancel()
+    const request_generation = generation
+    controller = new AbortController()
+    set_busy(true)
+    try {
+      const client = options.client(controller.signal)
+      const next = await client[action]()
+      if (!current(request_generation)) return
+      options.onStatus(next)
+      if (!current(request_generation)) return
+      stop_poll = poll_update_status({
+        client,
+        initial: next,
+        timer: options.timer,
+        onStatus: (status) => { if (current(request_generation)) options.onStatus(status) },
+        onError: (error) => { if (current(request_generation)) options.onError(error) },
+      })
+    } catch (error) {
+      if (current(request_generation)) options.onError(error)
+    } finally {
+      if (current(request_generation)) set_busy(false)
+    }
+  }
+
+  return {
+    set_open: (next: boolean): void => {
+      if (destroyed || next === open) return
+      open = next
+      if (open) void request('status')
+      else {
+        cancel()
+        set_busy(false)
+      }
+    },
+    run_action: async (action: UpdateAction): Promise<void> => {
+      if (open && !destroyed && !busy) await request(action)
+    },
+    destroy: (): void => {
+      destroyed = true
+      open = false
+      cancel()
+    },
   }
 }

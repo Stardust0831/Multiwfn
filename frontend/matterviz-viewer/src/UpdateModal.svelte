@@ -3,8 +3,8 @@
   import { onDestroy } from 'svelte'
   import {
     create_update_client,
-    is_update_active,
-    poll_update_status,
+    create_update_modal_session,
+    type UpdateAction,
     type UpdateState,
     type UpdateStatus,
   } from './update'
@@ -15,50 +15,32 @@
   export let onclose: (() => void) | undefined = undefined
   export let onstatus: ((status: UpdateStatus) => void) | undefined = undefined
 
-  const client = create_update_client(page)
   let status: UpdateStatus = initial_status ?? { visible: false, state: 'idle', conflicts: [] }
   let busy = false
-  let last_action: 'check' | 'stage' | 'install' = 'check'
-  let stop_poll: (() => void) | undefined
+  let last_action: UpdateAction = 'check'
+
+  const session = create_update_modal_session({
+    client: (signal) => create_update_client(page, (input, init) => fetch(input, { ...init, signal })),
+    onStatus: (next) => { status = next; onstatus?.(next) },
+    onBusy: (next) => { busy = next },
+    onError: (error) => {
+      status = { ...status, state: 'error', message: error instanceof Error ? error.message : 'Update request failed' }
+      onstatus?.(status)
+    },
+  })
 
   $: if (initial_status) status = initial_status
+  $: session.set_open(open)
 
   const close = (): void => {
-    stop_poll?.()
-    stop_poll = undefined
+    session.set_open(false)
     onclose?.()
   }
 
-  const start_poll = (next: UpdateStatus): void => {
-    stop_poll?.()
-    stop_poll = poll_update_status({
-      client,
-      initial: next,
-      onStatus: (value) => { status = value; onstatus?.(value) },
-      onError: (error) => {
-        status = { ...status, state: 'error', message: error instanceof Error ? error.message : 'Update status could not be read' }
-        onstatus?.(status)
-      },
-    })
-  }
-
-  const run_action = async (action: 'check' | 'stage' | 'install'): Promise<void> => {
+  const run_action = async (action: UpdateAction): Promise<void> => {
     if (busy) return
-    busy = true
     last_action = action
-    stop_poll?.()
-    stop_poll = undefined
-    try {
-      const next = await client[action]()
-      status = next
-      onstatus?.(next)
-      if (is_update_active(next.state)) start_poll(next)
-    } catch (error) {
-      status = { ...status, state: 'error', message: error instanceof Error ? error.message : 'Update request failed' }
-      onstatus?.(status)
-    } finally {
-      busy = false
-    }
+    await session.run_action(action)
   }
 
   const retry = (): void => { void run_action(last_action === 'install' ? 'check' : last_action) }
@@ -71,7 +53,7 @@
     return 'Working...'
   }
 
-  onDestroy(() => stop_poll?.())
+  onDestroy(() => session.destroy())
 </script>
 
 {#if open}
@@ -82,7 +64,7 @@
           <span class="update-kicker">MatterViz updater</span>
           <h2 id="update-heading">Update Multiwfn</h2>
         </div>
-        <button class="icon-button" type="button" title="Dismiss updater" aria-label="Dismiss updater" onclick={close} disabled={busy}>
+        <button class="icon-button" type="button" title="Dismiss updater" aria-label="Dismiss updater" onclick={close}>
           <Icon icon="Cross" width="16" height="16" />
         </button>
       </header>
@@ -128,7 +110,7 @@
           <div class="update-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(status.progress ?? 0)}>
             <span style={`width: ${status.progress ?? 0}%`}></span>
           </div>
-          <small>{status.progress === undefined ? 'Please keep this window open.' : `${Math.round(status.progress)}%`}</small>
+          <small>{status.progress === undefined ? 'You can dismiss this window and check progress later.' : `${Math.round(status.progress)}%`}</small>
         {/if}
       </div>
     </dialog>

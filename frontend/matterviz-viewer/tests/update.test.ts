@@ -78,3 +78,22 @@ test('polling never overlaps requests and cancels pending work', async () => {
   stop()
   assert.equal(clearCount, 1)
 })
+
+test('closing from a status callback does not leave another poll timer', async () => {
+  let scheduled: (() => void) | undefined
+  let schedules = 0
+  const stop = poll_update_status({
+    client: { status: async () => parse_update_status(valid({ state: 'staging' })) },
+    initial: parse_update_status(valid({ state: 'staging' })),
+    onStatus: () => stop(),
+    onError: (error) => { throw error },
+    timer: {
+      setTimeout: (callback) => { scheduled = callback; return ++schedules },
+      clearTimeout: () => { scheduled = undefined },
+    },
+  })
+  scheduled?.()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(schedules, 1)
+  assert.equal(scheduled, undefined)
+})
