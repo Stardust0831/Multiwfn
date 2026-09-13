@@ -2,6 +2,7 @@ import type { CameraProjection, IsosurfaceLayer, IsosurfaceSettings, Vec3 } from
 import type { ManifestEntry, MultiwfnManifest } from './manifest'
 import type { SliceAxis, SliceColormap } from './slice'
 import { normalize_surface_appearance } from './material.ts'
+import { normalize_lighting } from './lighting.ts'
 
 const WORKBENCH_SLICE_COLORMAPS = new Set(['Viridis', 'RdBu', 'Jet', 'Portland'])
 
@@ -41,6 +42,8 @@ export type WorkbenchStructureAppearance = {
   showSiteLabels?: boolean
   showSiteIndices?: boolean
   sphereSegments?: number
+  ambientLight?: number
+  directionalLight?: number
   backgroundColor?: string
   backgroundOpacity?: number
 }
@@ -191,6 +194,9 @@ const normalize_structure_appearance = (value: unknown): WorkbenchStructureAppea
   if (typeof showSiteIndices === 'boolean') appearance.showSiteIndices = showSiteIndices
   const sphereSegments = finite_integer(read('sphereSegments', 'sphere_segments'))
   if (sphereSegments !== undefined) appearance.sphereSegments = Math.min(64, Math.max(8, sphereSegments))
+  const lighting = normalize_lighting(row)
+  if (lighting.ambient_light !== undefined) appearance.ambientLight = lighting.ambient_light
+  if (lighting.directional_light !== undefined) appearance.directionalLight = lighting.directional_light
   const backgroundColor = normalize_color(read('backgroundColor', 'background_color'))
   if (backgroundColor !== undefined) appearance.backgroundColor = backgroundColor
   const backgroundOpacity = clamp_finite(read('backgroundOpacity', 'background_opacity'), 0, 1)
@@ -482,7 +488,7 @@ export const restore_workbench_state = (
     isosurfaceSettings,
     periodic: state.periodic,
     camera: state.camera,
-    structureAppearance: state.structureAppearance,
+    structureAppearance: normalize_structure_appearance(state.structureAppearance),
     slice: state.slice,
     espLegend: state.espLegend,
   }

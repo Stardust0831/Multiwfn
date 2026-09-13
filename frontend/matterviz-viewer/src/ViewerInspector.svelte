@@ -16,6 +16,7 @@
     SURFACE_PRESETS,
     type SurfaceNumber,
   } from './material'
+  import { LIGHTING_DEFAULTS, normalize_light_intensity, normalize_lighting, type LightingKey } from './lighting'
 
   type InspectorSection = 'structure' | 'surfaces' | 'cell'
   type SceneProps = Record<string, unknown>
@@ -58,6 +59,7 @@
   $: shaded_surface = !isosurface_settings.wireframe && isosurface_settings.material !== 'unlit'
 
   $: surface_values = { ...SURFACE_DEFAULTS, ...normalize_surface_appearance(isosurface_settings) }
+  $: lighting_values = { ...LIGHTING_DEFAULTS, ...normalize_lighting(scene_props) }
 
   const surface_range = (): Range => {
     const value = isosurface_settings.display_range
@@ -71,6 +73,11 @@
   const set_number = (key: string, event: Event): void => {
     const input = event.currentTarget as HTMLInputElement
     if (Number.isFinite(input.valueAsNumber)) update_scene(key, input.valueAsNumber)
+  }
+
+  const set_lighting = (key: LightingKey, event: Event): void => {
+    const value = normalize_light_intensity((event.currentTarget as HTMLInputElement).valueAsNumber)
+    if (value !== undefined) update_scene(key, value)
   }
 
   const set_dimension = (key: 'atom_radius' | 'bond_thickness', event: Event): void => {
@@ -149,6 +156,22 @@
             <input type="number" min="0.01" max="1" step="0.01" value={scene_value('bond_thickness', 0.07)} oninput={(event) => set_dimension('bond_thickness', event)} />
           </label>
         </div>
+      </section>
+
+      <section class="inspector-section" aria-labelledby="lighting-heading">
+        <h2 id="lighting-heading">Lighting</h2>
+        <div class="field-grid">
+          <label>
+            <span class="value-label">Ambient <span class="control-value" aria-hidden="true">{lighting_values.ambient_light.toFixed(2)}</span></span>
+            <input type="range" min="0" max="4" step="0.01" value={lighting_values.ambient_light} oninput={(event) => set_lighting('ambient_light', event)} />
+          </label>
+          <label>
+            <span class="value-label">Directional <span class="control-value" aria-hidden="true">{lighting_values.directional_light.toFixed(2)}</span></span>
+            <input type="range" min="0" max="4" step="0.01" value={lighting_values.directional_light} oninput={(event) => set_lighting('directional_light', event)} />
+          </label>
+        </div>
+        <p class="muted">Ambient brightens shaded areas; directional light adds shape and highlights.</p>
+        <button type="button" class="reset-lighting" onclick={() => on_scene_props_change?.({ ...scene_props, ...LIGHTING_DEFAULTS })}>Reset lighting</button>
       </section>
 
       <section class="inspector-section" aria-labelledby="background-heading">
@@ -320,6 +343,7 @@
   .control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
   .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 8px; margin-top: 11px; }
   .compact-fields { gap: 7px 8px; margin-top: 8px; }
+  .reset-lighting { margin-top: 10px; padding: 3px 8px; font-size: 11px; }
   .surface-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
   .surface-preset { display: flex; align-items: center; gap: 9px; height: 44px; padding: 7px 9px; text-align: left; font-size: 11px; }
   .surface-preset.selected { color: #135e9e; border-color: #1976b8; background: #edf5fc; box-shadow: inset 0 0 0 1px #1976b8; }

@@ -29,7 +29,7 @@ Rust host, frontend, vendored rendering adapter, tests and documentation.
 
 ## Vendor lineage and upstream compatibility
 
-The retained package lineage is `r24 → r25 → r25.material1`. Main's r25 includes
+The retained package lineage is `r24 → r25 → r25.material1 → r25.material2`. Main's r25 includes
 ordered measurements and bond context menus. PR #54's r26 derives from r24, so
 replacing main with that archive would regress those features. The new package
 replays a reviewable patch on main's r25; its lockfile pins the archive integrity.
@@ -96,10 +96,11 @@ independent commits remain. Local worktrees were preserved.
 | [#50](https://github.com/Stardust0831/Multiwfn/issues/50) | The ORCA ECP fix branch has independent changes to protected computational source. It remains outside this frontend/host maintenance scope. |
 
 No issue was closed by this audit. Code scan issues and settings were excluded.
-PR #56 remains separate: its imported spectrum/broadening work needs its own
-architecture review against the project's scientific-ownership principles.
+PR #56 remains separate. Its September 12 head `1dbe45d` has removed the
+standalone spectrum/broadening workflow in response to the owner's review.
+Topology and quantitative surface integration still require their own review.
 
-## Validation
+## Initial validation (September 11)
 
 - Node 24.14 / pnpm 11.5: 181 frontend tests, 180 passed and one existing skip;
   Svelte check reports zero errors/warnings; Vite production build passes.
@@ -127,3 +128,43 @@ Windows/macOS/Linux native WebView interaction and a full local Tauri build were
 not performed here; GTK/WebKit development dependencies were unavailable.
 Cross-platform package CI remains necessary. Existing large-bundle/CSS warnings
 remain outside this maintenance change.
+
+## September 13 rendering follow-up
+
+The follow-up retains the zero-width palette fix from `773cb0f`. Upstream was
+rechecked at `4534b534` (0.7.0); open PR #468 at `eb54c6ba` concerns buffer and
+trajectory reuse, not a replacement for these material/normal repairs.
+
+- Typed Worker meshes previously rendered grid-index gradients as Cartesian
+  normals. The new geometry helper recomputes area-weighted normals from final
+  vertices, matching the legacy path while reusing the allocated normal buffer.
+  Eight executable tests cover rotated, anisotropic, oblique and reflected cells,
+  sphere meshes, winding, and empty/missing-normal inputs. Vertices, triangle
+  order, isovalues and scientific arrays remain unchanged.
+- Unlit and wireframe materials now bypass tone mapping. A real Chromium
+  framebuffer probe using the installed Unlit material returned white
+  `(255,255,255)`, pink `(245,169,184)` and blue `(91,206,250)`, matching both
+  uniform and linear vertex colors. Re-enabling AgX on the same diagnostic
+  material returned `(202,202,202)`, `(201,168,173)` and `(135,186,203)`.
+  Lit materials retain AgX and the existing two-pass transparency behavior.
+- Structure > Lighting provides ambient/directional controls from 0 to 4 and a
+  reset to 0.72/1.2. State save, import and application preserve zero, accept old
+  camel/snake names, and leave missing fields unchanged. This carries over the
+  useful light controls from PR #54 into the existing inspector.
+
+Same-camera screenshots of the real density/ESP pair kept opacity, isovalues,
+geometry and colors fixed. Ambient/directional 1.25/1.55 only modestly lightened
+Matte and Soft gloss; this was an explicit comparison, not a changed default.
+Transparent lit surfaces can still look desaturated. Unlit preserves palette
+colors but removes light-based shape cues; these are distinct display choices.
+
+Node 24.14 / pnpm 11.5 validation: **195 tests, 194 passed and one existing skip**;
+Svelte check has zero errors/warnings and the production build passes. The GUI
+contract suite remains **36 passed and one existing skip**. Browser checks confirm
+lighting changes/reset, material tone-mapping properties, pixel colors, and
+unchanged camera/geometry/data settings without JavaScript or WebGL errors.
+Native Windows/macOS WebViews were not exercised locally.
+
+The cumulative `r25.material2` patch replays on the retained main r25 archive to
+all **768 byte-identical package files**. Archive SHA-256:
+`82eb73b667903a085fdaff8585f1121ce0ab3e54ec2a8fca94fe8f16c061c92c`.

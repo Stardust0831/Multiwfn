@@ -6,7 +6,7 @@ It consumes the same Multiwfn session manifest and serialized backend API, so th
 calculation modules remain unchanged.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.material1.tgz` in `vendor/`. Its
+`matterviz-0.4.2-multiwfn.d8719d12.r25.material2.tgz` in `vendor/`. Its
 reviewable patch applies directly to main's r25 archive. The package retains
 ordered measurements, angle/dihedral and bond context menus, Arcball camera
 controls, flat grids, Worker meshing and immediate resource release.
@@ -21,7 +21,13 @@ and colorbars, including asymmetric and one-sided ranges; its odd-sized LUT
 preserves exact white at zero. Worker buffer returns also support environments
 without SharedArrayBuffer.
 
-The retained lineage is r24 → r25 → r25.material1. PR #54's r26 archive was based
+Typed Worker geometry now recomputes area-weighted normals from the final
+Cartesian vertices, reusing its allocated normal buffer. This matches the legacy
+geometry path for rotated, anisotropic and nonorthogonal cells. Unlit and
+wireframe surfaces bypass tone mapping so their colors agree with the legend;
+lit finishes retain the renderer's existing tone mapping and transparency.
+
+The retained lineage is r24 → r25 → r25.material2. PR #54's r26 archive was based
 on r24 and cannot replace main's r25 without losing measurement controls. The
 older r25 material build from PR #54 reused that version name; it is not this
 repository's r25 patch base. Use the retained archive and the lockfile integrity.
@@ -31,7 +37,7 @@ To reproduce the material package (Node.js 24 and npm):
 ```bash
 material_tmpdir="$(mktemp -d)"
 tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$material_tmpdir"
-patch -d "$material_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.material1.patch
+patch -d "$material_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.material2.patch
 npm pack --ignore-scripts --pack-destination vendor "$material_tmpdir/package"
 ```
 
@@ -78,6 +84,9 @@ Surfaces offers Matte, Soft gloss, Satin and Unlit color finishes, with bounded
 rim, opacity and shading refinements. Finishes preserve scientific isovalues and
 layer colors; periodic boundary padding is under Cell. These settings are saved
 with the workbench state.
+Structure > Lighting exposes ambient and directional intensity from 0 to 4,
+with Reset restoring the renderer defaults of 0.72 and 1.2. Both values are saved
+and restored, including zero and older camel/snake-case snapshot fields.
 Save > Save display settings writes a versioned JSON snapshot of layer, periodic, isosurface-material, and
 camera state. The same snapshot can be restored with Save > Restore display settings or a `state=` URL query;
 the browser and WebView launchers also accept `--state <path>` and expose only that selected file

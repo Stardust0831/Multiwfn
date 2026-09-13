@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { normalize_lighting } from './lighting'
   import {
     DEFAULT_ISOSURFACE_SETTINGS,
     Icon,
@@ -838,6 +839,7 @@
       const appearance = restored.structureAppearance
       sceneProps = {
         ...sceneProps,
+        ...normalize_lighting(appearance),
         ...(appearance.representationPreset !== undefined ? { representation_preset: appearance.representationPreset } : {}),
         ...(appearance.representationAtomBase !== undefined ? { representation_atom_base: appearance.representationAtomBase } : {}),
         ...(appearance.representationBondBase !== undefined ? { representation_bond_base: appearance.representationBondBase } : {}),
