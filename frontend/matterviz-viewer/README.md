@@ -7,47 +7,63 @@ core sources are unchanged relative to the main-branch baseline. Data capture an
 user-confirmed metadata live entirely in the GUI adapters and frontend.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.picking1.tgz` in `vendor/`. The r25 baseline applies the
-reviewable `vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.patch` to the
-r24 archive, preserving the reviewed Multiwfn rendering, flat-grid, Worker,
-resource-release and Arcball changes while adding ordered measurement,
-angle/dihedral, hover-tooltip and selected-bond context-menu controls. The r25
-archive remains unchanged. The additional `r25.topology1.patch` adds only a shared
-scene snippet and a topology display mask (atoms on, ordinary bonds and scalar surfaces
-hidden but still mounted), including the corresponding declarations. All topology
-business logic lives in this frontend. The additional `r25.topology2.patch` shares
-the native control dictionaries with the parent, preventing camera snapshots from
-resetting auto-rotation, and adds the Trans Flag colormap (negative pink `#f5a9b8`,
-zero white, positive blue `#5bcefa`). Its odd-sized color lookup preserves exact
-white at zero. ESP uses this map by default; other volume defaults are unchanged.
-The additional `r25.surface1.patch` exposes a separate `surface_view` mask that
-hides mounted volume meshes without hiding ordinary chemical bonds. The incremental
-`r25.surface1.picking1.patch` unmounts hidden bond hit targets and their HTML menu
-in topology view, prevents atom/label right-clicks from targeting hidden bonds, and
-clears the previous bond menu/hover when switching views. Topology still shows atoms
-and supports picking when the ordinary view's atom toggle is off;
-bond, polyhedra and volume rendering resources remain mounted. No geometry extraction
-or scientific analysis is added to the vendor. Earlier archives remain
-as reproducible bases. The current archive SHA-256 is
-`4043470e8540d54797c0f0c21f67d62ba140e4ffc55f1d8c0bbaea37380898ef`;
+`matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.tgz` in `vendor/`. Its reviewable
+patch applies directly to the retained r25 archive and combines the complete
+`r25.surface1.picking1` and `r25.material2` extensions. The r25 baseline preserves
+ordered measurements, angle/dihedral and bond context menus, Arcball camera
+controls, flat grids, Worker meshing and immediate resource release.
+
+The topology extension exposes shared scene snippets, `topology_view` and
+`surface_view` masks, and shares native scene/lattice control dictionaries with
+the parent so camera snapshots cannot reset auto-rotation. Topology shows atoms
+and hides ordinary bonds and scalar surfaces; quantitative-surface view hides
+scalar surfaces while keeping chemical bonds. Rendering resources stay mounted,
+but hidden bond hit targets and their HTML menu unmount. Atom/label right-clicks
+cannot target hidden bonds, previous menus/hover clear when views change, and
+atom picking remains available even when the ordinary view's atom toggle is off.
+All topology and quantitative-surface analysis logic stays in the frontend and
+GUI adapters; the vendor adds no scientific calculation or geometry extraction.
+
+The material extension adds bounded rim shading and angle-dependent transparency
+to lit finishes, using Three r185's unexpanded output include and preserving
+zero/fully opaque alpha endpoints. Saved-camera restoration also reconciles
+orientation after declarative pose setters, while identical live Arcball
+feedback preserves the current quaternion. Worker buffer returns support
+environments without SharedArrayBuffer.
+
+The Trans Flag palette uses negative pink `#f5a9b8`, physical-zero white and
+positive blue `#5bcefa`. Vertex colors and colorbars share those semantics for
+asymmetric, one-sided and zero-width ranges, with an odd-sized LUT preserving
+exact white at zero. Explicit ESP layers use it by default; other volume defaults
+remain unchanged. Typed Worker geometry recomputes area-weighted normals from
+its final Cartesian vertices, reusing the allocated normal buffer. This matches
+the legacy path for rotated, anisotropic and nonorthogonal cells. Unlit and
+wireframe surfaces bypass tone mapping so their colors agree with the legend;
+lit finishes retain the renderer's tone mapping and transparency.
+
+The retained lineage starts r24 → r25, followed by the topology/surface and
+material branches, now combined in workbench1. Earlier archives and patches
+remain available as reproducible bases. PR #54's r26 was based on r24 and cannot
+replace r25 without losing measurement controls. Its older material archive
+reused the r25 version name; use this repository's retained r25 and lockfile.
+The current workbench1 archive SHA-256 is
+`52b5475da106a6faf9daabc440c327f3f9e2998fa1efda4d1ed35d046c041118`;
 `package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
-To reproduce the topology package from r25:
+To reproduce the combined package (Node.js 24 and npm):
 
 ```bash
-tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$tmpdir"
-patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology1.patch
-patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.topology2.patch
-patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.patch
-patch -d "$tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.picking1.patch
-npm pack --ignore-scripts --pack-destination vendor "$tmpdir/package"
-sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.surface1.picking1.tgz
+workbench_tmpdir="$(mktemp -d)"
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$workbench_tmpdir"
+patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.patch
+npm pack --ignore-scripts --pack-destination vendor "$workbench_tmpdir/package"
+sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.tgz
 ```
 
-The checksum above identifies the retained archive. To verify a repack across npm
-versions, `tests/test_matterviz_topology_vendor.py` compares every extracted package
-file against an independent patch replay, avoiding tar metadata differences.
+The checksum identifies the retained archive. To verify a repack across npm
+versions, `tests/test_matterviz_topology_vendor.py` compares every extracted
+package file against an independent patch replay, avoiding tar metadata
+differences. It also checks that both reviewed vendor branches remain present.
 
 `pnpm test:topology-picking` runs the installed scene in Chromium with real Three.js
 raycasting and Threlte event registration. It requires Playwright and its Chromium
@@ -56,6 +72,8 @@ browser. An external Playwright install can be selected with `PLAYWRIGHT_MODULE`
 selects an existing Chromium executable. `KEEP_BROWSER_FIXTURE=1` retains the
 temporary fixture and JSON evidence. The test checks hidden-bond deletion and
 context menus, atom/partial-occupancy/label interaction, and retained bond geometry.
+A real typed-grid density surface also verifies both display masks, preserving
+its mesh, geometry and material while atoms and chemical bonds follow their masks.
 
 ## AIM topology workbench
 
@@ -236,6 +254,15 @@ uses two sites for distance, three for bond angle, and four for signed dihedral 
 ESP-colored density surfaces receive a robust symmetric color range, a draggable kcal/mol/e legend, and an
 on-demand bounded extrema table. The current MatterViz renderer does not expose a stable API for
 arbitrary 3D extrema markers, so extrema coordinates are listed rather than drawn in the scene.
+Explicit ESP layers default to pink/white/blue with white at zero. The legend follows
+the selected layer palette and manual range, including asymmetric limits.
+Surfaces offers Matte, Soft gloss, Satin and Unlit color finishes, with bounded
+rim, opacity and shading refinements. Finishes preserve scientific isovalues and
+layer colors; periodic boundary padding is under Cell. These settings are saved
+with the workbench state.
+Structure > Lighting exposes ambient and directional intensity from 0 to 4,
+with Reset restoring the renderer defaults of 0.72 and 1.2. Both values are saved
+and restored, including zero and older camel/snake-case snapshot fields.
 Save > Save display settings writes a versioned JSON snapshot of layer, periodic, isosurface-material, and
 camera state. The same snapshot can be restored with Save > Restore display settings or a `state=` URL query;
 the browser and WebView launchers also accept `--state <path>` and expose only that selected file
@@ -289,12 +316,13 @@ MatterViz's point construction uses `Array.map` to produce objects. Passing a ty
 array there silently loses curves. Plot paths do not tween through artificial data
 positions, and the application explicitly supplies its light control-panel theme.
 
-This unifies results **already emitted** by the MatterViz adapters. It does not claim
-full original GUI parity: topology critical points/paths, basin/domain geometry,
-surface-analysis-specific objects, and interactive plane/box picking still need
-dedicated backend-to-viewer representations. A structure/cube-only session from one
-of those original entry points is not a complete rendering of its analysis result.
-Fortran scientific calculations and the existing manifest/HTTP protocols are unchanged.
+This unifies results **already emitted** by the MatterViz adapters, including the
+AIM critical-point/path and quantitative-surface representations described above.
+Other basin/domain objects and interactive plane/box picking still need dedicated
+backend-to-viewer representations. A structure/cube-only session from an original
+analysis entry point does not by itself provide those objects. Protected Fortran
+scientific calculations remain unchanged; the GUI adapters carry the additional
+analysis metadata through the existing manifest/HTTP transport.
 
 The first native WebView shell lives in `../matterviz-desktop`; see
 [`docs/matterviz-webview.md`](../../docs/matterviz-webview.md) for its runtime and packaging model.

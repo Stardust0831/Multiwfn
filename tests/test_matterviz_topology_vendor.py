@@ -1,7 +1,8 @@
-"""Replay the narrow topology extension against the retained, unchanged r25 package."""
+"""Replay retained vendor extensions and verify the combined workbench package."""
 import hashlib
 from pathlib import Path
 import subprocess
+import tarfile
 import tempfile
 import unittest
 
@@ -10,6 +11,46 @@ VERSION = "matterviz-0.4.2-multiwfn.d8719d12.r25"
 
 
 class TopologyVendor(unittest.TestCase):
+    def test_workbench_patch_replays_from_r25_to_exact_package_contents(self):
+        archive = VENDOR / (VERSION + ".workbench1.tgz")
+        self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), "52b5475da106a6faf9daabc440c327f3f9e2998fa1efda4d1ed35d046c041118")
+        with tempfile.TemporaryDirectory(prefix="workbench-vendor-replay-") as directory:
+            base, target = Path(directory) / "base", Path(directory) / "target"
+            base.mkdir(); target.mkdir()
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".tgz")), "-C", str(base)], check=True)
+            subprocess.run(["tar", "-xzf", str(archive), "-C", str(target)], check=True)
+            with (VENDOR / "patches" / (VERSION + ".workbench1.patch")).open("rb") as patch:
+                subprocess.run(["patch", "-p1", "-d", str(base / "package")], stdin=patch, check=True, capture_output=True)
+            files = {path.relative_to(base) for path in base.rglob("*") if path.is_file()}
+            self.assertEqual(len(files), 768)
+            self.assertEqual(files, {path.relative_to(target) for path in target.rglob("*") if path.is_file()})
+            for path in files:
+                self.assertEqual((base / path).read_bytes(), (target / path).read_bytes(), str(path))
+
+    def test_workbench_preserves_both_reviewed_vendor_branches(self):
+        def contents(suffix):
+            with tarfile.open(VENDOR / (VERSION + suffix + ".tgz")) as archive:
+                return {member.name: archive.extractfile(member).read()
+                        for member in archive.getmembers() if member.isfile()}
+
+        base = contents("")
+        surface = contents(".surface1.picking1")
+        material = contents(".material2")
+        combined = contents(".workbench1")
+        surface_changes = {name for name, data in surface.items() if data != base.get(name)}
+        material_changes = {name for name, data in material.items() if data != base.get(name)}
+        self.assertEqual(set(combined), set(surface) | set(material))
+        # The material branch extends the shared palette files; all topology,
+        # visibility and picking changes live in its six separate structure files.
+        topology_files = surface_changes - material_changes
+        self.assertEqual(len(topology_files), 6)
+        for name in topology_files:
+            self.assertEqual(combined[name], surface[name], name)
+        for name in material_changes - {"package/package.json"}:
+            self.assertEqual(combined[name], material[name], name)
+        for name in set(base) - surface_changes - material_changes:
+            self.assertEqual(combined[name], base[name], name)
+
     def test_hidden_bond_picking_patch_replays_to_exact_package_contents(self):
         archive = VENDOR / (VERSION + ".surface1.picking1.tgz")
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), "4043470e8540d54797c0f0c21f67d62ba140e4ffc55f1d8c0bbaea37380898ef")

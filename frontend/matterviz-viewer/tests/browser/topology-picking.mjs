@@ -183,6 +183,82 @@ try {
   await settle()
   await clickWorld([0, 0, 0], 'left')
   assert.equal((await snapshot('ordinary-delete-positive')).removed.length, 1, 'normal delete must remain functional')
+
+  // Exercise the merge boundary: the topology/surface masks must retain the
+  // material branch's actual typed-grid meshes and their GPU resources.
+  await page.evaluate(() => {
+    window.fixture.resetEdits()
+    window.fixture.partial(false)
+    window.fixture.measured([])
+    window.fixture.mode('distance')
+    window.fixture.loadVolume()
+  })
+  await page.waitForFunction(() => {
+    let surfaces = 0
+    window.__threlte.scene.traverse((object) => {
+      if (object.isMesh && !object.isInstancedMesh && object.geometry?.type === 'BufferGeometry' &&
+          object.material?.type === 'MeshPhongMaterial') surfaces++
+    })
+    return surfaces === 2
+  }, undefined, { timeout: 30000 })
+  await settle()
+  const surfaceSnapshot = async (label) => {
+    const state = await page.evaluate(() => {
+      const surfaces = [], bonds = [], atoms = []
+      const visible = (object) => {
+        for (let parent = object; parent; parent = parent.parent) if (!parent.visible) return false
+        return true
+      }
+      window.__threlte.scene.traverse((object) => {
+        if (!object.isMesh) return
+        const entry = {
+          mesh: object.uuid, geometry: object.geometry.uuid, material: object.material.uuid,
+          visible: visible(object), vertices: object.geometry.getAttribute('position')?.count,
+        }
+        if (!object.isInstancedMesh && object.geometry.type === 'BufferGeometry' &&
+            object.material.type === 'MeshPhongMaterial') surfaces.push(entry)
+        if (object.isInstancedMesh && object.geometry.type === 'CylinderGeometry') bonds.push(entry)
+        if (object.isInstancedMesh && object.geometry.type === 'SphereGeometry') atoms.push(entry)
+      })
+      for (const entries of [surfaces, bonds, atoms]) entries.sort((a, b) => a.mesh.localeCompare(b.mesh))
+      return { surfaces, bonds, atoms }
+    })
+    evidence.push({ label, ...state })
+    return state
+  }
+  const volumeVisible = await surfaceSnapshot('volume-visible')
+  assert.equal(volumeVisible.surfaces.length, 2, 'transparent volume must render both surface passes')
+  assert.ok(volumeVisible.surfaces.every((entry) => entry.vertices > 100 && entry.visible))
+  assert.equal(volumeVisible.surfaces[0].geometry, volumeVisible.surfaces[1].geometry, 'both passes reuse the extracted geometry')
+  assert.notEqual(volumeVisible.surfaces[0].material, volumeVisible.surfaces[1].material, 'front and back use separate materials')
+  assert.ok(volumeVisible.bonds.length > 0 && volumeVisible.atoms.length > 0)
+  const volumePixels = await page.locator('canvas').screenshot()
+  const identity = (entries) => entries.map(({ visible, ...entry }) => entry)
+  for (const [label, topology, surface, volumeVisibleNow, bondsVisible] of [
+    ['volume-topology-hidden', true, false, false, false],
+    ['volume-quantitative-hidden', false, true, false, true],
+    ['volume-both-hidden', true, true, false, false],
+    ['volume-restored', false, false, true, true],
+  ]) {
+    await page.evaluate(([topology, surface]) => {
+      window.fixture.topology(topology)
+      window.fixture.surface(surface)
+    }, [topology, surface])
+    await settle()
+    const state = await surfaceSnapshot(label)
+    for (const kind of ['surfaces', 'bonds', 'atoms']) {
+      assert.deepEqual(identity(state[kind]), identity(volumeVisible[kind]), `${label}: retain ${kind} mesh, geometry and material`)
+    }
+    assert.ok(state.surfaces.every((entry) => entry.visible === volumeVisibleNow), `${label}: correct volume visibility`)
+    assert.ok(state.bonds.every((entry) => entry.visible === bondsVisible), `${label}: correct ordinary bond visibility`)
+    assert.ok(state.atoms.every((entry) => entry.visible), `${label}: keep atoms visible`)
+    if (label === 'volume-quantitative-hidden') {
+      assert.notDeepEqual(await page.locator('canvas').screenshot(), volumePixels, 'hiding the volume must change real canvas pixels')
+    }
+    if (label === 'volume-restored') {
+      assert.deepEqual(await page.locator('canvas').screenshot(), volumePixels, 'restoring the volume must restore the rendered image')
+    }
+  }
   assert.deepEqual(errors, [], 'fixture must render without JavaScript or WebGL shader errors')
   console.log(JSON.stringify({ result: 'PASS', package: packageSource, checks: evidence.map(({ label }) => label) }, null, 2))
 } finally {

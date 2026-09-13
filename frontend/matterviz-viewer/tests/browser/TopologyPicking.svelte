@@ -1,7 +1,16 @@
 <script>
   import { Canvas } from '@threlte/core'
   import Scene from 'fixture-matterviz/structure/StructureScene.svelte'
+  import { DEFAULT_ISOSURFACE_SETTINGS } from 'fixture-matterviz/isosurface/types.js'
   let topology = $state(false)
+  let surface = $state(false)
+  let volume = $state.raw()
+  const volumeSettings = {
+    ...DEFAULT_ISOSURFACE_SETTINGS,
+    isovalue: 0.3, opacity: 0.6, positive_color: '#5bcefa', material: 'glossy',
+    outline: 0.2, outlineWidth: 0.6, transmode: 1,
+    geometry_memory_budget_bytes: 32 * 1024 * 1024,
+  }
   let mode = $state('distance')
   let editMode = $state('delete')
   let measured = $state([0, 1])
@@ -18,6 +27,21 @@
   })
   window.fixture = {
     topology(value) { topology = value },
+    surface(value) { surface = value },
+    loadVolume() {
+      const size = 13
+      const data = new Float64Array(size ** 3)
+      for (let x = 0; x < size; x++) for (let y = 0; y < size; y++) for (let z = 0; z < size; z++) {
+        const radius2 = (x / (size - 1) - 0.5) ** 2 + (y / (size - 1) - 0.5) ** 2 + (z / (size - 1) - 0.5) ** 2
+        data[z + size * (y + size * x)] = Math.exp(-18 * radius2)
+      }
+      volume = {
+        grid: { data, dimensions: [size, size, size], order: 'z-fastest' },
+        grid_dims: [size, size, size], lattice: [[3, 0, 0], [0, 3, 0], [0, 0, 3]],
+        origin: [-1.5, -1.5, -1.5], origin_mode: 'absolute', periodic: false,
+        data_range: { min: Math.min(...data), max: 1, abs_max: 1, mean: data.reduce((sum, value) => sum + value, 0) / data.length },
+      }
+    },
     mode(value) { mode = value },
     editMode(value) { editMode = value },
     measured(value) { measured = value },
@@ -31,6 +55,7 @@
 <div style="width: 800px; height: 600px">
   <Canvas>
     <Scene {structure} topology_view={topology} show_atoms={showAtoms} atom_radius={0.35} show_bonds="always"
+      surface_view={surface} volumetric_data={volume} isosurface_settings={volumeSettings}
       show_site_labels={showLabels} show_site_indices={showLabels} show_atom_tooltip={false} gizmo={false}
       site_label_offset={[0, 1, 0]}
       bind:measure_mode={mode} bind:bond_edit_mode={editMode}

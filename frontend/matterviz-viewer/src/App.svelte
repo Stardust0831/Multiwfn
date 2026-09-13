@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { normalize_lighting } from './lighting'
   import {
     DEFAULT_ISOSURFACE_SETTINGS,
     Icon,
@@ -826,6 +827,12 @@
 
   const current_esp_range = (): [number, number] => linked_esp_range() ?? espRange
 
+  const current_esp_colormap = (): NonNullable<IsosurfaceLayer['colormap']> => {
+    const pair = esp_pair()
+    return (isosurfaceSettings.layers ?? []).find((layer) => layer.volume_idx === pair?.densityIdx)?.colormap
+      ?? 'interpolateTransFlag'
+  }
+
   const state_url = (): URL | undefined => {
     const value = new URL(window.location.href).searchParams.get('state')
     return value ? new URL(value, window.location.href) : undefined
@@ -880,6 +887,7 @@
       const appearance = restored.structureAppearance
       sceneProps = {
         ...sceneProps,
+        ...normalize_lighting(appearance),
         ...(appearance.representationPreset !== undefined ? { representation_preset: appearance.representationPreset } : {}),
         ...(appearance.representationAtomBase !== undefined ? { representation_atom_base: appearance.representationAtomBase } : {}),
         ...(appearance.representationBondBase !== undefined ? { representation_bond_base: appearance.representationBondBase } : {}),
@@ -1952,7 +1960,7 @@
       {/if}
       {#if !topologyActive && !surfaceActive && espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
-        <EspLegend min={legendRange[0]} max={legendRange[1]} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
+        <EspLegend min={legendRange[0]} max={legendRange[1]} colormap={current_esp_colormap()} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
     </div>
     {#if loading || measuredSites.length || bondResults.length}
@@ -2138,6 +2146,7 @@
                   >
                     <option value="interpolateTransFlag">Trans flag (pink / white / blue)</option>
                     <option value="interpolateRdBu">Red / blue</option>
+                    <option value="interpolateTransFlag">Pink / white / blue</option>
                     <option value="interpolateViridis">Viridis</option>
                     <option value="interpolateTurbo">Turbo</option>
                     <option value="interpolateCool">Cool</option>

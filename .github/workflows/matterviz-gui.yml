@@ -194,6 +194,7 @@ jobs:
 
       - name: Build MatterViz desktop shell
         working-directory: frontend/matterviz-desktop
+        shell: bash
         run: |
           cargo test --locked
           cargo check --locked
