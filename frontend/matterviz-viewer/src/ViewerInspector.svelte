@@ -14,9 +14,11 @@
     normalize_surface_number,
     SURFACE_DEFAULTS,
     SURFACE_PRESETS,
+    type SurfacePreset,
     type SurfaceNumber,
   } from './material'
-  import { LIGHTING_DEFAULTS, normalize_light_intensity, normalize_lighting, type LightingKey } from './lighting'
+  import { LIGHTING_DEFAULTS, TMIM_LIGHTING_DEFAULTS, normalize_light_intensity, normalize_lighting, type LightingKey } from './lighting'
+  import { ATOM_STYLE_PRESETS, apply_atom_style, atom_style_values, type AtomStyle } from './atom-style'
 
   type InspectorSection = 'structure' | 'surfaces' | 'cell'
   type SceneProps = Record<string, unknown>
@@ -54,12 +56,16 @@
   }
 
   $: surface_preset = detect_surface_preset(isosurface_settings)
+  $: primary_surface_presets = SURFACE_PRESETS.filter((preset) => !preset.group)
+  $: legacy_surface_presets = SURFACE_PRESETS.filter((preset) => preset.group === 'legacy')
   $: surface_description = SURFACE_PRESETS.find((preset) => preset.value === surface_preset)?.description
     ?? 'Custom surface appearance. Choose a preset to reset the finish.'
   $: shaded_surface = !isosurface_settings.wireframe && isosurface_settings.material !== 'unlit'
 
   $: surface_values = { ...SURFACE_DEFAULTS, ...normalize_surface_appearance(isosurface_settings) }
   $: lighting_values = { ...LIGHTING_DEFAULTS, ...normalize_lighting(scene_props) }
+  $: atom_values = atom_style_values(scene_props)
+  $: lighting_rig = scene_value('lighting_rig', 'default')
 
   const surface_range = (): Range => {
     const value = isosurface_settings.display_range
@@ -78,6 +84,25 @@
   const set_lighting = (key: LightingKey, event: Event): void => {
     const value = normalize_light_intensity((event.currentTarget as HTMLInputElement).valueAsNumber)
     if (value !== undefined) update_scene(key, value)
+  }
+
+  const set_lighting_rig = (event: Event): void => {
+    const value = (event.currentTarget as HTMLSelectElement).value
+    if (value === 'tmim') {
+      on_scene_props_change?.({ ...scene_props, lighting_rig: 'tmim', scene_tone_mapping: 'none', ...TMIM_LIGHTING_DEFAULTS })
+    } else {
+      on_scene_props_change?.({ ...scene_props, lighting_rig: 'default', scene_tone_mapping: 'agx', ...LIGHTING_DEFAULTS })
+    }
+  }
+
+  const reset_lighting = (): void => {
+    if (lighting_rig === 'tmim') on_scene_props_change?.({ ...scene_props, lighting_rig: 'tmim', scene_tone_mapping: 'none', ...TMIM_LIGHTING_DEFAULTS })
+    else on_scene_props_change?.({ ...scene_props, lighting_rig: 'default', scene_tone_mapping: 'agx', ...LIGHTING_DEFAULTS })
+  }
+
+  const set_atom_style = (event: Event): void => {
+    const value = (event.currentTarget as HTMLSelectElement).value as AtomStyle
+    on_scene_props_change?.(apply_atom_style(scene_props, value))
   }
 
   const set_dimension = (key: 'atom_radius' | 'bond_thickness', event: Event): void => {
@@ -160,6 +185,13 @@
 
       <section class="inspector-section" aria-labelledby="lighting-heading">
         <h2 id="lighting-heading">Lighting</h2>
+        <label>
+          <span>Appearance</span>
+          <select aria-label="Scene appearance preset" value={lighting_rig} onchange={set_lighting_rig}>
+            <option value="default">Default (AgX)</option>
+            <option value="tmim">TMIM viewer</option>
+          </select>
+        </label>
         <div class="field-grid">
           <label>
             <span class="value-label">Ambient <span class="control-value" aria-hidden="true">{lighting_values.ambient_light.toFixed(2)}</span></span>
@@ -169,9 +201,30 @@
             <span class="value-label">Directional <span class="control-value" aria-hidden="true">{lighting_values.directional_light.toFixed(2)}</span></span>
             <input type="range" min="0" max="4" step="0.01" value={lighting_values.directional_light} oninput={(event) => set_lighting('directional_light', event)} />
           </label>
+          <label>
+            <span class="value-label">Fill <span class="control-value" aria-hidden="true">{(lighting_values.fill_light ?? 0.38).toFixed(2)}</span></span>
+            <input type="range" min="0" max="4" step="0.01" value={lighting_values.fill_light ?? 0.38} oninput={(event) => set_lighting('fill_light', event)} />
+          </label>
+          <label>
+            <span class="value-label">Rim <span class="control-value" aria-hidden="true">{(lighting_values.rim_light ?? 0.24).toFixed(2)}</span></span>
+            <input type="range" min="0" max="4" step="0.01" value={lighting_values.rim_light ?? 0.24} oninput={(event) => set_lighting('rim_light', event)} />
+          </label>
         </div>
         <p class="muted">Ambient brightens shaded areas; directional light adds shape and highlights.</p>
-        <button type="button" class="reset-lighting" onclick={() => on_scene_props_change?.({ ...scene_props, ...LIGHTING_DEFAULTS })}>Reset lighting</button>
+        <button type="button" class="reset-lighting" onclick={reset_lighting}>Reset lighting</button>
+      </section>
+
+      <section class="inspector-section" aria-labelledby="atom-material-heading">
+        <h2 id="atom-material-heading">Atom material</h2>
+        <label>
+          <span>TMIM finish</span>
+          <select aria-label="Atom material preset" value={atom_values.value ?? 'current'} onchange={set_atom_style}>
+            {#each ATOM_STYLE_PRESETS as preset}
+              <option value={preset.value}>{preset.label}</option>
+            {/each}
+          </select>
+        </label>
+        <p class="muted">Presets retain element colors and apply to complete, partial, and image atoms.</p>
       </section>
 
       <section class="inspector-section" aria-labelledby="background-heading">
@@ -191,7 +244,7 @@
       <section class="inspector-section" aria-labelledby="surfaces-heading">
         <h2 id="surfaces-heading">Surfaces</h2>
         <div class="surface-presets" role="group" aria-label="Surface finish presets">
-          {#each SURFACE_PRESETS as preset}
+          {#each primary_surface_presets as preset}
             <button
               type="button"
               class="surface-preset"
@@ -207,6 +260,18 @@
           {/each}
         </div>
         <p class="finish-description">{surface_description}</p>
+        <label>
+          <span>Original TMIM finish</span>
+          <select aria-label="Original surface material preset" value={legacy_surface_presets.some((p) => p.value === surface_preset) ? surface_preset : ''} onchange={(event) => {
+            const value = (event.currentTarget as HTMLSelectElement).value as SurfacePreset
+            if (value) on_isosurface_settings_change?.(apply_surface_preset(isosurface_settings, value))
+          }} disabled={!volume_count}>
+            <option value="">Choose legacy combination…</option>
+            {#each legacy_surface_presets as preset}
+              <option value={preset.value}>{preset.label}</option>
+            {/each}
+          </select>
+        </label>
         <details class="surface-refinement">
           <summary>Fine tune{surface_preset === 'custom' ? ' · Custom' : ''}</summary>
           <div class="field-grid">

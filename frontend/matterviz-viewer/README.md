@@ -260,11 +260,36 @@ Surfaces offers Matte, Soft gloss, Satin and Unlit color finishes, with bounded
 rim, opacity and shading refinements. Finishes preserve scientific isovalues and
 layer colors; periodic boundary padding is under Cell. These settings are saved
 with the workbench state.
-Structure > Lighting exposes ambient and directional intensity from 0 to 4,
-with Reset restoring the renderer defaults of 0.72 and 1.2. Both values are saved
-and restored, including zero and older camel/snake-case snapshot fields.
-Save > Save display settings writes a versioned JSON snapshot of layer, periodic, isosurface-material, and
-camera state. The same snapshot can be restored with Save > Restore display settings or a `state=` URL query;
+
+### TMIM appearance and material presets
+
+Structure > Appearance can select the TMIM viewer rig. TMIM uses four bounded
+light controls (ambient, directional, fill, and rim) and disables the scene tone
+mapping pass (`NoToneMapping`) so the lighting controls remain predictable. The
+original rig remains available with its ambient and directional defaults of 0.72
+and 1.2; Reset restores the defaults for the currently selected rig. Lighting
+values, the selected rig, and tone-mapping choice are persisted in display
+snapshots, including older camelCase and snake_case fields.
+
+Structure also exposes six atom TMIM finishes: Current, Goodsell, Edgy, Glass,
+Metallic, and Matte. They change atom material parameters; the TMIM light rig
+also updates bond shading while leaving
+coordinates and analysis data untouched. The source TMIM `ol`/`ow` outline
+fields were inactive in the original integration; the viewer's outline control
+is an optional enhancement and defaults to zero unless enabled.
+
+The Surfaces control keeps the four primary finishes above and provides the
+legacy MaterialPanel combinations in a dropdown: Diffuse, Goodsell, Edgy,
+EdgyShiny, AOShiny, AOChalky, Glass1, GlassBubble, EdgyGlass, BrushedMetal,
+Metallic, and PBR. Matte and Unlit are reused from the primary controls. Legacy
+names are visual material recipes; names containing AO do not add an ambient
+occlusion pass. Transparency is implemented as surface alpha, not physical
+refraction. All values are saved and restored with the workbench state, but
+rendering is not guaranteed to be pixel-identical across browser or GPU
+implementations.
+
+Save > Save display settings writes a versioned JSON snapshot of layer, periodic, isosurface-material,
+lighting, atom-style, and camera state. The same snapshot can be restored with Save > Restore display settings or a `state=` URL query;
 the browser and WebView launchers also accept `--state <path>` and expose only that selected file
 through a fixed session route.
 
