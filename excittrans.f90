@@ -6204,13 +6204,13 @@ else if (iprog==2) then !ORCA
     open(10,file=filename,status="old")
     if (iORCAsTD==0) then !Normal case
         call loclabel(10,"N(Alpha)",ifound)
-        if (ifound==1) then
+        if (ifound==1) then !Numbers of electrons has been directly printed, load them
             read(10,"(a)") c80tmp
             itmp=index(c80tmp,':')
             read(c80tmp(itmp+1:),*) naelec
             read(10,"(a)") c80tmp
             read(c80tmp(itmp+1:),*) nbelec
-        else !Determine number of electrons from orbital information
+        else !Determine number of electrons from orbital information by summing up orbital occupancy
             call loclabel(10,"ORBITAL ENERGIES",ifound)
             if (ifound==1) then
                 read(10,*);read(10,*)
@@ -6221,7 +6221,7 @@ else if (iprog==2) then !ORCA
                 naelec=0
                 do while(.true.)
                     read(10,"(a)") c80tmp
-                    if (c80tmp==" ".or.index(c80tmp,"time")/=0) exit
+                    if (c80tmp==" ".or.index(c80tmp,"time")/=0.or.index(c80tmp,"*")/=0) exit
                     read(c80tmp,*) inouse,tmpval
                     naelec=naelec+tmpval
                 end do
@@ -6230,7 +6230,7 @@ else if (iprog==2) then !ORCA
                     read(10,*);read(10,*)
                     do while(.true.)
                         read(10,"(a)") c80tmp
-                        if (c80tmp==" ".or.index(c80tmp,"time")/=0) exit
+                        if (c80tmp==" ".or.index(c80tmp,"time")/=0.or.index(c80tmp,"*")/=0) exit
                         read(c80tmp,*) inouse,tmpval
                         nbelec=nbelec+tmpval
                     end do
