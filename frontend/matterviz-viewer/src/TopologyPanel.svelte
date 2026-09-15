@@ -1,16 +1,17 @@
 <script lang="ts">
+  import { t } from './i18n'
   import { Icon } from 'matterviz'
   import AnalysisAction from './AnalysisAction.svelte'
   import { AIM_DEFAULTS, CP_NAMES, CP_COLORS, topology_position, topology_path_points, topology_path_length, type AimOptions, type TopologyResult, type TopologySelection, type TopologyDisplay } from './topology'
   import { TOPOLOGY_LABEL_LIMIT } from './topology-labels'
-  import { AIM_NUMBER_FIELDS, aim_number_error, valid_aim_number, type AimNumberField } from './topology-options'
+  import { AIM_NUMBER_FIELDS, valid_aim_number, type AimNumberField } from './topology-options'
   let { options = $bindable({ ...AIM_DEFAULTS }), display = $bindable(), active = $bindable(false), result, selection = $bindable(), busy, reason, cell, onrun, onclose, onexport }:
     { options: AimOptions; display: TopologyDisplay; active: boolean; result?: TopologyResult; selection: TopologySelection; busy: boolean; reason: string; cell?: number[][]; onrun: () => void; onclose: () => void; onexport: (format: 'json' | 'csv') => void } = $props()
   const selectedCP = $derived(selection?.kind === 'cp' ? result?.metadata.criticalPoints.find((cp) => cp.id === selection?.id) : undefined)
   const selectedPath = $derived(selection?.kind === 'path' ? result?.metadata.paths.find((path) => path.id === selection?.id) : undefined)
   let invalidFields = $state<Partial<Record<keyof AimOptions, boolean>>>({})
   const invalidField = $derived(AIM_NUMBER_FIELDS.find((field) => invalidFields[field.key]))
-  const inputReason = $derived(invalidField ? aim_number_error(invalidField) : '')
+  const inputReason = $derived(invalidField ? $t(invalidField.step === 1 ? '{field} must be a whole number from {min} to {max}.' : '{field} must be a number from {min} to {max}.', { field: $t(invalidField.label), min: invalidField.min, max: invalidField.max }) : '')
   const setNumber = (field: AimNumberField, event: Event) => {
     const value = (event.currentTarget as HTMLInputElement).valueAsNumber
     invalidFields[field.key] = !valid_aim_number(field, value)
@@ -18,53 +19,53 @@
   }
 </script>
 
-<aside class="topology-panel" aria-label="AIM topology analysis">
-  <header><strong>Topology analysis (AIM)</strong><button type="button" title="Close panel" aria-label="Close topology panel" onclick={onclose}><Icon icon="Cross" width="16" /></button></header>
+<aside class="topology-panel" aria-label={$t("AIM topology analysis")}>
+  <header><strong>{$t("Topology analysis (AIM)")}</strong><button type="button" title={$t("Close panel")} aria-label={$t("Close topology panel")} onclick={onclose}><Icon icon="Cross" width="16" /></button></header>
   <div class="body">
-    <details><summary>Search settings</summary>
+    <details><summary>{$t("Search settings")}</summary>
       <fieldset disabled={busy}>
         {#each ['Nuclear positions', 'Atomic pair midpoints', 'Three-atom centers', 'Four-atom centers'] as label, index}
-          <label class="check"><input type="checkbox" checked={Boolean(options.seeds & (1 << index))} onchange={(event) => options = { ...options, seeds: event.currentTarget.checked ? options.seeds | (1 << index) : options.seeds & ~(1 << index) }} />{label}</label>
+          <label class="check"><input type="checkbox" checked={Boolean(options.seeds & (1 << index))} onchange={(event) => options = { ...options, seeds: event.currentTarget.checked ? options.seeds | (1 << index) : options.seeds & ~(1 << index) }} />{$t(label)}</label>
         {/each}
         {#each AIM_NUMBER_FIELDS as field}
-          <label class="field"><span>{field.label}</span><input type="number" min={field.min} max={field.max} step={field.step} value={options[field.key]} aria-invalid={invalidFields[field.key] || undefined} oninput={(event) => setNumber(field, event)} /></label>
+          <label class="field"><span>{$t(field.label)}</span><input type="number" min={field.min} max={field.max} step={field.step} value={options[field.key]} aria-invalid={invalidFields[field.key] || undefined} oninput={(event) => setNumber(field, event)} /></label>
         {/each}
       </fieldset>
     </details>
-    <AnalysisAction reason={reason || inputReason || (options.seeds === 0 ? 'Select at least one starting-point method' : '')} {busy} onclick={onrun}>{busy ? 'Calculating...' : result ? 'Recalculate AIM' : 'Run AIM analysis'}</AnalysisAction>
+    <AnalysisAction reason={reason || inputReason || (options.seeds === 0 ? 'Select at least one starting-point method' : '')} {busy} onclick={onrun}>{$t(busy ? 'Calculating...' : result ? 'Recalculate AIM' : 'Run AIM analysis')}</AnalysisAction>
     {#if inputReason}<p class="reason" role="status">{inputReason}</p>{/if}
-    {#if reason}<p class="reason">{reason}</p>{/if}
+    {#if reason}<p class="reason">{$t(reason)}</p>{/if}
     {#if result}
-      <label class="check"><input type="checkbox" bind:checked={active} />Topology view</label>
-      <div class="counts">{result.metadata.criticalPoints.length} CPs · {result.metadata.paths.length} paths</div>
-      <div class="reason">{result.metadata.functionId === 1 ? 'Electron density (AIM)' : `Real-space function ${result.metadata.functionId}`}</div>
+      <label class="check"><input type="checkbox" bind:checked={active} />{$t("Topology view")}</label>
+      <div class="counts">{result.metadata.criticalPoints.length} {$t("CPs ·")} {result.metadata.paths.length} {$t("paths")}</div>
+      <div class="reason">{result.metadata.functionId === 1 ? $t('Electron density (AIM)') : $t('Real-space function {number}', { number: result.metadata.functionId })}</div>
       <div class="filters">
-        {#each CP_NAMES.slice(1) as label, index}<label class="check"><input type="checkbox" bind:checked={display.cpTypes[index + 1]} /><i style={`background:${CP_COLORS[index + 1]}`}></i>{label}</label>{/each}
+        {#each CP_NAMES.slice(1) as label, index}<label class="check"><input type="checkbox" bind:checked={display.cpTypes[index + 1]} /><i style={`background:${CP_COLORS[index + 1]}`}></i>{$t(label)}</label>{/each}
       </div>
-      <label class="check"><input type="checkbox" bind:checked={display.pathTypes[1]} />(3,-1) to (3,-3) paths</label>
-      <label class="check"><input type="checkbox" bind:checked={display.pathTypes[2]} />(3,+1) to (3,+3) paths</label>
-      {#if result.metadata.paths.some((path) => path.type === 3)}<label class="check"><input type="checkbox" bind:checked={display.pathTypes[3]} />(3,-1) to (3,+1) paths</label>{/if}
-      {#if result.metadata.paths.some((path) => path.type === 0)}<label class="check"><input type="checkbox" bind:checked={display.pathTypes[0]} />Other paths</label>{/if}
-      {#if result.metadata.criticalPoints.some((cp) => cp.type === 0)}<label class="check"><input type="checkbox" bind:checked={display.cpTypes[0]} />Unclassified CPs</label>{/if}
-      <label class="check"><input type="checkbox" bind:checked={display.labels} />CP and path numbers</label>
-      {#if display.labels}<p class="reason">Up to {TOPOLOGY_LABEL_LIMIT} numbers are shown to keep the view readable. Use Inspect to select any CP or path.</p>{/if}
-      <label class="field"><span>CP radius (Å)</span><input type="range" min="0.03" max="0.3" step="0.01" bind:value={display.radius} /></label>
-      <label class="field"><span>Path width</span><input type="range" min="1" max="6" step="0.5" bind:value={display.width} /></label>
-      <label class="field"><span>Inspect</span><select aria-label="Inspect topology object" value={selection ? `${selection.kind}:${selection.id}` : ''} onchange={(event) => { const [kind, id] = event.currentTarget.value.split(':'); selection = id ? { kind: kind as 'cp' | 'path', id: Number(id) } : undefined }}>
-        <option value="">None</option>
-        {#each result.metadata.criticalPoints as cp}<option value={`cp:${cp.id}`}>CP {cp.id} {CP_NAMES[cp.type]}</option>{/each}
-        {#each result.metadata.paths as path}<option value={`path:${path.id}`}>Path {path.id}: CP {path.start} → {path.end}</option>{/each}
+      <label class="check"><input type="checkbox" bind:checked={display.pathTypes[1]} />{$t("(3,-1) to (3,-3) paths")}</label>
+      <label class="check"><input type="checkbox" bind:checked={display.pathTypes[2]} />{$t("(3,+1) to (3,+3) paths")}</label>
+      {#if result.metadata.paths.some((path) => path.type === 3)}<label class="check"><input type="checkbox" bind:checked={display.pathTypes[3]} />{$t("(3,-1) to (3,+1) paths")}</label>{/if}
+      {#if result.metadata.paths.some((path) => path.type === 0)}<label class="check"><input type="checkbox" bind:checked={display.pathTypes[0]} />{$t("Other paths")}</label>{/if}
+      {#if result.metadata.criticalPoints.some((cp) => cp.type === 0)}<label class="check"><input type="checkbox" bind:checked={display.cpTypes[0]} />{$t("Unclassified CPs")}</label>{/if}
+      <label class="check"><input type="checkbox" bind:checked={display.labels} />{$t("CP and path numbers")}</label>
+      {#if display.labels}<p class="reason">{$t("Up to")} {TOPOLOGY_LABEL_LIMIT} {$t("numbers are shown to keep the view readable. Use Inspect to select any CP or path.")}</p>{/if}
+      <label class="field"><span>{$t("CP radius (Å)")}</span><input type="range" min="0.03" max="0.3" step="0.01" bind:value={display.radius} /></label>
+      <label class="field"><span>{$t("Path width")}</span><input type="range" min="1" max="6" step="0.5" bind:value={display.width} /></label>
+      <label class="field"><span>{$t("Inspect")}</span><select aria-label={$t("Inspect topology object")} value={selection ? `${selection.kind}:${selection.id}` : ''} onchange={(event) => { const [kind, id] = event.currentTarget.value.split(':'); selection = id ? { kind: kind as 'cp' | 'path', id: Number(id) } : undefined }}>
+        <option value="">{$t("None")}</option>
+        {#each result.metadata.criticalPoints as cp}<option value={`cp:${cp.id}`}>{$t("CP")} {cp.id} {$t(CP_NAMES[cp.type])}</option>{/each}
+        {#each result.metadata.paths as path}<option value={`path:${path.id}`}>{$t("Path")} {path.id}{$t(": CP")} {path.start} → {path.end}</option>{/each}
       </select></label>
       {#if selectedCP}
-        <section class="readout"><strong>CP {selectedCP.id} {CP_NAMES[selectedCP.type]}</strong><p>{topology_position(result, selectedCP.id - 1).map((v) => v.toFixed(6)).join(', ')} Å</p>
+        <section class="readout"><strong>{$t("CP")} {selectedCP.id} {$t(CP_NAMES[selectedCP.type])}</strong><p>{topology_position(result, selectedCP.id - 1).map((v) => v.toFixed(6)).join(', ')} Å</p>
           {#if result.metadata.hasDensity}<p>ρ {selectedCP.density.toExponential(6)} a.u.</p><p>∇²ρ {selectedCP.laplacian.toExponential(6)} a.u.</p>{/if}
         </section>
       {:else if selectedPath}
-        <section class="readout"><strong>Path {selectedPath.id}</strong><p>CP {selectedPath.start || '?'} → CP {selectedPath.end || '?'}</p><p>{topology_path_length(topology_path_points(result, selectedPath, cell)).toFixed(6)} Å</p></section>
+        <section class="readout"><strong>{$t("Path")} {selectedPath.id}</strong><p>{$t("CP")} {selectedPath.start || '?'} {$t("→ CP")} {selectedPath.end || '?'}</p><p>{topology_path_length(topology_path_points(result, selectedPath, cell)).toFixed(6)} Å</p></section>
       {/if}
-      <p class="reason">N − B + R − C = {result.metadata.eulerCount}. This count alone does not establish a complete search.</p>
-      {#if result.metadata.missingPathDirections}<p class="reason">{result.metadata.missingPathDirections} path directions did not reach a located CP.</p>{/if}
-      <div class="exports"><button type="button" onclick={() => onexport('csv')}><Icon icon="Download" width="14" />CSV</button><button type="button" onclick={() => onexport('json')}><Icon icon="Download" width="14" />Topology JSON</button></div>
+      <p class="reason">N − B + R − C = {result.metadata.eulerCount}{$t(". This count alone does not establish a complete search.")}</p>
+      {#if result.metadata.missingPathDirections}<p class="reason">{result.metadata.missingPathDirections} {$t("path directions did not reach a located CP.")}</p>{/if}
+      <div class="exports"><button type="button" onclick={() => onexport('csv')}><Icon icon="Download" width="14" />CSV</button><button type="button" onclick={() => onexport('json')}><Icon icon="Download" width="14" />{$t("Topology JSON")}</button></div>
     {/if}
   </div>
 </aside>

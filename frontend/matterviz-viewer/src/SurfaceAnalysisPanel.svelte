@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n'
   import { Icon } from 'matterviz'
   import { SURFACE_TYPES, SURFACE_FUNCTIONS, surface_statistics, surface_function, surface_position, surface_range, type SurfaceResult, type SurfaceDisplay, type SurfaceConfirmation } from './surface-analysis'
   let { result, display = $bindable(), active = $bindable(false), selection = $bindable(), busy = false, onclose, onexport, onfit, onconfirm, onlog, onclearlog }:
@@ -15,61 +16,61 @@
   })
 </script>
 
-<aside class="surface-analysis-panel" aria-label="Quantitative surface results">
-  <header><strong>Quantitative surface</strong><button type="button" title="Close panel" aria-label="Close surface results panel" onclick={onclose}><Icon icon="Cross" width="16" /></button></header>
+<aside class="surface-analysis-panel" aria-label={$t("Quantitative surface results")}>
+  <header><strong>{$t("Quantitative surface")}</strong><button type="button" title={$t("Close panel")} aria-label={$t("Close surface results panel")} onclick={onclose}><Icon icon="Cross" width="16" /></button></header>
   <div class="body">
-    <div><strong>{mapped.name}</strong><p>{m.surfaceType === null ? 'Surface type not confirmed' : SURFACE_TYPES[m.surfaceType]} · iso {m.isovalue}</p></div>
+    <div><strong>{$t(mapped.name)}</strong><p>{$t(m.surfaceType === null ? 'Surface type not confirmed' : SURFACE_TYPES[m.surfaceType])} {$t("· iso")} {m.isovalue}</p></div>
     <fieldset disabled={busy}>
-      <legend>Result types</legend>
-      <label>Surface<select aria-label="Surface type" bind:value={surfaceType}><option value="" disabled>Not confirmed</option>{#each Object.entries(SURFACE_TYPES) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
-      <label>Calculated mapped function<select aria-label="Calculated mapped function" bind:value={mappedFunction} onchange={() => mappingCalculated = false}><option value="" disabled>Not confirmed</option><option value="none">None (geometry only)</option>{#each Object.entries(SURFACE_FUNCTIONS) as [value, label]}<option {value}>{label}</option>{/each}</select></label>
-      {#if mappedFunction && mappedFunction !== 'none'}<label class="check"><input type="checkbox" bind:checked={mappingCalculated} />Mapping calculation completed</label>{/if}
-      <button type="button" disabled={!surfaceType || !mappedFunction || (mappedFunction !== 'none' && !mappingCalculated)} onclick={() => onconfirm({ surfaceType: Number(surfaceType), mappedFunction: mappedFunction === 'none' ? null : Number(mappedFunction) })}>Confirm types</button>
-      {#if m.metadataSource === 'user'}<p>Types: user-confirmed</p>{/if}
+      <legend>{$t("Result types")}</legend>
+      <label>{$t("Surface")}<select aria-label={$t("Surface type")} bind:value={surfaceType}><option value="" disabled>{$t("Not confirmed")}</option>{#each Object.entries(SURFACE_TYPES) as [value, label]}<option {value}>{$t(String(label))}</option>{/each}</select></label>
+      <label>{$t("Calculated mapped function")}<select aria-label={$t("Calculated mapped function")} bind:value={mappedFunction} onchange={() => mappingCalculated = false}><option value="" disabled>{$t("Not confirmed")}</option><option value="none">{$t("None (geometry only)")}</option>{#each Object.entries(SURFACE_FUNCTIONS) as [value, label]}<option {value}>{$t(String(label))}</option>{/each}</select></label>
+      {#if mappedFunction && mappedFunction !== 'none'}<label class="check"><input type="checkbox" bind:checked={mappingCalculated} />{$t("Mapping calculation completed")}</label>{/if}
+      <button type="button" disabled={!surfaceType || !mappedFunction || (mappedFunction !== 'none' && !mappingCalculated)} onclick={() => onconfirm({ surfaceType: Number(surfaceType), mappedFunction: mappedFunction === 'none' ? null : Number(mappedFunction) })}>{$t("Confirm types")}</button>
+      {#if m.metadataSource === 'user'}<p>{$t("Types: user-confirmed")}</p>{/if}
     </fieldset>
-    <label class="check"><input type="checkbox" bind:checked={active} />Surface analysis view</label>
-    <button type="button" onclick={onfit} disabled={!active}><Icon icon="ZoomOut" width="14" />Fit surface</button>
-    <label class="check"><input type="checkbox" bind:checked={display.surface} />Show surface</label>
-    <label class="field"><span>Opacity {Math.round(display.opacity * 100)}%</span><input aria-label="Quantitative surface opacity" type="range" min="0.05" max="1" step="0.01" bind:value={display.opacity} /></label>
-    <label class="check"><input type="checkbox" bind:checked={display.wireframe} />Wireframe</label>
+    <label class="check"><input type="checkbox" bind:checked={active} />{$t("Surface analysis view")}</label>
+    <button type="button" onclick={onfit} disabled={!active}><Icon icon="ZoomOut" width="14" />{$t("Fit surface")}</button>
+    <label class="check"><input type="checkbox" bind:checked={display.surface} />{$t("Show surface")}</label>
+    <label class="field"><span>{$t("Opacity")} {Math.round(display.opacity * 100)}%</span><input aria-label={$t("Quantitative surface opacity")} type="range" min="0.05" max="1" step="0.01" bind:value={display.opacity} /></label>
+    <label class="check"><input type="checkbox" bind:checked={display.wireframe} />{$t("Wireframe")}</label>
     {#if m.mapped}
-      <div class="legend" aria-label={`Mapped range ${range[0] * mapped.scale} to ${range[1] * mapped.scale} ${mapped.unit}`}><div class="bar"></div><div class="ticks"><span>{format(range[0], mapped.scale)}</span><span>{format((range[0] + range[1]) / 2, mapped.scale)}</span><span>{format(range[1], mapped.scale)}</span></div><p>{mapped.unit}</p></div>
-      <label class="check"><input type="checkbox" bind:checked={display.minima} />Minima ({result.extremeKind.filter((n) => n < 0).length})</label>
-      <label class="check"><input type="checkbox" bind:checked={display.maxima} />Maxima ({result.extremeKind.filter((n) => n > 0).length})</label>
-      <label class="field"><span>Inspect extreme</span><select aria-label="Inspect surface extreme" value={selection ?? ''} onchange={(event) => selection = event.currentTarget.value === '' ? undefined : Number(event.currentTarget.value)}>
-        <option value="">None</option>{#each result.extremeId as id, i}<option value={i}>{result.extremeKind[i] < 0 ? 'Min' : 'Max'} {id}: {format(result.values[result.extremeVertex[i]], mapped.scale)}</option>{/each}
+      <div class="legend" aria-label={$t("Mapped range {min} to {max} {unit}", { min: range[0] * mapped.scale, max: range[1] * mapped.scale, unit: $t(mapped.unit) })}><div class="bar"></div><div class="ticks"><span>{format(range[0], mapped.scale)}</span><span>{format((range[0] + range[1]) / 2, mapped.scale)}</span><span>{format(range[1], mapped.scale)}</span></div><p>{$t(mapped.unit)}</p></div>
+      <label class="check"><input type="checkbox" bind:checked={display.minima} />{$t("Minima ({count})", { count: result.extremeKind.filter((n) => n < 0).length })}</label>
+      <label class="check"><input type="checkbox" bind:checked={display.maxima} />{$t("Maxima ({count})", { count: result.extremeKind.filter((n) => n > 0).length })}</label>
+      <label class="field"><span>{$t("Inspect extreme")}</span><select aria-label={$t("Inspect surface extreme")} value={selection ?? ''} onchange={(event) => selection = event.currentTarget.value === '' ? undefined : Number(event.currentTarget.value)}>
+        <option value="">{$t("None")}</option>{#each result.extremeId as id, i}<option value={i}>{$t(result.extremeKind[i] < 0 ? 'Min' : 'Max')} {id}: {format(result.values[result.extremeVertex[i]], mapped.scale)}</option>{/each}
       </select></label>
       {#if selection !== undefined && selection < result.extremeId.length}
         {@const vertex = result.extremeVertex[selection]}
-        <section class="readout"><strong>{result.extremeKind[selection] < 0 ? 'Minimum' : 'Maximum'} {result.extremeId[selection]}</strong>
-          <p>{format(result.values[vertex], mapped.scale)} {mapped.unit}</p><p>Vertex {result.vertexIds[vertex]}</p><p>{surface_position(result, vertex).map((v) => v.toFixed(6)).join(', ')} Å</p>
+        <section class="readout"><strong>{$t(result.extremeKind[selection] < 0 ? 'Minimum' : 'Maximum')} {result.extremeId[selection]}</strong>
+          <p>{format(result.values[vertex], mapped.scale)} {$t(mapped.unit)}</p><p>{$t("Vertex")} {result.vertexIds[vertex]}</p><p>{surface_position(result, vertex).map((v) => v.toFixed(6)).join(', ')} Å</p>
         </section>
       {/if}
     {/if}
     <dl>
-      <dt>Volume (Å³)</dt><dd>{format(m.volume, m.bohrToAngstrom ** 3)}</dd>
-      <dt>Area (Å²)</dt><dd>{format(stats.area, a2)}</dd>
-      <dt>Mass density (g/cm³)</dt><dd>{format(m.massDensity)}</dd>
+      <dt>{$t("Volume (Å³)")}</dt><dd>{format(m.volume, m.bohrToAngstrom ** 3)}</dd>
+      <dt>{$t("Area (Å²)")}</dt><dd>{format(stats.area, a2)}</dd>
+      <dt>{$t("Mass density (g/cm³)")}</dt><dd>{format(m.massDensity)}</dd>
       {#if m.mapped}
-        <dt>Minimum ({mapped.unit})</dt><dd>{format(stats.minimum, mapped.scale)}</dd><dt>Maximum ({mapped.unit})</dt><dd>{format(stats.maximum, mapped.scale)}</dd>
-        <dt>Positive area (Å²)</dt><dd>{format(stats.positiveArea, a2)}</dd><dt>Negative area (Å²)</dt><dd>{format(stats.negativeArea, a2)}</dd>
-        {#each [['Mean', stats.mean], ['Positive mean', stats.positiveMean], ['Negative mean', stats.negativeMean]] as [label, value]}<dt>{label} ({mapped.unit})</dt><dd>{format(value as number | null, mapped.scale)}</dd>{/each}
-        {#each [['Total variance', stats.variance], ['Positive variance', stats.positiveVariance], ['Negative variance', stats.negativeVariance]] as [label, value]}<dt>{label} ({mapped.unit})²</dt><dd>{format(value as number, mapped.scale ** 2)}</dd>{/each}
+        <dt>{$t("Minimum ({unit})", { unit: $t(mapped.unit) })}</dt><dd>{format(stats.minimum, mapped.scale)}</dd><dt>{$t("Maximum ({unit})", { unit: $t(mapped.unit) })}</dt><dd>{format(stats.maximum, mapped.scale)}</dd>
+        <dt>{$t("Positive area (Å²)")}</dt><dd>{format(stats.positiveArea, a2)}</dd><dt>{$t("Negative area (Å²)")}</dt><dd>{format(stats.negativeArea, a2)}</dd>
+        {#each [['Mean', stats.mean], ['Positive mean', stats.positiveMean], ['Negative mean', stats.negativeMean]] as [label, value]}<dt>{$t(String(label))} ({$t(mapped.unit)})</dt><dd>{format(value as number | null, mapped.scale)}</dd>{/each}
+        {#each [['Total variance', stats.variance], ['Positive variance', stats.positiveVariance], ['Negative variance', stats.negativeVariance]] as [label, value]}<dt>{$t(String(label))} ({$t(mapped.unit)})²</dt><dd>{format(value as number, mapped.scale ** 2)}</dd>{/each}
         {#if mapped.esp}
-          <dt>Charge balance (ν)</dt><dd>{format(stats.balance)}</dd><dt>σ²tot ν ({mapped.unit})²</dt><dd>{format(stats.varianceBalance, mapped.scale ** 2)}</dd>
-          <dt>Charge separation (Π)</dt><dd>{format(stats.separation, mapped.scale)} {mapped.unit}</dd><dt>MPI</dt><dd>{format(stats.mpi, mapped.scale)} {mapped.unit}</dd>
-          <dt>Nonpolar area (Å²)</dt><dd>{format(stats.nonpolarArea, a2)}</dd><dt>Polar area (Å²)</dt><dd>{format(stats.polarArea, a2)}</dd>
+          <dt>{$t("Charge balance (ν)")}</dt><dd>{format(stats.balance)}</dd><dt>σ²tot ν ({$t(mapped.unit)})²</dt><dd>{format(stats.varianceBalance, mapped.scale ** 2)}</dd>
+          <dt>{$t("Charge separation (Π)")}</dt><dd>{format(stats.separation, mapped.scale)} {$t(mapped.unit)}</dd><dt>MPI</dt><dd>{format(stats.mpi, mapped.scale)} {$t(mapped.unit)}</dd>
+          <dt>{$t("Nonpolar area (Å²)")}</dt><dd>{format(stats.nonpolarArea, a2)}</dd><dt>{$t("Polar area (Å²)")}</dt><dd>{format(stats.polarArea, a2)}</dd>
         {/if}
-        <dt>Skewness</dt><dd>{format(stats.skewness)}</dd><dt>Positive skewness</dt><dd>{format(stats.positiveSkewness)}</dd><dt>Negative skewness</dt><dd>{format(stats.negativeSkewness)}</dd>
+        <dt>{$t("Skewness")}</dt><dd>{format(stats.skewness)}</dd><dt>{$t("Positive skewness")}</dt><dd>{format(stats.positiveSkewness)}</dd><dt>{$t("Negative skewness")}</dt><dd>{format(stats.negativeSkewness)}</dd>
       {/if}
     </dl>
     <div class="log-import">
       <input hidden type="file" accept=".txt,.log,.out,text/plain" bind:this={logInput} onchange={onlog} />
-      <button type="button" disabled={busy} onclick={() => logInput.click()}><Icon icon="ArrowUp" width="14" />Import statistics log</button>
-      {#if m.statisticsSource}<button type="button" disabled={busy} title="Clear imported statistics" aria-label="Clear imported statistics" onclick={onclearlog}><Icon icon="Cross" width="14" /></button><p>{m.statisticsSource.filename} · printed precision</p>{:else if m.volume === null}<p>Volume / mass density: not provided</p>{/if}
+      <button type="button" disabled={busy} onclick={() => logInput.click()}><Icon icon="ArrowUp" width="14" />{$t("Import statistics log")}</button>
+      {#if m.statisticsSource}<button type="button" disabled={busy} title={$t("Clear imported statistics")} aria-label={$t("Clear imported statistics")} onclick={onclearlog}><Icon icon="Cross" width="14" /></button><p>{m.statisticsSource.filename} {$t("· printed precision")}</p>{:else if m.volume === null}<p>{$t("Volume / mass density: not provided")}</p>{/if}
     </div>
-    <p>{result.values.length.toLocaleString()} vertices · {result.areas.length.toLocaleString()} facets</p>
-    <div class="exports"><button type="button" onclick={() => onexport('csv')}><Icon icon="Download" width="14" />CSV</button><button type="button" onclick={() => onexport('json')}><Icon icon="Download" width="14" />Surface JSON</button></div>
+    <p>{result.values.length.toLocaleString()} {$t("vertices ·")} {result.areas.length.toLocaleString()} {$t("facets")}</p>
+    <div class="exports"><button type="button" onclick={() => onexport('csv')}><Icon icon="Download" width="14" />CSV</button><button type="button" onclick={() => onexport('json')}><Icon icon="Download" width="14" />{$t("Surface JSON")}</button></div>
   </div>
 </aside>
 

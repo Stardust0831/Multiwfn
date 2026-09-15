@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n'
   import { ScatterPlot } from 'matterviz'
   import type { RefLine, UserContentProps } from 'matterviz/plot'
   import { tick, untrack } from 'svelte'
@@ -61,10 +62,10 @@
 {#if artifact.version === 2}
   <div bind:this={plotRoot} data-plot-document data-export-width={(artifact as PlotScene).page.width} data-export-height={(artifact as PlotScene).page.height} style="width:100%;height:100%;">
     <PlotSceneView scene={artifact as PlotScene} {resolver} {release} />
-    {#if exportError}<div class="plot-error" role="alert"><span>{exportError}</span>{#if onExported}<button type="button" onclick={onExported}>Return to Multiwfn</button>{/if}</div>{/if}
+    {#if exportError}<div class="plot-error" role="alert"><span>{exportError}</span>{#if onExported}<button type="button" onclick={onExported}>{$t("Return to Multiwfn")}</button>{/if}</div>{/if}
   </div>
 {:else}
-<main bind:this={plotRoot} class="plot-only" data-plot-document data-export-width="1600" data-export-height="900" aria-label="Multiwfn plot viewer">
+<main bind:this={plotRoot} class="plot-only" data-plot-document data-export-width="1600" data-export-height="900" aria-label={$t("Multiwfn plot viewer")}>
   <header class="plot-header">
     <strong>{plot_title(v1_artifact)}</strong>
     <span>{v1_artifact.kind.toUpperCase()}</span>
@@ -110,6 +111,6 @@
       </article>
     {/each}
   </section>
-  {#if exportError}<div class="plot-error" role="alert"><span>{exportError}</span>{#if onExported}<button type="button" onclick={onExported}>Return to Multiwfn</button>{/if}</div>{/if}
+  {#if exportError}<div class="plot-error" role="alert"><span>{exportError}</span>{#if onExported}<button type="button" onclick={onExported}>{$t("Return to Multiwfn")}</button>{/if}</div>{/if}
 </main>
 {/if}

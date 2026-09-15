@@ -53,7 +53,7 @@ test('bond-order context menu exposes disabled reasons and standard dismissal be
   assert.ok(source.includes('role="menuitem"'))
   assert.ok(source.includes('aria-disabled={Boolean(unavailableReason)}'))
   assert.ok(source.includes('{#each Object.entries(manifest.bondAnalysis.methods) as [method, capability]}'))
-  assert.ok(source.includes('{#if unavailableReason}<small>{capability.reason || unavailableReason}</small>{/if}'))
+  assert.ok(source.includes('{#if unavailableReason}<small>{$t(capability.reason || unavailableReason)}</small>{/if}'))
   assert.ok(source.includes('bondMethod = method'))
   assert.ok(source.includes("event.key === 'Escape'"))
   assert.ok(source.includes("document.addEventListener('pointerdown', close_on_outside_pointer, true)"))

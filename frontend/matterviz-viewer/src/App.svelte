@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, locale, set_locale, sync_document_locale, ui_message, format_message, type UiMessage } from './i18n'
   import { normalize_lighting } from './lighting'
   import {
     DEFAULT_ISOSURFACE_SETTINGS,
@@ -30,6 +31,9 @@
   import SlicePanel from './SlicePanel.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
   import WorkbenchMenu from './WorkbenchMenu.svelte'
+  import WorkbenchSelect from './WorkbenchSelect.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import { Atom, Layers, Box, Orbit, PanelLeftClose, Languages } from '@lucide/svelte'
   import MeasurementReadout, { type BondResult } from './MeasurementReadout.svelte'
   import { canvas_to_png_blob, scene_registry } from 'matterviz'
   import { render_plot_document } from './plot-export'
@@ -150,11 +154,11 @@
   })
   let loading = $state(true)
   let structureLoading = $state(false)
-  let workingMessage = $state('Loading session...')
+  let workingMessage = $state<UiMessage>(ui_message('Loading session...'))
   let returnPending = $state(false)
   let errorMessage = $state<string | undefined>()
   let viewerError = $state<string | undefined>()
-  let status = $state('Loading Multiwfn session...')
+  let status = $state<UiMessage>(ui_message('Loading Multiwfn session...'))
   let orbitalIndex = $state(0)
   let orbitalIsovalue = $state(0.02)
   let orbitalBackendAvailable = $state(true)
@@ -199,7 +203,7 @@
     camera_projection?: 'perspective' | 'orthographic'
     [key: string]: unknown
   }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
-  let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: string }>>([])
+  let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: UiMessage }>>([])
   let plots = $state<WorkbenchPlot[]>([])
   let activeResult = $state('scene')
   let openMenu = $state<string | undefined>()
@@ -246,7 +250,7 @@
       plots = [...plots, ...imported]
       show_result(imported[0].id)
       errorMessage = undefined
-      set_status(`${imported.length} plot(s) opened`)
+      set_status(ui_message('{count} plot(s) opened', { count: imported.length }))
     } catch (error) { report_error(error) }
     finally { importingPlot = false; input.value = '' }
   }
@@ -279,7 +283,7 @@
         if (!scene) throw new Error('The 3D renderer is not ready for export')
         download_blob(await canvas_to_png_blob(canvas, 150, scene.scene, scene.camera), 'Multiwfn-scene.png')
       }
-      set_status(`${format.toUpperCase()} exported`)
+      set_status(ui_message('{format} exported', { format: format.toUpperCase() }))
     } catch (error) { report_error(error) }
     finally { savingResult = false }
   }
@@ -454,11 +458,11 @@
       .replace(/[_-]+/g, ' ')
       .replace(/\b\w/g, (character) => character.toUpperCase())
 
-  const add_log = (message: string, level: 'info' | 'error' = 'info'): void => {
+  const add_log = (message: UiMessage, level: 'info' | 'error' = 'info'): void => {
     logEntries = [...logEntries, { timestamp: new Date().toLocaleTimeString(), level, message }]
   }
 
-  const set_status = (message: string): void => {
+  const set_status = (message: UiMessage): void => {
     status = message
     add_log(message)
   }
@@ -652,7 +656,7 @@
     const target = volumeEntries[volumeIdx]
     if (!target) return
     remove_volumes((_entry, index) => index === volumeIdx)
-    set_status(`${target.name || target.role || 'Volume'} removed`)
+    set_status(ui_message('{name} removed', { name: target.name || target.role || 'Volume' }))
   }
 
   const activate_only_volume = (volumeIdx: number | undefined): void => {
@@ -933,7 +937,7 @@
     if (restored.topologyDisplay) topologyDisplay = restored.topologyDisplay
     const restoredEspRange = linked_esp_range()
     if (restoredEspRange) espRange = restoredEspRange
-    set_status('MatterViz workbench state restored')
+    set_status(ui_message('MatterViz workbench state restored'))
     add_log('Workbench state restored')
   }
 
@@ -1052,12 +1056,12 @@
         refresh_esp_range(initialEsp.densityIdx, initialEsp.potentialIdx)
         espLegendOpen = true
       }
-      set_status(surfaceResult ? 'Original quantitative surface results loaded' : entries.length ? `${entries.length} volume layer(s) loaded` : 'Structure loaded')
+      set_status(surfaceResult ? ui_message('Original quantitative surface results loaded') : entries.length ? ui_message('{count} volume layer(s) loaded', { count: entries.length }) : ui_message('Structure loaded'))
       if (startupState) apply_workbench_state(startupState)
       await signal_frontend_ready()
     } catch (error) {
       report_error(error)
-      status = 'Session loading failed'
+      status = ui_message('Session loading failed')
     } finally {
       loading = false
     }
@@ -1069,7 +1073,7 @@
     if (requestedIndex === 0) {
       errorMessage = undefined
       activate_orbital_volume(undefined)
-      set_status('No orbital selected')
+      set_status(ui_message('No orbital selected'))
       topologyActive = false
       surfaceActive = false
       return
@@ -1082,7 +1086,7 @@
     const cachedVolumeIdx = loaded_orbital_volume_index(volumeEntries, requestedIndex)
     if (cachedVolumeIdx !== undefined && !options.forceRecompute) {
       activate_orbital_volume(cachedVolumeIdx)
-      set_status(`Orbital ${requestedIndex} loaded from session cache`)
+      set_status(ui_message('Orbital {number} loaded from session cache', { number: requestedIndex }))
       topologyActive = false
       surfaceActive = false
       return
@@ -1093,7 +1097,7 @@
       return
     }
     loading = true
-    workingMessage = `Calculating orbital ${requestedIndex}...`
+    workingMessage = ui_message('Calculating orbital {number}...', { number: requestedIndex })
     add_log(`Requesting orbital ${requestedIndex} at grid quality ${requestedQuality}`)
     try {
       if (cachedVolumeIdx === undefined) activate_orbital_volume(undefined)
@@ -1159,7 +1163,7 @@
       activate_orbital_volume(activeIdx)
       topologyActive = false
       surfaceActive = false
-      set_status(`Orbital ${requestedIndex} loaded`)
+      set_status(ui_message('Orbital {number} loaded', { number: requestedIndex }))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (message.includes('Multiwfn backend unavailable')) orbitalBackendAvailable = false
@@ -1186,7 +1190,7 @@
   const request_esp = async (): Promise<void> => {
     if (loading || structureLoading) return
     loading = true
-    workingMessage = 'Calculating ESP...'
+    workingMessage = ui_message('Calculating ESP...')
     errorMessage = undefined
     add_log(`Requesting ESP surface at grid quality ${quality}, density isovalue ${espIsovalue}`)
     try {
@@ -1199,7 +1203,7 @@
       if (!response.ok || !payload.ok || !payload.densityLayer || !payload.espLayer) {
         throw new Error(payload.message || 'ESP calculation failed')
       }
-      workingMessage = 'Loading ESP surfaces...'
+      workingMessage = ui_message('Loading ESP surfaces...')
       remove_volumes((entry) => entry.analysisKind === 'esp-density' || entry.analysisKind === 'esp-potential')
       const entries: ManifestEntry[] = [payload.densityLayer, payload.espLayer]
       const firstVolumeIdx = await apply_entries(entries, manifestBase, 'append')
@@ -1211,7 +1215,7 @@
         espLegendOpen = true
         espExtrema = undefined
       }
-      set_status('ESP mapped onto the electron-density surface')
+      set_status(ui_message('ESP mapped onto the electron-density surface'))
       topologyActive = false
       surfaceActive = false
     } catch (error) {
@@ -1231,7 +1235,7 @@
     const generation = topologyGeneration
     const geometry = geometryKey
     loading = true
-    workingMessage = 'Calculating AIM critical points and paths...'
+    workingMessage = ui_message('Calculating AIM critical points and paths...')
     errorMessage = undefined
     add_log('Starting AIM critical-point search and path generation')
     try {
@@ -1240,7 +1244,7 @@
       const payload = await read_api_payload(response)
       if (generation !== topologyGeneration || geometry !== geometryKey) return
       if (!response.ok || !payload.ok || !payload.topology) throw new Error(payload.message || 'AIM calculation failed')
-      workingMessage = 'Loading topology coordinates...'
+      workingMessage = ui_message('Loading topology coordinates...')
       const result = await load_topology(payload.topology)
       if (generation !== topologyGeneration || geometry !== geometryKey) return
       topologyResult = result
@@ -1250,7 +1254,7 @@
       topologyActive = true
       topologyPanelOpen = true
       activeResult = 'scene'
-      set_status(`AIM: ${result.metadata.criticalPoints.length} critical points, ${result.metadata.paths.length} paths`)
+      set_status(ui_message('AIM: {points} critical points, {paths} paths', { points: result.metadata.criticalPoints.length, paths: result.metadata.paths.length }))
       add_log(`AIM finished: N-B+R-C = ${result.metadata.eulerCount}; unconnected path directions: ${result.metadata.missingPathDirections}`)
     } catch (error) {
       if (generation === topologyGeneration && geometry === geometryKey) report_error(error)
@@ -1272,7 +1276,7 @@
     if (loading || structureLoading || !surfaceResult) return
     const generation = topologyGeneration, geometry = geometryKey, previous = surfaceResult
     loading = true
-    workingMessage = 'Reading confirmed surface data...'
+    workingMessage = ui_message('Reading confirmed surface data...')
     try {
       const params = new URLSearchParams({ surfaceType: String(confirmation.surfaceType), mappedFunction: confirmation.mappedFunction === null ? 'none' : String(confirmation.mappedFunction) })
       const response = await fetch(api_url('/api/surface', params), { cache: 'no-store' })
@@ -1285,10 +1289,10 @@
       surfaceResult = result
       surfaceSelection = undefined
       errorMessage = undefined
-      set_status('Surface types confirmed; original data loaded')
+      set_status(ui_message('Surface types confirmed; original data loaded'))
     } catch (error) {
       if (generation === topologyGeneration && geometry === geometryKey) report_error(error)
-    } finally { loading = false; workingMessage = '' }
+    } finally { loading = false; workingMessage = ui_message('') }
   }
   const import_surface_log = async (event: Event): Promise<void> => {
     const input = event.currentTarget as HTMLInputElement, file = input.files?.[0], original = surfaceResult
@@ -1301,7 +1305,7 @@
       const stats = parse_surface_log(text, original)
       surfaceResult = { ...original, metadata: { ...original.metadata, ...stats, statisticsSource: { source: 'log', filename: file.name, precision: 'printed' } } }
       errorMessage = undefined
-      set_status('Printed surface statistics imported; area matches the current mesh')
+      set_status(ui_message('Printed surface statistics imported; area matches the current mesh'))
     } catch (error) {
       if (generation === topologyGeneration && surfaceResult === original) report_error(error)
     } finally { input.value = '' }
@@ -1338,7 +1342,7 @@
     const atom1 = selected[0] + 1
     const atom2 = selected[1] + 1
     const sourceStructure = structure
-    workingMessage = `Calculating ${bond_method_label(method)} bond order...`
+    workingMessage = ui_message('Calculating {method} bond order...', { method: bond_method_label(method) })
     add_log(`Requesting ${method} bond order for atoms ${atom1} and ${atom2}`)
     try {
       const params = new URLSearchParams({ atom1: String(atom1), atom2: String(atom2), method })
@@ -1380,17 +1384,17 @@
         if (!response.ok || !payload.ok) throw new Error(payload.message || 'Return request failed')
       },
       close: () => window.close(),
-      onReturned: () => set_status('Returning to Multiwfn...'),
+      onReturned: () => set_status(ui_message('Returning to Multiwfn...')),
       onError: report_error,
     })
     returnPending = false
   }
 
   const copy_log = async (): Promise<void> => {
-    const text = logEntries.map((entry) => `[${entry.timestamp}] ${entry.level.toUpperCase()} ${entry.message}`).join('\n')
+    const text = logEntries.map((entry) => `[${entry.timestamp}] ${entry.level.toUpperCase()} ${format_message('en', entry.message)}`).join('\n')
     try {
       await navigator.clipboard.writeText(text)
-      set_status('Log copied to clipboard')
+      set_status(ui_message('Log copied to clipboard'))
     } catch (error) {
       report_error(error)
     }
@@ -1414,7 +1418,7 @@
         maxExtrema: 12,
         excludeBoundary: true,
       })
-      set_status(`${espExtrema.minima.length} approximate ESP minima and ${espExtrema.maxima.length} maxima found`)
+      set_status(ui_message('{minima} approximate ESP minima and {maxima} maxima found', { minima: espExtrema.minima.length, maxima: espExtrema.maxima.length }))
     } catch (error) {
       report_error(error)
     } finally {
@@ -1457,7 +1461,7 @@
       espLegend: { visible: espLegendOpen, position: espLegendPosition },
       topologyDisplay,
     }))
-    set_status('MatterViz workbench state exported')
+    set_status(ui_message('MatterViz workbench state exported'))
   }
 
   const import_state_file = async (event: Event): Promise<void> => {
@@ -1638,6 +1642,7 @@
     return () => cancelAnimationFrame(frame)
   })
 
+  onMount(sync_document_locale)
   onMount(load_manifest)
 
   onMount(() => {
@@ -1673,82 +1678,80 @@
 <main class="workbench" class:has-periodic={Boolean(manifest.periodic?.enabled) && activeResult === 'scene'}>
   <header class="toolbar">
     <div class="brand">
-      <strong>Multiwfn</strong>
-      <span>Workbench</span>
+      <div class="brand-mark"><Atom size={21} strokeWidth={1.6} /></div>
+      <div class="brand-copy"><strong>Multiwfn</strong><span>{$t("Molecular workbench")}</span></div>
     </div>
-    <label class="result-picker">
-      <span>Result</span>
-      <select aria-label="Active result" value={activeResult} disabled={savingResult} onchange={(event) => show_result(event.currentTarget.value)}>
-        <option value="scene" disabled={!scene_available}>3D scene</option>
-        {#each plots as plot (plot.id)}<option value={plot.id}>{plot_title(plot.artifact)}</option>{/each}
-      </select>
-    </label>
-    <button type="button" title="Open numeric curves or a saved plot document" onclick={() => plotInput?.click()} disabled={importingPlot || savingResult}>
-      <Icon icon="Directory" width="16" height="16" /><span>Open plot</span>
-    </button>
+    <div class="result-picker">
+      <WorkbenchSelect label="Active result" translateOptions={false} value={activeResult} disabled={savingResult}
+        options={[{ value: 'scene', label: $t('3D scene'), disabled: !scene_available }, ...plots.map((plot) => ({ value: plot.id, label: plot_title(plot.artifact) }))]}
+        onchange={show_result} />
+    </div>
+    <Button variant="ghost" size="sm" type="button" title={$t("Open numeric curves or a saved plot document")} onclick={() => plotInput?.click()} disabled={importingPlot || savingResult}>
+      <Icon icon="Directory" width="16" height="16" /><span>{$t("Open plot")}</span>
+    </Button>
     <input class="hidden-file-input" bind:this={plotInput} type="file" accept=".txt,.dat,.csv,.json" multiple onchange={open_plot_files} />
     {#if activeResult === 'scene'}
     <WorkbenchMenu name="view" label="View" bind:active={openMenu}>
-    <div class="menu-heading">Camera</div>
-    <div class="camera-tools" aria-label="Fixed-step camera controls">
-      <label title="Rotation step in degrees">
-        <span>Step (deg)</span>
-        <input aria-label="Rotation step" type="number" min="0.1" max="180" step="0.1" bind:value={rotationStep} />
+    <div class="menu-heading">{$t("Camera")}</div>
+    <div class="camera-tools" aria-label={$t("Fixed-step camera controls")}>
+      <label title={$t("Rotation step in degrees")}>
+        <span>{$t("Step (deg)")}</span>
+        <input aria-label={$t("Rotation step")} type="number" min="0.1" max="180" step="0.1" bind:value={rotationStep} />
       </label>
-      <div class="axis-step" aria-label="Rotate camera to move visible structure">
-        <button class="icon-button" type="button" title="Rotate up" aria-label="Rotate up" onclick={() => step_rotate('up')} disabled={!current_camera_pose()}><Icon icon="ArrowUp" width="15" height="15" /></button>
-        <button class="icon-button" type="button" title="Rotate down" aria-label="Rotate down" onclick={() => step_rotate('down')} disabled={!current_camera_pose()}><Icon icon="ArrowDown" width="15" height="15" /></button>
-        <button class="icon-button" type="button" title="Rotate left" aria-label="Rotate left" onclick={() => step_rotate('left')} disabled={!current_camera_pose()}><Icon icon="ArrowLeft" width="15" height="15" /></button>
-        <button class="icon-button" type="button" title="Rotate right" aria-label="Rotate right" onclick={() => step_rotate('right')} disabled={!current_camera_pose()}><Icon icon="ArrowRight" width="15" height="15" /></button>
-        <button class="icon-button" type="button" title="Roll clockwise" aria-label="Roll clockwise" onclick={() => step_rotate('clockwise')} disabled={!current_camera_pose()}><Icon icon="Redo" width="15" height="15" /></button>
-        <button class="icon-button" type="button" title="Roll counterclockwise" aria-label="Roll counterclockwise" onclick={() => step_rotate('counterclockwise')} disabled={!current_camera_pose()}><Icon icon="Undo" width="15" height="15" /></button>
+      <div class="axis-step" aria-label={$t("Rotate camera to move visible structure")}>
+        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Rotate up")} aria-label={$t("Rotate up")} onclick={() => step_rotate('up')} disabled={!current_camera_pose()}><Icon icon="ArrowUp" width="15" height="15" /></Button>
+        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Rotate down")} aria-label={$t("Rotate down")} onclick={() => step_rotate('down')} disabled={!current_camera_pose()}><Icon icon="ArrowDown" width="15" height="15" /></Button>
+        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Rotate left")} aria-label={$t("Rotate left")} onclick={() => step_rotate('left')} disabled={!current_camera_pose()}><Icon icon="ArrowLeft" width="15" height="15" /></Button>
+        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Rotate right")} aria-label={$t("Rotate right")} onclick={() => step_rotate('right')} disabled={!current_camera_pose()}><Icon icon="ArrowRight" width="15" height="15" /></Button>
+        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Roll clockwise")} aria-label={$t("Roll clockwise")} onclick={() => step_rotate('clockwise')} disabled={!current_camera_pose()}><Icon icon="Redo" width="15" height="15" /></Button>
+        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Roll counterclockwise")} aria-label={$t("Roll counterclockwise")} onclick={() => step_rotate('counterclockwise')} disabled={!current_camera_pose()}><Icon icon="Undo" width="15" height="15" /></Button>
       </div>
-      <label title="Camera-relative pan step in world units">
-        <span>Move</span>
-        <input aria-label="Pan step" type="number" min="0.001" max="100" step="0.01" bind:value={panStep} />
+      <label title={$t("Camera-relative pan step in world units")}>
+        <span>{$t("Move")}</span>
+        <input aria-label={$t("Pan step")} type="number" min="0.001" max="100" step="0.01" bind:value={panStep} />
       </label>
-      <div class="pan-step" aria-label="Pan camera">
-        <button type="button" title="Pan left" aria-label="Pan left" onclick={() => step_pan(-1, 0)} disabled={!current_camera_pose()}><Icon icon="ArrowLeft" width="15" height="15" /></button>
-        <button type="button" title="Pan up" aria-label="Pan up" onclick={() => step_pan(0, 1)} disabled={!current_camera_pose()}><Icon icon="ArrowUp" width="15" height="15" /></button>
-        <button type="button" title="Pan down" aria-label="Pan down" onclick={() => step_pan(0, -1)} disabled={!current_camera_pose()}><Icon icon="ArrowDown" width="15" height="15" /></button>
-        <button type="button" title="Pan right" aria-label="Pan right" onclick={() => step_pan(1, 0)} disabled={!current_camera_pose()}><Icon icon="ArrowRight" width="15" height="15" /></button>
+      <div class="pan-step" aria-label={$t("Pan camera")}>
+        <Button variant="ghost" size="sm" type="button" title={$t("Pan left")} aria-label={$t("Pan left")} onclick={() => step_pan(-1, 0)} disabled={!current_camera_pose()}><Icon icon="ArrowLeft" width="15" height="15" /></Button>
+        <Button variant="ghost" size="sm" type="button" title={$t("Pan up")} aria-label={$t("Pan up")} onclick={() => step_pan(0, 1)} disabled={!current_camera_pose()}><Icon icon="ArrowUp" width="15" height="15" /></Button>
+        <Button variant="ghost" size="sm" type="button" title={$t("Pan down")} aria-label={$t("Pan down")} onclick={() => step_pan(0, -1)} disabled={!current_camera_pose()}><Icon icon="ArrowDown" width="15" height="15" /></Button>
+        <Button variant="ghost" size="sm" type="button" title={$t("Pan right")} aria-label={$t("Pan right")} onclick={() => step_pan(1, 0)} disabled={!current_camera_pose()}><Icon icon="ArrowRight" width="15" height="15" /></Button>
       </div>
-      <label title="Reciprocal zoom step in percent">
-        <span>Zoom (%)</span>
-        <input aria-label="Zoom step" type="number" min="0.1" max="500" step="0.1" bind:value={zoomStep} />
+      <label title={$t("Reciprocal zoom step in percent")}>
+        <span>{$t("Zoom (%)")}</span>
+        <input aria-label={$t("Zoom step")} type="number" min="0.1" max="500" step="0.1" bind:value={zoomStep} />
       </label>
-      <button class="icon-button" type="button" title="Zoom out" aria-label="Zoom out" onclick={() => step_zoom('out')} disabled={!current_camera_pose()}><Icon icon="ZoomOut" width="16" height="16" /></button>
-      <button class="icon-button" type="button" title="Zoom in" aria-label="Zoom in" onclick={() => step_zoom('in')} disabled={!current_camera_pose()}><Icon icon="ZoomIn" width="16" height="16" /></button>
+      <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Zoom out")} aria-label={$t("Zoom out")} onclick={() => step_zoom('out')} disabled={!current_camera_pose()}><Icon icon="ZoomOut" width="16" height="16" /></Button>
+      <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Zoom in")} aria-label={$t("Zoom in")} onclick={() => step_zoom('in')} disabled={!current_camera_pose()}><Icon icon="ZoomIn" width="16" height="16" /></Button>
     </div>
-    <label><input type="checkbox" bind:checked={inspectorOpen} onchange={() => { surfacePanelOpen = false; topologyPanelOpen = false }} /><span>Inspector</span></label>
-    {#if orbital_selection_available()}<label><input type="checkbox" bind:checked={orbitalPanelOpen} /><span>Orbitals</span></label>{/if}
-    <label><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} /><span>Axes</span></label>
-    <button type="button" onclick={() => { openMenu = undefined; open_panel('layers') }}>Volume layers ({volumeEntries.length})</button>
-    <button type="button" onclick={() => { openMenu = undefined; open_panel('slice') }} disabled={!volumetricData?.length}>2D Slice</button>
-    {#if topologyResult}<button type="button" onclick={() => { openMenu = undefined; surfaceActive = false; surfacePanelOpen = false; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>Topology view</button>{/if}
+    <label><input type="checkbox" bind:checked={inspectorOpen} onchange={() => { surfacePanelOpen = false; topologyPanelOpen = false }} /><span>{$t("Inspector")}</span></label>
+    {#if orbital_selection_available()}<label><input type="checkbox" bind:checked={orbitalPanelOpen} /><span>{$t("Orbitals")}</span></label>{/if}
+    <label><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} /><span>{$t("Axes")}</span></label>
+    <Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; open_panel('layers') }}>{$t("Volume layers ({count})", { count: volumeEntries.length })}</Button>
+    <Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; open_panel('slice') }} disabled={!volumetricData?.length}>{$t("2D Slice")}</Button>
+    {#if topologyResult}<Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; surfaceActive = false; surfacePanelOpen = false; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>{$t("Topology view")}</Button>{/if}
     </WorkbenchMenu>
     {/if}
     {#if activeResult === 'scene'}
     <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
-    <div class="menu-heading">Quantitative molecular surface</div>
-    <AnalysisAction reason={surfaceResult ? '' : 'Run main function 12, then choose post-processing option 0 to view its results'} busy={false} onclick={open_surface_results}>Quantitative surface results...</AnalysisAction>
-    <div class="menu-heading">Topology analysis (AIM)</div>
-    <AnalysisAction reason={topologyReason} busy={loading} onclick={() => { openMenu = undefined; surfacePanelOpen = false; topologyPanelOpen = true; inspectorOpen = false; orbitalPanelOpen = false }}>AIM critical points and paths...</AnalysisAction>
-    <div class="menu-heading">Electrostatic potential</div>
+    <div class="menu-heading">{$t("Quantitative molecular surface")}</div>
+    <AnalysisAction reason={surfaceResult ? '' : 'Run main function 12, then choose post-processing option 0 to view its results'} busy={false} onclick={open_surface_results}>{$t("Quantitative surface results...")}</AnalysisAction>
+    <div class="menu-heading">{$t("Topology analysis (AIM)")}</div>
+    <AnalysisAction reason={topologyReason} busy={loading} onclick={() => { openMenu = undefined; surfacePanelOpen = false; topologyPanelOpen = true; inspectorOpen = false; orbitalPanelOpen = false }}>{$t("AIM critical points and paths...")}</AnalysisAction>
+    <div class="menu-heading">{$t("Electrostatic potential")}</div>
     <label>
-      <span>Density iso</span>
+      <span>{$t("Density iso")}</span>
       <input type="number" min="0.000001" max="0.1" step="0.0001" bind:value={espIsovalue} />
     </label>
     <AnalysisAction
       onclick={() => { openMenu = undefined; void request_esp() }}
       busy={loading}
       reason={manifest.espAnalysis?.available === true ? '' : manifest.espAnalysis?.reason || 'No ESP calculation is available in this session'}
-    >ESP surface</AnalysisAction>
+    >{$t("ESP surface")}</AnalysisAction>
     {#if esp_pair()}
-      <button type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>ESP legend</button>
-      <button type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>Approx. ESP extrema</button>
+      <Button variant="ghost" size="sm" type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>{$t("ESP legend")}</Button>
+      <Button variant="ghost" size="sm" type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>{$t("Approx. ESP extrema")}</Button>
     {/if}
-    <div class="menu-heading">Bond-order analysis</div>
+    <div class="menu-heading">{$t("Bond-order analysis")}</div>
     {#each ['mayer', 'gwbo', 'wiberg_lowdin', 'mulliken', 'fbo'] as method}
       <AnalysisAction
         onclick={() => { openMenu = undefined; bondMethod = method; void request_bond() }}
@@ -1759,28 +1762,31 @@
     </WorkbenchMenu>
     {/if}
     <WorkbenchMenu name="save" label="Save" bind:active={openMenu}>
-      <button type="button" onclick={() => save_result('png')} disabled={savingResult || (!active_plot && !scene_available)}><Icon icon="Download" width="16" height="16" />PNG image</button>
+      <Button variant="ghost" size="sm" type="button" onclick={() => save_result('png')} disabled={savingResult || (!active_plot && !scene_available)}><Icon icon="Download" width="16" height="16" />{$t("PNG image")}</Button>
       {#if active_plot}
-        <button type="button" onclick={() => save_result('pdf')} disabled={savingResult}>PDF figure</button>
-        <button type="button" onclick={() => save_result('svg')} disabled={savingResult}>SVG figure</button>
-        <button type="button" onclick={() => save_result('csv')} disabled={savingResult}>CSV numeric data</button>
-        <button type="button" onclick={() => save_result('json')} disabled={savingResult}>Plot document (.json)</button>
+        <Button variant="ghost" size="sm" type="button" onclick={() => save_result('pdf')} disabled={savingResult}>{$t("PDF figure")}</Button>
+        <Button variant="ghost" size="sm" type="button" onclick={() => save_result('svg')} disabled={savingResult}>{$t("SVG figure")}</Button>
+        <Button variant="ghost" size="sm" type="button" onclick={() => save_result('csv')} disabled={savingResult}>{$t("CSV numeric data")}</Button>
+        <Button variant="ghost" size="sm" type="button" onclick={() => save_result('json')} disabled={savingResult}>{$t("Plot document (.json)")}</Button>
       {:else}
-        <button type="button" onclick={() => { export_state(); openMenu = undefined }} disabled={!scene_available}>Save display settings</button>
-        <button type="button" onclick={() => { stateInput?.click(); openMenu = undefined }} disabled={!scene_available || loading}>Restore display settings...</button>
+        <Button variant="ghost" size="sm" type="button" onclick={() => { export_state(); openMenu = undefined }} disabled={!scene_available}>{$t("Save display settings")}</Button>
+        <Button variant="ghost" size="sm" type="button" onclick={() => { stateInput?.click(); openMenu = undefined }} disabled={!scene_available || loading}>{$t("Restore display settings...")}</Button>
       {/if}
     </WorkbenchMenu>
     <input class="hidden-file-input" bind:this={stateInput} type="file" accept="application/json,.json" onchange={import_state_file} />
     {#if active_plot && !active_plot.native}
-      <button class="icon-button" type="button" title="Close current plot" aria-label="Close current plot" onclick={close_plot} disabled={savingResult}><Icon icon="Cross" width="16" height="16" /></button>
+      <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Close current plot")} aria-label={$t("Close current plot")} onclick={close_plot} disabled={savingResult}><Icon icon="Cross" width="16" height="16" /></Button>
     {/if}
-    <button class="icon-button" type="button" title="Operation log" aria-label="Operation log" onclick={() => open_panel('logs')} aria-expanded={logOpen}><Icon icon="Info" width="16" height="16" /></button>
-    <button class="return" type="button" title="Return to the Multiwfn calculation menu" onclick={return_to_multiwfn} disabled={returnPending || savingResult}>Return</button>
+    <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Operation log")} aria-label={$t("Operation log")} onclick={() => open_panel('logs')} aria-expanded={logOpen}><Icon icon="Info" width="16" height="16" /></Button>
+    <Button variant="outline" size="sm" type="button" class="language-toggle gap-1.5 text-xs" aria-label={$locale === 'zh' ? 'Switch to English' : '切换到中文'} title={$locale === 'zh' ? 'Switch to English' : '切换到中文'} onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>
+      <Languages size={15} aria-hidden="true" /><span lang="zh-CN" class:language-active={$locale === 'zh'}>中文</span><span aria-hidden="true">/</span><span lang="en" class:language-active={$locale === 'en'}>EN</span>
+    </Button>
+    <Button variant="outline" size="sm" class="return text-xs" type="button" title={$t("Return to the Multiwfn calculation menu")} onclick={return_to_multiwfn} disabled={returnPending || savingResult}>{$t("Return")}</Button>
   </header>
 
   {#if manifest.periodic?.enabled && activeResult === 'scene'}
-    <section class="periodic-bar" aria-label="Periodic surface range">
-      <strong>Surface range</strong>
+    <section class="periodic-bar" aria-label={$t("Periodic surface range")}>
+      <strong>{$t("Surface range")}</strong>
       {#each ['a', 'b', 'c'] as axis, axis_idx}
         <label>
           <span>{axis}</span>
@@ -1790,7 +1796,7 @@
             value={isosurfaceSettings.display_range?.[axis_idx]?.[0] ?? 0}
             oninput={(event) => set_range(axis_idx, 0, Number(event.currentTarget.value))}
           />
-          <span>to</span>
+          <span>{$t("to")}</span>
           <input
             type="number"
             step="0.05"
@@ -1800,12 +1806,12 @@
         </label>
       {/each}
       <label>
-        <span>Atoms</span>
-        <input class="supercell" bind:value={supercellScaling} aria-label="Atom supercell" />
+        <span>{$t("Atoms")}</span>
+        <input class="supercell" bind:value={supercellScaling} aria-label={$t("Atom supercell")} />
       </label>
       <label>
         <input type="checkbox" bind:checked={showImageAtoms} />
-        <span>Boundary atoms</span>
+        <span>{$t("Boundary atoms")}</span>
       </label>
       <label>
         <input
@@ -1817,35 +1823,35 @@
             show_cell_vectors: showUnitCell,
           }}
         />
-        <span>Cell frame</span>
+        <span>{$t("Cell frame")}</span>
       </label>
     </section>
   {/if}
 
   <div class="result-stage" bind:this={resultStage}>
   <section class="workspace" class:has-topology={topologyPanelOpen || surfacePanelOpen} class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen && !topologyPanelOpen && !surfacePanelOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
-    <nav class="tool-rail" aria-label="Inspector tools">
-      <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label="Open structure inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
-        <span aria-hidden="true">S</span><small>Structure</small>
+    <nav class="tool-rail" aria-label={$t("Inspector tools")}>
+      <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label={$t("Open structure inspector")} aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
+        <Atom size={17} aria-hidden="true" /><small>{$t("Atoms")}</small>
       </button>
-      <button type="button" class:active={inspectorOpen && inspectorSection === 'surfaces'} aria-label="Open surfaces inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'surfaces'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
-        <span aria-hidden="true">V</span><small>Surfaces</small>
+      <button type="button" class:active={inspectorOpen && inspectorSection === 'surfaces'} aria-label={$t("Open surfaces inspector")} aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'surfaces'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
+        <Layers size={17} aria-hidden="true" /><small>{$t("Surface")}</small>
       </button>
       {#if manifest.periodic?.enabled}
-        <button type="button" class:active={inspectorOpen && inspectorSection === 'cell'} aria-label="Open cell inspector" aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'cell'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
-          <span aria-hidden="true">C</span><small>Cell</small>
+        <button type="button" class:active={inspectorOpen && inspectorSection === 'cell'} aria-label={$t("Open cell inspector")} aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'cell'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
+          <Box size={17} aria-hidden="true" /><small>{$t("Cell")}</small>
         </button>
       {/if}
-      <button type="button" class:active={layerOpen} aria-label={`Open volume layers (${volumeEntries.length})`} aria-expanded={layerOpen} onclick={() => open_panel('layers')}>
-        <span aria-hidden="true">L</span><small>Layers</small>
+      <button type="button" class:active={layerOpen} aria-label={$t("Open volume layers ({count})", { count: volumeEntries.length })} aria-expanded={layerOpen} onclick={() => open_panel('layers')}>
+        <Layers size={17} aria-hidden="true" /><small>{$t("Layers")}</small>
       </button>
       {#if orbital_selection_available()}
-      <button type="button" class:active={orbitalPanelOpen} aria-label="Toggle orbitals" aria-expanded={orbitalPanelOpen} onclick={() => orbitalPanelOpen = !orbitalPanelOpen}>
-        <span aria-hidden="true">O</span><small>Orbitals</small>
+      <button type="button" class:active={orbitalPanelOpen} aria-label={$t("Toggle orbitals")} aria-expanded={orbitalPanelOpen} onclick={() => orbitalPanelOpen = !orbitalPanelOpen}>
+        <Orbit size={17} aria-hidden="true" /><small>{$t("Orbitals")}</small>
       </button>
       {/if}
-      <button type="button" class="rail-close" aria-label="Close inspector" aria-expanded={inspectorOpen || surfacePanelOpen || topologyPanelOpen} onclick={() => { inspectorOpen = false; surfacePanelOpen = false; topologyPanelOpen = false }}>
-        <span aria-hidden="true">&lt;</span><small>Hide</small>
+      <button type="button" class="rail-close" aria-label={$t("Close inspector")} aria-expanded={inspectorOpen || surfacePanelOpen || topologyPanelOpen} onclick={() => { inspectorOpen = false; surfacePanelOpen = false; topologyPanelOpen = false }}>
+        <PanelLeftClose size={17} aria-hidden="true" /><small>{$t("Hide")}</small>
       </button>
     </nav>
 
@@ -1914,22 +1920,22 @@
           scene_children={topologyScene}
         />
       {:else if !loading}
-        <div class="empty">No structure is available in this session.</div>
+        <div class="empty">{$t("No structure is available in this session.")}</div>
       {/if}
       {#if bondContextMenu && manifest.bondAnalysis?.methods}
         <div
           class="bond-analysis-menu"
           role="menu"
           tabindex="-1"
-          aria-label={`Calculate bond order for atoms ${bondContextMenu.source_site_indices[0] + 1} and ${bondContextMenu.source_site_indices[1] + 1}`}
+          aria-label={$t("Calculate bond order for atoms {first} and {second}", { first: bondContextMenu.source_site_indices[0] + 1, second: bondContextMenu.source_site_indices[1] + 1 })}
           bind:this={bondContextMenuElement}
           style={`left: ${bondContextMenu.left}px; top: ${bondContextMenu.top}px; max-width: ${bondContextMenu.max_width}px; max-height: ${bondContextMenu.max_height}px;`}
         >
           <header role="presentation">
-            <strong>Bond order</strong>
-            <span>Atoms {bondContextMenu.source_site_indices[0] + 1}–{bondContextMenu.source_site_indices[1] + 1}</span>
+            <strong>{$t("Bond order")}</strong>
+            <span>{$t("Atoms")} {bondContextMenu.source_site_indices[0] + 1}–{bondContextMenu.source_site_indices[1] + 1}</span>
             {#if bondContextMenu.bond_order !== undefined}
-              <small>Displayed bond: {typeof bondContextMenu.bond_order === 'number' ? bondContextMenu.bond_order.toPrecision(4) : bondContextMenu.bond_order}</small>
+              <small>{$t("Displayed bond:")} {typeof bondContextMenu.bond_order === 'number' ? bondContextMenu.bond_order.toPrecision(4) : bondContextMenu.bond_order}</small>
             {/if}
           </header>
           <div class="bond-analysis-methods" role="presentation">
@@ -1940,11 +1946,11 @@
                 role="menuitem"
                 aria-disabled={Boolean(unavailableReason)}
                 disabled={Boolean(unavailableReason)}
-                title={unavailableReason || `Calculate ${bond_method_label(method)} bond order`}
+                title={unavailableReason ? $t(unavailableReason) : $t("Calculate {method} bond order", { method: bond_method_label(method) })}
                 onclick={() => request_context_bond(method)}
               >
                 <span>{bond_method_label(method)}</span>
-                {#if unavailableReason}<small>{capability.reason || unavailableReason}</small>{/if}
+                {#if unavailableReason}<small>{$t(capability.reason || unavailableReason)}</small>{/if}
               </button>
             {/each}
           </div>
@@ -1973,9 +1979,9 @@
       {/if}
     </div>
     {#if loading || measuredSites.length || bondResults.length}
-      <div class="scene-readouts" aria-label="Calculation and measurement results">
+      <div class="scene-readouts" aria-label={$t("Calculation and measurement results")}>
         {#if loading}
-          <div class="calculation-status" role="status"><progress aria-label={workingMessage}></progress><span>{workingMessage}</span></div>
+          <div class="calculation-status" role="status"><progress aria-label={format_message($locale, workingMessage)}></progress><span>{format_message($locale, workingMessage)}</span></div>
         {/if}
         <MeasurementReadout structure={displayedStructure ?? structure} sites={measuredSites} mode={measureMode} bonds={bondResults}
           on_clear_selection={() => measuredSites = []}
@@ -1985,12 +1991,12 @@
     </section>
 
     {#if orbital_selection_available() && orbitalPanelOpen}
-      <aside class="orbital-panel" aria-label="Orbital controls">
+      <aside class="orbital-panel" aria-label={$t("Orbital controls")}>
         <header>
-          <div><strong>Orbitals</strong><small>{orbital_count()}</small></div>
-          <span class:offline={!orbitalBackendAvailable}>{orbitalBackendAvailable ? 'Connected' : 'Cached only'}</span>
+          <div><strong>{$t("Orbitals")}</strong><small>{orbital_count()}</small></div>
+          <span class:offline={!orbitalBackendAvailable}>{$t(orbitalBackendAvailable ? 'Connected' : 'Cached only')}</span>
         </header>
-        <div class="orbital-frontiers" aria-label="Frontier orbitals">
+        <div class="orbital-frontiers" aria-label={$t("Frontier orbitals")}>
           {#each [Number(homoIndex), Number(homoIndex) + 1] as index}
             {@const label = orbital_frontier_label(index, homoIndex, manifest.bondAnalysis?.openShell)}
             {#if label && index <= orbital_count()}
@@ -2000,8 +2006,8 @@
           {/each}
         </div>
         {#if manifest.orbitals?.items?.length}
-          <div class="orbital-list" bind:this={orbitalListElement} role="listbox" aria-label="Orbital list">
-            <button type="button" class:active={orbitalIndex === 0} role="option" aria-selected={orbitalIndex === 0} onclick={() => activate_orbital(0)} disabled={loading}>None</button>
+          <div class="orbital-list" bind:this={orbitalListElement} role="listbox" aria-label={$t("Orbital list")}>
+            <button type="button" class:active={orbitalIndex === 0} role="option" aria-selected={orbitalIndex === 0} onclick={() => activate_orbital(0)} disabled={loading}>{$t("None")}</button>
             {#each manifest.orbitals.items as item}
               <button
                 type="button"
@@ -2021,24 +2027,24 @@
         {/if}
         <div class="orbital-controls">
           <div class="orbital-navigation">
-            <button type="button" title="Previous orbital" aria-label="Previous orbital" onclick={() => step_orbital(-1)} disabled={loading || orbitalIndex <= 1}>&lt;</button>
-            <input aria-label="Orbital index" type="number" min="0" max={orbital_count() || undefined} bind:value={orbitalIndex} disabled={loading} />
-            <button type="button" title="Next orbital" aria-label="Next orbital" onclick={() => step_orbital(1)} disabled={loading || orbitalIndex >= orbital_count()}>&gt;</button>
+            <button type="button" title={$t("Previous orbital")} aria-label={$t("Previous orbital")} onclick={() => step_orbital(-1)} disabled={loading || orbitalIndex <= 1}>&lt;</button>
+            <input aria-label={$t("Orbital index")} type="number" min="0" max={orbital_count() || undefined} bind:value={orbitalIndex} disabled={loading} />
+            <button type="button" title={$t("Next orbital")} aria-label={$t("Next orbital")} onclick={() => step_orbital(1)} disabled={loading || orbitalIndex >= orbital_count()}>&gt;</button>
           </div>
-          <button type="button" onclick={() => request_orbital()} disabled={loading || !orbital_selection_valid() || (!orbitalBackendAvailable && loaded_orbital_volume_index(volumeEntries, orbitalIndex) === undefined)}>{orbitalIndex === 0 ? 'Hide orbitals' : 'Show orbital'}</button>
+          <button type="button" onclick={() => request_orbital()} disabled={loading || !orbital_selection_valid() || (!orbitalBackendAvailable && loaded_orbital_volume_index(volumeEntries, orbitalIndex) === undefined)}>{$t(orbitalIndex === 0 ? 'Hide orbitals' : 'Show orbital')}</button>
           <label>
-            <span>Orbital isovalue</span>
+            <span>{$t("Orbital isovalue")}</span>
             <input type="number" min="0.000001" max="0.3" step="0.001" value={orbitalIsovalue} onchange={(event) => change_orbital_isovalue(event.currentTarget.valueAsNumber)} />
           </label>
           <label>
-            <span>Grid precision</span>
+            <span>{$t("Grid precision")}</span>
             <select value={quality} onchange={change_orbital_quality} disabled={loading || !orbitalBackendAvailable}>
               {#each manifest.espAnalysis?.qualityLevels ?? ORBITAL_GRID_QUALITY_LEVELS as level}
-                <option value={level}>{Math.round(level / 1000)}k points</option>
+                <option value={level}>{Math.round(level / 1000)}{$t("k points")}</option>
               {/each}
             </select>
           </label>
-          {#if !orbitalBackendAvailable}<p>Reopen Multiwfn menu 0 to calculate uncached orbitals.</p>{/if}
+          {#if !orbitalBackendAvailable}<p>{$t("Reopen Multiwfn menu 0 to calculate uncached orbitals.")}</p>{/if}
         </div>
       </aside>
     {/if}
@@ -2054,15 +2060,15 @@
   </div>
 
   <footer class="statusbar" class:error={Boolean(errorMessage)}>
-    <span role="status">{savingResult ? 'Exporting...' : importingPlot ? 'Opening plot...' : errorMessage || status}</span>
-    <span>{active_plot ? '2D plot' : `${volumetricData?.length || 0} volume(s)`}</span>
+    <span role="status">{savingResult ? $t('Exporting...') : importingPlot ? $t('Opening plot...') : errorMessage || format_message($locale, status)}</span>
+    <span>{active_plot ? $t('2D plot') : $t('{count} volume(s)', { count: volumetricData?.length || 0 })}</span>
   </footer>
 
   {#if layerOpen}
-    <aside class="layer-panel" aria-label="Volume layers">
+    <aside class="layer-panel" aria-label={$t("Volume layers")}>
       <header>
-        <strong>Volume layers</strong>
-        <button type="button" onclick={() => layerOpen = false}>Close</button>
+        <strong>{$t("Volume layers")}</strong>
+        <button type="button" onclick={() => layerOpen = false}>{$t("Close")}</button>
       </header>
       <div class="layer-list">
         {#each volumeEntries as entry, volumeIdx}
@@ -2076,14 +2082,14 @@
                   onchange={(event) => update_layer(volumeIdx, { visible: event.currentTarget.checked })}
                 />
                 <button class="layer-name" type="button" onclick={() => activeVolumeIdx = volumeIdx}>
-                  {entry.name || entry.role || `Volume ${volumeIdx + 1}`}
+                  {entry.name || entry.role || $t("Volume {number}", { number: volumeIdx + 1 })}
                 </button>
               </label>
-              <button type="button" title="Remove layer" aria-label="Remove layer" onclick={() => remove_volume(volumeIdx)}>×</button>
+              <button type="button" title={$t("Remove layer")} aria-label={$t("Remove layer")} onclick={() => remove_volume(volumeIdx)}>×</button>
             </div>
             <div class="layer-controls">
               <label>
-                <span>Iso</span>
+                <span>{$t("Iso")}</span>
                 <input
                   type="number"
                   min="0.000001"
@@ -2093,7 +2099,7 @@
                 />
               </label>
               <label>
-                <span>Opacity</span>
+                <span>{$t("Opacity")}</span>
                 <input
                   type="range"
                   min="0.05"
@@ -2104,24 +2110,24 @@
                 />
               </label>
               <label class="color-source">
-                <span>Color by</span>
+                <span>{$t("Color by")}</span>
                 <select
                   value={layer?.color_volume_idx ?? -1}
                   onchange={(event) => set_color_volume(volumeIdx, Number(event.currentTarget.value))}
                 >
-                  <option value={-1}>Solid</option>
+                  <option value={-1}>{$t("Solid")}</option>
                   {#each volumeEntries as colorEntry, colorIdx}
                     {#if colorIdx !== volumeIdx}
                       <option
                         value={colorIdx}
                         disabled={!grids_compatible(volumeIdx, colorIdx)}
-                      >{colorEntry.name || colorEntry.role || `Volume ${colorIdx + 1}`}</option>
+                      >{colorEntry.name || colorEntry.role || $t("Volume {number}", { number: colorIdx + 1 })}</option>
                     {/if}
                   {/each}
                 </select>
               </label>
               <label>
-                <span>Positive color</span>
+                <span>{$t("Positive color")}</span>
                 <input
                   type="color"
                   value={layer?.color || '#2563eb'}
@@ -2134,11 +2140,11 @@
                   checked={layer?.show_negative === true}
                   onchange={(event) => update_layer(volumeIdx, { show_negative: event.currentTarget.checked })}
                 />
-                <span>Negative phase</span>
+                <span>{$t("Negative phase")}</span>
               </label>
               {#if layer?.show_negative}
                 <label>
-                  <span>Negative color</span>
+                  <span>{$t("Negative color")}</span>
                   <input
                     type="color"
                     value={layer.negative_color || '#dc2626'}
@@ -2148,24 +2154,24 @@
               {/if}
               {#if layer?.color_volume_idx !== undefined}
                 <label>
-                  <span>Colormap</span>
+                  <span>{$t("Colormap")}</span>
                   <select
                     value={layer.colormap || 'interpolateRdBu'}
                     onchange={(event) => update_layer(volumeIdx, { colormap: event.currentTarget.value as IsosurfaceLayer['colormap'] })}
                   >
-                    <option value="interpolateTransFlag">Trans flag (pink / white / blue)</option>
-                    <option value="interpolateRdBu">Red / blue</option>
-                    <option value="interpolateTransFlag">Pink / white / blue</option>
+                    <option value="interpolateTransFlag">{$t("Trans flag (pink / white / blue)")}</option>
+                    <option value="interpolateRdBu">{$t("Red / blue")}</option>
+                    <option value="interpolateTransFlag">{$t("Pink / white / blue")}</option>
                     <option value="interpolateViridis">Viridis</option>
                     <option value="interpolateTurbo">Turbo</option>
-                    <option value="interpolateCool">Cool</option>
-                    <option value="interpolateWarm">Warm</option>
-                    <option value="interpolateRdYlGn">Red / yellow / green</option>
-                    <option value="interpolateGreys">Greys</option>
+                    <option value="interpolateCool">{$t("Cool")}</option>
+                    <option value="interpolateWarm">{$t("Warm")}</option>
+                    <option value="interpolateRdYlGn">{$t("Red / yellow / green")}</option>
+                    <option value="interpolateGreys">{$t("Greys")}</option>
                   </select>
                 </label>
                 <label>
-                  <span>Range min</span>
+                  <span>{$t("Range min")}</span>
                   <input
                     type="number"
                     step="0.001"
@@ -2174,7 +2180,7 @@
                   />
                 </label>
                 <label>
-                  <span>Range max</span>
+                  <span>{$t("Range max")}</span>
                   <input
                     type="number"
                     step="0.001"
@@ -2186,53 +2192,53 @@
             </div>
           </section>
         {:else}
-          <div class="panel-empty">No volume layers.</div>
+          <div class="panel-empty">{$t("No volume layers.")}</div>
         {/each}
       </div>
     </aside>
   {/if}
 
   {#if logOpen}
-    <aside class="log-panel" aria-label="Operation log">
+    <aside class="log-panel" aria-label={$t("Operation log")}>
       <header>
-        <strong>Operation log</strong>
+        <strong>{$t("Operation log")}</strong>
         <div>
-          <button type="button" onclick={copy_log} disabled={!logEntries.length}>Copy</button>
-          <button type="button" onclick={() => logEntries = []} disabled={!logEntries.length}>Clear</button>
-          <button type="button" onclick={() => logOpen = false}>Close</button>
+          <button type="button" onclick={copy_log} disabled={!logEntries.length}>{$t("Copy")}</button>
+          <button type="button" onclick={() => logEntries = []} disabled={!logEntries.length}>{$t("Clear")}</button>
+          <button type="button" onclick={() => logOpen = false}>{$t("Close")}</button>
         </div>
       </header>
       <div class="log-list">
         {#each logEntries as entry}
           <div class:error={entry.level === 'error'}>
             <time>{entry.timestamp}</time>
-            <span>{entry.message}</span>
+            <span>{format_message($locale, entry.message)}</span>
           </div>
         {:else}
-          <div class="log-empty">No operations recorded.</div>
+          <div class="log-empty">{$t("No operations recorded.")}</div>
         {/each}
       </div>
     </aside>
   {/if}
 
   {#if activeResult === 'scene' && !topologyActive && !surfaceActive && espExtremaOpen && esp_pair()}
-    <aside class="esp-extrema-panel" aria-label="Approximate ESP surface extrema">
+    <aside class="esp-extrema-panel" aria-label={$t("Approximate ESP surface extrema")}>
       <header>
-        <strong>Approximate ESP extrema</strong>
-        <button type="button" onclick={() => espExtremaOpen = false}>Close</button>
+        <strong>{$t("Approximate ESP extrema")}</strong>
+        <button type="button" onclick={() => espExtremaOpen = false}>{$t("Close")}</button>
       </header>
       {#if espExtremaLoading}
-        <div class="panel-empty">Calculating bounded visual estimates...</div>
+        <div class="panel-empty">{$t("Calculating bounded visual estimates...")}</div>
       {:else if espExtrema}
         <div class="esp-extrema-list">
           {#each [...espExtrema.minima, ...espExtrema.maxima] as point}
             <div class:minimum={point.type === 'minimum'}>
-              <strong>{point.type === 'minimum' ? 'Min' : 'Max'} {point.rank}</strong>
+              <strong>{$t(point.type === 'minimum' ? 'Min' : 'Max')} {point.rank}</strong>
               <span>{point.kcalMolPerElectron.toFixed(2)} kcal/mol/e</span>
               <small>{point.x.toFixed(3)}, {point.y.toFixed(3)}, {point.z.toFixed(3)}</small>
             </div>
           {:else}
-            <div class="panel-empty">No finite interior extrema found.</div>
+            <div class="panel-empty">{$t("No finite interior extrema found.")}</div>
           {/each}
         </div>
       {/if}

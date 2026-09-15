@@ -49,7 +49,7 @@ test('production manifest loaders discard stale analysis but finish startup; fai
   const effectEnd = source.indexOf('  let displayedStructure', effectStart)
   const loadStart = source.indexOf('      if (manifest.topology) {')
   const loadEnd = source.indexOf("      if (String(manifest.multiwfnGui?.entry", loadStart)
-  const finishStart = source.indexOf("      set_status(surfaceResult ? 'Original quantitative surface results loaded'", loadEnd)
+  const finishStart = source.indexOf("      set_status(surfaceResult ? ui_message('Original quantitative surface results loaded')", loadEnd)
   const finishEnd = source.indexOf('\n  }', finishStart)
   const derived = source.split('\n').find((line) => line.includes('const geometryKey = $derived'))!
   assert.ok(effectStart > 0 && effectEnd > effectStart && loadStart > 0 && loadEnd > loadStart
@@ -60,6 +60,7 @@ test('production manifest loaders discard stale analysis but finish startup; fai
     import assert from 'node:assert/strict'
     import { flushSync } from 'svelte'
     import { analysis_structure_key } from './src/analysis-structure.ts'
+    import { ui_message, format_message } from './src/i18n.ts'
     async function exercise(stage, change, reject = false) {
       let topologyGeneration = 0
       let structure = $state(${JSON.stringify(fixture())})
@@ -112,7 +113,7 @@ test('production manifest loaders discard stale analysis but finish startup; fai
       assert.equal(restoredCalls, reject ? 0 : 1)
       if (reject) {
         assert.deepEqual(errors, [stage + ' failed'])
-        assert.equal(status, 'Session loading failed')
+        assert.equal(format_message('en', status), 'Session loading failed')
       } else {
         assert.deepEqual(errors, [])
         assert.equal(Boolean(surfaceResult), !change)

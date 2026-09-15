@@ -85,7 +85,6 @@ button, input, select { font: inherit; }
 .result-stage > .workspace, .result-document { position: absolute; inset: 0; }
 .result-document { min-width: 0; min-height: 0; background: #fff; }
 .result-stage > .inactive { visibility: hidden; opacity: 0; pointer-events: none; }
-.workbench-menu { position: fixed; z-index: 80; width: min(320px, calc(100vw - 16px)); padding: 8px; overflow: auto; border: 1px solid #b9c2ce; border-radius: 6px; background: #fff; box-shadow: 0 6px 20px rgb(23 32 42 / 16%); }
 .workbench-menu > button { display: flex; align-items: center; gap: 6px; width: 100%; height: auto; min-height: 32px; padding: 6px 8px; text-align: left; border-color: transparent; }
 .workbench-menu > label { justify-content: space-between; padding: 5px 8px; }
 .workbench-menu > label:has(input[type="checkbox"]) { justify-content: flex-start; }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n'
   import { BinnedScatterPlot, ScatterPlot } from 'matterviz'
   import type { UserContentProps } from 'matterviz/plot'
   import { plot_title, to_matterviz_axis, to_matterviz_bar_series, to_matterviz_data_series, to_matterviz_error_band, to_matterviz_fill_region, materialize_plot_layer, release_plot_scene, resolve_plot_scene, type PlotDataset, type PlotDatasetResolver, type PlotScene, type PlotSceneLayer, type PlotScenePanel, type ResolvedPlotScene } from './plot'
@@ -89,9 +90,9 @@
   const annotation_y = (annotation: NonNullable<PlotScenePanel['annotations']>[number], height: number, scale: (value: number) => number): number => annotation.coordinateSpace === 'panel' ? annotation.y * height : scale(annotation.y)
 </script>
 
-<main class="plot-scene" aria-label="Multiwfn generic plot scene" style={`aspect-ratio: ${scene.page.width} / ${scene.page.height}`}>
+<main class="plot-scene" aria-label={$t("Multiwfn generic plot scene")} style={`aspect-ratio: ${scene.page.width} / ${scene.page.height}`}>
   <header class="plot-header"><strong>{plot_title(scene)}</strong>{#if scene.semanticKind}<span>{scene.semanticKind}</span>{/if}</header>
-  {#if load_error}<p class="plot-error">{load_error}</p>{:else if !loaded}<p class="plot-loading">Loading plot data...</p>{:else}
+  {#if load_error}<p class="plot-error">{load_error}</p>{:else if !loaded}<p class="plot-loading">{$t("Loading plot data...")}</p>{:else}
     <section class="scene-page" bind:clientWidth={page_width} bind:clientHeight={page_height}>
       {#each scene.panels as panel (panel.id)}
         {@const route = panel_route(panel)}

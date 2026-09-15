@@ -261,22 +261,29 @@ rim, opacity and shading refinements. Finishes preserve scientific isovalues and
 layer colors; periodic boundary padding is under Cell. These settings are saved
 with the workbench state.
 
-### TMIM appearance and material presets
+### Studio lighting and language selection
 
-Structure > Appearance can select the TMIM viewer rig. TMIM uses four bounded
-light controls (ambient, directional, fill, and rim) and disables the scene tone
-mapping pass (`NoToneMapping`) so the lighting controls remain predictable. The
-original rig remains available with its ambient and directional defaults of 0.72
-and 1.2; Reset restores the defaults for the currently selected rig. Lighting
-values, the selected rig, and tone-mapping choice are persisted in display
-snapshots, including older camelCase and snake_case fields.
+Structure > Lighting preset offers **Standard lighting** and **Studio lighting**
+(中文：标准布光 / 影棚布光). Studio lighting is a MatterViz lighting preset,
+using hemisphere ambient light, a camera-following key, warm fill, and cool rim.
+It disables tone mapping. Standard lighting uses neutral lights and AgX tone mapping.
+Reset restores the four light intensities for the selected preset.
+The historical `tmim` identifier remains in display snapshots for compatibility.
 
-Structure also exposes six atom TMIM finishes: Current, Goodsell, Edgy, Glass,
-Metallic, and Matte. They change atom material parameters; the TMIM light rig
-also updates bond shading while leaving
-coordinates and analysis data untouched. The source TMIM `ol`/`ow` outline
-fields were inactive in the original integration; the viewer's outline control
-is an optional enhancement and defaults to zero unless enabled.
+Structure > Finish preset offers Balanced, Goodsell, Edgy, Glass, Metallic, and
+Matte. Balanced replaces the display name Current; its saved ID remains `current`.
+An untouched renderer material shows Renderer default. Atom finish and lighting
+are independent controls. These atom presets apply outline parameters that were
+inactive in the historical source, so they are not exact recreations of that viewer.
+
+The toolbar **中文 / EN** button switches Multiwfn-owned controls immediately,
+without remounting the scene or changing its camera, scientific data, or materials.
+Language is saved in browser localStorage (`multiwfn-ui-language`); the first visit
+follows the browser language (Chinese for `zh`, English otherwise). If storage is
+unavailable, switching still works for the current page. UI language is independent
+of scientific/display exports. User labels, scientific identifiers, and raw backend
+logs retain their original text. MatterViz's native embedded controls retain their
+upstream language.
 
 The Surfaces control keeps the four primary finishes above and provides the
 legacy MaterialPanel combinations in a dropdown: Diffuse, Goodsell, Edgy,
@@ -367,3 +374,29 @@ produces `Multiwfn_MatterVizGUI`. MatterViz resources do not include the legacy
 3Dmol frontend or Qt shell.
 
 MatterViz is distributed under the MIT license. Multiwfn remains under its original license.
+
+## Workbench UI preview
+
+The Multiwfn toolbar and inspector now use local shadcn-svelte components:
+Button, Popover, Select, Tabs, Slider and Tooltip. The structure renderer remains
+MatterViz. Scene settings, original material presets, result selection and
+analysis availability still use the existing callbacks and workbench state.
+The UI source and local adaptations are documented in
+`src/lib/components/ui/README.md`.
+
+Use the normal `pnpm dev` command with a session manifest for local development.
+Browser acceptance against a running preview containing the two density/ESP
+fixture volumes is available as:
+
+```bash
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium \
+PREVIEW_URL=http://127.0.0.1:5197/ \
+node tests/browser/workbench-ui.mjs
+```
+
+This checks keyboard navigation, popover dismissal and focus return, all four
+lighting controls, material choices, display-setting download/restore, volume
+visibility, backend-unavailability help, the single canvas lifecycle and a
+600 px viewport. The supplied molecule preview has no calculation backend;
+analysis controls retain their real unavailable state.

@@ -10,7 +10,7 @@ export type AtomStyleSettings = {
 }
 
 export const ATOM_STYLE_PRESETS: ReadonlyArray<{ value: AtomStyle; label: string; roughness: number; metalness: number; opacity: number; outline: number; outlineWidth: number }> = [
-  { value: 'current', label: 'Current', roughness: .5, metalness: .07, opacity: 1, outline: .10, outlineWidth: .6 },
+  { value: 'current', label: 'Balanced', roughness: .5, metalness: .07, opacity: 1, outline: .10, outlineWidth: .6 },
   { value: 'goodsell', label: 'Goodsell', roughness: .7, metalness: 0, opacity: 1, outline: .10, outlineWidth: .6 },
   { value: 'edgy', label: 'Edgy', roughness: .25, metalness: 0, opacity: 1, outline: .50, outlineWidth: .9 },
   { value: 'glass', label: 'Glass', roughness: .05, metalness: 0, opacity: .55, outline: .05, outlineWidth: .6 },

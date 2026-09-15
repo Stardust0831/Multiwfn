@@ -5,7 +5,7 @@ import { create_workbench_state, parse_workbench_state, restore_workbench_state 
 
 test('TMIM atom presets retain the historical six parameter combinations', () => {
   assert.deepEqual(ATOM_STYLE_PRESETS.map((p) => p.value), ['current', 'goodsell', 'edgy', 'glass', 'metallic', 'matte'])
-  assert.deepEqual(ATOM_STYLE_PRESETS.find((p) => p.value === 'current'), { value: 'current', label: 'Current', roughness: .5, metalness: .07, opacity: 1, outline: .1, outlineWidth: .6 })
+  assert.deepEqual(ATOM_STYLE_PRESETS.find((p) => p.value === 'current'), { value: 'current', label: 'Balanced', roughness: .5, metalness: .07, opacity: 1, outline: .1, outlineWidth: .6 })
   assert.deepEqual(ATOM_STYLE_PRESETS.find((p) => p.value === 'glass'), { value: 'glass', label: 'Glass', roughness: .05, metalness: 0, opacity: .55, outline: .05, outlineWidth: .6 })
   assert.deepEqual(normalize_atom_style({ atom_roughness: -1, atom_metalness: 3, atom_opacity: '0.4', atom_outline: 2, atom_outline_width: 2 }), { atom_roughness: 0, atom_metalness: 1, atom_opacity: .4, atom_outline: 1, atom_outline_width: 1 })
 })
