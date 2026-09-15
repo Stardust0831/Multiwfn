@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n'
   import { bond_angle, dihedral_angle, distance_pbc, Icon, type AnyStructure, type MeasureMode } from 'matterviz'
 
   export type BondResult = { key: string; atoms: string; method: string; value: number }
@@ -32,22 +33,22 @@
 </script>
 
 {#if sites.length && (mode === 'distance' || mode === 'angle')}
-  <div class="measurement-result" aria-label="Geometry measurement">
-    <span class="result-kind">{geometry?.name ?? 'Selected atoms'}</span>
+  <div class="measurement-result" aria-label={$t("Geometry measurement")}>
+    <span class="result-kind">{$t(geometry?.name ?? 'Selected atoms')}</span>
     <span class="result-atoms">{names}</span>
     {#if geometry}
-      <strong>{geometry.value === null || !Number.isFinite(geometry.value) ? 'Undefined' : `${geometry.value.toFixed(4)} ${geometry.unit}`}</strong>
-      {#if geometry.direct !== undefined}<small>Direct: {geometry.direct.toFixed(4)} Å</small>{/if}
+      <strong>{geometry.value === null || !Number.isFinite(geometry.value) ? $t('Undefined') : `${geometry.value.toFixed(4)} ${geometry.unit}`}</strong>
+      {#if geometry.direct !== undefined}<small>{$t("Direct:")} {geometry.direct.toFixed(4)} Å</small>{/if}
     {/if}
-    <button type="button" aria-label="Clear measurement" title="Clear measurement" onclick={on_clear_selection}><Icon icon="Cross" width="14" height="14" /></button>
+    <button type="button" aria-label={$t("Clear measurement")} title={$t("Clear measurement")} onclick={on_clear_selection}><Icon icon="Cross" width="14" height="14" /></button>
   </div>
 {/if}
 {#each bonds as result (result.key)}
-  <div class="measurement-result" aria-label="Bond-order result">
+  <div class="measurement-result" aria-label={$t("Bond-order result")}>
     <span class="result-kind">{result.method}</span>
     <span class="result-atoms">{result.atoms}</span>
     <strong>{result.value.toFixed(6)}</strong>
-    <button type="button" aria-label={`Remove ${result.method} result for ${result.atoms}`} title="Remove result" onclick={() => on_remove_bond(result.key)}><Icon icon="Cross" width="14" height="14" /></button>
+    <button type="button" aria-label={$t("Remove {method} result for {atoms}", { method: result.method, atoms: result.atoms })} title={$t("Remove result")} onclick={() => on_remove_bond(result.key)}><Icon icon="Cross" width="14" height="14" /></button>
   </div>
 {/each}
 

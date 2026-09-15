@@ -12,6 +12,14 @@ export const ESP_COLORS = Object.freeze({
   positive: '#5bcefa',
 })
 
+export const ESP_COLORMAP = 'interpolateTransFlag'
+
+export const surface_colormap = (
+  colorSource: ManifestEntry | undefined,
+  fallback: NonNullable<IsosurfaceLayer['colormap']>,
+): NonNullable<IsosurfaceLayer['colormap']> =>
+  colorSource?.analysisKind === 'esp-potential' ? ESP_COLORMAP : fallback
+
 export type Vec3 = [number, number, number]
 export type LegendPosition = { left: number; top: number }
 export type EspVolume = Partial<VolumetricData> | Record<string, unknown>
@@ -432,24 +440,41 @@ const interpolate_hex = (first: string, second: string, fraction: number): numbe
 }
 
 export const trans_flag_color_hex = (value: number, min: number, max: number): number => {
-  const lower = Number(min)
-  const upper = Number(max)
+  let lower = Number(min)
+  let upper = Number(max)
   const current = Number(value)
   if (![lower, upper, current].every(Number.isFinite) || lower === upper) return 0xffffff
-  const clipped = clamp(current, Math.min(lower, upper), Math.max(lower, upper))
-  const midpoint = (lower + upper) / 2
-  if (clipped <= midpoint) {
-    const width = midpoint - lower
-    return interpolate_hex(ESP_COLORS.negative, ESP_COLORS.zero, width ? (clipped - lower) / width : 1)
+  if (lower > upper) [lower, upper] = [upper, lower]
+  lower = Math.min(lower, 0)
+  upper = Math.max(upper, 0)
+  const clipped = clamp(current, lower, upper)
+  if (clipped <= 0) {
+    return interpolate_hex(ESP_COLORS.negative, ESP_COLORS.zero, lower < 0 ? (clipped - lower) / -lower : 1)
   }
-  const width = upper - midpoint
-  return interpolate_hex(ESP_COLORS.zero, ESP_COLORS.positive, width ? (clipped - midpoint) / width : 1)
+  return interpolate_hex(ESP_COLORS.zero, ESP_COLORS.positive, upper > 0 ? clipped / upper : 0)
 }
 
 export const transFlagColorHex = trans_flag_color_hex
 
 export const trans_flag_color_css = (value: number, min: number, max: number): string =>
   `#${(trans_flag_color_hex(value, min, max) & 0xffffff).toString(16).padStart(6, '0')}`
+
+/** Sample the displayed value range, including the exact zero stop when present. */
+export const esp_legend_gradient = (
+  min: number,
+  max: number,
+  color_at: (value: number, lower: number, upper: number) => string = trans_flag_color_css,
+): string => {
+  const lower = Math.min(min, max)
+  const upper = Math.max(min, max)
+  if (![lower, upper].every(Number.isFinite)) return '#ffffff'
+  if (lower === upper) return color_at(lower, lower, upper)
+  const fractions = new Set(Array.from({ length: 33 }, (_, index) => index / 32))
+  if (lower < 0 && upper > 0) fractions.add(upper / (upper - lower))
+  const stops = [...fractions].sort((a, b) => a - b).map((fraction) =>
+    `${color_at(upper - fraction * (upper - lower), lower, upper)} ${fraction * 100}%`)
+  return `linear-gradient(to bottom, ${stops.join(', ')})`
+}
 
 const tick_decimals = (largest: number): number =>
   largest >= 10 ? 1 : largest >= 1 ? 2 : largest >= 0.1 ? 3 : 4

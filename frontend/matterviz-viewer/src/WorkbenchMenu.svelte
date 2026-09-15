@@ -1,59 +1,26 @@
 <script lang="ts">
-  import { Icon } from 'matterviz'
-  import { tick, type Snippet } from 'svelte'
-
+  import { t } from './i18n'
+  import { ChevronDown, Eye, Wrench, Download } from '@lucide/svelte'
+  import { Button } from '$lib/components/ui/button'
+  import * as Popover from '$lib/components/ui/popover'
+  import type { Snippet } from 'svelte'
   let { name, label, active = $bindable(), children }: {
     name: string; label: string; active?: string; children: Snippet
   } = $props()
-  let trigger: HTMLButtonElement
-  let panel = $state<HTMLDivElement>()
-  let left = $state(8)
-  let top = $state(44)
-  let maxHeight = $state(500)
-  const close = (focus = false): void => {
-    if (active !== name) return
-    active = undefined
-    if (focus) trigger?.focus()
-  }
-  const position = (): void => {
-    if (!trigger || !panel) return
-    const rect = trigger.getBoundingClientRect()
-    left = Math.max(8, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 8))
-    top = Math.max(rect.bottom, trigger.closest('.toolbar')?.getBoundingClientRect().bottom ?? 0) + 5
-    maxHeight = Math.max(80, window.innerHeight - top - 8)
-  }
-  const open = async (focus = false): Promise<void> => {
-    active = name
-    await tick()
-    position()
-    if (focus) panel?.querySelector<HTMLElement>('button:not(:disabled), input, select')?.focus()
-  }
-  const outside = (event: PointerEvent): void => {
-    if (event.target instanceof Node && !panel?.contains(event.target) && !trigger?.contains(event.target)) close()
-  }
-  const keyboard = (event: KeyboardEvent): void => {
-    if (active !== name) return
-    if (event.key === 'Escape') { event.preventDefault(); close(true) }
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-    if (!(event.target instanceof HTMLButtonElement) || !panel?.contains(event.target)) return
-    const buttons = [...panel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
-    const index = buttons.indexOf(event.target)
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
-      : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
-    event.preventDefault()
-    buttons[next]?.focus()
-  }
+  let panel = $state<HTMLDivElement | null>(null)
 </script>
 
-<svelte:window onpointerdown={outside} onkeydown={keyboard} onresize={position} />
-<button bind:this={trigger} type="button" aria-expanded={active === name} aria-controls={`workbench-menu-${name}`}
-  onclick={() => active === name ? close() : open()}
-  onkeydown={(event) => { if (event.key === 'ArrowDown') { event.preventDefault(); void open(true) } }}>
-  {label}<Icon icon="ArrowDown" width="13" height="13" />
-</button>
-{#if active === name}
-  <div bind:this={panel} id={`workbench-menu-${name}`} class="workbench-menu" role="group" aria-label={label}
-    style:left={`${left}px`} style:top={`${top}px`} style:max-height={`${maxHeight}px`}>
+<Popover.Root open={active === name} onOpenChange={(open) => active = open ? name : active === name ? undefined : active}>
+  <Popover.Trigger>
+    {#snippet child({ props })}
+      <Button {...props} variant="ghost" size="sm" class="gap-1.5 text-xs">
+        {#if name === 'view'}<Eye size={15} />{:else if name === 'tools'}<Wrench size={15} />{:else}<Download size={15} />{/if}
+        {$t(label)}<ChevronDown size={13} />
+      </Button>
+    {/snippet}
+  </Popover.Trigger>
+  <Popover.Content bind:ref={panel} onOpenAutoFocus={(event) => { event.preventDefault(); panel?.focus() }} role="dialog" id={`workbench-menu-${name}`} aria-label={$t(`${label} controls`)} align="start" sideOffset={8} collisionPadding={8}
+    class="workbench-menu z-[200] w-[320px] max-w-[calc(100vw-16px)] max-h-[var(--bits-popover-content-available-height)] overflow-y-auto p-2.5 gap-1">
     {@render children()}
-  </div>
-{/if}
+  </Popover.Content>
+</Popover.Root>

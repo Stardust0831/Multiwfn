@@ -1,0 +1,405 @@
+diff -ruN a/dist/colors/index.d.ts b/dist/colors/index.d.ts
+--- a/dist/colors/index.d.ts	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/colors/index.d.ts	2026-09-11 21:39:50.107189044 +0800
+@@ -1,7 +1,10 @@
+ import * as d3_sc from 'd3-scale-chromatic';
+-export type D3InterpolateName = keyof typeof d3_sc & `interpolate${string}`;
++export type D3InterpolateName = (keyof typeof d3_sc & `interpolate${string}`) | `interpolateTransFlag`;
+ export type D3ColorSchemeName = D3InterpolateName extends `interpolate${infer Name}` ? Name : never;
+ export declare const get_d3_interpolator: (name: D3InterpolateName) => ((t: number) => string);
++export declare const interpolateTransFlag: (t: number) => string;
++export declare const trans_flag_coordinate: (value: number, range: [number, number]) => number;
++export declare const trans_flag_color: (value: number, range: [number, number]) => string;
+ export declare const COLOR_SCALE_TYPES: readonly ["continuous", "categorical"];
+ export type ColorScaleType = (typeof COLOR_SCALE_TYPES)[number];
+ export declare const DEFAULT_CATEGORY_COLORS: Record<string, string>;
+diff -ruN a/dist/colors/index.js b/dist/colors/index.js
+--- a/dist/colors/index.js	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/colors/index.js	2026-09-11 21:59:18.451787501 +0800
+@@ -8,7 +8,27 @@
+ import muted_colors from './muted-colors.json' with { type: 'json' };
+ import pastel_colors from './pastel-colors.json' with { type: 'json' };
+ import vesta_colors from './vesta-colors.json' with { type: 'json' };
++export const interpolateTransFlag = (t) => {
++    const value = clamp01(t);
++    const start = value <= 0.5 ? [245, 169, 184] : [255, 255, 255];
++    const end = value <= 0.5 ? [255, 255, 255] : [91, 206, 250];
++    const fraction = value <= 0.5 ? value * 2 : (value - 0.5) * 2;
++    return rgb(...start.map((channel, idx) => channel + (end[idx] - channel) * fraction)).formatHex();
++};
++// A signed scientific palette anchors white at physical zero, including
++// asymmetric or one-sided ranges. Sorting handles reversed display domains.
++export const trans_flag_coordinate = (value, range) => {
++    const [first, second] = range;
++    if (![value, first, second].every(Number.isFinite) || first === second) return 0.5;
++    const lower = Math.min(0, first, second);
++    const upper = Math.max(0, first, second);
++    if (value < 0) return lower < 0 ? 0.5 * (1 - clamp01(value / lower)) : 0.5;
++    return upper > 0 ? 0.5 + 0.5 * clamp01(value / upper) : 0.5;
++};
++export const trans_flag_color = (value, range) => interpolateTransFlag(trans_flag_coordinate(value, range));
+ export const get_d3_interpolator = (name) => {
++    if (name === `interpolateTransFlag`)
++        return interpolateTransFlag;
+     const candidate = d3_sc[name];
+     return typeof candidate === `function` ? candidate : d3_sc.interpolateViridis;
+ };
+diff -ruN a/dist/isosurface/Isosurface.svelte b/dist/isosurface/Isosurface.svelte
+--- a/dist/isosurface/Isosurface.svelte	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/isosurface/Isosurface.svelte	2026-09-11 21:36:46.268010972 +0800
+@@ -36,6 +36,7 @@
+   import type { IsosurfaceLayer, IsosurfaceSettings, VolumetricData } from './types'
+   import type { ScalarGridLike } from './scalar-grid'
+   import { is_scalar_grid } from './scalar-grid'
++  import { install_isosurface_shading } from './material'
+   import {
+     dispose_unretained_geometries,
+     release_isosurface_geometry,
+@@ -718,7 +719,7 @@
+       equal to the UI value instead of making atoms inside appear nearly black. -->
+     {@const pass_opacity = transparent ? 1 - Math.sqrt(1 - opacity) : opacity}
+     <!-- Recreate materials when vertexColors toggles (needs shader recompile) -->
+-    {#key `${vertex_colored}-${settings.material}-${settings.flat_shading}`}
++    {#key `${vertex_colored}-${settings.material}-${settings.flat_shading}-${settings.outline}-${settings.outlineWidth}-${settings.transmode}`}
+       {#if settings.wireframe}
+         <T.Mesh geometry={entry.geometry} frustumCulled={false}>
+           <T.MeshBasicMaterial
+@@ -749,6 +750,7 @@
+               />
+             {:else if settings.material === `glossy`}
+               <T.MeshPhongMaterial
++                oncreate={(material) => install_isosurface_shading(material, settings)}
+                 {color}
+                 vertexColors={vertex_colored}
+                 {transparent}
+@@ -761,6 +763,7 @@
+               />
+             {:else if settings.material === `pbr`}
+               <T.MeshStandardMaterial
++                oncreate={(material) => install_isosurface_shading(material, settings)}
+                 {color}
+                 vertexColors={vertex_colored}
+                 {transparent}
+@@ -773,6 +776,7 @@
+               />
+             {:else}
+               <T.MeshLambertMaterial
++                oncreate={(material) => install_isosurface_shading(material, settings)}
+                 {color}
+                 vertexColors={vertex_colored}
+                 {transparent}
+diff -ruN a/dist/isosurface/coloring.d.ts b/dist/isosurface/coloring.d.ts
+--- a/dist/isosurface/coloring.d.ts	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/isosurface/coloring.d.ts	2026-09-11 21:36:46.268010972 +0800
+@@ -1,7 +1,7 @@
+ import type { D3InterpolateName } from '../colors';
+ import type { Vec2 } from '../math';
+ import type { DataRange } from './types';
+-export declare const ISO_COLORMAPS: readonly ["interpolateViridis", "interpolatePlasma", "interpolateInferno", "interpolateMagma", "interpolateCividis", "interpolateTurbo", "interpolateRdBu", "interpolateRdYlBu", "interpolateSpectral", "interpolatePiYG", "interpolateBrBG", "interpolatePuOr"];
++export declare const ISO_COLORMAPS: readonly ["interpolateTransFlag", "interpolateViridis", "interpolatePlasma", "interpolateInferno", "interpolateMagma", "interpolateCividis", "interpolateTurbo", "interpolateRdBu", "interpolateRdYlBu", "interpolateSpectral", "interpolatePiYG", "interpolateBrBG", "interpolatePuOr"];
+ export type IsoColormap = (typeof ISO_COLORMAPS)[number];
+ export declare const DEFAULT_ISO_COLORMAP: IsoColormap;
+ export declare const is_signed_range: (data_range: DataRange) => boolean;
+diff -ruN a/dist/isosurface/coloring.js b/dist/isosurface/coloring.js
+--- a/dist/isosurface/coloring.js	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/isosurface/coloring.js	2026-09-11 21:39:50.107189044 +0800
+@@ -1,8 +1,9 @@
+-import { get_d3_interpolator } from '../colors';
++import { get_d3_interpolator, trans_flag_coordinate } from '../colors';
+ import { Color } from 'three';
+ // Curated continuous colormaps offered in the isosurface controls UI.
+ // Sequential maps for densities/potential magnitudes, diverging for signed fields.
+ export const ISO_COLORMAPS = [
++    `interpolateTransFlag`,
+     `interpolateViridis`,
+     `interpolatePlasma`,
+     `interpolateInferno`,
+@@ -37,9 +38,11 @@
+     if (cached)
+         return cached;
+     const interpolator = get_d3_interpolator(colormap);
+-    const lut = new Float32Array(LUT_SIZE * 3);
+-    for (let idx = 0; idx < LUT_SIZE; idx++) {
+-        const [red, green, blue] = parse_linear_rgb(interpolator(idx / (LUT_SIZE - 1)));
++    // An odd table size preserves exact white at zero for the Trans Flag map.
++    const size = colormap === `interpolateTransFlag` ? 257 : LUT_SIZE;
++    const lut = new Float32Array(size * 3);
++    for (let idx = 0; idx < size; idx++) {
++        const [red, green, blue] = parse_linear_rgb(interpolator(idx / (size - 1)));
+         lut[idx * 3] = red;
+         lut[idx * 3 + 1] = green;
+         lut[idx * 3 + 2] = blue;
+@@ -68,9 +71,11 @@
+             continue;
+         }
+         // span === 0 maps everything to the middle of the colormap
+-        const normalized = span === 0 ? 0.5 : (value - range_min) * inv_span;
++        const normalized = colormap === `interpolateTransFlag`
++            ? trans_flag_coordinate(value, color_range)
++            : span === 0 ? 0.5 : (value - range_min) * inv_span;
+         const clamped = normalized < 0 ? 0 : Math.min(1, normalized);
+-        const lut_idx = Math.round(clamped * (LUT_SIZE - 1)) * 3;
++        const lut_idx = Math.round(clamped * (lut.length / 3 - 1)) * 3;
+         colors[idx * 3] = lut[lut_idx];
+         colors[idx * 3 + 1] = lut[lut_idx + 1];
+         colors[idx * 3 + 2] = lut[lut_idx + 2];
+diff -ruN a/dist/isosurface/marching-cubes-worker.js b/dist/isosurface/marching-cubes-worker.js
+--- a/dist/isosurface/marching-cubes-worker.js	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/isosurface/marching-cubes-worker.js	2026-09-11 21:36:46.268010972 +0800
+@@ -1,6 +1,7 @@
+ import { marching_cubes_typed, preflight_marching_cubes } from '../marching-cubes';
+
+ const ctx = globalThis;
++const is_shared_buffer = (buffer) => typeof SharedArrayBuffer !== `undefined` && buffer instanceof SharedArrayBuffer;
+
+ ctx.onmessage = (event) => {
+     const message = event.data;
+@@ -18,7 +19,7 @@
+         }
+         const result = marching_cubes_typed(grid, iso_value, lattice, options);
+         const transfer = [result.positions.buffer, result.normals.buffer, result.indices.buffer];
+-        if (!(return_buffer instanceof SharedArrayBuffer)) transfer.push(return_buffer);
++        if (!is_shared_buffer(return_buffer)) transfer.push(return_buffer);
+         ctx.postMessage({
+             job_id,
+             ok: true,
+@@ -31,7 +32,7 @@
+     } catch (error) {
+         const message_text = error instanceof Error ? error.message : String(error);
+         const transfer = [];
+-        if (return_buffer && !(return_buffer instanceof SharedArrayBuffer)) transfer.push(return_buffer);
++        if (return_buffer && !is_shared_buffer(return_buffer)) transfer.push(return_buffer);
+         ctx.postMessage({
+             job_id,
+             ok: false,
+diff -ruN a/dist/isosurface/material.d.ts b/dist/isosurface/material.d.ts
+--- a/dist/isosurface/material.d.ts	1970-01-01 08:00:00.000000000 +0800
++++ b/dist/isosurface/material.d.ts	2026-09-11 21:36:46.496196848 +0800
+@@ -0,0 +1,3 @@
++import type { Material } from 'three';
++import type { IsosurfaceSettings } from './types';
++export declare function install_isosurface_shading(material: Material, settings: IsosurfaceSettings): void;
+diff -ruN a/dist/isosurface/material.js b/dist/isosurface/material.js
+--- a/dist/isosurface/material.js	1970-01-01 08:00:00.000000000 +0800
++++ b/dist/isosurface/material.js	2026-09-11 21:36:46.386038148 +0800
+@@ -0,0 +1,39 @@
++const OUTPUT_CHUNK = `#include <opaque_fragment>`;
++const UNIFORMS = `
++uniform float mvOutline;
++uniform float mvOutlineWidth;
++uniform float mvTransmode;
++`;
++const SHADING = `
++// Three's geometryViewDir includes the orthographic-camera correction.
++float mvFacing = clamp(dot(normal, geometryViewDir), 0.0, 1.0);
++float mvRim = pow(max(0.0, 1.0 - mvFacing * mvFacing), max(0.001, (1.0 - mvOutlineWidth) * 32.0));
++gl_FragColor.rgb *= 1.0 - mvOutline * mvRim;
++if (mvTransmode > 0.5 && gl_FragColor.a > 0.0 && gl_FragColor.a < 1.0) {
++  float mvAlpha = 1.0 + cos(3.14159265 * (1.0 - gl_FragColor.a) * mvFacing);
++  gl_FragColor.a = mvAlpha * mvAlpha * 0.25;
++}
++`;
++const bounded = (value, fallback) => Number.isFinite(value)
++    ? Math.min(1, Math.max(0, value))
++    : fallback;
++
++// onBeforeCompile sees unexpanded ShaderLib includes, not ShaderChunk output.
++// Keep the standard output chunk for opaque/transmission handling, then shade
++// in linear space before tone mapping, output color conversion and fog.
++export function install_isosurface_shading(material, settings) {
++    material.onBeforeCompile = (shader) => {
++        if (!shader.fragmentShader.includes(OUTPUT_CHUNK)) {
++            throw new Error(`Unsupported Three shader: missing isosurface output chunk`);
++        }
++        shader.uniforms.mvOutline = { value: bounded(settings.outline, 0) };
++        shader.uniforms.mvOutlineWidth = { value: bounded(settings.outlineWidth, 0.6) };
++        shader.uniforms.mvTransmode = { value: settings.transmode === 1 ? 1 : 0 };
++        shader.fragmentShader = UNIFORMS + shader.fragmentShader.replace(
++            OUTPUT_CHUNK,
++            OUTPUT_CHUNK + SHADING,
++        );
++    };
++    material.customProgramCacheKey = () => `multiwfn-isosurface-material-v1`;
++    material.needsUpdate = true;
++}
+diff -ruN a/dist/isosurface/types.d.ts b/dist/isosurface/types.d.ts
+--- a/dist/isosurface/types.d.ts	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/isosurface/types.d.ts	2026-09-11 21:36:46.268010972 +0800
+@@ -52,6 +52,9 @@
+     shininess?: number;
+     specular?: number;
+     flat_shading?: boolean;
++    outline?: number;
++    outlineWidth?: number;
++    transmode?: number;
+     halo: number;
+     layers?: IsosurfaceLayer[];
+     display_range?: [Vec2, Vec2, Vec2];
+diff -ruN a/dist/isosurface/types.js b/dist/isosurface/types.js
+--- a/dist/isosurface/types.js	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/isosurface/types.js	2026-09-11 21:36:46.268010972 +0800
+@@ -147,6 +147,9 @@
+     shininess: 18,
+     specular: 0.12,
+     flat_shading: false,
++    outline: 0,
++    outlineWidth: 0.6,
++    transmode: 0,
+     halo: 0,
+ };
+ // Compute reasonable isosurface settings from a volume's data range.
+diff -ruN a/dist/plot/core/components/ColorBar.svelte b/dist/plot/core/components/ColorBar.svelte
+--- a/dist/plot/core/components/ColorBar.svelte	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/plot/core/components/ColorBar.svelte	2026-09-11 21:39:50.107189044 +0800
+@@ -1,5 +1,5 @@
+ <script lang="ts">
+-  import { get_d3_interpolator, luminance } from '../../../colors'
++  import { get_d3_interpolator, luminance, trans_flag_color } from '../../../colors'
+   import Spinner from '../../../feedback/Spinner.svelte'
+   import { format_num } from '../../../labels'
+   import { sanitize_html } from '../../../sanitize'
+@@ -278,6 +278,9 @@
+   // Determine effective color scale function to use
+   let actual_color_scale_fn = $derived.by(() => {
+     if (color_scale_fn) return color_scale_fn // Prioritize passed function
++    if (color_scale === `interpolateTransFlag` || color_scale === `TransFlag`) {
++      return (value: number) => trans_flag_color(value, range)
++    }
+
+     // Fallback: create function from scheme name/function in 'color_scale' prop
+     let interpolator = get_d3_interpolator(SCALE_DEFAULTS.scheme) // Default interpolator
+@@ -285,8 +288,8 @@
+       const func_name = color_scale.startsWith(`interpolate`)
+         ? color_scale
+         : `interpolate${color_scale}`
+-      if (func_name in d3_sc) {
+-        interpolator = d3_sc[func_name as D3InterpolateName]
++      if (func_name === `interpolateTransFlag` || func_name in d3_sc) {
++        interpolator = get_d3_interpolator(func_name as D3InterpolateName)
+       } else {
+         console.error(`Color scale '${color_scale}' not found. Falling back on 'Viridis'.`)
+       }
+diff -ruN a/dist/scene/ArcballControls.svelte b/dist/scene/ArcballControls.svelte
+--- a/dist/scene/ArcballControls.svelte	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/scene/ArcballControls.svelte	2026-09-11 22:38:44.381615362 +0800
+@@ -6,8 +6,8 @@
+   import { ArcballControls as ThreeArcballControls } from 'three/examples/jsm/controls/ArcballControls.js'
+   import { Quaternion, Vector3, type Camera, type Event } from 'three'
+   import {
++    apply_arcball_camera_pose,
+     arcball_runtime_target,
+-    set_arcball_target,
+     sync_arcball_public_target,
+   } from './arcball-runtime'
+
+@@ -100,44 +100,9 @@
+   })
+
+   $effect.pre(() => {
+-    set_arcball_target(controls, target)
+-  })
+-
+-  $effect.pre(() => {
+-    const resolved_camera = resolvedCamera
+-    let changed = false
+-    if (
+-      position &&
+-      position.some((value, index) => Math.abs(value - resolved_camera.position.getComponent(index)) > 1e-12)
+-    ) {
+-      resolved_camera.position.set(...position)
+-      changed = true
+-    }
+-    if (
+-      up &&
+-      up.some((value, index) => Math.abs(value - resolved_camera.up.getComponent(index)) > 1e-12)
+-    ) {
+-      resolved_camera.up.set(...up)
+-      changed = true
+-    }
+-    if (
+-      resolved_camera.type === `OrthographicCamera` &&
+-      zoom !== undefined &&
+-      Math.abs(zoom - (resolved_camera as Camera & { zoom: number }).zoom) > 1e-12
+-    ) {
+-      const orthographic = resolved_camera as Camera & {
+-        zoom: number
+-        updateProjectionMatrix: () => void
+-      }
+-      orthographic.zoom = zoom
+-      orthographic.updateProjectionMatrix()
+-      changed = true
+-    }
+-    if (!changed) return
+-    resolved_camera.lookAt(runtime_target())
+-    resolved_camera.updateMatrix()
+-    resolved_camera.updateMatrixWorld()
+-    controls.update()
++    // Props publish after gestures; do not react to interaction_active itself,
++    // which would replay the old pose before the end-event binding flush.
++    if (apply_arcball_camera_pose(controls, { position, up, zoom, target })) invalidate()
+   })
+
+   $effect.pre(() => {
+diff -ruN a/dist/scene/arcball-runtime.d.ts b/dist/scene/arcball-runtime.d.ts
+--- a/dist/scene/arcball-runtime.d.ts	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/scene/arcball-runtime.d.ts	2026-09-11 22:38:44.296173457 +0800
+@@ -10,3 +10,9 @@
+ export declare const arcball_runtime_target: (controls: ArcballControls) => Vector3;
+ export declare const sync_arcball_public_target: (controls: ArcballControls) => void;
+ export declare const set_arcball_target: (controls: ArcballControls, target: [number, number, number], preserve_reset_state?: boolean) => boolean;
++export declare const apply_arcball_camera_pose: (controls: ArcballControls, pose: {
++    position?: [number, number, number];
++    up?: [number, number, number];
++    zoom?: number;
++    target?: [number, number, number];
++}) => boolean;
+diff -ruN a/dist/scene/arcball-runtime.js b/dist/scene/arcball-runtime.js
+--- a/dist/scene/arcball-runtime.js	1985-10-26 16:15:00.000000000 +0800
++++ b/dist/scene/arcball-runtime.js	2026-09-11 22:38:44.157838945 +0800
+@@ -25,3 +25,35 @@
+         runtime._gizmoMatrixState0.copy(reset_gizmo);
+     return true;
+ };
++
++// Declarative setters can apply position/up before this runs, leaving a stale
++// quaternion. Check orientation as well as fields while preserving exact live
++// quaternion values for feedback that already describes the current pose.
++export const apply_arcball_camera_pose = (controls, { position, up, zoom, target }) => {
++    const camera = controls.object;
++    const previous_quaternion = camera.quaternion.clone();
++    let changed = target ? set_arcball_target(controls, target) : false;
++    if (position && position.some((value, index) => Math.abs(value - camera.position.getComponent(index)) > 1e-12)) {
++        camera.position.set(...position);
++        changed = true;
++    }
++    if (up && up.some((value, index) => Math.abs(value - camera.up.getComponent(index)) > 1e-12)) {
++        camera.up.set(...up);
++        changed = true;
++    }
++    if (camera.type === `OrthographicCamera` && zoom !== undefined && Math.abs(zoom - camera.zoom) > 1e-12) {
++        camera.zoom = zoom;
++        camera.updateProjectionMatrix();
++        changed = true;
++    }
++    camera.lookAt(arcball_runtime_target(controls));
++    if (1 - Math.abs(previous_quaternion.dot(camera.quaternion)) > 1e-12) changed = true;
++    if (!changed) {
++        camera.quaternion.copy(previous_quaternion);
++        return false;
++    }
++    controls.update();
++    camera.updateMatrix();
++    camera.updateMatrixWorld();
++    return true;
++};
+diff -ruN a/package.json b/package.json
+--- a/package.json	1985-10-26 16:15:00.000000000 +0800
++++ b/package.json	2026-09-11 21:36:46.268010972 +0800
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25",
++  "version": "0.4.2-multiwfn.d8719d12.r25.material1",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",

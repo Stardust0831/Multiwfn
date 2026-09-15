@@ -1,0 +1,80 @@
+/* No Tailwind preflight: MatterViz owns its canvas and built-in controls.
+   Utilities apply only to explicitly styled workbench components. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) important;
+@import 'tw-animate-css';
+@source './lib';
+:root {
+  --ui-background: #ffffff;
+  --ui-foreground: #233044;
+  --ui-muted: #eef2f6;
+  --ui-muted-foreground: #637287;
+  --ui-primary: #176c86;
+  --ui-primary-foreground: #ffffff;
+  --ui-accent: #e8f3f6;
+  --ui-border: #d9e1e8;
+  --ui-ring: #3188a0;
+  --ui-radius: 0.5rem;
+}
+@theme inline {
+  --color-background: var(--ui-background);
+  --color-foreground: var(--ui-foreground);
+  --color-popover: var(--ui-background);
+  --color-popover-foreground: var(--ui-foreground);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-secondary: var(--ui-muted);
+  --color-secondary-foreground: var(--ui-foreground);
+  --color-muted: var(--ui-muted);
+  --color-muted-foreground: var(--ui-muted-foreground);
+  --color-accent: var(--ui-accent);
+  --color-accent-foreground: var(--ui-primary);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-border);
+  --color-ring: var(--ui-ring);
+  --color-destructive: #b42318;
+  --radius-sm: calc(var(--ui-radius) - 4px);
+  --radius-md: calc(var(--ui-radius) - 2px);
+  --radius-lg: var(--ui-radius);
+}
+[data-slot] { border-style: solid; border-width: 0; }
+[data-slot='popover-content'], [data-slot='select-content'], [data-slot='tooltip-content'] {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+[data-slot='slider'] { min-height: 28px; }
+.toolbar { background: #fff; padding: 9px 14px; gap: 7px; }
+.brand { align-items: center; gap: 10px; margin-right: 12px; }
+.brand-mark { display: grid; place-items: center; width: 33px; height: 33px; border-radius: 10px; background: #176c86; color: #fff; }
+.brand-copy { display: grid; gap: 1px; }
+.brand-copy strong { font-size: 15px; letter-spacing: -.03em; }
+.brand-copy span { font-size: 10px; color: #637287; }
+.toolbar .result-picker { max-width: 230px; margin-right: 4px; }
+.toolbar .result-picker > span { display: none; }
+.toolbar .return { margin-left: auto; }
+.tool-rail { background: #f5f8fa; padding-top: 12px; gap: 7px; }
+.tool-rail button.active { background: #e8f3f6; border-color: #bddae3; color: #176c86; }
+/* Keep scene overlays inside the viewport below a mobile inspector. */
+.scene-viewport { isolation: isolate; }
+.statusbar { background: #fff; color: #637287; }
+.workbench-menu { display: flex; gap: 5px; }
+.workbench-menu .menu-heading { margin-top: 10px; color: #637287; text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+.workbench-menu .menu-heading:first-child { margin-top: 2px; }
+.workbench-menu .camera-tools { gap: 5px; }
+.workbench-menu > label { display: flex; align-items: center; gap: 8px; }
+.workbench-menu .analysis-action { width: 100%; }
+.workbench-menu > button { justify-content: flex-start; }
+.workbench-menu input, .workbench-menu select { font-size: 12px; }
+@media (max-width: 800px) {
+  .toolbar { padding: 7px 8px; gap: 5px; }
+  .brand { margin-right: 2px; }
+  .brand-copy span { display: none; }
+  .toolbar .result-picker { flex-basis: 130px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot] { animation: none !important; transition: none !important; }
+}
+
+.language-toggle { flex-shrink: 0; white-space: nowrap; }
+.language-toggle span[lang] { color: var(--muted-foreground); }
+.language-toggle span.language-active { color: var(--primary); font-weight: 700; }

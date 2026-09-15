@@ -41,6 +41,14 @@ Multiwfn-only and must never enter an upstream MatterViz PR:
 
 ### 1. Flat scalar grids
 
+**2026-09-11 update:** upstream [PR #414](https://github.com/janosh/matterviz/pull/414)
+merged as `17266343` on 2026-07-17, with Stardust0831 co-authorship. Multi-volume
+support also landed in [PR #376](https://github.com/janosh/matterviz/pull/376).
+Do not submit the historical draft below again. Audit remaining differences
+against the current upstream representation before proposing additional work.
+The 0.7 renderer and stable volume-ID APIs differ substantially from the local
+WebGL integration; see [the maintenance audit](matterviz-maintenance-2026-09.md).
+
 Title: `feat(isosurface): support flat typed scalar grids`
 
 Summary:

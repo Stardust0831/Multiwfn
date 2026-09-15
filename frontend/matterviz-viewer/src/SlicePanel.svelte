@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n'
   import type { VolumetricData } from 'matterviz'
   import { onMount } from 'svelte'
   import {
@@ -47,6 +48,7 @@
     slice
     selected_range
     colormap
+    $t
     open
     if (canvas && canvas_host) draw_canvas()
   }
@@ -82,7 +84,7 @@
       context.font = '13px system-ui, sans-serif'
       context.textAlign = 'center'
       context.textBaseline = 'middle'
-      context.fillText(volume ? 'Slice unavailable for this plane' : 'No volumetric data', css_width / 2, css_height / 2)
+      context.fillText($t(volume ? 'Slice unavailable for this plane' : 'No volumetric data'), css_width / 2, css_height / 2)
       return
     }
     const rgba = slice_to_rgba(slice, selected_range, colormap)
@@ -114,67 +116,67 @@
   })
 </script>
 
-<aside class="slice-panel" class:closed={!open} aria-hidden={!open} aria-label="2D volume slice">
+<aside class="slice-panel" class:closed={!open} aria-hidden={!open} aria-label={$t("2D volume slice")}>
   <header>
-    <strong>2D cube slice</strong>
-    <button type="button" onclick={close_panel} aria-label="Close slice panel">Close</button>
+    <strong>{$t("2D cube slice")}</strong>
+    <button type="button" onclick={close_panel} aria-label={$t("Close slice panel")}>{$t("Close")}</button>
   </header>
   <div class="controls">
     <label>
-      <span>Volume</span>
-      <select value={volume_index} onchange={(event) => active_volume_idx = Number(event.currentTarget.value)} aria-label="Slice volume">
+      <span>{$t("Volume")}</span>
+      <select value={volume_index} onchange={(event) => active_volume_idx = Number(event.currentTarget.value)} aria-label={$t("Slice volume")}>
         {#each volumes as item, index}
-          <option value={index}>{item.label || `Volume ${index + 1}`}</option>
+          <option value={index}>{item.label || $t("Volume {number}", { number: index + 1 })}</option>
         {/each}
       </select>
     </label>
     <label>
-      <span>Plane</span>
-      <select value={axis} onchange={(event) => set_axis(event.currentTarget.value as SliceAxis)} aria-label="Slice plane">
+      <span>{$t("Plane")}</span>
+      <select value={axis} onchange={(event) => set_axis(event.currentTarget.value as SliceAxis)} aria-label={$t("Slice plane")}>
         {#each Object.keys(AXIS_LABELS) as key}
           <option value={key}>{AXIS_LABELS[key as SliceAxis]}</option>
         {/each}
       </select>
     </label>
     <label>
-      <span>Position {clamp01(position).toFixed(2)}</span>
-      <input type="range" min="0" max="1" step="0.01" bind:value={position} aria-label="Fractional slice position" />
+      <span>{$t("Position")} {clamp01(position).toFixed(2)}</span>
+      <input type="range" min="0" max="1" step="0.01" bind:value={position} aria-label={$t("Fractional slice position")} />
     </label>
     <label>
-      <span>Resolution</span>
-      <input type="number" min="2" max="512" step="1" bind:value={resolution} aria-label="Slice resolution" />
+      <span>{$t("Resolution")}</span>
+      <input type="number" min="2" max="512" step="1" bind:value={resolution} aria-label={$t("Slice resolution")} />
     </label>
     <label>
-      <span>Colormap</span>
-      <select bind:value={colormap} aria-label="Slice colormap">
+      <span>{$t("Colormap")}</span>
+      <select bind:value={colormap} aria-label={$t("Slice colormap")}>
         {#each SLICE_COLORMAPS as map}
           <option value={map}>{map}</option>
         {/each}
       </select>
     </label>
     <label>
-      <span>Range</span>
-      <select bind:value={range_mode} aria-label="Slice range mode">
-        <option value="auto">Automatic ({automatic_range[0].toPrecision(4)} … {automatic_range[1].toPrecision(4)})</option>
-        <option value="manual">Manual</option>
+      <span>{$t("Range")}</span>
+      <select bind:value={range_mode} aria-label={$t("Slice range mode")}>
+        <option value="auto">{$t("Automatic ({min} … {max})", { min: automatic_range[0].toPrecision(4), max: automatic_range[1].toPrecision(4) })}</option>
+        <option value="manual">{$t("Manual")}</option>
       </select>
     </label>
     {#if range_mode === 'manual'}
-      <label><span>Minimum</span><input type="number" bind:value={manual_min} placeholder={String(automatic_range[0])} /></label>
-      <label><span>Maximum</span><input type="number" bind:value={manual_max} placeholder={String(automatic_range[1])} /></label>
+      <label><span>{$t("Minimum")}</span><input type="number" bind:value={manual_min} placeholder={String(automatic_range[0])} /></label>
+      <label><span>{$t("Maximum")}</span><input type="number" bind:value={manual_max} placeholder={String(automatic_range[1])} /></label>
     {/if}
-    <div class="miller" aria-label="Miller indices">
-      <span>Miller</span>
-      <input type="number" bind:value={miller_h} aria-label="Miller h" />
-      <input type="number" bind:value={miller_k} aria-label="Miller k" />
-      <input type="number" bind:value={miller_l} aria-label="Miller l" />
+    <div class="miller" aria-label={$t("Miller indices")}>
+      <span>{$t("Miller")}</span>
+      <input type="number" bind:value={miller_h} aria-label={$t("Miller h")} />
+      <input type="number" bind:value={miller_k} aria-label={$t("Miller k")} />
+      <input type="number" bind:value={miller_l} aria-label={$t("Miller l")} />
     </div>
   </div>
   <div class="canvas-host" bind:this={canvas_host}>
-    <canvas bind:this={canvas} aria-label="2D volume heatmap"></canvas>
+    <canvas bind:this={canvas} aria-label={$t("2D volume heatmap")}></canvas>
   </div>
   {#if slice}
-    <footer>{slice.width} × {slice.height} · range {selected_range[0].toPrecision(5)} … {selected_range[1].toPrecision(5)}</footer>
+    <footer>{slice.width} × {slice.height} {$t("· range")} {selected_range[0].toPrecision(5)} … {selected_range[1].toPrecision(5)}</footer>
   {/if}
 </aside>
 
