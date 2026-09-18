@@ -168,3 +168,34 @@ Native Windows/macOS WebViews were not exercised locally.
 The cumulative `r25.material2` patch replays on the retained main r25 archive to
 all **768 byte-identical package files**. Archive SHA-256:
 `82eb73b667903a085fdaff8585f1121ce0ab3e54ec2a8fca94fe8f16c061c92c`.
+
+## Combined topology/material branch
+
+The reviewed topology head `0bffd89` and material head `e8ec095` are combined
+without changing main or replacing either renderer extension. The new
+`r25.workbench1` archive retains the topology/surface scene interfaces and
+picking fixes together with all material2 shader, normal, palette and camera
+repairs. Its cumulative patch applies to the shared r25 base and reproduces all
+768 files. SHA-256:
+`52b5475da106a6faf9daabc440c327f3f9e2998fa1efda4d1ed35d046c041118`.
+
+Conflict resolution retains both initial analysis registration in the Rust
+session store and the state-preserving startup/redirect URL. Frontend snapshots
+retain topology display, materials, lighting, camera and cross-volume ESP links
+together, including reordered layers. ESP tools remain hidden in topology and
+quantitative-surface views.
+
+Validation: 228 frontend tests pass with one existing skip; Svelte check has zero
+errors/warnings and the production build passes. Rust integration has 119 passing
+tests, Clippy with warnings denied and formatting pass. Python contracts have
+74 passing tests and four environment skips. Six vendor replay/composition tests
+confirm both branches are retained. The installed renderer passes 23 browser
+stages, including a real density grid under topology/surface visibility masks;
+mesh, geometry and material identities survive toggles, and the restored view is
+pixel-identical.
+
+Windows job logs for both parent heads were inspected and their actual Rust
+tests passed. A separate updater branch exposed PowerShell masking a failed
+`cargo test` with a successful subsequent build. This combined branch explicitly
+uses Bash for the multi-command desktop build step so failure stops the step on
+all platforms. This changes test execution only, not Code scan or release rules.

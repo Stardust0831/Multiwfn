@@ -12,7 +12,20 @@
     "sourceMap": true,
     "strict": true,
     "target": "ES2022",
-    "module": "ESNext"
+    "module": "ESNext",
+    "paths": {
+      "$lib": [
+        "./src/lib"
+      ],
+      "$lib/*": [
+        "./src/lib/*"
+      ]
+    }
   },
-  "include": ["src/**/*.d.ts", "src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
+  "include": [
+    "src/**/*.d.ts",
+    "src/**/*.ts",
+    "src/**/*.svelte",
+    "vite.config.ts"
+  ]
 }

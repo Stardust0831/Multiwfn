@@ -1,8 +1,10 @@
 import type { CameraProjection, IsosurfaceLayer, IsosurfaceSettings, Vec3 } from 'matterviz'
 import type { ManifestEntry, MultiwfnManifest } from './manifest'
 import type { SliceAxis, SliceColormap } from './slice'
+import { normalize_topology_display, type TopologyDisplay } from './topology.ts'
 import { normalize_surface_appearance } from './material.ts'
 import { normalize_lighting } from './lighting.ts'
+import { normalize_atom_style, type AtomStyleSettings } from './atom-style.ts'
 
 const WORKBENCH_SLICE_COLORMAPS = new Set(['Viridis', 'RdBu', 'Jet', 'Portland'])
 
@@ -44,6 +46,17 @@ export type WorkbenchStructureAppearance = {
   sphereSegments?: number
   ambientLight?: number
   directionalLight?: number
+  fillLight?: number
+  rimLight?: number
+  lightingRig?: 'default' | 'tmim'
+  sceneToneMapping?: 'agx' | 'none'
+  atomStyle?: AtomStyleSettings['atom_style']
+  atomMaterial?: 'matte' | 'glossy' | 'pbr'
+  atomRoughness?: number
+  atomMetalness?: number
+  atomOpacity?: number
+  atomOutline?: number
+  atomOutlineWidth?: number
   backgroundColor?: string
   backgroundOpacity?: number
 }
@@ -93,6 +106,7 @@ export type MatterVizWorkbenchState = {
   structureAppearance?: WorkbenchStructureAppearance
   slice?: WorkbenchSliceState
   espLegend?: WorkbenchEspLegendState
+  topologyDisplay?: TopologyDisplay
   session: Pick<MultiwfnManifest, 'multiwfnGui' | 'bondAnalysis' | 'espAnalysis'>
 }
 
@@ -111,6 +125,7 @@ export type WorkbenchStateInput = {
   backgroundOpacity?: number
   slice?: WorkbenchSliceState
   espLegend?: WorkbenchEspLegendState
+  topologyDisplay?: TopologyDisplay
 }
 
 export type WorkbenchStateRestoration = {
@@ -121,6 +136,7 @@ export type WorkbenchStateRestoration = {
   structureAppearance?: WorkbenchStructureAppearance
   slice?: WorkbenchSliceState
   espLegend?: WorkbenchEspLegendState
+  topologyDisplay?: TopologyDisplay
 }
 
 const as_record = (value: unknown): Record<string, unknown> =>
@@ -197,6 +213,19 @@ const normalize_structure_appearance = (value: unknown): WorkbenchStructureAppea
   const lighting = normalize_lighting(row)
   if (lighting.ambient_light !== undefined) appearance.ambientLight = lighting.ambient_light
   if (lighting.directional_light !== undefined) appearance.directionalLight = lighting.directional_light
+  if (lighting.fill_light !== undefined) appearance.fillLight = lighting.fill_light
+  if (lighting.rim_light !== undefined) appearance.rimLight = lighting.rim_light
+  if (lighting.lighting_rig !== undefined) appearance.lightingRig = lighting.lighting_rig
+  if (lighting.scene_tone_mapping !== undefined) appearance.sceneToneMapping = lighting.scene_tone_mapping
+  const atom = normalize_atom_style(row)
+  if (atom.atom_style !== undefined) appearance.atomStyle = atom.atom_style
+  const atomMaterial = read('atomMaterial', 'atom_material')
+  if (atomMaterial === 'matte' || atomMaterial === 'glossy' || atomMaterial === 'pbr') appearance.atomMaterial = atomMaterial
+  if (atom.atom_roughness !== undefined) appearance.atomRoughness = atom.atom_roughness
+  if (atom.atom_metalness !== undefined) appearance.atomMetalness = atom.atom_metalness
+  if (atom.atom_opacity !== undefined) appearance.atomOpacity = atom.atom_opacity
+  if (atom.atom_outline !== undefined) appearance.atomOutline = atom.atom_outline
+  if (atom.atom_outline_width !== undefined) appearance.atomOutlineWidth = atom.atom_outline_width
   const backgroundColor = normalize_color(read('backgroundColor', 'background_color'))
   if (backgroundColor !== undefined) appearance.backgroundColor = backgroundColor
   const backgroundOpacity = clamp_finite(read('backgroundOpacity', 'background_opacity'), 0, 1)
@@ -288,6 +317,7 @@ const normalize_legend = (value: unknown): WorkbenchEspLegendState | undefined =
 }
 
 const ISO_COLORMAPS = new Set([
+  'interpolateTransFlag',
   'interpolateViridis', 'interpolatePlasma', 'interpolateInferno', 'interpolateMagma',
   'interpolateCividis', 'interpolateTurbo', 'interpolateRdBu', 'interpolateRdYlBu',
   'interpolateSpectral', 'interpolatePiYG', 'interpolateBrBG', 'interpolatePuOr',
@@ -374,6 +404,7 @@ export const create_workbench_state = (input: WorkbenchStateInput): MatterVizWor
     structureAppearance,
     slice: normalize_slice(input.slice),
     espLegend: normalize_legend(input.espLegend),
+    topologyDisplay: input.topologyDisplay ? normalize_topology_display(input.topologyDisplay) : undefined,
     session: {
       multiwfnGui: input.manifest.multiwfnGui,
       bondAnalysis: input.manifest.bondAnalysis,
@@ -428,6 +459,7 @@ export const parse_workbench_state = (value: unknown): MatterVizWorkbenchState =
     structureAppearance: normalize_structure_appearance(root.structureAppearance),
     slice: normalize_slice(root.slice),
     espLegend: normalize_legend(root.espLegend),
+    topologyDisplay: root.topologyDisplay ? normalize_topology_display(root.topologyDisplay) : undefined,
     session,
   }
 }
@@ -491,6 +523,7 @@ export const restore_workbench_state = (
     structureAppearance: normalize_structure_appearance(state.structureAppearance),
     slice: state.slice,
     espLegend: state.espLegend,
+    topologyDisplay: state.topologyDisplay,
   }
 }
 

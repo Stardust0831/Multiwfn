@@ -61,11 +61,14 @@ export const normalize_surface_appearance = (value: unknown): SurfaceAppearance 
 }
 
 export type SurfacePreset = 'matte' | 'soft-gloss' | 'satin' | 'unlit'
+  | 'diffuse' | 'goodsell' | 'edgy' | 'edgy-shiny' | 'ao-shiny' | 'ao-chalky'
+  | 'glass1' | 'glass-bubble' | 'edgy-glass' | 'brushed-metal' | 'metallic' | 'pbr'
 
 type SurfacePresetDefinition = {
   value: SurfacePreset
   label: string
   description: string
+  group?: 'legacy'
   appearance: Omit<SurfaceAppearance, 'halo'>
 }
 
@@ -102,6 +105,71 @@ export const SURFACE_PRESETS: ReadonlyArray<SurfacePresetDefinition> = [
     description: 'Colors stay independent of lighting and surface orientation.',
     appearance: { ...SMOOTH_FINISH, material: 'unlit' },
   },
+  // Original MaterialPanel combinations. Preserve their parameter values and
+  // familiar names, while keeping the existing four finishes as the primary set.
+  {
+    value: 'diffuse', label: 'Diffuse', group: 'legacy',
+    description: 'Diffuse shading with no specular highlights, like Matte.',
+    appearance: { ...SMOOTH_FINISH, material: 'matte', outline: 0, outlineWidth: 0.6, transmode: 0 },
+  },
+  {
+    value: 'goodsell', label: 'Goodsell', group: 'legacy',
+    description: 'The original smooth matte finish with no specular highlights.',
+    appearance: {
+      ...SMOOTH_FINISH, material: 'matte', roughness: 0.7, metalness: 0, shininess: 18,
+      specular: 0.12, outline: 0, outlineWidth: 0.6, transmode: 0,
+    },
+  },
+  {
+    value: 'edgy', label: 'Edgy', group: 'legacy',
+    description: 'Glossy highlights with a strong, broad dark rim.',
+    appearance: { ...SMOOTH_FINISH, material: 'glossy', shininess: 50, specular: 0.5, outline: 0.5, outlineWidth: 0.9, transmode: 0 },
+  },
+  {
+    value: 'edgy-shiny', label: 'EdgyShiny', group: 'legacy',
+    description: 'Bright, tight highlights with a pronounced dark rim.',
+    appearance: { ...SMOOTH_FINISH, material: 'glossy', shininess: 70, specular: 0.85, outline: 0.6, outlineWidth: 0.92, transmode: 0 },
+  },
+  {
+    value: 'ao-shiny', label: 'AOShiny', group: 'legacy',
+    description: 'Glossy shading with a subtle rim; the original name does not add ambient occlusion.',
+    appearance: { ...SMOOTH_FINISH, material: 'glossy', shininess: 45, specular: 0.55, outline: 0.15, outlineWidth: 0.7, transmode: 0 },
+  },
+  {
+    value: 'ao-chalky', label: 'AOChalky', group: 'legacy',
+    description: 'Soft highlights with a subtle rim; the original name does not add ambient occlusion.',
+    appearance: { ...SMOOTH_FINISH, material: 'glossy', shininess: 20, specular: 0.2, outline: 0.1, outlineWidth: 0.6, transmode: 0 },
+  },
+  {
+    value: 'glass1', label: 'Glass1', group: 'legacy',
+    description: 'Glossy highlights with stronger grazing edges on transparent layers.',
+    appearance: { ...SMOOTH_FINISH, material: 'glossy', shininess: 55, specular: 0.65, outline: 0.05, outlineWidth: 0.6, transmode: 1 },
+  },
+  {
+    value: 'glass-bubble', label: 'GlassBubble', group: 'legacy',
+    description: 'Bright, tight highlights with stronger edges on transparent layers.',
+    appearance: { ...SMOOTH_FINISH, material: 'glossy', shininess: 90, specular: 0.95, outline: 0.05, outlineWidth: 0.6, transmode: 1 },
+  },
+  {
+    value: 'edgy-glass', label: 'EdgyGlass', group: 'legacy',
+    description: 'Glossy shading and a broad dark rim with stronger edges on transparent layers.',
+    appearance: { ...SMOOTH_FINISH, material: 'glossy', shininess: 70, specular: 0.6, outline: 0.5, outlineWidth: 0.9, transmode: 1 },
+  },
+  {
+    value: 'brushed-metal', label: 'BrushedMetal', group: 'legacy',
+    description: 'A rough metallic finish with a subtle dark rim.',
+    appearance: { ...SMOOTH_FINISH, material: 'pbr', metalness: 0.75, roughness: 0.35, specular: 0.3, outline: 0.05, outlineWidth: 0.6, transmode: 0 },
+  },
+  {
+    value: 'metallic', label: 'Metallic', group: 'legacy',
+    description: 'A smooth metallic finish with a subtle dark rim.',
+    appearance: { ...SMOOTH_FINISH, material: 'pbr', metalness: 0.8, roughness: 0.28, specular: 0.3, outline: 0.05, outlineWidth: 0.6, transmode: 0 },
+  },
+  {
+    value: 'pbr', label: 'PBR', group: 'legacy',
+    description: 'A moderately rough finish with mild metalness and rim contrast.',
+    appearance: { ...SMOOTH_FINISH, material: 'pbr', metalness: 0.2, roughness: 0.5, specular: 0.2, outline: 0.15, outlineWidth: 0.6, transmode: 0 },
+  },
 ]
 
 /** Presets change shading only; layer data and periodic geometry retain their identities. */
@@ -110,12 +178,14 @@ export const apply_surface_preset = (settings: IsosurfaceSettings, preset: Surfa
   return definition ? { ...settings, ...definition.appearance } : settings
 }
 
-/** Derive the selection from active renderer values so manual edits cannot leave a stale marker. */
+/** Match rendered effects, not click history. Diffuse and Goodsell resolve to Matte. */
 export const detect_surface_preset = (settings: SurfaceAppearance): SurfacePreset | 'custom' => {
   const effective = { ...SURFACE_DEFAULTS, ...normalize_surface_appearance(settings) }
   const definition = SURFACE_PRESETS.find(({ appearance }) =>
     (Object.keys(appearance) as Array<keyof typeof appearance>).every((key) => {
       if (effective.material === 'unlit' && key !== 'material' && key !== 'wireframe') return true
+      if ((key === 'roughness' || key === 'metalness') && effective.material !== 'pbr') return true
+      if ((key === 'shininess' || key === 'specular') && effective.material !== 'glossy') return true
       if (key === 'outlineWidth' && effective.outline === 0) return true
       const expected = appearance[key]
       const actual = effective[key]

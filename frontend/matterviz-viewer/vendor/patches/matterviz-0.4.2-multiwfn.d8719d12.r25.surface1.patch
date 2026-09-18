@@ -1,0 +1,126 @@
+diff -ruN a/dist/structure/Structure.svelte b/dist/structure/Structure.svelte
+--- a/dist/structure/Structure.svelte	2026-09-06 16:03:03
++++ b/dist/structure/Structure.svelte	2026-09-06 16:03:03
+@@ -200,6 +200,7 @@
+     children,
+     scene_children,
+     topology_view = false,
++    surface_view = false,
+     top_right_controls,
+     on_file_load,
+     on_error,
+@@ -302,6 +303,7 @@
+     children?: Snippet<[{ structure?: AnyStructure; fullscreen: boolean }]>
+     scene_children?: Snippet
+     topology_view?: boolean
++    surface_view?: boolean
+     on_file_load?: EventHandler
+     on_error?: EventHandler
+     on_fullscreen_change?: EventHandler
+@@ -1073,6 +1075,7 @@
+     scene_props,
+     scene_children,
+     topology_view,
++    surface_view,
+     gizmo: scene_gizmo,
+     lattice_props,
+     volumetric_data,
+diff -ruN a/dist/structure/Structure.svelte.d.ts b/dist/structure/Structure.svelte.d.ts
+--- a/dist/structure/Structure.svelte.d.ts	2026-09-06 16:03:03
++++ b/dist/structure/Structure.svelte.d.ts	2026-09-06 16:03:03
+@@ -78,6 +78,7 @@
+     on_file_load?: EventHandler;
+     scene_children?: Snippet;
+     topology_view?: boolean;
++    surface_view?: boolean;
+     on_error?: EventHandler;
+     on_fullscreen_change?: EventHandler;
+     on_camera_move?: EventHandler;
+diff -ruN a/dist/structure/StructureScene.svelte b/dist/structure/StructureScene.svelte
+--- a/dist/structure/StructureScene.svelte	2026-09-06 16:03:03
++++ b/dist/structure/StructureScene.svelte	2026-09-06 16:03:03
+@@ -298,6 +298,7 @@
+     interactive = true,
+     scene_children,
+     topology_view = false,
++    surface_view = false,
+   }: SceneControlProps & {
+     structure?: AnyStructure
+     base_structure?: AnyStructure // The original structure without image atoms, used for property color calculation
+@@ -437,6 +438,7 @@
+     interactive?: boolean
+     scene_children?: Snippet
+     topology_view?: boolean
++    surface_view?: boolean
+     on_camera_change?: () => void // Internal camera change synchronization callback
+   } = $props()
+
+@@ -2822,7 +2824,7 @@
+       {/if}
+
+       <!-- Isosurface rendering from volumetric data (CHGCAR, .cube files) -->
+-      <T.Group visible={!topology_view}>
++      <T.Group visible={!topology_view && !surface_view}>
+       {#if volumetric_data && isosurface_settings}
+         {@const volume_list = Array.isArray(volumetric_data)
+           ? volumetric_data
+diff -ruN a/dist/structure/StructureScene.svelte.d.ts b/dist/structure/StructureScene.svelte.d.ts
+--- a/dist/structure/StructureScene.svelte.d.ts	2026-09-06 16:03:03
++++ b/dist/structure/StructureScene.svelte.d.ts	2026-09-06 16:03:03
+@@ -140,6 +140,7 @@
+     interactive?: boolean;
+     scene_children?: Snippet;
+     topology_view?: boolean;
++    surface_view?: boolean;
+     on_camera_change?: () => void;
+ };
+ declare const StructureScene: import("svelte").Component<$$ComponentProps, {}, "cursor" | "camera" | "scene" | "site_label_offset" | "vector_configs" | "orbit_controls" | "camera_up" | "camera_zoom" | "hovered_idx" | "hovered_site" | "polyhedra_rendered_elements" | "camera_is_moving" | "selected_sites" | "measured_sites" | "added_bonds" | "removed_bonds" | "bond_order_overrides" | "bond_edit_mode" | "active_sites" | "rotation_target_ref" | "initial_computed_zoom" | "hidden_elements" | "hidden_prop_vals" | "element_radius_overrides" | "site_radius_overrides" | "add_atom_mode" | "add_element" | "dragging_atoms">;
+diff -ruN a/dist/structure/StructureViewport.svelte b/dist/structure/StructureViewport.svelte
+--- a/dist/structure/StructureViewport.svelte	2026-09-06 16:03:03
++++ b/dist/structure/StructureViewport.svelte	2026-09-06 16:03:03
+@@ -77,6 +77,7 @@
+     scene_props = {},
+     scene_children,
+     topology_view = false,
++    surface_view = false,
+     gizmo = false,
+     lattice_props = {},
+     volumetric_data = undefined,
+@@ -143,6 +144,7 @@
+     scene_props?: ComponentProps<typeof StructureScene>
+     scene_children?: import('svelte').Snippet
+     topology_view?: boolean
++    surface_view?: boolean
+     gizmo?: boolean | ComponentProps<typeof StructureScene>[`gizmo`]
+     lattice_props?: ComponentProps<typeof StructureScene>[`lattice_props`]
+     volumetric_data?: VolumetricData | VolumetricData[]
+@@ -478,6 +480,7 @@
+       {...scene_props}
+       {scene_children}
+       {topology_view}
++      {surface_view}
+       {...in_grid ? { auto_rotate: 0 } : {}}
+       {camera_position}
+       {camera_target}
+diff -ruN a/dist/structure/StructureViewport.svelte.d.ts b/dist/structure/StructureViewport.svelte.d.ts
+--- a/dist/structure/StructureViewport.svelte.d.ts	2026-09-06 16:03:03
++++ b/dist/structure/StructureViewport.svelte.d.ts	2026-09-06 16:03:03
+@@ -13,6 +13,7 @@
+ type $$ComponentProps = {
+     scene_children?: import('svelte').Snippet;
+     topology_view?: boolean;
++    surface_view?: boolean;
+     in_grid?: boolean;
+     active?: boolean;
+     label?: string;
+diff -ruN a/package.json b/package.json
+--- a/package.json	2026-09-06 16:03:03
++++ b/package.json	2026-09-06 16:03:34
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25.topology2",
++  "version": "0.4.2-multiwfn.d8719d12.r25.surface1",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",

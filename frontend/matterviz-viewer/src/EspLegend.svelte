@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n'
   import { onMount } from 'svelte'
   import { get_d3_interpolator, trans_flag_color, type D3InterpolateName } from 'matterviz/colors'
   import {
@@ -118,7 +119,7 @@
   class:closed={!visible}
   class:is-dragging={Boolean(drag)}
   aria-hidden={!visible}
-  aria-label="Electrostatic potential legend"
+  aria-label={$t("Electrostatic potential legend")}
   style={`left: ${measured_position.left}px; top: ${measured_position.top}px;`}
   onpointerdown={start_drag}
   onpointermove={move_drag}
@@ -126,9 +127,9 @@
   onpointercancel={finish_drag}
 >
   <header class="legend-header">
-    <strong>Electrostatic Potential</strong>
+    <strong>{$t("Electrostatic Potential")}</strong>
     <span>kcal/mol/e</span>
-    <button type="button" aria-label="Hide ESP legend" title="Hide ESP legend" onclick={close}>×</button>
+    <button type="button" aria-label={$t("Hide ESP legend")} title={$t("Hide ESP legend")} onclick={close}>×</button>
   </header>
   <div class="legend-scale">
     <div class="legend-gradient" style:background={gradient} aria-hidden="true"></div>
@@ -138,7 +139,7 @@
       {/each}
     </div>
   </div>
-  <footer>{Number(min).toPrecision(5)} to {Number(max).toPrecision(5)} a.u.</footer>
+  <footer>{Number(min).toPrecision(5)} {$t("to")} {Number(max).toPrecision(5)} a.u.</footer>
 </aside>
 
 <style>

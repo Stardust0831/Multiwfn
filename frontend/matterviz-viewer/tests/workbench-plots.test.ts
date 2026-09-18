@@ -91,6 +91,18 @@ test('result navigation keeps renderers mounted and preserves original calculati
   assert.doesNotMatch(app, /\{#if plotArtifact\}/)
 })
 
+test('main-function-0 Tools retains analysis actions without a separate spectrum workflow', () => {
+  const app = readFileSync(new URL('../src/App.svelte', import.meta.url), 'utf8')
+  assert.match(app, /\{#if activeResult === 'scene'\}\s*<WorkbenchMenu name="tools"/)
+  for (const action of ['AIM critical points and paths...', 'ESP surface', 'Bond-order analysis', 'Quantitative surface results...']) {
+    assert.ok(app.includes(action))
+  }
+  assert.doesNotMatch(app, /Import spectrum outputs|SpectrumControls|SPECTRUM_KINDS|spectra\.worker|Confirm plot type/)
+  assert.match(app, /import_plot_document\(await file\.text\(\), file\.name\)/)
+  assert.match(app, /<MultiwfnPlotView artifact=\{plot.artifact\} resolver=\{plot.resolver\}/)
+  assert.match(app, /exportConfig=\{plot.native \? plot_export\(manifest\) : undefined\}/)
+})
+
 test('replaces only the obsolete DISLIN close instruction, without changing metadata', () => {
   const plot = parse_numeric_plot('1 2\n2 3', 'Click right mouse button to close').artifact
   assert.equal(plot_title(plot), 'Multiwfn plot')
