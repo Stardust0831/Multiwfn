@@ -29,6 +29,7 @@
   import { AIM_DEFAULTS, resolve_topology, topology_display_defaults, topology_csv, topology_document, type TopologyResult, type TopologySelection } from './topology'
   import MultiwfnPlotView from './MultiwfnPlotView.svelte'
   import SlicePanel from './SlicePanel.svelte'
+  import UpdateModal from './UpdateModal.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
   import WorkbenchMenu from './WorkbenchMenu.svelte'
   import WorkbenchSelect from './WorkbenchSelect.svelte'
@@ -82,6 +83,7 @@
     type WorkbenchCameraState,
   } from './state'
   import { signal_frontend_ready } from './startup'
+  import { create_update_client, type UpdateStatus } from './update'
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
   import {
     adapt_matterviz_volume,
@@ -204,6 +206,10 @@
     [key: string]: unknown
   }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
   let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: UiMessage }>>([])
+  let updateStatus = $state<UpdateStatus | undefined>()
+  let updateOpen = $state(false)
+  const updaterBuildEnabled = import.meta.env.VITE_MATTERVIZ_PRERELEASE_UPDATER === '1'
+  const updateClient = updaterBuildEnabled ? create_update_client(new URL(window.location.href)) : undefined
   let plots = $state<WorkbenchPlot[]>([])
   let activeResult = $state('scene')
   let openMenu = $state<string | undefined>()
@@ -537,6 +543,16 @@
       throw new Error(`Backend returned HTTP ${response.status} without JSON`)
     }
     return response.json() as Promise<ApiPayload>
+  }
+
+  const load_update_status = async (): Promise<void> => {
+    if (!updateClient || !new URL(window.location.href).searchParams.get('cap')) return
+    try {
+      const next = await updateClient.status()
+      updateStatus = next.visible ? next : undefined
+    } catch {
+      updateStatus = undefined
+    }
   }
 
   const fetch_text = async (url: URL): Promise<string> => {
@@ -1643,7 +1659,10 @@
   })
 
   onMount(sync_document_locale)
-  onMount(load_manifest)
+  onMount(() => {
+    void load_manifest()
+    void load_update_status()
+  })
 
   onMount(() => {
     if (window.innerWidth < 1000) inspectorOpen = false
@@ -1778,6 +1797,11 @@
       <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Close current plot")} aria-label={$t("Close current plot")} onclick={close_plot} disabled={savingResult}><Icon icon="Cross" width="16" height="16" /></Button>
     {/if}
     <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Operation log")} aria-label={$t("Operation log")} onclick={() => open_panel('logs')} aria-expanded={logOpen}><Icon icon="Info" width="16" height="16" /></Button>
+    {#if updaterBuildEnabled && updateStatus?.visible}
+      <Button variant="ghost" size="sm" class="icon-button update-toolbar-button" type="button" title={$t("Open updater")} aria-label={$t("Open updater")} onclick={() => updateOpen = true}>
+        <Icon icon={updateStatus.state === 'available' ? 'Download' : 'Version'} width="16" height="16" />
+      </Button>
+    {/if}
     <Button variant="outline" size="sm" type="button" class="language-toggle gap-1.5 text-xs" aria-label={$locale === 'zh' ? 'Switch to English' : '切换到中文'} title={$locale === 'zh' ? 'Switch to English' : '切换到中文'} onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>
       <Languages size={15} aria-hidden="true" /><span lang="zh-CN" class:language-active={$locale === 'zh'}>中文</span><span aria-hidden="true">/</span><span lang="en" class:language-active={$locale === 'en'}>EN</span>
     </Button>
@@ -2243,6 +2267,10 @@
         </div>
       {/if}
     </aside>
+  {/if}
+
+  {#if updaterBuildEnabled && updateStatus?.visible}
+    <UpdateModal open={updateOpen} page={new URL(window.location.href)} initial_status={updateStatus} onstatus={(status) => updateStatus = status} onclose={() => updateOpen = false} />
   {/if}
 </main>
 
