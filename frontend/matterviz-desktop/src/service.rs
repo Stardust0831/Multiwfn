@@ -2122,6 +2122,7 @@ mod tests {
                 host: "127.0.0.1".into(),
                 port: 0,
                 transport: None,
+                multiwfn_pid: Some(1),
             },
             Some(ControlTransportConfig {
                 read_pipe: into_raw_pipe(response_read),
@@ -3329,6 +3330,7 @@ mod tests {
                 host: "127.0.0.1".to_owned(),
                 port: 0,
                 transport: None,
+                multiwfn_pid: Some(1),
             })
             .unwrap();
 
