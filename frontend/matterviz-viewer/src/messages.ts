@@ -1,5 +1,6 @@
 /** Application-owned UI text. Keep scientific data, identifiers and user labels unchanged. */
 export const zh = {
+  "Open updater": "打开更新器",
   "Molecular workbench": "分子分析工作台",
   "Open plot": "打开图表",
   "Open numeric curves or a saved plot document": "打开数值曲线或已保存的图表文件",
