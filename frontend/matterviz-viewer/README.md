@@ -2,44 +2,220 @@
 
 This is an experimental MatterViz frontend developed independently from the legacy 3Dmol.js
 implementation.
-It consumes the same Multiwfn session manifest and serialized backend API, so the Fortran
-calculation modules remain unchanged.
+It consumes the Multiwfn session manifest and serialized backend API. Protected
+core sources are unchanged relative to the main-branch baseline. Data capture and
+user-confirmed metadata live entirely in the GUI adapters and frontend.
 
 The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.material2.tgz` in `vendor/`. Its
-reviewable patch applies directly to main's r25 archive. The package retains
+`matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.tgz` in `vendor/`. Its reviewable
+patch applies directly to the retained r25 archive and combines the complete
+`r25.surface1.picking1` and `r25.material2` extensions. The r25 baseline preserves
 ordered measurements, angle/dihedral and bond context menus, Arcball camera
 controls, flat grids, Worker meshing and immediate resource release.
 
-The material update adds bounded rim shading and angle-dependent transparency
-to the existing lit materials, fixes the shader hook against Three r185's
-unexpanded output include, and preserves zero/fully opaque alpha endpoints.
-Restoring a saved camera also reconciles its orientation after declarative pose
-setters, while identical live Arcball feedback preserves the current quaternion.
-The Trans Flag palette shares physical-zero semantics between vertex colors
-and colorbars, including asymmetric and one-sided ranges; its odd-sized LUT
-preserves exact white at zero. Worker buffer returns also support environments
-without SharedArrayBuffer.
+The topology extension exposes shared scene snippets, `topology_view` and
+`surface_view` masks, and shares native scene/lattice control dictionaries with
+the parent so camera snapshots cannot reset auto-rotation. Topology shows atoms
+and hides ordinary bonds and scalar surfaces; quantitative-surface view hides
+scalar surfaces while keeping chemical bonds. Rendering resources stay mounted,
+but hidden bond hit targets and their HTML menu unmount. Atom/label right-clicks
+cannot target hidden bonds, previous menus/hover clear when views change, and
+atom picking remains available even when the ordinary view's atom toggle is off.
+All topology and quantitative-surface analysis logic stays in the frontend and
+GUI adapters; the vendor adds no scientific calculation or geometry extraction.
 
-Typed Worker geometry now recomputes area-weighted normals from the final
-Cartesian vertices, reusing its allocated normal buffer. This matches the legacy
-geometry path for rotated, anisotropic and nonorthogonal cells. Unlit and
+The material extension adds bounded rim shading and angle-dependent transparency
+to lit finishes, using Three r185's unexpanded output include and preserving
+zero/fully opaque alpha endpoints. Saved-camera restoration also reconciles
+orientation after declarative pose setters, while identical live Arcball
+feedback preserves the current quaternion. Worker buffer returns support
+environments without SharedArrayBuffer.
+
+The Trans Flag palette uses negative pink `#f5a9b8`, physical-zero white and
+positive blue `#5bcefa`. Vertex colors and colorbars share those semantics for
+asymmetric, one-sided and zero-width ranges, with an odd-sized LUT preserving
+exact white at zero. Explicit ESP layers use it by default; other volume defaults
+remain unchanged. Typed Worker geometry recomputes area-weighted normals from
+its final Cartesian vertices, reusing the allocated normal buffer. This matches
+the legacy path for rotated, anisotropic and nonorthogonal cells. Unlit and
 wireframe surfaces bypass tone mapping so their colors agree with the legend;
-lit finishes retain the renderer's existing tone mapping and transparency.
+lit finishes retain the renderer's tone mapping and transparency.
 
-The retained lineage is r24 → r25 → r25.material2. PR #54's r26 archive was based
-on r24 and cannot replace main's r25 without losing measurement controls. The
-older r25 material build from PR #54 reused that version name; it is not this
-repository's r25 patch base. Use the retained archive and the lockfile integrity.
+The retained lineage starts r24 → r25, followed by the topology/surface and
+material branches, now combined in workbench1. Earlier archives and patches
+remain available as reproducible bases. PR #54's r26 was based on r24 and cannot
+replace r25 without losing measurement controls. Its older material archive
+reused the r25 version name; use this repository's retained r25 and lockfile.
+The current workbench1 archive SHA-256 is
+`52b5475da106a6faf9daabc440c327f3f9e2998fa1efda4d1ed35d046c041118`;
+`package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
-To reproduce the material package (Node.js 24 and npm):
+To reproduce the combined package (Node.js 24 and npm):
 
 ```bash
-material_tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$material_tmpdir"
-patch -d "$material_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.material2.patch
-npm pack --ignore-scripts --pack-destination vendor "$material_tmpdir/package"
+workbench_tmpdir="$(mktemp -d)"
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$workbench_tmpdir"
+patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.patch
+npm pack --ignore-scripts --pack-destination vendor "$workbench_tmpdir/package"
+sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.tgz
 ```
+
+The checksum identifies the retained archive. To verify a repack across npm
+versions, `tests/test_matterviz_topology_vendor.py` compares every extracted
+package file against an independent patch replay, avoiding tar metadata
+differences. It also checks that both reviewed vendor branches remain present.
+
+`pnpm test:topology-picking` runs the installed scene in Chromium with real Three.js
+raycasting and Threlte event registration. It requires Playwright and its Chromium
+browser. An external Playwright install can be selected with `PLAYWRIGHT_MODULE`
+(the absolute path to its `index.mjs`); `PLAYWRIGHT_CHROMIUM_EXECUTABLE` optionally
+selects an existing Chromium executable. `KEEP_BROWSER_FIXTURE=1` retains the
+temporary fixture and JSON evidence. The test checks hidden-bond deletion and
+context menus, atom/partial-occupancy/label interaction, and retained bond geometry.
+A real typed-grid density surface also verifies both display masks, preserving
+its mesh, geometry and material while atoms and chemical bonds follow their masks.
+
+## AIM topology workbench
+
+Tools groups AIM, ESP and bond-order analyses. Capability flags come from parsed
+backend arrays, not file extensions; disabled actions retain a focusable reason
+button. AIM requires nonperiodic atoms, valid GTFs, coefficients and occupations.
+Ordinary structures/cubes, old manifests and periodic inputs cannot start AIM;
+already generated topology remains viewable independently of this capability.
+
+Editing atom coordinates, elements, occupancies, site count, cell vectors,
+periodicity or charge invalidates wavefunction-dependent AIM/surface results.
+Late manifest responses cannot reactivate a result after such an edit. Display
+labels and visual settings do not invalidate the scientific input identity.
+CP/path labels share a limit of 256, including periodic images, and reuse their
+resources during size/selection changes. Inspect still lists every CP/path.
+Invalid numerical AIM input retains the last valid value and disables Run until
+corrected, rather than silently changing the requested scientific parameter.
+
+`GET /api/topology` uses the existing session capability and shared computation
+lock. Options are `seeds` (bitmask 1/2/4/8), `distance`, `gradient`, `displacement`,
+`cycles`, `step` (Bohr), and `pathPoints`. Defaults are 15, 1.5, 1e-6, 1e-7,
+120, 0.03 and 451. The closed command is `topology aim ...`, with a 3600-second
+control deadline. The GUI adapter calls the original `findcp`, `findpath`, CP/path
+sorting and endpoint identification functions without entering `topo_main`,
+removing virtual orbitals, or changing the protected calculation sources.
+
+The adapter preserves valid CP/path prefixes and affected search parameters.
+Publication failures roll back; successful publication and response commit the
+new CLI-visible topology and clear obsolete interbasin surfaces. Wavefunctions,
+orbital occupations/counts and cube arrays are untouched. Search batches reserve
+CP capacity before entering parallel code; paths reserve two slots per CP, path
+points are bounded below the original fixed capacity, and the temporary atom
+distance table is limited to 512 MiB. Unconnected directions and the N-B+R-C
+count are reported without claiming the search is complete.
+
+Manifest `version: 2` gains optional `topologyAnalysis` and `topology`. Topology
+metadata retains original CP/path IDs, function ID, types, density/Laplacian and
+path endpoints. Coordinates use the existing `MWFNP2D` scientific-data channel:
+Float64 x/y/z arrays in Bohr, CPs first followed by complete path polylines.
+Dataset lifetime is independent of 2D plots; replacement releases only old
+topology arrays. Refreshing the page restores the latest result without computing.
+
+The scene extension renders instanced CP spheres and batched thick path segments
+in the molecule's scene coordinate system. Periodic integration steps are
+unwrapped, with endpoint CP images retaining the original IDs. The topology mask
+hides scalar surfaces and ordinary bonds without unmounting or extracting them.
+Display controls and object details are outside the canvas; CSV/JSON export keeps
+all raw coordinates, while PNG uses the shared scene. Display settings are saved
+separately in the existing workbench state. Changing the underlying geometry
+invalidates cached topology and in-flight results.
+
+Regression commands from the repository root:
+
+```bash
+python3 -m unittest tests/test_matterviz_topology.py tests/test_matterviz_topology_vendor.py
+MULTIWFN_TOPOLOGY_FIXTURE=/path/to/input.fchk python3 -m unittest tests/test_matterviz_topology.py
+```
+
+## Quantitative molecular surface results
+
+Run original main function **12**, configure and finish the analysis, then choose
+post-processing **0**. The native workbench displays the original improved
+marching-tetrahedra surface, rather than
+re-extracting a cube or substituting the approximate ESP preview. Tools includes
+**Quantitative surface results...**, disabled with a reason when no original result
+has been published. This is a results viewer, not a new noninteractive surface
+calculation API. Post-processing -3 retains its original grid-isosurface behavior.
+
+The first view is geometry-only: the original zero-argument `drawsurfanalysis`
+entry does not expose the surface type, mapped function or mapping-completion
+flag. Confirm **Result types** in the panel, including whether mapping was
+actually calculated. Only that explicit confirmation reads the existing mapped
+values and retained extrema. Selecting **None (geometry only)** never reads
+uninitialized mapped values or stale extrema. The adapter cannot independently
+verify a user's claim that mapping was calculated; confirm the actual CLI options.
+No calculation, terminal-input interception or generated core-source patch is used.
+
+The result panel provides opacity, wireframe, surface/extrema visibility, fit,
+extreme selection, and statistics. Values use the original facet-area weights and
+Multiwfn conversion constants. Total variance follows the original sum of positive
+and negative regional variances, not a pooled variance. Undefined one-sign/constant
+statistics display N/A. ESP includes charge balance, separation, MPI and the
+original 10 kcal/mol polar/nonpolar threshold. Unmapped analyses expose only
+geometry and area. Unknown/custom mapped functions retain
+native units; the adapter does not guess an energy unit from numeric values.
+
+Volume and mass density initially display N/A, not zero or a mesh-derived
+substitute. **Import statistics log** accepts a user-selected original Multiwfn
+text log (up to 8 MiB). It imports the last surface summary's printed volume in
+Bohr^3 and mass density in g/cm^3, after checking the printed area against the
+current mesh. An area match is a consistency check, not proof of dataset identity;
+the user must choose the corresponding run. JSON records the filename and printed
+precision. Missing statistics remain null; imported values can be cleared. Log
+imports never replace the mesh, mapped data, extrema or facet-weighted statistics.
+The log and its association are page-local and must be reimported after refresh.
+
+Manifest version 2 adds optional `surfaceAnalysis` version 1 with three independent
+binary dataset IDs, nullable function/surface types, nullable volume (Bohr^3) and
+mass density, original isovalue and unit conversions. `metadataSource` distinguishes
+unconfirmed types from user confirmation; older fully specified results still load.
+Authenticated `GET /api/surface?surfaceType=1&mappedFunction=1` confirms ESP, while
+`mappedFunction=none` confirms geometry-only. This sends a bounded read-only
+`surface` command over the existing serialized channel, never into the scientific
+core. It is available only while the original surface session is live. Successful
+replacement retires the previous surface datasets; failures discard partial new
+datasets without deleting other plots/topology. The refreshed manifest retains the
+confirmed types and dataset IDs. Arrays use the existing authenticated MWFNP2D channel:
+
+- Vertices: x = interleaved xyz (Bohr), y = mapped values, z = original vertex IDs.
+- Facets: x = interleaved zero-based compact vertex indices, y = original areas
+  (Bohr^2), z = original facet values, u = original facet IDs.
+- Extrema: x = compact vertex index, y = -1/+1 minimum/maximum, z = original local
+  extreme number. Dataset ID 0 means no extrema; discarded extrema stay discarded.
+
+Snapshots validate references, finite values and a 256 MiB budget, never modify
+the original arrays, and release their temporary buffers after publication. The
+renderer orients a copy of triangle winding for consistent normals; original
+connectivity, coordinates and scalar values remain intact in CSV/JSON exports.
+PNG uses the shared 3D scene. Local display controls never invoke marching cubes,
+an extrema Worker or another backend calculation. Changing structures clears the
+result; orbitals/ESP temporarily replace its view, and Tools reopens it from memory.
+Atom/fragment decompositions, surface basins and fingerprint analysis are not
+included in this first results viewer.
+
+## Scope of spectrum integration
+
+Main function 0 does not offer spectrum output import, UV-Vis/IR/Raman/NMR
+analysis buttons, front-end spectrum parsing or broadening, or spectrum-specific
+type and settings controls. These additions are deferred to a follow-up PR at
+the original program's spectrum-drawing entry points, rather than a parallel
+analysis workflow inside the molecular viewer.
+
+Original main function 11 and the existing generic 2D capture, display, and
+export pipeline remain unchanged. Open plot still accepts computed numeric
+curves and self-contained plot documents; it does not parse quantum-chemistry
+output files or broaden their transitions. Results without declared semantic
+types remain generic 2D plots, retaining their original data, axes, and units.
+The quantitative-surface type confirmation is separate and remains available.
+
+An independent pure-GUI analysis application, including automated CLI input,
+batch plots, multiple views, and shared camera management, is also outside the
+scope of this change.
 
 ## Build
 
@@ -84,11 +260,43 @@ Surfaces offers Matte, Soft gloss, Satin and Unlit color finishes, with bounded
 rim, opacity and shading refinements. Finishes preserve scientific isovalues and
 layer colors; periodic boundary padding is under Cell. These settings are saved
 with the workbench state.
-Structure > Lighting exposes ambient and directional intensity from 0 to 4,
-with Reset restoring the renderer defaults of 0.72 and 1.2. Both values are saved
-and restored, including zero and older camel/snake-case snapshot fields.
-Save > Save display settings writes a versioned JSON snapshot of layer, periodic, isosurface-material, and
-camera state. The same snapshot can be restored with Save > Restore display settings or a `state=` URL query;
+
+### Studio lighting and language selection
+
+Structure > Lighting preset offers **Standard lighting** and **Studio lighting**
+(中文：标准布光 / 影棚布光). Studio lighting is a MatterViz lighting preset,
+using hemisphere ambient light, a camera-following key, warm fill, and cool rim.
+It disables tone mapping. Standard lighting uses neutral lights and AgX tone mapping.
+Reset restores the four light intensities for the selected preset.
+The historical `tmim` identifier remains in display snapshots for compatibility.
+
+Structure > Finish preset offers Balanced, Goodsell, Edgy, Glass, Metallic, and
+Matte. Balanced replaces the display name Current; its saved ID remains `current`.
+An untouched renderer material shows Renderer default. Atom finish and lighting
+are independent controls. These atom presets apply outline parameters that were
+inactive in the historical source, so they are not exact recreations of that viewer.
+
+The toolbar **中文 / EN** button switches Multiwfn-owned controls immediately,
+without remounting the scene or changing its camera, scientific data, or materials.
+Language is saved in browser localStorage (`multiwfn-ui-language`); the first visit
+follows the browser language (Chinese for `zh`, English otherwise). If storage is
+unavailable, switching still works for the current page. UI language is independent
+of scientific/display exports. User labels, scientific identifiers, and raw backend
+logs retain their original text. MatterViz's native embedded controls retain their
+upstream language.
+
+The Surfaces control keeps the four primary finishes above and provides the
+legacy MaterialPanel combinations in a dropdown: Diffuse, Goodsell, Edgy,
+EdgyShiny, AOShiny, AOChalky, Glass1, GlassBubble, EdgyGlass, BrushedMetal,
+Metallic, and PBR. Matte and Unlit are reused from the primary controls. Legacy
+names are visual material recipes; names containing AO do not add an ambient
+occlusion pass. Transparency is implemented as surface alpha, not physical
+refraction. All values are saved and restored with the workbench state, but
+rendering is not guaranteed to be pixel-identical across browser or GPU
+implementations.
+
+Save > Save display settings writes a versioned JSON snapshot of layer, periodic, isosurface-material,
+lighting, atom-style, and camera state. The same snapshot can be restored with Save > Restore display settings or a `state=` URL query;
 the browser and WebView launchers also accept `--state <path>` and expose only that selected file
 through a fixed session route.
 
@@ -140,12 +348,13 @@ MatterViz's point construction uses `Array.map` to produce objects. Passing a ty
 array there silently loses curves. Plot paths do not tween through artificial data
 positions, and the application explicitly supplies its light control-panel theme.
 
-This unifies results **already emitted** by the MatterViz adapters. It does not claim
-full original GUI parity: topology critical points/paths, basin/domain geometry,
-surface-analysis-specific objects, and interactive plane/box picking still need
-dedicated backend-to-viewer representations. A structure/cube-only session from one
-of those original entry points is not a complete rendering of its analysis result.
-Fortran scientific calculations and the existing manifest/HTTP protocols are unchanged.
+This unifies results **already emitted** by the MatterViz adapters, including the
+AIM critical-point/path and quantitative-surface representations described above.
+Other basin/domain objects and interactive plane/box picking still need dedicated
+backend-to-viewer representations. A structure/cube-only session from an original
+analysis entry point does not by itself provide those objects. Protected Fortran
+scientific calculations remain unchanged; the GUI adapters carry the additional
+analysis metadata through the existing manifest/HTTP transport.
 
 The first native WebView shell lives in `../matterviz-desktop`; see
 [`docs/matterviz-webview.md`](../../docs/matterviz-webview.md) for its runtime and packaging model.
@@ -165,3 +374,29 @@ produces `Multiwfn_MatterVizGUI`. MatterViz resources do not include the legacy
 3Dmol frontend or Qt shell.
 
 MatterViz is distributed under the MIT license. Multiwfn remains under its original license.
+
+## Workbench UI preview
+
+The Multiwfn toolbar and inspector now use local shadcn-svelte components:
+Button, Popover, Select, Tabs, Slider and Tooltip. The structure renderer remains
+MatterViz. Scene settings, original material presets, result selection and
+analysis availability still use the existing callbacks and workbench state.
+The UI source and local adaptations are documented in
+`src/lib/components/ui/README.md`.
+
+Use the normal `pnpm dev` command with a session manifest for local development.
+Browser acceptance against a running preview containing the two density/ESP
+fixture volumes is available as:
+
+```bash
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium \
+PREVIEW_URL=http://127.0.0.1:5197/ \
+node tests/browser/workbench-ui.mjs
+```
+
+This checks keyboard navigation, popover dismissal and focus return, all four
+lighting controls, material choices, display-setting download/restore, volume
+visibility, backend-unavailability help, the single canvas lifecycle and a
+600 px viewport. The supplied molecule preview has no calculation backend;
+analysis controls retain their real unavailable state.

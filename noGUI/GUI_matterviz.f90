@@ -3,6 +3,8 @@ use defvar
 use iso_c_binding, only: c_char,c_int,c_int32_t,c_int64_t,c_intptr_t,c_double,c_null_char
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 use matterviz_plot_capture
+use matterviz_topology
+use matterviz_surface
 #endif
 implicit none
 
@@ -21,6 +23,14 @@ integer(c_intptr_t) :: gui_volume_write=-1_c_intptr_t,gui_ack_read=-1_c_intptr_t
 integer(c_intptr_t) :: gui_request_read=-1_c_intptr_t,gui_response_write=-1_c_intptr_t
 integer(c_int64_t) :: gui_volume_serial=0_c_int64_t
 integer*8 :: gui_cubmat_volume_id=-1,gui_cubmattmp_volume_id=-1
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+type(topology_data) :: gui_topology
+integer(c_int64_t) :: gui_topology_id=0
+logical :: gui_topology_transaction=.false.
+type(surface_data) :: gui_surface
+integer(c_int64_t) :: gui_surface_ids(3)=0
+logical :: gui_surface_session=.false.
+#endif
 
 type :: matterviz_json_sink
     integer :: unit=0
@@ -219,8 +229,21 @@ call launch_matterviz_gui("drawmoltopogui",4,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
 
 subroutine drawsurfanalysis
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+character(len=160) :: message
+call capture_surface(gui_surface,.false.,message)
+if (len_trim(message)/=0) then
+    write(*,'(a)') trim(message)
+    return
+end if
+gui_surface_session=.true.
+#endif
 GUI_mode=5
 call launch_matterviz_gui("drawsurfanalysis",5,0,0D0,0D0,0D0,0D0,0D0,0D0)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+gui_surface=surface_data()
+gui_surface_session=.false.
+#endif
 end subroutine
 
 subroutine drawbasinintgui
@@ -778,6 +801,13 @@ function matterviz_scene_semantic_kind() result(kind)
 character(len=16) :: kind
 character(len=160) :: xlabel,ylabel
 kind=''
+select case(trim(matterviz_plot_title))
+case('Infrared spectrum'); kind='ir'
+case('Raman spectrum'); kind='raman'
+case('UV-Vis spectrum'); kind='uvvis'
+case('NMR spectrum'); kind='nmr'
+end select
+if (len_trim(kind)>0) return
 if (matterviz_plot_panel_count/=1) return
 xlabel=matterviz_plot_panels(1)%xlabel
 ylabel=matterviz_plot_panels(1)%ylabel
@@ -855,6 +885,12 @@ logical :: session_ok,diagnostic_cube_fallback,memory_session
 
 call reset_generated_orbitals()
 call reset_bond_analysis_cache()
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+gui_topology=topology_data()
+gui_topology_id=0
+gui_surface_ids=0
+if (trim(entry)/='drawsurfanalysis') gui_surface=surface_data()
+#endif
 call close_matterviz_transport()
 gui_volume_serial=0_c_int64_t
 gui_cubmat_volume_id=-1
@@ -1031,6 +1067,12 @@ do
         else
             call write_gui_json_error(sink,"Malformed ESP request")
         end if
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    else if (istat==0.and.trim(action)=="topology") then
+        call handle_topology_request(sink,command)
+    else if (istat==0.and.trim(action)=="surface") then
+        call handle_surface_request(sink,command)
+#endif
     else
         call write_gui_json_error(sink,"Unknown GUI request")
     end if
@@ -1042,6 +1084,12 @@ do
         c_status=int(sink%status,c_int)
     end if
     call multiwfn_matterviz_control_buffer_destroy(sink%buffer)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+    if (gui_topology_transaction) then
+        call aim_finish(c_status==0_c_int)
+        gui_topology_transaction=.false.
+    end if
+#endif
     if (c_status/=0_c_int) exit
 end do
 call close_matterviz_transport()
@@ -1089,19 +1137,36 @@ character(len=*),intent(in) :: entry
 integer,intent(out) :: status
 integer :: volume_status
 logical :: published
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+character(len=160) :: message
+#endif
 
 status=0
-if (allocated(cubmat).and.trim(entry)/="drawmolgui") then
+if (allocated(cubmat).and.trim(entry)/="drawmolgui".and.trim(entry)/="drawsurfanalysis") then
     published=publish_matterviz_volume(cubmat,1_8,4,4,gui_cubmat_volume_id,1,volume_status)
     if (.not.published) then
         status=volume_status
         return
     end if
 end if
-if (allocated(cubmattmp)) then
+if (allocated(cubmattmp).and.trim(entry)/='drawsurfanalysis') then
     published=publish_matterviz_volume(cubmattmp,2_8,4,4,gui_cubmattmp_volume_id,1,volume_status)
     if (.not.published) status=volume_status
 end if
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+if (status==0.and.trim(entry)=="drawmoltopogui") then
+    call capture_topology(gui_topology,message)
+    if (len_trim(message)==0) then
+        call publish_topology(gui_topology,gui_topology_id,status)
+    else
+        status=-1
+    end if
+end if
+if (status==0.and.trim(entry)=='drawsurfanalysis'.and.allocated(gui_surface%xyz)) then
+    call publish_surface(status)
+    call release_surface_snapshot()
+end if
+#endif
 end subroutine
 
 subroutine send_matterviz_session_init(entry,mode,extra,init1,end1,init2,end2,init3,end3,status)
@@ -2604,6 +2669,15 @@ else
 end if
 call emit_bond_analysis_manifest(sink)
 call emit_esp_analysis_manifest(sink)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+call emit_topology_capability(sink)
+if (all(gui_surface_ids(1:2)>0)) call emit_surface(sink)
+if (gui_topology_id>0) then
+    call emit_matterviz_json(sink,'  "topology":')
+    call emit_topology(sink,gui_topology,gui_topology_id)
+    call emit_matterviz_json(sink,',')
+end if
+#endif
 if (ifPBC>0) then
     call emit_matterviz_json(sink,'  "periodic": {')
     call emit_matterviz_json(sink,'    "enabled": true,')
@@ -2651,6 +2725,203 @@ write(line,"(a,a,a,i0,a,a,a,1pe16.8,a)") '    { "name": "',trim(name), &
     trim(role),'", "mode": "signed", "isovalue": ',isoval,' }'
 call emit_matterviz_json(sink,line)
 end subroutine
+
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+subroutine release_surface_snapshot()
+if (.not.allocated(gui_surface%xyz)) return
+deallocate(gui_surface%xyz,gui_surface%values,gui_surface%vertex_ids,gui_surface%indices, &
+    gui_surface%areas,gui_surface%facet_values,gui_surface%facet_ids,gui_surface%extreme_vertex, &
+    gui_surface%extreme_kind,gui_surface%extreme_id)
+end subroutine
+
+subroutine handle_surface_request(sink,command)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=*),intent(in) :: command
+character(len=32) :: action
+character(len=160) :: message
+integer :: surface_type,mapped_function,mapped,status
+integer(c_int64_t) :: previous_ids(3)
+type(surface_data) :: previous
+if (.not.gui_surface_session) then
+    call write_gui_json_error(sink,'No live quantitative surface result is available');return
+end if
+read(command,*,iostat=status) action,surface_type,mapped_function,mapped
+if (status/=0) then
+    call write_gui_json_error(sink,'Malformed surface confirmation');return
+end if
+if (.not.any(surface_type==[1,2,5,6,10]).or..not.any(mapped==[0,1]).or. &
+    .not.any(mapped_function==[-4,-1,0,1,2,3,4,5,6,10,11,12,20,21,22])) then
+    call write_gui_json_error(sink,'Unsupported surface or mapped function type');return
+end if
+previous=gui_surface;previous_ids=gui_surface_ids
+call capture_surface(gui_surface,mapped==1,message)
+if (len_trim(message)/=0) then
+    gui_surface=previous
+    call write_gui_json_error(sink,trim(message));return
+end if
+gui_surface%surface_type=surface_type;gui_surface%mapped_function=mapped_function
+gui_surface%confirmed=.true.
+call publish_surface(status)
+call release_surface_snapshot()
+if (status/=0) then
+    gui_surface=previous;gui_surface_ids=previous_ids
+    call write_gui_json_error(sink,'Unable to publish the confirmed surface data');return
+end if
+call emit_matterviz_json(sink,'{')
+call emit_surface(sink)
+call emit_matterviz_json(sink,'"ok":true}')
+end subroutine
+
+subroutine publish_surface(status)
+integer,intent(out) :: status
+integer(c_int32_t) :: roles(5)
+integer(c_int64_t) :: counts(5)
+real(c_double) :: dummy(1)
+dummy=0;roles=[1,2,3,4,0];counts=0;gui_surface_ids=0
+gui_volume_serial=gui_volume_serial+1;gui_surface_ids(1)=gui_volume_serial
+counts(1)=size(gui_surface%xyz);counts(2:3)=size(gui_surface%values)
+status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,gui_surface_ids(1), &
+    gui_surface_ids(1),roles,gui_surface%xyz,gui_surface%values,gui_surface%vertex_ids,dummy,dummy, &
+    counts,3_c_int32_t,300000_c_int32_t))
+if (status/=0) return
+gui_volume_serial=gui_volume_serial+1;gui_surface_ids(2)=gui_volume_serial
+counts(1)=size(gui_surface%indices);counts(2:4)=size(gui_surface%areas)
+status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,gui_surface_ids(2), &
+    gui_surface_ids(2),roles,gui_surface%indices,gui_surface%areas,gui_surface%facet_values,gui_surface%facet_ids, &
+    dummy,counts,4_c_int32_t,300000_c_int32_t))
+if (status/=0.or.size(gui_surface%extreme_vertex)==0) return
+gui_volume_serial=gui_volume_serial+1;gui_surface_ids(3)=gui_volume_serial
+counts=0;counts(1:3)=size(gui_surface%extreme_vertex)
+status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,gui_surface_ids(3), &
+    gui_surface_ids(3),roles,gui_surface%extreme_vertex,gui_surface%extreme_kind,gui_surface%extreme_id,dummy,dummy, &
+    counts,3_c_int32_t,300000_c_int32_t))
+end subroutine
+
+subroutine emit_surface(sink)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=512) :: line
+call emit_matterviz_json(sink,'  "surfaceAnalysis": {"version":1,"coordinateUnit":"bohr",')
+write(line,'(a,3(i0,a))') '"vertices":',gui_surface_ids(1),',"facets":',gui_surface_ids(2), &
+    ',"extrema":',gui_surface_ids(3),','
+call emit_matterviz_json(sink,line)
+if (gui_surface%confirmed) then
+    write(line,'(a,2(i0,a),a,a)') '"surfaceType":',gui_surface%surface_type,',"mappedFunction":', &
+        gui_surface%mapped_function,',"mapped":',trim(json_bool(gui_surface%mapped)),','
+    call emit_matterviz_json(sink,line)
+    call emit_matterviz_json(sink,'"metadataSource":"user",')
+else
+    call emit_matterviz_json(sink,'"surfaceType":null,"mappedFunction":null,"mapped":null,"metadataSource":"unconfirmed",')
+end if
+call emit_matterviz_json(sink,'"volume":null,"massDensity":null,')
+write(line,'(a,es25.17e3,a)') '"isovalue":',gui_surface%isovalue,','
+call emit_matterviz_json(sink,line)
+write(line,'(a,3(es25.17e3,a))') '"bohrToAngstrom":',gui_surface%bohr,',"hartreeToKcal":',gui_surface%kcal, &
+    ',"hartreeToEv":',gui_surface%ev,'},'
+call emit_matterviz_json(sink,line)
+end subroutine
+
+subroutine emit_topology_capability(sink)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=160) :: reason
+logical :: available
+available=aim_available(reason)
+if (matterviz_cube_fallback_enabled()) then
+    available=.false.
+    reason='AIM requires the native in-memory host (not diagnostic Cube mode)'
+end if
+call emit_matterviz_json(sink,'  "topologyAnalysis": {')
+call emit_matterviz_json(sink,'    "periodicSupported": false,')
+call emit_bond_method_capability(sink,'aim',available,reason,.false.)
+call emit_matterviz_json(sink,'  },')
+end subroutine
+
+subroutine publish_topology(data,dataset_id,status)
+type(topology_data),intent(in) :: data
+integer(c_int64_t),intent(out) :: dataset_id
+integer,intent(out) :: status
+integer(c_int32_t) :: roles(5)
+integer(c_int64_t) :: counts(5)
+real(c_double) :: dummy(1)
+dataset_id=0;status=0
+if (size(data%x)==0) return
+gui_volume_serial=gui_volume_serial+1
+dataset_id=gui_volume_serial
+roles=[1,2,3,0,0];counts=0
+counts(1:3)=int(size(data%x),c_int64_t);dummy=0D0
+! Scientific plot frames use their dataset ID as the independent transport ACK identity.
+status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,dataset_id, &
+    dataset_id,roles,data%x,data%y,data%z,dummy,dummy,counts,3_c_int32_t,300000_c_int32_t))
+end subroutine
+
+subroutine handle_topology_request(sink,command)
+type(matterviz_json_sink),intent(inout) :: sink
+character(len=*),intent(in) :: command
+type(aim_options) :: options
+type(topology_data) :: data
+character(len=32) :: action,method
+character(len=160) :: message
+integer :: status
+integer(c_int64_t) :: dataset_id
+read(command,*,iostat=status) action,method,options%seeds,options%distance,options%gradient, &
+    options%displacement,options%cycles,options%step,options%path_points
+if (status/=0.or.trim(method)/='aim') then
+    call write_gui_json_error(sink,'Malformed AIM topology request')
+    return
+end if
+call aim_begin(options,message)
+if (len_trim(message)==0) call capture_topology(data,message)
+if (len_trim(message)==0) then
+    call publish_topology(data,dataset_id,status)
+    if (status/=0) message='Topology data publication failed'
+end if
+if (len_trim(message)/=0) then
+    call aim_finish(.false.)
+    call write_gui_json_error(sink,message)
+    return
+end if
+call emit_matterviz_json(sink,'{"ok":true,"topology":')
+call emit_topology(sink,data,dataset_id)
+call emit_matterviz_json(sink,'}')
+! Commit only after the control response has been written successfully.
+gui_topology_transaction=.true.
+end subroutine
+
+subroutine emit_topology(sink,data,dataset_id)
+type(matterviz_json_sink),intent(inout) :: sink
+type(topology_data),intent(in) :: data
+integer(c_int64_t),intent(in) :: dataset_id
+integer :: i,relation,missing
+character(len=1024) :: line
+character(len=1) :: comma
+call emit_matterviz_json(sink,'{"version":1,"coordinateUnit":"bohr",')
+write(line,'(a,i0,a,i0,a)') '"functionId":',data%function_id,',"datasetId":',dataset_id,','
+call emit_matterviz_json(sink,line)
+write(line,'(a,a,a)') '"hasDensity":',trim(json_bool(data%has_density)),','
+call emit_matterviz_json(sink,line)
+relation=count(data%types==1)-count(data%types==2)+count(data%types==3)-count(data%types==4)
+missing=max(0,2*(count(data%types==2)+count(data%types==3))-data%npath)
+write(line,'(a,i0,a,i0,a)') '"eulerCount":',relation,',"missingPathDirections":',missing,','
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'"criticalPoints":[')
+do i=1,data%ncp
+    comma=','
+    if (i==data%ncp) comma=' '
+    write(line,'(a,i0,a,i0,a,es24.16e3,a,es24.16e3,a,a)') '{"id":',i,',"type":',data%types(i), &
+        ',"density":',data%rho(i),',"laplacian":',data%laplacian(i),'}',comma
+    call emit_matterviz_json(sink,line)
+end do
+call emit_matterviz_json(sink,'],"paths":[')
+do i=1,data%npath
+    comma=','
+    if (i==data%npath) comma=' '
+    write(line,'(a,i0,a,i0,a,i0,a,i0,a,i0,a,i0,a,a)') '{"id":',i,',"type":',data%path_types(i), &
+        ',"offset":',data%offsets(i),',"count":',data%counts(i),',"start":',data%start_cp(i), &
+        ',"end":',data%end_cp(i),'}',comma
+    call emit_matterviz_json(sink,line)
+end do
+call emit_matterviz_json(sink,']}')
+end subroutine
+#endif
 
 subroutine emit_bond_analysis_manifest(sink)
 type(matterviz_json_sink),intent(inout) :: sink

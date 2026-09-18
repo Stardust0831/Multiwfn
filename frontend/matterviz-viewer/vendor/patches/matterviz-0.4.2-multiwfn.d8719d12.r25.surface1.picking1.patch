@@ -1,0 +1,106 @@
+--- a/dist/structure/StructureScene.svelte
++++ b/dist/structure/StructureScene.svelte
+@@ -1141,6 +1141,7 @@
+     void measure_mode
+     void bond_edit_mode
+     void bond_edits_enabled
++    void topology_view
+     untrack(() => {
+       close_bond_context_menu()
+       hovered_bond_key = null
+@@ -1376,7 +1377,7 @@
+   )
+ 
+   let atom_data = $derived.by(() => {
+-    if (!show_atoms) return []
++    if (!show_atoms && !topology_view) return []
+     return render_sites.flatMap(({ site_idx, site, is_image_atom }) => {
+       const orig_idx = get_orig_site_idx(site, site_idx)
+ 
+@@ -1522,6 +1523,7 @@
+   let selected_context_bond: BondPair | undefined = $derived.by(() => {
+     if (
+       !interactive ||
++      topology_view ||
+       !on_selected_bond_context ||
+       (measure_mode !== `distance` && measure_mode !== `angle`) ||
+       measured_sites.length !== 2 ||
+@@ -2455,7 +2457,8 @@
+         />
+       {/each}
+ 
+-      <!-- Instanced bond rendering with gradient colors -->
++      <!-- Keep bond/polyhedra geometry mounted while topology hides it. Interactive
++        bond targets and HTML must unmount: ancestor visibility does not disable picking. -->
+       <T.Group visible={!topology_view}>
+       {#if instanced_bond_groups.length > 0}
+         {#each instanced_bond_groups as group (group.thickness + group.instances.length)}
+@@ -2490,7 +2493,7 @@
+       {/if}
+ 
+       <!-- Clickable bond hit-test cylinders in edit-bonds mode -->
+-      {#if interactive && measure_mode === `edit-bonds` && editable_bond_pairs.length > 0}
++      {#if !topology_view && interactive && measure_mode === `edit-bonds` && editable_bond_pairs.length > 0}
+         {#each editable_bond_pairs as bond (`bond-hit-${bond_edit_mode}-${rendered_bond_key_for(bond)}`)}
+           {@const bond_key = rendered_bond_key_for(bond)}
+           {@const is_hovered = hovered_bond_key === bond_key}
+@@ -2564,23 +2567,7 @@
+         </T.Mesh>
+       {/if}
+ 
+-      {#if interactive && editable_atom_hit_targets.length > 0}
+-        {#each editable_atom_hit_targets as atom_hit (atom_hit.site_idx)}
+-          <T.Mesh
+-            position={atom_hit.position}
+-            scale={atom_hit.radius * EDITABLE_ATOM_HIT_RADIUS_SCALE}
+-            {...atom_hover_props(atom_hit.site_idx)}
+-            onpointerdown={(event: PointerEvent) => {
+-              select_edit_bonds_site(atom_hit.site_idx, event)
+-            }}
+-          >
+-            <T.SphereGeometry args={[0.5, 12, 12]} />
+-            <T.MeshBasicMaterial transparent opacity={0} depthWrite={false} />
+-          </T.Mesh>
+-        {/each}
+-      {/if}
+-
+-      {#if interactive && measure_mode === `edit-bonds` && bond_context_menu}
++      {#if !topology_view && interactive && measure_mode === `edit-bonds` && bond_context_menu}
+         {@const current_order = get_current_bond_order(
+           bond_context_menu.site_idx_1,
+           bond_context_menu.site_idx_2,
+@@ -2645,6 +2632,24 @@
+       {/if}
+ 
+       </T.Group>
++
++      <!-- Atom selection remains available when topology hides ordinary bonds. -->
++      {#if interactive && editable_atom_hit_targets.length > 0}
++        {#each editable_atom_hit_targets as atom_hit (atom_hit.site_idx)}
++          <T.Mesh
++            position={atom_hit.position}
++            scale={atom_hit.radius * EDITABLE_ATOM_HIT_RADIUS_SCALE}
++            {...atom_hover_props(atom_hit.site_idx)}
++            onpointerdown={(event: PointerEvent) => {
++              select_edit_bonds_site(atom_hit.site_idx, event)
++            }}
++          >
++            <T.SphereGeometry args={[0.5, 12, 12]} />
++            <T.MeshBasicMaterial transparent opacity={0} depthWrite={false} />
++          </T.Mesh>
++        {/each}
++      {/if}
++
+       <!-- highlight hovered, active and selected sites. The target list is a pulse-
+         independent $derived; only the opacity reads the per-frame pulse value so the
+         array isn't rebuilt every animation frame. -->
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25.surface1",
++  "version": "0.4.2-multiwfn.d8719d12.r25.surface1.picking1",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",

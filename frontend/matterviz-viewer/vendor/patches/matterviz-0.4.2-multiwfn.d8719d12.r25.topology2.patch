@@ -1,0 +1,137 @@
+diff -ruN a/dist/colors/index.d.ts b/dist/colors/index.d.ts
+--- a/dist/colors/index.d.ts	1985-10-26 16:15:00
++++ b/dist/colors/index.d.ts	2026-09-06 14:06:21
+@@ -1,7 +1,8 @@
+ import * as d3_sc from 'd3-scale-chromatic';
+-export type D3InterpolateName = keyof typeof d3_sc & `interpolate${string}`;
++export type D3InterpolateName = (keyof typeof d3_sc & `interpolate${string}`) | `interpolateTransFlag`;
+ export type D3ColorSchemeName = D3InterpolateName extends `interpolate${infer Name}` ? Name : never;
+ export declare const get_d3_interpolator: (name: D3InterpolateName) => ((t: number) => string);
++export declare const interpolateTransFlag: (t: number) => string;
+ export declare const COLOR_SCALE_TYPES: readonly ["continuous", "categorical"];
+ export type ColorScaleType = (typeof COLOR_SCALE_TYPES)[number];
+ export declare const DEFAULT_CATEGORY_COLORS: Record<string, string>;
+diff -ruN a/dist/colors/index.js b/dist/colors/index.js
+--- a/dist/colors/index.js	1985-10-26 16:15:00
++++ b/dist/colors/index.js	2026-09-06 14:06:21
+@@ -8,7 +8,16 @@
+ import muted_colors from './muted-colors.json' with { type: 'json' };
+ import pastel_colors from './pastel-colors.json' with { type: 'json' };
+ import vesta_colors from './vesta-colors.json' with { type: 'json' };
++export const interpolateTransFlag = (t) => {
++    const value = clamp01(t);
++    const start = value <= 0.5 ? [245, 169, 184] : [255, 255, 255];
++    const end = value <= 0.5 ? [255, 255, 255] : [91, 206, 250];
++    const fraction = value <= 0.5 ? value * 2 : (value - 0.5) * 2;
++    return rgb(...start.map((channel, idx) => channel + (end[idx] - channel) * fraction)).formatHex();
++};
+ export const get_d3_interpolator = (name) => {
++    if (name === `interpolateTransFlag`)
++        return interpolateTransFlag;
+     const candidate = d3_sc[name];
+     return typeof candidate === `function` ? candidate : d3_sc.interpolateViridis;
+ };
+diff -ruN a/dist/isosurface/coloring.d.ts b/dist/isosurface/coloring.d.ts
+--- a/dist/isosurface/coloring.d.ts	1985-10-26 16:15:00
++++ b/dist/isosurface/coloring.d.ts	2026-09-06 14:06:21
+@@ -1,7 +1,7 @@
+ import type { D3InterpolateName } from '../colors';
+ import type { Vec2 } from '../math';
+ import type { DataRange } from './types';
+-export declare const ISO_COLORMAPS: readonly ["interpolateViridis", "interpolatePlasma", "interpolateInferno", "interpolateMagma", "interpolateCividis", "interpolateTurbo", "interpolateRdBu", "interpolateRdYlBu", "interpolateSpectral", "interpolatePiYG", "interpolateBrBG", "interpolatePuOr"];
++export declare const ISO_COLORMAPS: readonly ["interpolateTransFlag", "interpolateViridis", "interpolatePlasma", "interpolateInferno", "interpolateMagma", "interpolateCividis", "interpolateTurbo", "interpolateRdBu", "interpolateRdYlBu", "interpolateSpectral", "interpolatePiYG", "interpolateBrBG", "interpolatePuOr"];
+ export type IsoColormap = (typeof ISO_COLORMAPS)[number];
+ export declare const DEFAULT_ISO_COLORMAP: IsoColormap;
+ export declare const is_signed_range: (data_range: DataRange) => boolean;
+diff -ruN a/dist/isosurface/coloring.js b/dist/isosurface/coloring.js
+--- a/dist/isosurface/coloring.js	1985-10-26 16:15:00
++++ b/dist/isosurface/coloring.js	2026-09-06 14:06:21
+@@ -3,6 +3,7 @@
+ // Curated continuous colormaps offered in the isosurface controls UI.
+ // Sequential maps for densities/potential magnitudes, diverging for signed fields.
+ export const ISO_COLORMAPS = [
++    `interpolateTransFlag`,
+     `interpolateViridis`,
+     `interpolatePlasma`,
+     `interpolateInferno`,
+@@ -37,9 +38,11 @@
+     if (cached)
+         return cached;
+     const interpolator = get_d3_interpolator(colormap);
+-    const lut = new Float32Array(LUT_SIZE * 3);
+-    for (let idx = 0; idx < LUT_SIZE; idx++) {
+-        const [red, green, blue] = parse_linear_rgb(interpolator(idx / (LUT_SIZE - 1)));
++    // An odd table size preserves exact white at zero for the Trans Flag map.
++    const size = colormap === `interpolateTransFlag` ? 257 : LUT_SIZE;
++    const lut = new Float32Array(size * 3);
++    for (let idx = 0; idx < size; idx++) {
++        const [red, green, blue] = parse_linear_rgb(interpolator(idx / (size - 1)));
+         lut[idx * 3] = red;
+         lut[idx * 3 + 1] = green;
+         lut[idx * 3 + 2] = blue;
+@@ -70,7 +73,7 @@
+         // span === 0 maps everything to the middle of the colormap
+         const normalized = span === 0 ? 0.5 : (value - range_min) * inv_span;
+         const clamped = normalized < 0 ? 0 : Math.min(1, normalized);
+-        const lut_idx = Math.round(clamped * (LUT_SIZE - 1)) * 3;
++        const lut_idx = Math.round(clamped * (lut.length / 3 - 1)) * 3;
+         colors[idx * 3] = lut[lut_idx];
+         colors[idx * 3 + 1] = lut[lut_idx + 1];
+         colors[idx * 3 + 2] = lut[lut_idx + 2];
+diff -ruN a/dist/plot/core/components/ColorBar.svelte b/dist/plot/core/components/ColorBar.svelte
+--- a/dist/plot/core/components/ColorBar.svelte	1985-10-26 16:15:00
++++ b/dist/plot/core/components/ColorBar.svelte	2026-09-06 14:19:45
+@@ -285,8 +285,8 @@
+       const func_name = color_scale.startsWith(`interpolate`)
+         ? color_scale
+         : `interpolate${color_scale}`
+-      if (func_name in d3_sc) {
+-        interpolator = d3_sc[func_name as D3InterpolateName]
++      if (func_name === `interpolateTransFlag` || func_name in d3_sc) {
++        interpolator = get_d3_interpolator(func_name as D3InterpolateName)
+       } else {
+         console.error(`Color scale '${color_scale}' not found. Falling back on 'Viridis'.`)
+       }
+diff -ruN a/dist/structure/Structure.svelte b/dist/structure/Structure.svelte
+--- a/dist/structure/Structure.svelte	1985-10-26 16:15:00
++++ b/dist/structure/Structure.svelte	2026-09-06 14:06:21
+@@ -311,14 +311,21 @@
+   } & Omit<ComponentProps<typeof StructureControls>, `children` | `onclose`> &
+     Omit<HTMLAttributes<HTMLDivElement>, `children`> = $props()
+
+-  // Initialize models from incoming props; mutations come from UI controls; we mirror into local dicts (NOTE only doing shallow merge)
++  // Share the control dictionaries with the parent so camera snapshots cannot
++  // overwrite local control changes with stale values (notably auto_rotate).
+   $effect.pre(() => {
+-    if (scene_props_in && typeof scene_props_in === `object`) {
+-      Object.assign(scene_props, scene_props_in)
+-    }
+-    if (lattice_props_in && typeof lattice_props_in === `object`) {
+-      Object.assign(lattice_props, lattice_props_in)
+-    }
++    const incoming_scene = scene_props_in
++    const incoming_lattice = lattice_props_in
++    untrack(() => {
++      if (incoming_scene && incoming_scene !== scene_props) {
++        Object.assign(scene_props, incoming_scene)
++        scene_props_in = scene_props
++      }
++      if (incoming_lattice && incoming_lattice !== lattice_props) {
++        Object.assign(lattice_props, incoming_lattice)
++        lattice_props_in = lattice_props
++      }
++    })
+   })
+
+   // Load structure from URL when data_url is provided. A monotonic load_id ignores stale
+diff -ruN a/package.json b/package.json
+--- a/package.json	1985-10-26 16:15:00
++++ b/package.json	2026-09-06 14:06:21
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25.topology1",
++  "version": "0.4.2-multiwfn.d8719d12.r25.topology2",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",
