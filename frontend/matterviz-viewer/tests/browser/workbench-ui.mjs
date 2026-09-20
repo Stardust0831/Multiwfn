@@ -31,6 +31,7 @@ const checkCanvas = async () => {
 try {
   await page.goto(preview, { waitUntil: 'networkidle', timeout: 120000 })
   await page.locator('canvas').waitFor()
+  await button('Tools').click(); await button('Edit atoms and bonds...').click()
   await page.waitForFunction(() => document.querySelector('.statusbar')?.textContent?.includes('2 volume'))
   await page.evaluate(() => { window.workbenchTestCanvas = document.querySelector('canvas') })
   const layout = await page.locator('.inspector-content').evaluate((e) => {
@@ -125,7 +126,8 @@ try {
   record('Unavailable backend actions remain disabled with a keyboard accessible reason')
 
   await page.setViewportSize({ width: 600, height: 820 })
-  await button('Open structure inspector').click()
+  await button('Tools').click(); await button('Edit atoms and bonds...').click()
+  await page.getByRole('dialog', { name: 'Tools controls', exact: true }).waitFor({ state: 'hidden' })
   assert.equal(await page.getByRole('tab', { name: 'Structure', exact: true }).evaluate((e) => { const r = e.getBoundingClientRect(); return e.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) }), true)
   await page.screenshot({ path: path.join(artifacts, 'narrow.png') })
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)

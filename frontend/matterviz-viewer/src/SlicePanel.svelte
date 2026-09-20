@@ -147,7 +147,7 @@
       <input type="number" min="2" max="512" step="1" bind:value={resolution} aria-label={$t("Slice resolution")} />
     </label>
     <label>
-      <span>{$t("Colormap")}</span>
+      <span>{$t("Color scale")}</span>
       <select bind:value={colormap} aria-label={$t("Slice colormap")}>
         {#each SLICE_COLORMAPS as map}
           <option value={map}>{map}</option>

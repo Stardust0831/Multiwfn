@@ -15,8 +15,8 @@
     type MeasureMode,
   } from 'matterviz'
   import { parse_any_structure } from 'matterviz/structure/parse'
-  import { onMount, tick } from 'svelte'
-  import { PerspectiveCamera, OrthographicCamera } from 'three'
+  import { onMount, tick, untrack } from 'svelte'
+  import { PerspectiveCamera, OrthographicCamera, Box3, Sphere, Vector3, Mesh, type Plane } from 'three'
   import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
   import EspLegend from './EspLegend.svelte'
   import TopologyPanel from './TopologyPanel.svelte'
@@ -31,12 +31,19 @@
   import SlicePanel from './SlicePanel.svelte'
   import UpdateModal from './UpdateModal.svelte'
   import ViewerInspector from './ViewerInspector.svelte'
+  import RepInspector from './RepInspector.svelte'
+  import RepLayer from './RepLayer.svelte'
+  import './reps.css'
+  import { create_rep, dataset_key, migrate_reps, remap_rep_sources, MAX_REPS, type RepCollection, type Cell } from './reps'
+  import { LIGHTING_DEFAULTS, TMIM_LIGHTING_DEFAULTS } from './lighting'
   import WorkbenchMenu from './WorkbenchMenu.svelte'
   import WorkbenchSelect from './WorkbenchSelect.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Atom, Layers, Box, Orbit, PanelLeftClose, Languages } from '@lucide/svelte'
   import MeasurementReadout, { type BondResult } from './MeasurementReadout.svelte'
-  import { canvas_to_png_blob, scene_registry } from 'matterviz'
+  import { scene_registry } from 'matterviz'
+  import { scene_to_png_blob } from './scene-export'
+  import { migrate_color_scale } from './color-scale'
   import { render_plot_document } from './plot-export'
   import {
     cached_plot_resolver, download_blob, import_plot_document, plot_data_csv,
@@ -72,6 +79,7 @@
     orbital_frontier_label,
     visible_orbital_index,
   } from './orbital'
+  import { clipped_rep_bounds, type RepBondEdits } from './rep-periodic'
   import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
   import { request_return_and_close } from './return'
   import {
@@ -138,6 +146,7 @@
     }
   })
   let displayedStructure = $state<AnyStructure | undefined>()
+  let bondEdits = $state<RepBondEdits>({ added: [], removed: [], overrides: [] })
   let volumetricData = $state<VolumetricData[] | undefined>()
   let volumeEntries = $state<ManifestEntry[]>([])
   let isosurfaceSettings = $state<IsosurfaceSettings>({ ...DEFAULT_ISOSURFACE_SETTINGS })
@@ -187,7 +196,87 @@
   let espExtremaOpen = $state(false)
   let espExtremaLoading = $state(false)
   let espExtrema = $state<EspExtremaResult | undefined>()
+  let representations = $state<RepCollection>({ items: [], selectedId: '' })
+  let repsInitialized = $state(false)
+  let previousRepLayers = new Map<string, string>()
+  let advancedStructure = $state(false)
+  let repErrors = $state<Record<string, string>>({})
+  let repColorRanges = $state<Record<string, [number, number] | undefined>>({})
+  let repMeasurement = $state<{ id: string; structure: AnyStructure; sites: number[] }>()
+  const measurementSites = $derived(!advancedStructure && !topologyActive && !surfaceActive ? repMeasurement?.sites ?? [] : measuredSites)
+  const measurementStructure = $derived(!advancedStructure && !topologyActive && !surfaceActive && repMeasurement ? repMeasurement.structure : displayedStructure ?? structure)
+  const selectedRep = $derived(representations.items.find((rep) => rep.id === representations.selectedId))
+  const selectedRepCell = $derived(selectedRep?.source.kind === 'volume'
+    ? volumetricData?.[selectedRep.source.index]?.lattice
+    : structure && 'lattice' in structure ? structure.lattice.matrix : undefined)
   let inspectorOpen = $state(true)
+  $effect(() => { sceneProps.render_geometry = advancedStructure || topologyActive || surfaceActive })
+  $effect(() => {
+    // Only dataset/backend updates enter this bridge. Material edits and duplicate
+    // Reps remain independent of the old per-volume controls.
+    const entries = volumeEntries, layers = isosurfaceSettings.layers ?? [], ready = !loading && Boolean(structure)
+    if (!ready) return
+    untrack(() => {
+      if (!repsInitialized) {
+        representations = migrate_reps(sceneProps, isosurfaceSettings, entries, Boolean(manifest.periodic?.enabled), { atomSupercell: supercellScaling, showBoundaryAtoms: showImageAtoms, showUnitCell })
+        repsInitialized = true
+      } else {
+        let next = remap_rep_sources(representations, entries)
+        next = { ...next, items: next.items.filter((rep) => !(rep.followData && rep.source.kind === 'volume' && rep.source.index < 0)) }
+        const generated = migrate_reps(sceneProps, isosurfaceSettings, entries, Boolean(manifest.periodic?.enabled), { atomSupercell: supercellScaling, showBoundaryAtoms: showImageAtoms, showUnitCell }).items.slice(1)
+        for (const rep of generated) {
+          if (rep.source.kind !== 'volume') continue
+          const path = rep.source.path
+          const sourcePath = dataset_key(entries, rep.source.index)
+          const serialized = JSON.stringify(layers.find((layer) => layer.volume_idx === (rep.source.kind === 'volume' ? rep.source.index : -1)))
+          const existing = next.items.find((item) => item.followData && item.source.kind === 'volume' && item.source.path === path && (item.source.slot ?? 0) === (rep.source.kind === 'volume' ? rep.source.slot ?? 0 : 0))
+          if (!existing && next.items.length < MAX_REPS && previousRepLayers.get(sourcePath) !== serialized) next = { ...next, items: [...next.items, { ...rep, id: crypto.randomUUID() }] }
+          else if (existing && previousRepLayers.get(sourcePath) !== serialized) next = { ...next, items: next.items.map((item) => item.id === existing.id ? { ...item, visible: rep.visible, volume: rep.volume, material: { ...item.material, opacity: rep.material.opacity } } : item) }
+        }
+        if (!next.items.some((item) => item.id === next.selectedId)) next = { ...next, selectedId: next.items[0]?.id ?? '' }
+        representations = next
+      }
+      previousRepLayers = new Map(layers.map((layer, index) => [dataset_key(entries, layer.volume_idx ?? index), JSON.stringify(layer)]))
+    })
+  })
+  const update_representations = (next: RepCollection) => {
+    representations = next
+    repColorRanges = Object.fromEntries(Object.entries(repColorRanges).filter(([id]) => next.items.some((rep) => rep.id === id)))
+    const rep = next.items.find((item) => item.id === next.selectedId)
+    if (rep?.source.kind === 'volume' && rep.source.index >= 0) activeVolumeIdx = rep.source.index
+    if (repMeasurement && !next.items.some((item) => item.id === repMeasurement?.id && item.visible)) repMeasurement = undefined
+  }
+  const add_representation = () => {
+    if (representations.items.length >= MAX_REPS) return
+    const rep = create_rep({ kind: 'structure' })
+    rep.name = `Rep ${representations.items.length + 1}`
+    representations = { items: [...representations.items, rep], selectedId: rep.id }
+  }
+  const report_rep_error = (id: string, message: string) => {
+    if ((repErrors[id] ?? '') !== message) repErrors = { ...repErrors, [id]: message }
+  }
+  const report_rep_color_range = (id: string, range: [number, number] | undefined) => {
+    if (repColorRanges[id]?.[0] !== range?.[0] || repColorRanges[id]?.[1] !== range?.[1]) repColorRanges = { ...repColorRanges, [id]: range }
+    const rep = representations.items.find((item) => item.id === id)
+    if (range && rep && !migrate_color_scale(rep.volume)) {
+      // Freeze the migrated percentages only after a real surface range exists.
+      const volume = { ...rep.volume, colorScale: migrate_color_scale(rep.volume, range) }
+      representations = { ...representations, items: representations.items.map((item) => item.id === id ? { ...item, volume } : item) }
+    }
+  }
+  const measure_rep = (id: string, displayed: AnyStructure, sites: number[]) => {
+    repMeasurement = sites.length ? { id, structure: displayed, sites } : undefined
+  }
+  const open_representations = () => {
+    if (measureMode !== 'distance' && measureMode !== 'angle') measureMode = 'distance'
+    advancedStructure = false; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false
+    topologyActive = false; surfaceActive = false; layerOpen = false
+  }
+  const open_structure_editor = () => {
+    open_representations()
+    advancedStructure = true
+    openMenu = undefined
+  }
   let inspectorSection = $state<'structure' | 'surfaces' | 'cell'>('structure')
   let rotationStep = $state(15)
   let panStep = $state(0.25)
@@ -217,6 +306,7 @@
   let resultStage: HTMLDivElement
   let importingPlot = $state(false)
   let savingResult = $state(false)
+  let transparentExport = $state(false)
   let orbitalPanelOpen = $state(true)
   let orbitalListElement = $state<HTMLDivElement | undefined>()
   const homoIndex = $derived(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex)
@@ -285,9 +375,7 @@
       } else {
         const canvas = viewerShell?.querySelector<HTMLCanvasElement>('.structure canvas')
         if (!canvas) throw new Error('The 3D scene is not ready')
-        const scene = scene_registry.get(canvas)
-        if (!scene) throw new Error('The 3D renderer is not ready for export')
-        download_blob(await canvas_to_png_blob(canvas, 150, scene.scene, scene.camera), 'Multiwfn-scene.png')
+        download_blob(await scene_to_png_blob(canvas, transparentExport ? undefined : backgroundColor), 'Multiwfn-scene.png')
       }
       set_status(ui_message('{format} exported', { format: format.toUpperCase() }))
     } catch (error) { report_error(error) }
@@ -348,13 +436,13 @@
   }
 
   const displayed_source_site_index = (siteIndex: number): number | undefined => {
-    const properties = displayedStructure?.sites?.[siteIndex]?.properties
+    const properties = measurementStructure?.sites?.[siteIndex]?.properties
     const sourceIndex = properties?.orig_unit_cell_idx ?? properties?.orig_site_idx ?? siteIndex
     return Number.isInteger(sourceIndex) && Number(sourceIndex) >= 0 ? Number(sourceIndex) : undefined
   }
 
   const selected_source_bond_pair = (): BondPair | undefined => {
-    const displayedPair = valid_bond_pair(measuredSites)
+    const displayedPair = valid_bond_pair(measurementSites)
     if (!displayedPair) return undefined
     const first = displayed_source_site_index(displayedPair[0])
     const second = displayed_source_site_index(displayedPair[1])
@@ -403,7 +491,7 @@
   const open_bond_context_menu = async (detail: SelectedBondContextDetail): Promise<void> => {
     const displayedPair = valid_bond_pair(detail.displayed_site_indices)
     const sourcePair = valid_source_bond_pair(detail.source_site_indices)
-    const currentSelection = valid_bond_pair(measuredSites)
+    const currentSelection = valid_bond_pair(measurementSites)
     const methods = manifest.bondAnalysis?.methods
     if (
       !displayedPair ||
@@ -617,7 +705,7 @@
   ): Promise<number> => {
     const parsed = await Promise.all(entries.map((entry) => parse_volume_entry(entry, base)))
     const volumes = parsed.flatMap((item) => item.volumes)
-    const expandedEntries = entries.flatMap((entry, idx) => parsed[idx].volumes.map(() => entry))
+    const expandedEntries = entries.flatMap((entry, idx) => parsed[idx].volumes.map((_, datasetSlot) => ({ ...entry, datasetSlot })))
     const previousVolumes = mode === 'append' ? (volumetricData ?? []) : []
     const nextVolumes = [...previousVolumes, ...volumes]
     if (!structure) {
@@ -649,12 +737,14 @@
   }
 
   const compact_volumes = (options: VolumeCacheOptions = {}): Map<number, number> => {
+    const repReferences = representations.items.filter((rep) => !rep.followData && rep.source.kind === 'volume')
+      .flatMap((rep) => [rep.source.kind === 'volume' ? rep.source.index : -1, rep.volume.color_volume_idx ?? -1]).filter((index) => index >= 0)
     const compacted = compact_volume_cache({
       volumes: volumetricData ?? [],
       entries: volumeEntries,
       layers: isosurfaceSettings.layers ?? [],
       active_volume_idx: activeVolumeIdx,
-    }, options)
+    }, { ...options, retain_indices: [...(options.retain_indices ?? []), ...repReferences] })
     volumetricData = compacted.volumes
     volumeEntries = compacted.entries
     isosurfaceSettings = { ...isosurfaceSettings, layers: compacted.layers }
@@ -811,8 +901,14 @@
     return Boolean(left && right && compare_volume_grids(left, right).ok)
   }
 
+  const displayed_volume_layers = (): IsosurfaceLayer[] => {
+    if (!repsInitialized || advancedStructure) return isosurfaceSettings.layers ?? []
+    const items = [...representations.items].sort((a, b) => Number(b.id === representations.selectedId) - Number(a.id === representations.selectedId))
+    return items.flatMap((rep) => rep.source.kind === 'volume' && rep.source.index >= 0
+      ? [{ ...rep.volume, color_stops: migrate_color_scale(rep.volume)?.stops, color_range: rep.volume.color_range ?? repColorRanges[rep.id], volume_idx: rep.source.index, visible: rep.visible, opacity: rep.material.opacity }] : [])
+  }
   const esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined => {
-    return find_mapped_esp_pair(volumeEntries, isosurfaceSettings.layers ?? [], grids_compatible)
+    return find_mapped_esp_pair(volumeEntries, displayed_volume_layers(), grids_compatible)
   }
 
   const declared_esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined =>
@@ -836,8 +932,9 @@
   const linked_esp_range = (): [number, number] | undefined => {
     const pair = esp_pair()
     if (!pair) return undefined
-    const layer = (isosurfaceSettings.layers ?? []).find((item) => item.volume_idx === pair.densityIdx)
-    const range = layer?.color_range
+    const layer = displayed_volume_layers().find((item) => item.volume_idx === pair.densityIdx && item.color_volume_idx === pair.potentialIdx && item.visible)
+    const potentialRange = volumetricData?.[pair.potentialIdx]?.data_range
+    const range = layer?.color_range ?? (potentialRange ? [potentialRange.min, potentialRange.max] : undefined)
     if (!Array.isArray(range) || range.length < 2) return undefined
     const lower = Number(range[0])
     const upper = Number(range[1])
@@ -849,8 +946,12 @@
 
   const current_esp_colormap = (): NonNullable<IsosurfaceLayer['colormap']> => {
     const pair = esp_pair()
-    return (isosurfaceSettings.layers ?? []).find((layer) => layer.volume_idx === pair?.densityIdx)?.colormap
+    return displayed_volume_layers().find((layer) => layer.volume_idx === pair?.densityIdx && layer.color_volume_idx === pair?.potentialIdx && layer.visible)?.colormap
       ?? 'interpolateTransFlag'
+  }
+  const current_esp_color_stops = (): IsosurfaceLayer['color_stops'] => {
+    const pair = esp_pair()
+    return displayed_volume_layers().find((layer) => layer.volume_idx === pair?.densityIdx && layer.color_volume_idx === pair?.potentialIdx && layer.visible)?.color_stops
   }
 
   const state_url = (): URL | undefined => {
@@ -953,6 +1054,9 @@
     if (restored.topologyDisplay) topologyDisplay = restored.topologyDisplay
     const restoredEspRange = linked_esp_range()
     if (restoredEspRange) espRange = restoredEspRange
+    representations = restored.representations ?? migrate_reps(sceneProps, isosurfaceSettings, volumeEntries, Boolean(manifest.periodic?.enabled), { atomSupercell: supercellScaling, showBoundaryAtoms: showImageAtoms, showUnitCell })
+    repsInitialized = true
+    previousRepLayers = new Map((isosurfaceSettings.layers ?? []).map((layer, index) => [dataset_key(volumeEntries, layer.volume_idx ?? index), JSON.stringify(layer)]))
     set_status(ui_message('MatterViz workbench state restored'))
     add_log('Workbench state restored')
   }
@@ -1451,6 +1555,7 @@
       projection: sceneProps.camera_projection,
     }
     download_workbench_state(create_workbench_state({
+      representations: $state.snapshot(representations),
       manifest,
       sourceManifest: loadedManifestUrl.href,
       entries: volumeEntries,
@@ -1557,6 +1662,37 @@
     surfaceFitPending = false
   }
 
+  const fit_representations = (): void => {
+    const canvas = viewerShell?.querySelector('canvas')
+    const registered = canvas ? scene_registry.get(canvas) : undefined
+    if (!registered) return
+    const { scene, camera } = registered, bounds = new Box3()
+    for (const rep of representations.items.filter((item) => item.visible)) {
+      const group = scene.getObjectByName(`representation-${rep.id}`)
+      const localBounds = new Box3()
+      let planes: Plane[] = []
+      group?.traverseVisible((object) => {
+        if (!(object instanceof Mesh)) return
+        const materials = [object.material].flat()
+        if (materials.every((material) => !material.visible || material.opacity === 0)) return
+        localBounds.expandByObject(object)
+        planes = materials[0].clippingPlanes ?? []
+      })
+      bounds.union(clipped_rep_bounds(localBounds, planes))
+    }
+    if (bounds.isEmpty()) return
+    const sphere = bounds.getBoundingSphere(new Sphere()), radius = Math.max(0.1, sphere.radius) * 1.12
+    const direction = new Vector3(); camera.getWorldDirection(direction)
+    const pose = normalize_camera_pose({ position: camera.position.toArray(), target: sphere.center.toArray(), up: camera.up.toArray(), projection: camera instanceof OrthographicCamera ? 'orthographic' : 'perspective', ...(camera instanceof OrthographicCamera ? { zoom: camera.zoom } : {}) })
+    if (!pose) return
+    if (camera instanceof OrthographicCamera) {
+      apply_camera_pose({ ...pose, position: sphere.center.clone().addScaledVector(direction, -Math.max(radius * 2, 10)).toArray(), zoom: Math.min(camera.right - camera.left, camera.top - camera.bottom) / (radius * 2) })
+    } else if (camera instanceof PerspectiveCamera) {
+      const halfAngle = Math.atan(Math.tan(camera.fov * Math.PI / 360) * Math.min(1, camera.aspect))
+      apply_camera_pose({ ...pose, position: sphere.center.clone().addScaledVector(direction, -radius / Math.sin(halfAngle)).toArray() })
+    }
+  }
+
   const step_rotate = (direction: CameraDirection): void => {
     const pose = current_camera_pose()
     const step = normalize_camera_step(rotationStep, 'rotation')
@@ -1609,6 +1745,7 @@
   }
 
   const open_panel = (panel: 'layers' | 'slice' | 'logs'): void => {
+    if (panel === 'layers' && !advancedStructure) { open_representations(); return }
     const next = panel === 'layers' ? !layerOpen
       : panel === 'slice' ? !sliceOpen
         : !logOpen
@@ -1628,9 +1765,9 @@
   }
 
   $effect(() => {
-    measuredSites
+    measurementSites
     structure
-    displayedStructure
+    measurementStructure
     close_bond_context_menu()
   })
 
@@ -1694,7 +1831,7 @@
   })
 </script>
 
-<main class="workbench" class:has-periodic={Boolean(manifest.periodic?.enabled) && activeResult === 'scene'}>
+<main class="workbench" class:has-periodic={advancedStructure && Boolean(manifest.periodic?.enabled) && activeResult === 'scene'}>
   <header class="toolbar">
     <div class="brand">
       <div class="brand-mark"><Atom size={21} strokeWidth={1.6} /></div>
@@ -1752,6 +1889,7 @@
     {/if}
     {#if activeResult === 'scene'}
     <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
+    <Button variant="ghost" size="sm" type="button" onclick={open_structure_editor} disabled={!structure}>{$t("Edit atoms and bonds...")}</Button>
     <div class="menu-heading">{$t("Quantitative molecular surface")}</div>
     <AnalysisAction reason={surfaceResult ? '' : 'Run main function 12, then choose post-processing option 0 to view its results'} busy={false} onclick={open_surface_results}>{$t("Quantitative surface results...")}</AnalysisAction>
     <div class="menu-heading">{$t("Topology analysis (AIM)")}</div>
@@ -1781,6 +1919,9 @@
     </WorkbenchMenu>
     {/if}
     <WorkbenchMenu name="save" label="Save" bind:active={openMenu}>
+      {#if !active_plot}
+        <label><input type="checkbox" bind:checked={transparentExport} disabled={savingResult} /><span>{$t("Transparent background")}</span></label>
+      {/if}
       <Button variant="ghost" size="sm" type="button" onclick={() => save_result('png')} disabled={savingResult || (!active_plot && !scene_available)}><Icon icon="Download" width="16" height="16" />{$t("PNG image")}</Button>
       {#if active_plot}
         <Button variant="ghost" size="sm" type="button" onclick={() => save_result('pdf')} disabled={savingResult}>{$t("PDF figure")}</Button>
@@ -1808,8 +1949,8 @@
     <Button variant="outline" size="sm" class="return text-xs" type="button" title={$t("Return to the Multiwfn calculation menu")} onclick={return_to_multiwfn} disabled={returnPending || savingResult}>{$t("Return")}</Button>
   </header>
 
-  {#if manifest.periodic?.enabled && activeResult === 'scene'}
-    <section class="periodic-bar" aria-label={$t("Periodic surface range")}>
+  {#if advancedStructure && manifest.periodic?.enabled && activeResult === 'scene'}
+    <section class="periodic-bar" aria-label={$t("Periodic surface range")} hidden={!advancedStructure}>
       <strong>{$t("Surface range")}</strong>
       {#each ['a', 'b', 'c'] as axis, axis_idx}
         <label>
@@ -1855,19 +1996,8 @@
   <div class="result-stage" bind:this={resultStage}>
   <section class="workspace" class:has-topology={topologyPanelOpen || surfacePanelOpen} class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen && !topologyPanelOpen && !surfacePanelOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
     <nav class="tool-rail" aria-label={$t("Inspector tools")}>
-      <button type="button" class:active={inspectorOpen && inspectorSection === 'structure'} aria-label={$t("Open structure inspector")} aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'structure'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
-        <Atom size={17} aria-hidden="true" /><small>{$t("Atoms")}</small>
-      </button>
-      <button type="button" class:active={inspectorOpen && inspectorSection === 'surfaces'} aria-label={$t("Open surfaces inspector")} aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'surfaces'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
-        <Layers size={17} aria-hidden="true" /><small>{$t("Surface")}</small>
-      </button>
-      {#if manifest.periodic?.enabled}
-        <button type="button" class:active={inspectorOpen && inspectorSection === 'cell'} aria-label={$t("Open cell inspector")} aria-expanded={inspectorOpen} onclick={() => { inspectorSection = 'cell'; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false }}>
-          <Box size={17} aria-hidden="true" /><small>{$t("Cell")}</small>
-        </button>
-      {/if}
-      <button type="button" class:active={layerOpen} aria-label={$t("Open volume layers ({count})", { count: volumeEntries.length })} aria-expanded={layerOpen} onclick={() => open_panel('layers')}>
-        <Layers size={17} aria-hidden="true" /><small>{$t("Layers")}</small>
+      <button type="button" class:active={inspectorOpen && !advancedStructure} aria-label={$t("Open representations")} aria-expanded={inspectorOpen} onclick={open_representations}>
+        <Layers size={17} aria-hidden="true" /><small>Reps</small>
       </button>
       {#if orbital_selection_available()}
       <button type="button" class:active={orbitalPanelOpen} aria-label={$t("Toggle orbitals")} aria-expanded={orbitalPanelOpen} onclick={() => orbitalPanelOpen = !orbitalPanelOpen}>
@@ -1879,7 +2009,10 @@
       </button>
     </nav>
 
-    {#if inspectorOpen && !topologyPanelOpen && !surfacePanelOpen}
+    {#if inspectorOpen && !topologyPanelOpen && !surfacePanelOpen && !advancedStructure}
+      <RepInspector collection={representations} entries={volumeEntries} sourceCell={selectedRepCell as Cell | undefined}
+        onchange={update_representations} onadd={add_representation} onclose={() => inspectorOpen = false} scene={repSceneSettings} errors={repErrors} />
+    {:else if inspectorOpen && !topologyPanelOpen && !surfacePanelOpen}
       <ViewerInspector
         bind:section={inspectorSection}
         scene_props={{ ...sceneProps, background_color: backgroundColor, background_opacity: backgroundOpacity }}
@@ -1909,10 +2042,12 @@
       <TopologyPanel bind:options={topologyOptions} bind:display={topologyDisplay} bind:active={topologyActive} bind:selection={topologySelection} result={topologyResult} busy={loading} reason={topologyReason} cell={topologyCell} onrun={() => void request_topology()} onclose={() => topologyPanelOpen = false} onexport={export_topology} />
     {/if}
     <section class="viewer-shell">
+    {#if advancedStructure}<div class="rep-edit-banner"><span>{$t("Editing source structure. Atom and bond edits apply to all Reps.")}</span><button type="button" onclick={open_representations}>{$t("Back to Reps")}</button></div>{/if}
     <div class="scene-viewport" bind:this={viewerShell}>
       {#if structure}
         <Structure
           bind:structure
+          bind:added_bonds={bondEdits.added} bind:removed_bonds={bondEdits.removed} bind:bond_order_overrides={bondEdits.overrides}
           bind:displayed_structure={displayedStructure}
           bind:volumetric_data={volumetricData}
           bind:isosurface_settings={isosurfaceSettings}
@@ -1937,7 +2072,8 @@
             angle: { max_sites: 4, overflow: 'reject' },
           }}
           measure_geometry="ordered"
-          show_controls="always"
+          show_atom_legend={advancedStructure || topologyActive || surfaceActive}
+          show_controls={advancedStructure ? "always" : "never"}
           allow_file_drop={false}
           topology_view={topologyActive && Boolean(topologyResult)}
           surface_view={surfaceActive && Boolean(surfaceResult)}
@@ -1999,16 +2135,16 @@
       {/if}
       {#if !topologyActive && !surfaceActive && espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
-        <EspLegend min={legendRange[0]} max={legendRange[1]} colormap={current_esp_colormap()} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
+        <EspLegend min={legendRange[0]} max={legendRange[1]} colormap={current_esp_colormap()} color_stops={current_esp_color_stops()} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
     </div>
-    {#if loading || measuredSites.length || bondResults.length}
+    {#if loading || measurementSites.length || bondResults.length}
       <div class="scene-readouts" aria-label={$t("Calculation and measurement results")}>
         {#if loading}
           <div class="calculation-status" role="status"><progress aria-label={format_message($locale, workingMessage)}></progress><span>{format_message($locale, workingMessage)}</span></div>
         {/if}
-        <MeasurementReadout structure={displayedStructure ?? structure} sites={measuredSites} mode={measureMode} bonds={bondResults}
-          on_clear_selection={() => measuredSites = []}
+        <MeasurementReadout structure={measurementStructure} sites={measurementSites} mode={measureMode} bonds={bondResults}
+          on_clear_selection={() => { measuredSites = []; repMeasurement = undefined }}
           on_remove_bond={(key) => bondResults = bondResults.filter((result) => result.key !== key)} />
       </div>
     {/if}
@@ -2178,7 +2314,7 @@
               {/if}
               {#if layer?.color_volume_idx !== undefined}
                 <label>
-                  <span>{$t("Colormap")}</span>
+                  <span>{$t("Color scale")}</span>
                   <select
                     value={layer.colormap || 'interpolateRdBu'}
                     onchange={(event) => update_layer(volumeIdx, { colormap: event.currentTarget.value as IsosurfaceLayer['colormap'] })}
@@ -2279,7 +2415,29 @@
     <SurfaceAnalysisOverlay result={surfaceResult} display={surfaceDisplay} selection={surfaceSelection} onready={() => { if (surfaceFitPending) fit_surface() }} onselect={(selection) => { surfaceSelection = selection; surfacePanelOpen = true; topologyPanelOpen = false }} />
   {:else if topologyActive && topologyResult}
     <TopologyOverlay result={topologyResult} display={topologyDisplay} selection={topologySelection} cell={topologyCell} onselect={(selection) => { topologySelection = selection; topologyPanelOpen = true }} />
+  {:else if !advancedStructure && structure}
+    {#each representations.items.filter((rep) => rep.visible) as rep, order (rep.id)}
+      <RepLayer {rep} {order} {structure} {bondEdits} volumes={volumetricData ?? []} {measureMode} sceneProps={sceneProps}
+        measurementOwner={repMeasurement?.id ?? ''}
+        budget={isosurfaceSettings.geometry_memory_budget_bytes === undefined ? undefined : Math.floor(isosurfaceSettings.geometry_memory_budget_bytes / Math.max(1, representations.items.filter((item) => item.visible && item.source.kind === 'volume').length))}
+        onmeasure={measure_rep} oncontext={open_bond_context_menu} onerror={report_rep_error} oncolorrange={report_rep_color_range} />
+    {/each}
   {/if}
+{/snippet}
+
+{#snippet repSceneSettings()}
+  <h3>{$t("Camera & display")}</h3>
+  <button type="button" class="rep-add" onclick={fit_representations}>{$t("Fit all visible Reps")}</button>
+  <label class="rep-field"><span>{$t("Measurement")}</span><select bind:value={measureMode}><option value="distance">{$t("Distance")}</option><option value="angle">{$t("Angle / dihedral")}</option></select></label>
+  <label class="rep-toggle"><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} />{$t("Axes")}</label>
+  <label class="rep-field"><span>{$t("Background")}</span><input type="color" bind:value={backgroundColor} /></label>
+  <label class="rep-scalar"><span>{$t("Background opacity")}</span><input type="number" min="0" max="1" step="0.05" bind:value={backgroundOpacity} /><input type="range" min="0" max="1" step="0.05" bind:value={backgroundOpacity} aria-label={$t("Background opacity")} /></label>
+  <h3>{$t("Lighting")}</h3>
+  <label class="rep-field"><span>{$t("Lighting preset")}</span><select value={sceneProps.lighting_rig ?? 'default'} onchange={(event) => { const studio = event.currentTarget.value === 'tmim'; sceneProps = { ...sceneProps, lighting_rig: studio ? 'tmim' : 'default', scene_tone_mapping: studio ? 'none' : 'agx', ...(studio ? TMIM_LIGHTING_DEFAULTS : { ...LIGHTING_DEFAULTS, fill_light: 0.38, rim_light: 0.24 }) } }}><option value="default">{$t("Standard lighting")}</option><option value="tmim">{$t("Studio lighting")}</option></select></label>
+  {#each [{ key: 'ambient_light', label: 'Ambient light', fallback: 0.72 }, { key: 'directional_light', label: 'Directional light', fallback: 1.2 }, { key: 'fill_light', label: 'Fill light', fallback: 0.38 }, { key: 'rim_light', label: 'Rim light', fallback: 0.24 }] as control}
+    <label class="rep-scalar"><span>{$t(control.label)}</span><input type="number" min="0" max="4" step="0.05" value={Number(sceneProps[control.key] ?? control.fallback)} oninput={(event) => { if (Number.isFinite(event.currentTarget.valueAsNumber)) sceneProps = { ...sceneProps, [control.key]: Math.max(0, Math.min(4, event.currentTarget.valueAsNumber)) } }} /><input type="range" min="0" max="4" step="0.05" value={Number(sceneProps[control.key] ?? control.fallback)} aria-label={$t(control.label)} oninput={(event) => sceneProps = { ...sceneProps, [control.key]: event.currentTarget.valueAsNumber }} /></label>
+  {/each}
+  <p class="rep-help">{$t("Scene lighting is shared. Set opacity and reflection separately for each Rep.")}</p>
 {/snippet}
 
 <style>

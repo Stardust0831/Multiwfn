@@ -5,6 +5,7 @@ import { normalize_topology_display, type TopologyDisplay } from './topology.ts'
 import { normalize_surface_appearance } from './material.ts'
 import { normalize_lighting } from './lighting.ts'
 import { normalize_atom_style, type AtomStyleSettings } from './atom-style.ts'
+import { normalize_reps, remap_rep_sources, type RepCollection } from './reps.ts'
 
 const WORKBENCH_SLICE_COLORMAPS = new Set(['Viridis', 'RdBu', 'Jet', 'Portland'])
 
@@ -81,6 +82,7 @@ export type WorkbenchEspLegendState = {
 export type MatterVizWorkbenchState = {
   format: 'multiwfn-matterviz-workbench'
   version: 1
+  representations?: RepCollection
   sourceManifest?: string
   activeVolume: number
   volumes: Array<ManifestEntry & {
@@ -111,6 +113,7 @@ export type MatterVizWorkbenchState = {
 }
 
 export type WorkbenchStateInput = {
+  representations?: RepCollection
   manifest: MultiwfnManifest
   sourceManifest?: string
   entries: ManifestEntry[]
@@ -129,6 +132,7 @@ export type WorkbenchStateInput = {
 }
 
 export type WorkbenchStateRestoration = {
+  representations?: RepCollection
   activeVolume: number
   isosurfaceSettings: IsosurfaceSettings
   periodic?: MatterVizWorkbenchState['periodic']
@@ -333,7 +337,7 @@ const normalize_layer_snapshot = (value: unknown): MatterVizWorkbenchState['volu
   for (const key of ['name', 'format', 'role', 'mode', 'analysisKind'] as const) {
     if (typeof row[key] === 'string') entry[key] = row[key]
   }
-  for (const key of ['isovalue', 'opacity', 'orbitalIndex'] as const) {
+  for (const key of ['isovalue', 'opacity', 'orbitalIndex', 'datasetSlot'] as const) {
     const number = finite_number(row[key])
     if (number !== undefined) entry[key] = number
   }
@@ -372,6 +376,7 @@ export const create_workbench_state = (input: WorkbenchStateInput): MatterVizWor
     format: 'multiwfn-matterviz-workbench',
     version: 1,
     sourceManifest: input.sourceManifest,
+    representations: input.representations ? normalize_reps(input.representations) : undefined,
     activeVolume: Math.min(
       Math.max(0, input.entries.length - 1),
       Math.max(0, Math.trunc(Number(input.activeVolume) || 0)),
@@ -451,6 +456,7 @@ export const parse_workbench_state = (value: unknown): MatterVizWorkbenchState =
     format: 'multiwfn-matterviz-workbench',
     version: 1,
     sourceManifest,
+    representations: root.representations === undefined ? undefined : normalize_reps(root.representations),
     activeVolume: Math.min(Math.max(0, volumes.length - 1), Math.max(0, activeVolume)),
     volumes,
     periodic,
@@ -517,6 +523,7 @@ export const restore_workbench_state = (
   }
   return {
     activeVolume: clamp_index(state.activeVolume, input.entries.length),
+    representations: state.representations ? remap_rep_sources(state.representations, input.entries) : undefined,
     isosurfaceSettings,
     periodic: state.periodic,
     camera: state.camera,

@@ -13,7 +13,7 @@
   } = $props()
 
   const selected = $derived(sites.map((index) => structure?.sites[index]))
-  const names = $derived(sites.map((index, order) => `${selected[order]?.species?.[0]?.element ?? 'Atom'}${index + 1}`).join(' - '))
+  const names = $derived(sites.map((index, order) => `${selected[order]?.species?.[0]?.element ?? 'Atom'}${Number(selected[order]?.properties?.rep_source_index ?? index) + 1}`).join(' - '))
   const geometry = $derived.by(() => {
     if (selected.some((site) => !site)) return undefined
     const [a, b, c, d] = selected

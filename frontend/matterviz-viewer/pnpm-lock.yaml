@@ -27,8 +27,8 @@ importers:
         specifier: ^4.2.1
         version: 4.2.1
       matterviz:
-        specifier: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.upstream1.tgz
-        version: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.upstream1.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0)))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0))
+        specifier: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz
+        version: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0)))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0))
       svelte:
         specifier: ^5.56.4
         version: 5.56.4
@@ -738,9 +738,9 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.upstream1.tgz:
-    resolution: {integrity: sha512-CcPLjkwXGznZ+4GFfKqXPHwZWG6VxkTr4Maa5EuBLUc9PKtRrG1s1WJfV6kLaApSmPq5gf58n+/taFa2+U5Lgg==, tarball: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.upstream1.tgz}
-    version: 0.4.2-multiwfn.d8719d12.r25.upstream1
+  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz:
+    resolution: {integrity: sha512-yGk/XdkTHjBzCWb22E0volU2TbcfIrdNnhLZHy4I1fPpRFarldvPqn9SFOwq8xIzcDlKtceenXugfnxWJUnQ5w==, tarball: file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz}
+    version: 0.4.2-multiwfn.d8719d12.r25.reps2
     engines: {node: '>=24'}
     peerDependencies:
       svelte: ^5.0.0
@@ -1599,7 +1599,7 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.upstream1.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0)))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0)):
+  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0)))(@types/three@0.185.1)(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0)):
     dependencies:
       '@spglib/moyo-wasm': 0.14.0
       '@sveltejs/kit': 2.69.2(@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0)))(svelte@5.56.4)(typescript@6.0.3)(vite@8.1.4(@types/node@24.13.4)(jiti@2.7.0))

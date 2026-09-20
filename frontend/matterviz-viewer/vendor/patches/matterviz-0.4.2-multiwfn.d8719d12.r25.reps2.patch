@@ -1,0 +1,125 @@
+--- /dev/null
++++ b/dist/colors/stops.d.ts
+@@ -0,0 +1,6 @@
++export type ColorStop = { position: number; color: string };
++export declare const MAX_COLOR_STOPS = 32;
++export declare function normalize_color_stops(value: unknown): ColorStop[];
++export declare function color_stop_interpolator(stops: readonly ColorStop[]): (position: number, out?: number[]) => number[];
++export declare function color_stop_hex(stops: readonly ColorStop[], position: number): string;
++export declare function color_stops_gradient(stops: readonly ColorStop[], direction?: 'to right' | 'to top'): string;
+--- /dev/null
++++ b/dist/colors/stops.js
+@@ -0,0 +1,44 @@
++// Editable continuous color scales. Positions use [0, 1] of the scalar range;
++// colors interpolate in sRGB, then the renderer converts to linear vertex RGB.
++export const MAX_COLOR_STOPS = 32;
++export function normalize_color_stops(value) {
++    if (!Array.isArray(value) || value.length < 2 || value.length > MAX_COLOR_STOPS)
++        throw new Error(`Use between 2 and 32 color stops`);
++    const stops = value.map((stop) => {
++        if (!stop || typeof stop.position !== `number` || !Number.isFinite(stop.position)
++            || stop.position < 0 || stop.position > 1)
++            throw new Error(`Color stop positions must be between 0% and 100%`);
++        if (typeof stop.color !== `string` || !/^#[0-9a-f]{6}$/i.test(stop.color))
++            throw new Error(`Use a six-digit hex color for each stop`);
++        return { position: stop.position, color: stop.color.toLowerCase() };
++    }).sort((a, b) => a.position - b.position);
++    if (stops.some((stop, index) => index > 0 && stop.position <= stops[index - 1].position))
++        throw new Error(`Color stop positions must be distinct`);
++    return stops;
++}
++export function color_stop_interpolator(value) {
++    const stops = normalize_color_stops(value);
++    const colors = stops.map(({ color }) => {
++        const hex = Number.parseInt(color.slice(1), 16);
++        return [(hex >> 16) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
++    });
++    return (position, out = [0, 0, 0]) => {
++        const t = Number.isFinite(position) ? position : 0.5;
++        let right = stops.findIndex((stop) => stop.position >= t);
++        if (right < 0) right = stops.length - 1;
++        const left = Math.max(0, right - 1);
++        const span = stops[right].position - stops[left].position;
++        const fraction = span > 0 ? Math.max(0, Math.min(1, (t - stops[left].position) / span)) : 0;
++        for (let channel = 0; channel < 3; channel++)
++            out[channel] = colors[left][channel] + (colors[right][channel] - colors[left][channel]) * fraction;
++        return out;
++    };
++}
++export function color_stop_hex(stops, position) {
++    return `#` + color_stop_interpolator(stops)(position)
++        .map((channel) => Math.round(channel * 255).toString(16).padStart(2, `0`)).join(``);
++}
++export function color_stops_gradient(stops, direction = `to right`) {
++    return `linear-gradient(${direction} in srgb, ${normalize_color_stops(stops)
++        .map(({ position, color }) => `${color} ${position * 100}%`).join(`, `)})`;
++}
+--- a/dist/isosurface/Isosurface.svelte
++++ b/dist/isosurface/Isosurface.svelte
+@@ -55,0 +56 @@
++    on_color_ranges = undefined,
+@@ -67,0 +69,2 @@
++    // Actual scalar ranges used for each layer, including surface-fitted defaults.
++    on_color_ranges?: (ranges: ([number, number] | undefined)[]) => void
+@@ -618,0 +622 @@
++          color_stops: layer.color_stops,
+@@ -627,0 +632 @@
++    on_color_ranges?.(layers.map((layer, index) => layer.color_range ?? auto_ranges.get(index)))
+@@ -641,0 +647 @@
++          JSON.stringify(layer.color_stops ?? []),
+--- a/dist/isosurface/Isosurface.svelte.d.ts
++++ b/dist/isosurface/Isosurface.svelte.d.ts
+@@ -9,0 +10 @@
++    on_color_ranges?: (ranges: ([number, number] | undefined)[]) => void;
+--- a/dist/isosurface/coloring.d.ts
++++ b/dist/isosurface/coloring.d.ts
+@@ -3,0 +4 @@
++import type { ColorStop } from '../colors/stops';
+@@ -9,0 +11 @@
++    color_stops?: ColorStop[];
+@@ -13 +15 @@
+-export declare function scalars_to_vertex_colors(scalars: Float32Array, { colormap, color_range, fallback_color }: VertexColorOptions, out?: Float32Array): Float32Array;
++export declare function scalars_to_vertex_colors(scalars: Float32Array, options: VertexColorOptions, out?: Float32Array): Float32Array;
+--- a/dist/isosurface/coloring.js
++++ b/dist/isosurface/coloring.js
+@@ -2 +2,2 @@
+-import { Color } from 'three';
++import { Color, SRGBColorSpace } from 'three';
++import { color_stop_interpolator } from '../colors/stops.js';
+@@ -58,2 +59,4 @@
+-export function scalars_to_vertex_colors(scalars, { colormap, color_range, fallback_color = `#808080` }, out) {
+-    const lut = get_colormap_lut(colormap);
++export function scalars_to_vertex_colors(scalars, { colormap, color_stops, color_range, fallback_color = `#808080` }, out) {
++    const custom = color_stops === undefined ? null : color_stop_interpolator(color_stops);
++    const lut = custom ? null : get_colormap_lut(colormap);
++    const rgb = [0, 0, 0];
+@@ -74 +77 @@
+-        const normalized = colormap === `interpolateTransFlag`
++        const normalized = !custom && colormap === `interpolateTransFlag`
+@@ -77,0 +81,8 @@
++        if (custom) {
++            custom(clamped, rgb);
++            scratch_color.setRGB(rgb[0], rgb[1], rgb[2], SRGBColorSpace);
++            colors[idx * 3] = scratch_color.r;
++            colors[idx * 3 + 1] = scratch_color.g;
++            colors[idx * 3 + 2] = scratch_color.b;
++            continue;
++        }
+--- a/dist/isosurface/types.d.ts
++++ b/dist/isosurface/types.d.ts
+@@ -1,0 +2 @@
++import type { ColorStop } from '../colors/stops';
+@@ -39,0 +41 @@
++    color_stops?: ColorStop[];
+--- a/package.json
++++ b/package.json
+@@ -3 +3 @@
+-  "version": "0.4.2-multiwfn.d8719d12.r25.reps1",
++  "version": "0.4.2-multiwfn.d8719d12.r25.reps2",
+@@ -204 +204,5 @@
+-    "./xrd/atomic_scattering_params.json": "./dist/xrd/atomic_scattering_params.json"
++    "./xrd/atomic_scattering_params.json": "./dist/xrd/atomic_scattering_params.json",
++    "./colors/stops": {
++      "types": "./dist/colors/stops.d.ts",
++      "default": "./dist/colors/stops.js"
++    }

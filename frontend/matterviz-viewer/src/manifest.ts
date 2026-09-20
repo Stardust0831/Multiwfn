@@ -8,6 +8,7 @@ export type ManifestEntry = {
   opacity?: number
   orbitalIndex?: number
   gridQuality?: number
+  datasetSlot?: number
   visible?: boolean
   analysisKind?: string
 }
