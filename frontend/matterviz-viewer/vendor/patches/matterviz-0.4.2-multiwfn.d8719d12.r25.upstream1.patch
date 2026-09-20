@@ -1,0 +1,482 @@
+--- a/dist/io/decompress.d.ts
++++ b/dist/io/decompress.d.ts
+@@ -1,6 +1,8 @@
+ import type { COMPRESSION_EXTENSIONS } from '../constants';
+ import { COMPRESSION_FORMATS } from '../constants';
+ export declare function strip_compression_extensions(filename: string): string;
++export declare const MAX_INFLATED_BYTES: number;
++export declare function inflation_limiter(format: string, max_bytes?: number): TransformStream<Uint8Array, Uint8Array>;
+ export type CompressionFormat = keyof typeof COMPRESSION_FORMATS;
+ export type CompressionExtension = (typeof COMPRESSION_EXTENSIONS)[number];
+ export type BrowserCompressionFormat = Exclude<CompressionFormat, `zip` | `xz` | `bz2`>;
+--- a/dist/io/decompress.js
++++ b/dist/io/decompress.js
+@@ -22,6 +22,19 @@
+     const buffer = await decompress_data_binary(data, format);
+     return new TextDecoder().decode(buffer);
+ }
++// Upstream #461: bound the inflated stream before buffering it into a Response.
++export const MAX_INFLATED_BYTES = 2 * 1024 * 1024 * 1024;
++export function inflation_limiter(format, max_bytes = MAX_INFLATED_BYTES) {
++    let inflated = 0;
++    return new TransformStream({
++        transform(chunk, controller) {
++            inflated += chunk.byteLength;
++            if (inflated > max_bytes)
++                throw new Error(`${format.toUpperCase()} payload exceeds the ${max_bytes}-byte inflated limit; extract it and open the parts you need`);
++            controller.enqueue(chunk);
++        },
++    });
++}
+ // Decompress data and return as ArrayBuffer (for binary files like .brml.gz)
+ export async function decompress_data_binary(data, format) {
+     try {
+@@ -40,7 +53,7 @@
+         if (!stream)
+             throw new Error(`Invalid data stream`);
+         const unzip = new DecompressionStream(format);
+-        return await new Response(stream.pipeThrough(unzip)).arrayBuffer();
++        return await new Response(stream.pipeThrough(unzip).pipeThrough(inflation_limiter(format))).arrayBuffer();
+     }
+     catch (error) {
+         throw new Error(`Failed to decompress ${format} file: ${error}`, { cause: error });
+--- a/dist/io/is-binary.js
++++ b/dist/io/is-binary.js
+@@ -17,7 +17,8 @@
+             (char_code >= 127 && char_code <= 255)) {
+             binary_char_count += 1;
+         }
+-        if (char_code >= 32 && char_code <= 126)
++        // CRLF, tabs and other ASCII whitespace are text, not missing printables.
++        if ((char_code >= 32 && char_code <= 126) || (char_code >= 9 && char_code <= 13))
+             printable_ascii_count += 1;
+     }
+     return (binary_char_count / content.length > 0.1 || printable_ascii_count / content.length < 0.7);
+--- a/dist/isosurface/Isosurface.svelte
++++ b/dist/isosurface/Isosurface.svelte
+@@ -29,7 +29,7 @@
+   import type { DisplayRange } from './sampling'
+   import {
+     create_volume_sampler,
+-    extract_volume_range,
++    prepare_geometry_grid,
+     sanitize_display_range,
+     volume_reference_origin,
+   } from './sampling'
+@@ -44,12 +44,7 @@
+     remaining_geometry_budget,
+     request_isosurface_geometry,
+   } from './geometry'
+-  import {
+-    DEFAULT_ISOSURFACE_SETTINGS,
+-    downsample_grid,
+-    pad_periodic_grid,
+-    tile_volumetric_data,
+-  } from './types'
++  import { DEFAULT_ISOSURFACE_SETTINGS } from './types'
+ 
+   let {
+     volumes = [],
+@@ -140,14 +135,20 @@
+     ]) as DisplayRange
+   }
+ 
+-  // === Geometry-volume preparation (tile/range-extract → downsample → halo pad) ===
++  const preserve_source_grid = (vol: VolumetricData): boolean =>
++    Number.isFinite(settings.geometry_memory_budget_bytes) &&
++    (settings.geometry_memory_budget_bytes ?? 0) >= 0 && is_scalar_grid(vol.grid)
++
++  // === Endpoint-aligned geometry-volume preparation ===
+   type PreparedGrid = {
+     tiling_key: string
+     halo: number
+     range_key: string
+     ref_origin_key: string
++    preserve_grid: boolean
+     grid: ScalarGridLike
+     lattice: Matrix3x3
++    periodic: boolean
+     // Cartesian shift applied to marching-cubes vertices: halo/range offset plus
+     // this volume's origin delta relative to the scene reference (first volume's origin)
+     vertex_shift: Vec3 | null
+@@ -165,62 +166,26 @@
+     const vol_range_key = range_key(vol)
+     const ref_origin = volume_reference_origin(all_volumes)
+     const ref_origin_key = ref_origin.join(`,`)
++    const preserve_grid = preserve_source_grid(vol)
+     const cached = prepared_cache.get(vol)
+     if (
+       cached &&
+       cached.tiling_key === tiling_key &&
+       cached.halo === halo &&
+       cached.range_key === vol_range_key &&
+-      cached.ref_origin_key === ref_origin_key
++      cached.ref_origin_key === ref_origin_key &&
++      cached.preserve_grid === preserve_grid
+     )
+       return cached
+ 
+     if (cached && cached.grid !== vol.grid && is_scalar_grid(cached.grid))
+       release_isosurface_geometry(cached.grid)
+ 
+-    // Both branches yield the marching-cubes grid, the lattice spanning it, and
+-    // the Cartesian position of its corner; the vertex shift falls out uniformly.
+-    let mc_grid: ScalarGridLike
+-    let mc_lattice: Matrix3x3
+-    let origin: Vec3 = vol.origin
+-
+-    const range = effective_range(vol)
+-    if (range) {
+-      // Fractional display range: resample the periodic volume over the range so
+-      // marching cubes clips exactly at the requested fractional bounds
+-      ;({ grid: mc_grid, lattice: mc_lattice, origin } = extract_volume_range(vol, range))
+-    } else {
+-      const is_unit_tiling = tiling[0] === 1 && tiling[1] === 1 && tiling[2] === 1
+-      const tiled = is_unit_tiling ? vol : tile_volumetric_data(vol, tiling)
+-      const managed_budget = Number.isFinite(settings.geometry_memory_budget_bytes) &&
+-        (settings.geometry_memory_budget_bytes ?? 0) >= 0
+-      const direct_flat = is_unit_tiling && halo === 0 && managed_budget && is_scalar_grid(tiled.grid)
+-      const ds = direct_flat
+-        ? { grid: tiled.grid, dims: tiled.grid_dims, factor: 1 }
+-        : downsample_grid(tiled.grid, tiled.grid_dims)
+-
+-      mc_grid = ds.grid
+-      mc_lattice = tiled.lattice
+-
+-      if (halo > 0) {
+-        const padded = pad_periodic_grid(ds.grid, ds.dims, halo)
+-        mc_grid = padded.grid
+-        // marching_cubes maps [0,1] fractional -> Cartesian via lattice. The padded
+-        // grid covers a wider fractional range, so scale the lattice to match and
+-        // move the corner origin by the (negative) fractional padding offset.
+-        const [la, lb, lc] = tiled.lattice
+-        const scales = padded.dims.map((dim, axis) => dim / ds.dims[axis])
+-        mc_lattice = [la, lb, lc].map((row, axis) =>
+-          row.map((comp) => comp * scales[axis]),
+-        ) as Matrix3x3
+-        const [ox, oy, oz] = padded.offset
+-        origin = [
+-          vol.origin[0] + ox * la[0] + oy * lb[0] + oz * lc[0],
+-          vol.origin[1] + ox * la[1] + oy * lb[1] + oz * lc[1],
+-          vol.origin[2] + ox * la[2] + oy * lb[2] + oz * lc[2],
+-        ]
+-      }
+-    }
++    const { grid, lattice, origin, periodic } = prepare_geometry_grid(vol, effective_range(vol), {
++      tiling,
++      halo,
++      preserve_grid,
++    })
+ 
+     const shift: Vec3 = [
+       origin[0] - ref_origin[0],
+@@ -233,8 +198,10 @@
+       halo,
+       range_key: vol_range_key,
+       ref_origin_key,
+-      grid: mc_grid,
+-      lattice: mc_lattice,
++      preserve_grid,
++      grid,
++      lattice,
++      periodic,
+       vertex_shift: has_shift ? shift : null,
+     }
+     prepared_cache.set(vol, prepared)
+@@ -274,7 +241,7 @@
+     if (isovalue === 0) return null
+     if (is_scalar_grid(prepared.grid)) {
+       const result = await request_isosurface_geometry(prepared.grid, isovalue, prepared.lattice, {
+-        periodic: false,
++        periodic: prepared.periodic,
+         interpolate: true,
+         centered: false,
+         normals: true,
+@@ -294,7 +261,7 @@
+       return geometry ? { geometry, budget_bytes: result.estimate.total_bytes } : null
+     }
+     const result = marching_cubes(prepared.grid, isovalue, prepared.lattice, {
+-      periodic: false,
++      periodic: prepared.periodic,
+       interpolate: true,
+       centered: false,
+       normals: false,
+@@ -358,7 +325,7 @@
+     const vol = all_volumes[layer.volume_idx]
+     return `${layer.volume_idx}.${vol ? vol_id(vol) : 0}.${sign * layer.isovalue}.${
+       vol ? effective_halo(vol) : 0
+-    }.${vol ? range_key(vol) : ``}.${tiling.join(`x`)}.${ref_origin_sig()}`
++    }.${vol ? range_key(vol) : ``}.${tiling.join(`x`)}.${ref_origin_sig()}.${vol ? preserve_source_grid(vol) : false}`
+   }
+ 
+   let rebuild_generation = 0
+--- a/dist/isosurface/parse.js
++++ b/dist/isosurface/parse.js
+@@ -10,15 +10,23 @@
+ // Bohr radius in Angstroms (for Gaussian .cube unit conversion)
+ const BOHR_TO_ANGSTROM = 0.529177249;
+ // === Parse error contract ===
+-// parse_chgcar/parse_cube return null and record reasons here (mirrored to console.error).
+-// parse_volumetric_file resets per call and throws when the FILENAME identifies a volumetric
+-// format that fails to parse, but returns null when content doesn't look volumetric at all
+-// (probe semantics — callers then fall back to structure parsing).
+-let vol_parse_errors = [];
++// Malformed recognized formats throw contextual errors. Only format probing may
++// return null: incomplete fields must never become plausible zero-padded grids.
+ const vol_error = (message) => {
+-    vol_parse_errors.push(message);
+-    console.error(message);
++    throw new Error(message);
+ };
++// Adapted from upstream #461: validate dimensions before allocating from a header.
++function checked_grid_points(dims, remaining_bytes, label) {
++    const total = dims.reduce((product, dim) => product * dim, 1);
++    if (dims.some((dim) => !Number.isSafeInteger(dim) || dim <= 0) ||
++        !Number.isSafeInteger(total)) {
++        vol_error(`${label} grid ${dims.join(`×`)} is not a valid point count`);
++    }
++    if (total > 1_000_000 && total > Math.floor((remaining_bytes + 1) / 2)) {
++        vol_error(`${label} declares ${total} values but only ${remaining_bytes} bytes remain`);
++    }
++    return total;
++}
+ // === Fast number parsing utilities ===
+ // Parse whitespace-separated numbers directly from a string, starting at `pos`.
+ // Writes into a pre-allocated Float64Array and returns { count, end_pos }.
+@@ -58,10 +66,10 @@
+         while (pos < len && text.charCodeAt(pos) > 32)
+             pos++;
+         // Parse number (handles scientific notation)
+-        const num = Number(text.slice(start, pos));
+-        if (!Number.isNaN(num)) {
+-            data[idx++] = num;
+-        }
++        const token = text.slice(start, pos);
++        const num = Number(token.replace(/[dD]/g, `e`));
++        if (!Number.isFinite(num)) vol_error(`Invalid volumetric value '${token}'`);
++        data[idx++] = num;
+     }
+     return { count: idx - data_offset, end_pos: pos };
+ }
+@@ -261,14 +269,16 @@
+         const [ngx, ngy, ngz] = grid_tokens;
+         pos = cur.next;
+         // Fast-parse volumetric data directly from the string
+-        const total_points = ngx * ngy * ngz;
++        const total_points = checked_grid_points([ngx, ngy, ngz], content.length - pos, `CHGCAR`);
+         const data = new Float64Array(total_points);
+         const { count: parsed_count, end_pos } = parse_float_block(content, pos, total_points, data);
+         pos = end_pos;
+         if (parsed_count < total_points) {
+-            console.warn(`CHGCAR volume ${vol_idx}: expected ${total_points} values, got ${parsed_count}`);
+-            if (parsed_count === 0)
+-                break;
++            const message = `CHGCAR volume ${vol_idx}: expected ${total_points} values, got ${parsed_count}; file truncated`;
++            if (vol_idx === 0) vol_error(message);
++            // Preserve complete charge density, never return a partial magnetization field.
++            console.warn(message);
++            break;
+         }
+         // CHGCAR stores rho * V_cell, so normalize by dividing by cell volume.
+         // Use Math.abs to guard against negative determinant (left-handed lattice).
+@@ -329,7 +339,8 @@
+     // Line 2: n_atoms, origin_x, origin_y, origin_z
+     // (negative n_atoms indicates orbital data with extra header line)
+     const line2 = header.lines[2].split(/\s+/).map(Number);
+-    if (line2.length < 4 || line2.some(isNaN)) {
++    if (line2.length < 4 || line2.some((value) => !Number.isFinite(value)) ||
++        !Number.isSafeInteger(line2[0])) {
+         vol_error(`.cube header line 3 malformed: expected 4 numbers`);
+         return null;
+     }
+@@ -343,7 +354,7 @@
+         header.lines[4].split(/\s+/).map(Number),
+         header.lines[5].split(/\s+/).map(Number),
+     ];
+-    if (voxel_lines.some((line) => line.length < 4 || line.some(isNaN))) {
++    if (voxel_lines.some((line) => line.length < 4 || line.some((value) => !Number.isFinite(value)))) {
+         vol_error(`.cube voxel lines malformed: expected 4 numbers per line`);
+         return null;
+     }
+@@ -352,23 +363,25 @@
+         Math.abs(voxel_lines[1][0]),
+         Math.abs(voxel_lines[2][0]),
+     ];
++    checked_grid_points(n_grid, content.length - pos, `.cube`);
+     // Per Gaussian .cube convention, the sign of the first axis N determines units
+     const is_bohr = voxel_lines[0][0] > 0;
+     const unit_scale = is_bohr ? BOHR_TO_ANGSTROM : 1.0;
+     // Voxel vectors (convert to Angstrom if needed)
+     const [voxel_a, voxel_b, voxel_c] = voxel_lines.map((line) => math.scale(line.slice(1, 4), unit_scale));
+-    // Lattice vectors = grid_dim * voxel_vector
++    const origin = math.scale(raw_origin, unit_scale);
++    const is_periodic = options.periodic ?? Math.hypot(...origin) < 1e-6;
++    // Finite grids include both endpoints; periodic grids tile a full N-voxel cell.
++    const extent = (count) => is_periodic ? count : Math.max(count - 1, 1);
+     const lattice = [
+-        math.scale(voxel_a, n_grid[0]),
+-        math.scale(voxel_b, n_grid[1]),
+-        math.scale(voxel_c, n_grid[2]),
++        math.scale(voxel_a, extent(n_grid[0])),
++        math.scale(voxel_b, extent(n_grid[1])),
++        math.scale(voxel_c, extent(n_grid[2])),
+     ];
+-    const origin = math.scale(raw_origin, unit_scale);
+     // Periodicity: use explicit override if provided, else heuristic based on origin.
+     // Molecular .cube files have a non-zero origin (bounding box offset); periodic
+     // systems (QE, CP2K) have origin at (0,0,0). Pass { periodic: true/false } to
+     // override when the heuristic is wrong (e.g. molecule centered at origin).
+-    const is_periodic = options.periodic ?? Math.hypot(...origin) < 1e-6;
+     // Parse atomic positions
+     const sites = [];
+     let cube_cart_to_frac;
+@@ -376,10 +389,10 @@
+         cube_cart_to_frac = math.create_cart_to_frac(lattice);
+     }
+     catch {
+-        // Non-periodic system (molecule), use identity
+-        cube_cart_to_frac = (vec) => [vec[0], vec[1], vec[2]];
++        vol_error(`.cube voxel vectors are singular; cannot place atoms in the grid`);
+     }
+     for (let atom_idx = 0; atom_idx < n_atoms; atom_idx++) {
++        if (pos >= content.length) vol_error(`.cube ends before atom ${atom_idx + 1} of ${n_atoms}`);
+         const cur = read_line(content, pos);
+         const atom_line = cur.line.trim().split(/\s+/).map(Number);
+         pos = cur.next;
+@@ -410,21 +423,28 @@
+             ...lattice_params,
+         },
+     };
+-    // Skip orbital header line if present
+-    if (has_orbital_header && pos < content.length) {
++    // NVAL and the optional orbital header describe interleaved fields. Reading
++    // just nx*ny*nz values would mix orbitals rather than select one of them.
++    let values_per_point = line2.length > 4 ? line2[4] : 1;
++    if (!Number.isSafeInteger(values_per_point) || values_per_point < 1)
++        vol_error(`.cube NVAL must be a positive integer`);
++    if (has_orbital_header) {
++        if (pos >= content.length) vol_error(`.cube ends before its orbital header`);
+         const cur = read_line(content, pos);
+         pos = cur.next;
+-    }
++        const n_orbitals = Number(cur.line.trim().split(/\s+/)[0]);
++        if (!Number.isSafeInteger(n_orbitals) || n_orbitals < 1)
++            vol_error(`.cube orbital header does not start with a valid orbital count`);
++        values_per_point = Math.max(values_per_point, n_orbitals);
++    }
++    if (values_per_point !== 1)
++        vol_error(`.cube carries ${values_per_point} values per grid point; split multi-orbital cubes into single-field files first`);
+     // Fast-parse volumetric data directly from the string
+-    const total_points = n_grid[0] * n_grid[1] * n_grid[2];
++    const total_points = checked_grid_points(n_grid, content.length - pos, `.cube`);
+     const data = new Float64Array(total_points);
+     const { count: parsed_count } = parse_float_block(content, pos, total_points, data);
+     if (parsed_count < total_points) {
+-        console.warn(`.cube: expected ${total_points} data values, got ${parsed_count}`);
+-        if (parsed_count === 0) {
+-            vol_error(`No volumetric data found in .cube file`);
+-            return null;
+-        }
++        vol_error(`.cube: expected ${total_points} data values, got ${parsed_count}; file truncated`);
+     }
+     const { grid, data_range } = build_grid({
+         data: data.subarray(0, parsed_count),
+@@ -451,19 +471,21 @@
+ const atomic_number_to_symbol = (atomic_number) => ATOMIC_NUMBER_TO_SYMBOL[atomic_number] ?? `H`;
+ // Auto-detect and parse volumetric file by filename + content (see parse error contract at top)
+ export function parse_volumetric_file(content, filename) {
+-    vol_parse_errors = [];
+-    const fail = (format) => {
+-        const detail = vol_parse_errors.length ? `: ${vol_parse_errors.join(`; `)}` : ``;
+-        throw new Error(`Failed to parse ${format} file${filename ? ` '${filename}'` : ``}${detail}`);
+-    };
++    try {
++        return parse_volumetric_content(content, filename);
++    } catch (error) {
++        throw new Error(`Failed to parse volumetric file${filename ? ` '${filename}'` : ``}: ${error instanceof Error ? error.message : error}`, { cause: error });
++    }
++}
++function parse_volumetric_content(content, filename) {
+     // Strip compression suffixes so "CHGCAR.gz" and "molecule.cube.bz2" match correctly
+     const lower_name = strip_compression_extensions(filename ?? ``);
+     // Extension-based detection (filename is authoritative: parse failure throws)
+-    if (lower_name.endsWith(`.cube`))
+-        return parse_cube(content) ?? fail(`.cube`);
++    if (/\.cube?$/.test(lower_name))
++        return parse_cube(content);
+     // VASP volumetric file detection by filename
+     if (VASP_VOLUMETRIC_REGEX.test(lower_name)) {
+-        return parse_chgcar(content) ?? fail(`VASP volumetric (CHGCAR-like)`);
++        return parse_chgcar(content);
+     }
+     // Content-based detection (only parse first few lines, not the whole file)
+     // Find enough lines for detection without splitting the entire string
+@@ -474,7 +496,7 @@
+     if (lines.length > 4) {
+         const line2_tokens = lines[2].trim().split(/\s+/);
+         const line3_tokens = lines[3].trim().split(/\s+/);
+-        if (line2_tokens.length === 4 &&
++        if ((line2_tokens.length === 4 || line2_tokens.length === 5) &&
+             line3_tokens.length === 4 &&
+             line2_tokens.every((tok) => !isNaN(Number(tok))) &&
+             line3_tokens.every((tok) => !isNaN(Number(tok)))) {
+--- a/dist/isosurface/sampling.d.ts
++++ b/dist/isosurface/sampling.d.ts
+@@ -1,4 +1,4 @@
+-import type { Vec2, Vec3 } from '../math';
++import type { Matrix3x3, Vec2, Vec3 } from '../math';
+ import type { VolumetricData } from './types';
+ import type { ScalarGridLike } from './scalar-grid';
+ export declare function volume_reference_origin(volumes: VolumetricData[]): Vec3;
+@@ -19,3 +19,9 @@
+ export type DisplayRange = [Vec2, Vec2, Vec2];
+ export declare function sanitize_display_range(range: DisplayRange, periodic: boolean): DisplayRange;
+ export declare function extract_volume_range(volume: VolumetricData, range: DisplayRange, max_points?: number): VolumetricData;
++export declare function prepare_geometry_grid(volume: VolumetricData, range?: DisplayRange | null, options?: {
++    tiling?: Vec3;
++    halo?: number;
++    preserve_grid?: boolean;
++    max_points?: number;
++}): { grid: ScalarGridLike; lattice: Matrix3x3; origin: Vec3; periodic: boolean };
+--- a/dist/isosurface/sampling.js
++++ b/dist/isosurface/sampling.js
+@@ -191,7 +191,8 @@
+     // Sample counts follow the source voxel density (inclusive endpoints), capped
+     // to the point budget. The reduction loop guards against cbrt undershoot when
+     // the min-2 floor prevents an axis from shrinking.
+-    let counts = widths.map((width, axis) => Math.max(2, Math.round(width * volume.grid_dims[axis]) + 1));
++    let counts = widths.map((width, axis) => Math.max(2,
++        Math.round(width * (volume.periodic ? volume.grid_dims[axis] : volume.grid_dims[axis] - 1)) + 1));
+     const total = counts[0] * counts[1] * counts[2];
+     if (total > max_points) {
+         const shrink = Math.cbrt(max_points / total);
+@@ -240,3 +241,19 @@
+         periodic: false, // the extracted block is a finite window; endpoints included
+     };
+ }
++// Adapt upstream's endpoint-aligned preparation to the retained volume schema.
++// Never assign a block average to a block edge: that shifts the scientific surface.
++export function prepare_geometry_grid(volume, range = null, {
++    tiling = [1, 1, 1], halo = 0, preserve_grid = false, max_points = MAX_GRID_POINTS,
++} = {}) {
++    if (!range && halo === 0 && tiling.every((scale) => scale === 1) && preserve_grid) {
++        // The managed-memory path retains ownership of the original typed buffer.
++        // Periodic marching cubes closes the last voxel without copying an N+1 grid.
++        return { grid: volume.grid, lattice: volume.lattice, origin: volume.origin, periodic: volume.periodic };
++    }
++    const padding = volume.periodic ? Math.min(0.5, Math.max(0, halo)) : 0;
++    const display_range = range ?? tiling.map((scale) => volume.periodic
++        ? [-padding * scale, (1 + padding) * scale] : [0, 1]);
++    const extracted = extract_volume_range(volume, display_range, max_points);
++    return { grid: extracted.grid, lattice: extracted.lattice, origin: extracted.origin, periodic: false };
++}
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25.workbench1",
++  "version": "0.4.2-multiwfn.d8719d12.r25.upstream1",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",
