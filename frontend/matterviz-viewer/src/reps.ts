@@ -1,7 +1,7 @@
 import type { IsosurfaceLayer, IsosurfaceSettings } from 'matterviz'
 import { SURFACE_DEFAULTS, SURFACE_PRESETS } from './material.ts'
 import { detect_representation_preset, type RepresentationPreset } from './representation.ts'
-import { legacy_color_scale, normalize_color_scale, preset_color_scale, volume_color_scale, type ColorScale } from './color-scale.ts'
+import { migrate_color_scale, normalize_color_scale, preset_color_scale, type ColorScale } from './color-scale.ts'
 
 export type Vec = [number, number, number]
 export type Cell = [Vec, Vec, Vec]
@@ -118,7 +118,7 @@ export const normalize_rep = (value: unknown): Rep | undefined => {
   if (Array.isArray(volume.color_range) && volume.color_range.length === 2 && volume.color_range.every((n) => typeof n === 'number' && Number.isFinite(n))) rep.volume.color_range = [...volume.color_range].sort((a, b) => a - b) as [number, number]
   rep.volume.colorScale = volume.colorScale !== undefined ? normalize_color_scale(volume.colorScale)
     : volume.color_stops !== undefined ? normalize_color_scale({ stops: volume.color_stops })
-    : legacy_color_scale(rep.volume.colormap, rep.volume.color_range)
+    : migrate_color_scale({ colormap: rep.volume.colormap, color_range: rep.volume.color_range })
   return rep
 }
 
@@ -141,7 +141,7 @@ export const rep_surface_settings = (rep: Rep, budget?: number): IsosurfaceSetti
   material: rep.material.model, roughness: rep.material.roughness, metalness: rep.material.metalness,
   shininess: rep.material.shininess, specular: rep.material.specular, outline: rep.material.outline,
   outlineWidth: rep.material.outlineWidth, transmode: rep.material.angleOpacity ? 1 : 0, flat_shading: rep.material.faceted,
-  layers: [{ ...rep.volume, color_stops: volume_color_scale(rep.volume).stops,
+  layers: [{ ...rep.volume, color_stops: migrate_color_scale(rep.volume)?.stops,
     color_range: rep.volume.color_range ? [...rep.volume.color_range].sort((a, b) => a - b) as [number, number] : undefined,
     volume_idx: rep.source.kind === 'volume' ? rep.source.index : 0, opacity: rep.material.opacity, visible: rep.visible }],
   geometry_memory_budget_bytes: budget,
@@ -186,7 +186,7 @@ export const migrate_reps = (scene: Record<string, unknown>, settings: Isosurfac
     const rep = create_rep(dataset_source(entries, volumeIdx), `volume-${index + 1}`)
     rep.followData = true
     rep.name = entries[volumeIdx]?.name ?? `Volume ${volumeIdx + 1}`
-    rep.volume = { ...layer, colorScale: volume_color_scale(layer), wireframe: settings.wireframe, colorSourcePath: layer.color_volume_idx === undefined ? undefined : entries[layer.color_volume_idx]?.path,
+    rep.volume = { ...layer, colorScale: migrate_color_scale(layer), wireframe: settings.wireframe, colorSourcePath: layer.color_volume_idx === undefined ? undefined : entries[layer.color_volume_idx]?.path,
       colorSourceSlot: layer.color_volume_idx === undefined ? undefined : dataset_source(entries, layer.color_volume_idx).slot }
     const appearance = { ...SURFACE_DEFAULTS, ...settings }
     rep.material = { ...rep.material, model: appearance.material ?? 'matte', opacity: layer.opacity,

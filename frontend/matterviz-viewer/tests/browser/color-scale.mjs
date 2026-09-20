@@ -179,6 +179,37 @@ try {
   assert.equal(await page.locator('.color-scale-editor').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true)
   await page.screenshot({ path: path.join(artifacts, 'color-scale-narrow.png'), animations: 'disabled' })
   record('2–32 stop bounds, Chinese/English controls and the 600 px layout work')
+
+  // Restore an old automatic map against a one-sided field. All changes are
+  // confined to this browser's response; the shared preview data stays intact.
+  await page.route('**/session/esp.cub', async route => {
+    const response = await route.fetch(), lines = (await response.text()).trimEnd().split(/\r?\n/)
+    const header = 6 + Math.abs(Number(lines[2].trim().split(/\s+/)[0]))
+    const values = lines.slice(header).join(' ').trim().split(/\s+/).map(value => Math.abs(Number(value.replace(/[dD]/g, 'e'))) + 0.1)
+    await route.fulfill({ response, body: `${lines.slice(0, header).join('\n')}\n${values.join('\n')}\n` })
+  })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.reload({ waitUntil: 'networkidle', timeout: 180000 })
+  await page.locator('.rep-row').first().waitFor()
+  if (await button('Switch to English').count()) await button('Switch to English').click()
+  const legacy = structuredClone(original), oldVolume = legacy.representations.items.find(rep => rep.id === 'volume-1').volume
+  delete oldVolume.colorScale; delete oldVolume.color_stops; delete oldVolume.color_range
+  oldVolume.colormap = 'interpolateTransFlag'
+  const legacyFile = path.join(artifacts, 'legacy-auto-scale.json')
+  await writeFile(legacyFile, JSON.stringify(legacy))
+  await page.locator('input[type="file"][accept="application/json,.json"]').setInputFiles(legacyFile)
+  await page.waitForFunction(() => document.querySelectorAll('.scale-stop').length === 2)
+  assert.equal(await select('Color scale').inputValue(), 'custom')
+  assert.ok(Number.parseFloat(await page.locator('.esp-legend footer').innerText()) > 0, 'the actual fitted range is strictly positive')
+  assert.equal(await hex(2).inputValue(), '#5bcefa')
+  const channels = (await hex(1).inputValue()).slice(1).match(/../g).map(channel => Number.parseInt(channel, 16))
+  assert.ok(channels[0] < channels[1] && channels[1] < channels[2], 'positive fields retain the white-to-blue side of the legacy map')
+  const migratedState = await save('legacy-auto-migrated')
+  assert.equal(migratedState.representations.items.find(rep => rep.id === 'volume-1').volume.colorScale.stops.length, 2)
+  await select('Color scale').selectOption('interpolateTransFlag'); await select('Color scale').selectOption('custom')
+  assert.equal(await page.locator('.scale-stop').count(), 3)
+  assert.equal(await hex(2).inputValue(), '#ffffff'); assert.equal(await position(2).inputValue(), '50')
+  record('Legacy automatic one-sided ranges migrate after actual surface sampling; explicit new presets still use their chosen percentages')
   assert.deepEqual(errors, [])
   await writeFile(path.join(artifacts, 'verification.json'), JSON.stringify({ preview, checks, before, changed, actualRange, errors }, null, 2))
 } catch (error) {

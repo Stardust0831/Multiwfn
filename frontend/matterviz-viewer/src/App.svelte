@@ -43,7 +43,7 @@
   import MeasurementReadout, { type BondResult } from './MeasurementReadout.svelte'
   import { scene_registry } from 'matterviz'
   import { scene_to_png_blob } from './scene-export'
-  import { volume_color_scale } from './color-scale'
+  import { migrate_color_scale } from './color-scale'
   import { render_plot_document } from './plot-export'
   import {
     cached_plot_resolver, download_blob, import_plot_document, plot_data_csv,
@@ -257,6 +257,12 @@
   }
   const report_rep_color_range = (id: string, range: [number, number] | undefined) => {
     if (repColorRanges[id]?.[0] !== range?.[0] || repColorRanges[id]?.[1] !== range?.[1]) repColorRanges = { ...repColorRanges, [id]: range }
+    const rep = representations.items.find((item) => item.id === id)
+    if (range && rep && !migrate_color_scale(rep.volume)) {
+      // Freeze the migrated percentages only after a real surface range exists.
+      const volume = { ...rep.volume, colorScale: migrate_color_scale(rep.volume, range) }
+      representations = { ...representations, items: representations.items.map((item) => item.id === id ? { ...item, volume } : item) }
+    }
   }
   const measure_rep = (id: string, displayed: AnyStructure, sites: number[]) => {
     repMeasurement = sites.length ? { id, structure: displayed, sites } : undefined
@@ -899,7 +905,7 @@
     if (!repsInitialized || advancedStructure) return isosurfaceSettings.layers ?? []
     const items = [...representations.items].sort((a, b) => Number(b.id === representations.selectedId) - Number(a.id === representations.selectedId))
     return items.flatMap((rep) => rep.source.kind === 'volume' && rep.source.index >= 0
-      ? [{ ...rep.volume, color_stops: volume_color_scale(rep.volume).stops, color_range: rep.volume.color_range ?? repColorRanges[rep.id], volume_idx: rep.source.index, visible: rep.visible, opacity: rep.material.opacity }] : [])
+      ? [{ ...rep.volume, color_stops: migrate_color_scale(rep.volume)?.stops, color_range: rep.volume.color_range ?? repColorRanges[rep.id], volume_idx: rep.source.index, visible: rep.visible, opacity: rep.material.opacity }] : [])
   }
   const esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined => {
     return find_mapped_esp_pair(volumeEntries, displayed_volume_layers(), grids_compatible)

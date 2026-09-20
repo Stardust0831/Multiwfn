@@ -114,6 +114,9 @@ Custom color scales belong to each Rep and survive copy/save/restore. Older
 palettes migrate into editable points; saved asymmetric or one-sided Trans Flag
 ranges retain their original physical-zero anchoring. Loading a fresh preset
 uses its defined percentage positions.
+Legacy Trans Flag layers without an explicit range retain their original
+renderer mapping until the surface-fitted range is available, then migrate once.
+Hidden layers can be saved before that migration without inventing a midpoint.
 
 The `reps2` vendor patch replays onto `reps1`, which replays onto `upstream1`; every installed package file
 has been compared with the archive. Earlier topology, material, parsing and

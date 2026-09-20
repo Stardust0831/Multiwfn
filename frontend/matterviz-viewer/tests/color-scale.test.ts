@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createServer } from 'vite'
 import { Color, SRGBColorSpace } from 'three'
 import { color_stop_hex, color_stop_interpolator, color_stops_gradient, normalize_color_stops } from 'matterviz/colors/stops'
-import { COLOR_SCALE_PRESETS, legacy_color_scale, normalize_color_scale, preset_color_scale, volume_color_scale } from '../src/color-scale.ts'
+import { COLOR_SCALE_PRESETS, legacy_color_scale, migrate_color_scale, normalize_color_scale, preset_color_scale, volume_color_scale } from '../src/color-scale.ts'
 import { copy_rep, create_rep, migrate_reps, normalize_rep, rep_surface_settings } from '../src/reps.ts'
 import { create_workbench_state, parse_workbench_state, restore_workbench_state } from '../src/state.ts'
 
@@ -111,6 +111,26 @@ test('migrated percentages stay fixed when the range changes, before and after s
   migrated.volume.color_range = [-1, 1]; restored.volume.color_range = [-1, 1]
   assert.equal(rep_surface_settings(migrated).layers![0].color_stops![1].position, 0.25)
   assert.deepEqual(rep_surface_settings(restored).layers![0].color_stops, rep_surface_settings(migrated).layers![0].color_stops)
+})
+
+test('legacy automatic TransFlag waits for the rendered range, including saved hidden Reps', () => {
+  const rep = create_rep({ kind: 'volume', index: 0 }, 'legacy')
+  delete rep.volume.colorScale
+  rep.volume.colormap = 'interpolateTransFlag'
+  const migrated = migrate_reps({}, { ...rep_surface_settings(rep), layers: [rep.volume] }, [{ path: 'density' }], false).items[1]
+  const restored = normalize_rep(JSON.parse(JSON.stringify(migrated)))!
+  assert.equal(restored.volume.colorScale, undefined)
+  assert.equal(rep_surface_settings(restored).layers![0].color_stops, undefined, 'keep the renderer legacy zero normalization while awaiting the range')
+  for (const range of [[0.1, 0.4], [-0.4, -0.1], [-1, 3], [0.1, 0.1]] as [number, number][]) {
+    const scale = migrate_color_scale(restored.volume, range)!
+    assert.deepEqual(scale, legacy_color_scale('interpolateTransFlag', range))
+    const resolved = { ...restored.volume, colorScale: scale }
+    assert.equal(migrate_color_scale(resolved, [-1, 1]), scale, 'later automatic range changes must not move migrated points')
+  }
+  assert.equal(migrate_color_scale({ colormap: 'interpolateTransFlag' }), undefined)
+  assert.deepEqual(migrate_color_scale({ colormap: 'interpolateTransFlag', color_range: [-1, 3] }), legacy_color_scale('interpolateTransFlag', [-1, 3]))
+  const explicit = preset_color_scale('interpolateTransFlag')
+  assert.equal(migrate_color_scale({ colormap: 'interpolateTransFlag', colorScale: explicit }, [0.1, 0.4]), explicit, 'explicit user scales stay unchanged')
 })
 
 test('surface buffers and rendered legend share custom stops, midpoint, fallback and linear RGB conversion', async () => {

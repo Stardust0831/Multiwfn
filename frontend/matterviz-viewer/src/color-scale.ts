@@ -47,5 +47,12 @@ export const legacy_color_scale = (colormap = 'interpolateViridis', range?: [num
   return normalize_color_scale({ preset: scale.preset, stops: positions.map((position) => ({ position, color: trans_flag_color_css(lower + position * (upper - lower), lower, upper) })) })
 }
 
-export const volume_color_scale = (volume: { colorScale?: ColorScale; colormap?: string; color_range?: [number, number]; color_stops?: ColorStop[] }): ColorScale =>
+type VolumeColorScale = { colorScale?: ColorScale; colormap?: string; color_range?: [number, number]; color_stops?: ColorStop[] }
+export const volume_color_scale = (volume: VolumeColorScale): ColorScale =>
   volume.colorScale ?? (volume.color_stops ? normalize_color_scale({ stops: volume.color_stops }) : legacy_color_scale(volume.colormap, volume.color_range))
+
+/** Defer legacy zero-anchored automatic scales until the renderer knows their range. */
+export const migrate_color_scale = (volume: VolumeColorScale, rendered_range?: [number, number]): ColorScale | undefined => {
+  if (!volume.colorScale && !volume.color_stops && volume.colormap === 'interpolateTransFlag' && !volume.color_range && !rendered_range) return undefined
+  return volume_color_scale({ ...volume, color_range: volume.color_range ?? rendered_range })
+}
