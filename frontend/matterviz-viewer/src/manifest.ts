@@ -93,7 +93,7 @@ export const resolve_volume_entry_url = (
   page: URL = new URL(window.location.href),
 ): URL => {
   const url = resolve_entry_url(entry, base)
-  if (entry.format !== 'mwfn-volume-v1'
+  if ((entry.format !== 'mwfn-volume-v1' && entry.format !== 'mwfn-volume-v2')
     || url.origin !== page.origin
     || !url.pathname.startsWith('/api/volume/')) return url
   const capability = page.searchParams.get('cap')

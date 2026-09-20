@@ -667,7 +667,7 @@
     entry: ManifestEntry,
     base: URL,
   ): Promise<{ structure?: AnyStructure; volumes: VolumetricData[] }> => {
-    if (entry.format === 'mwfn-volume-v1') {
+    if (entry.format === 'mwfn-volume-v1' || entry.format === 'mwfn-volume-v2') {
       const url = resolve_volume_entry_url(entry, base)
       const response = await fetch(url, { cache: 'no-store' })
       if (!response.ok) throw new Error(`${url.pathname}: HTTP ${response.status}`)
@@ -676,7 +676,7 @@
         throw new Error(`${url.pathname}: expected a MatterViz binary volume`)
       }
       const volume = adapt_matterviz_volume(
-        decode_matterviz_volume(await response.arrayBuffer()),
+        decode_matterviz_volume(await read_matterviz_volume_response(response)),
       )
       return {
         volumes: [{

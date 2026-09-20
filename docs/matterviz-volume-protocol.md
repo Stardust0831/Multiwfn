@@ -156,10 +156,24 @@ binary response is always reported as a binary-volume error.
    complete for compatibility volumes.
 3. Independent inherited volume and versioned bidirectional control pipes are
    complete; the formal path has no file request/response fallback.
-4. Dynamic orbitals use direct major-2 streaming. Initial scalar fields and the
-   correlated ESP density/potential pair use validated native volume IDs.
+4. Dynamic orbitals and initial scalar fields use major-2 streaming. The
+   correlated ESP density/potential pair retains the bounded major-1 path.
 5. Dynamic Cube staging is removed from the formal path. Three-platform package
    CI and interactive prerelease validation remain release gates.
+
+During in-memory session bootstrap, Rust accepts up to two initial major-2
+volumes with request IDs 1 (`cubmat`) and 2 (`cubmattmp`). It checks the combined
+active-data memory budget before allocating each frame, validates CRCs, finite
+samples and statistics, then ACKs and retains the original bytes for
+`/api/volume/{id}`. These initial grids stay available for the session lifetime
+and are separate from the 64 MiB compatibility cache. This permits the standard
+high-quality grid (about 1,728,000 points) without downsampling or the major-1
+1,500,000-point limit. A rejected frame is drained before the negative ACK.
+
+Initial-stream admission closes when `session_init` arrives. Subsequent major-2
+frames must match a registered HTTP stream request, as before. Bootstrap allows
+300 seconds per stage to match the initial-volume producer timeout; pipe closure
+or shutdown still cancels the wait immediately.
 
 Rust owns pipe readers, cache lifetime, HTTP serving, and shutdown. The narrow
 GUI/session C ABI owns inherited pipe ends and complete-frame writes. POSIX must

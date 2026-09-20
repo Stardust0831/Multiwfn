@@ -25,7 +25,8 @@ use crate::volume_store::VolumeStore;
 use serde_json::{json, Value};
 use socket2::{Domain, Protocol, Socket, Type};
 
-const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(30);
+// Match the producer's 300-second deadline for each initial volume stream.
+const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(300);
 const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
 const MAX_PLOT_EXPORT_BYTES: usize = 64 * 1024 * 1024;
 static PLOT_EXPORT_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -248,6 +249,7 @@ impl HttpService {
         let shutdown = ShutdownSignal::new(address);
         let frontend_ready = Arc::new(AtomicBool::new(false));
         let volume_store = Arc::new(VolumeStore::new());
+        volume_store.set_bootstrapping(in_memory_session);
         let plot_store = Arc::new(PlotStore::new());
         let stream_broker = Arc::new(VolumeStreamBroker::default());
         let streaming_volume_enabled = config.transport.is_some();
@@ -293,6 +295,7 @@ impl HttpService {
                     Some(data),
                 )
             });
+        volume_store.set_bootstrapping(false);
         let has_state = state.is_some()
             || session_data
                 .as_ref()
@@ -430,11 +433,7 @@ impl HttpService {
         result
     }
     #[cfg(test)]
-    pub fn insert_volume<B>(&self, frame: B) -> Result<u64, InsertError>
-    where
-        B: Into<Arc<[u8]>>,
-    {
-        let frame: Arc<[u8]> = frame.into();
+    pub fn insert_volume(&self, frame: Vec<u8>) -> Result<u64, InsertError> {
         let active = (self.volume_store.bytes() + self.plot_store.bytes()) as u64;
         let budget =
             memory_budget::active_data_budget(active).map_err(|_| InsertError::FrameTooLarge)?;

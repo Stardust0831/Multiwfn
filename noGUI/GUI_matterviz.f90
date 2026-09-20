@@ -1143,14 +1143,14 @@ character(len=160) :: message
 
 status=0
 if (allocated(cubmat).and.trim(entry)/="drawmolgui".and.trim(entry)/="drawsurfanalysis") then
-    published=publish_matterviz_volume(cubmat,1_8,4,4,gui_cubmat_volume_id,1,volume_status)
+    published=publish_matterviz_volume(cubmat,1_8,4,4,gui_cubmat_volume_id,2,volume_status)
     if (.not.published) then
         status=volume_status
         return
     end if
 end if
 if (allocated(cubmattmp).and.trim(entry)/='drawsurfanalysis') then
-    published=publish_matterviz_volume(cubmattmp,2_8,4,4,gui_cubmattmp_volume_id,1,volume_status)
+    published=publish_matterviz_volume(cubmattmp,2_8,4,4,gui_cubmattmp_volume_id,2,volume_status)
     if (.not.published) status=volume_status
 end if
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
@@ -2721,7 +2721,7 @@ character(len=1024) :: line
 if (ncube>0) call emit_matterviz_json(sink,",")
 ncube=ncube+1
 write(line,"(a,a,a,i0,a,a,a,1pe16.8,a)") '    { "name": "',trim(name), &
-    '", "path": "/api/volume/',volume_id,'", "format": "mwfn-volume-v1", "role": "', &
+    '", "path": "/api/volume/',volume_id,'", "format": "mwfn-volume-v2", "role": "', &
     trim(role),'", "mode": "signed", "isovalue": ',isoval,' }'
 call emit_matterviz_json(sink,line)
 end subroutine

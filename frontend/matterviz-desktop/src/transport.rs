@@ -114,7 +114,15 @@ fn run(
                 Err(_) => break,
             };
             if major == STREAM_MAJOR {
-                receive_stream_volume(&mut reader, &mut writer, &broker, shutdown.flag(), prelude)
+                receive_stream_volume(
+                    &mut reader,
+                    &mut writer,
+                    &store,
+                    &plot_store,
+                    &broker,
+                    shutdown.flag(),
+                    prelude,
+                )
             } else {
                 receive_buffered_volume(&mut reader, &mut writer, &store, shutdown.flag(), prelude)
             }
@@ -197,6 +205,8 @@ fn drain_exact(
 fn receive_stream_volume(
     reader: &mut platform::PipeReader,
     writer: &mut platform::PipeWriter,
+    store: &VolumeStore,
+    plot_store: &PlotStore,
     broker: &VolumeStreamBroker,
     stop: &AtomicBool,
     prelude: [u8; PRELUDE_BYTES],
@@ -209,6 +219,9 @@ fn receive_stream_volume(
     let volume_id = metadata.volume_id;
     let expected_crc = metadata.body_crc32c;
     let mut sender = broker.sender(request_id);
+    if sender.is_none() && store.accepts_initial_stream(request_id) {
+        return receive_initial_volume(reader, writer, store, plot_store, stop, header, metadata);
+    }
     let mut accepted = sender.as_ref().is_some_and(|channel| {
         send_event(
             channel,
@@ -248,6 +261,41 @@ fn receive_stream_volume(
     broker.finish(request_id);
     let status = u32::from(!accepted || !valid);
     let ack = encode_stream_ack(request_id, volume_id, status).map_err(|_| ())?;
+    writer.write_all(&ack).map_err(|_| ())
+}
+
+fn receive_initial_volume(
+    reader: &mut platform::PipeReader,
+    writer: &mut platform::PipeWriter,
+    store: &VolumeStore,
+    plot_store: &PlotStore,
+    stop: &AtomicBool,
+    header: [u8; VOLUME_HEADER_BYTES],
+    metadata: crate::volume_protocol::StreamVolumeHeader,
+) -> Result<(), ()> {
+    let body_len = usize::try_from(metadata.body_bytes).map_err(|_| ())?;
+    let frame_len = body_len.checked_add(header.len()).ok_or(())?;
+    let active = (store.bytes() + plot_store.bytes()) as u64;
+    let admitted = memory_budget::active_data_budget(active)
+        .is_ok_and(|budget| active.saturating_add(frame_len as u64) <= budget.active_limit_bytes);
+    let mut frame = Vec::new();
+    let status = if admitted && frame.try_reserve_exact(frame_len).is_ok() {
+        frame.resize(frame_len, 0);
+        frame[..header.len()].copy_from_slice(&header);
+        read_exact(reader, &mut frame[header.len()..], stop)?;
+        match store.insert_initial(frame) {
+            Ok(_) => 0,
+            Err(error) => {
+                eprintln!("MatterViz initial volume rejected: {error}");
+                1
+            }
+        }
+    } else {
+        eprintln!("MatterViz initial volume rejected: insufficient memory for {frame_len} bytes ({active} bytes already active)");
+        drain_exact(reader, body_len, stop)?;
+        1
+    };
+    let ack = encode_stream_ack(metadata.request_id, metadata.volume_id, status).map_err(|_| ())?;
     writer.write_all(&ack).map_err(|_| ())
 }
 

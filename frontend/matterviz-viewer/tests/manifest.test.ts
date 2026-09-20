@@ -59,14 +59,16 @@ test('resolves relative, root-relative, and absolute entry paths', () => {
 test('adds the session capability only to same-origin binary volume API entries', () => {
   const page = new URL('http://127.0.0.1:8765/index.html?cap=session-secret')
   const base = new URL('/session/', page)
-  assert.equal(
-    resolve_volume_entry_url(
-      { path: '/api/volume/42', format: 'mwfn-volume-v1' },
-      base,
-      page,
-    ).href,
-    'http://127.0.0.1:8765/api/volume/42?cap=session-secret',
-  )
+  for (const format of ['mwfn-volume-v1', 'mwfn-volume-v2']) {
+    assert.equal(
+      resolve_volume_entry_url({ path: '/api/volume/42', format }, base, page).href,
+      'http://127.0.0.1:8765/api/volume/42?cap=session-secret',
+    )
+    assert.equal(
+      resolve_volume_entry_url({ path: 'https://cdn.example/volume/42', format }, base, page).href,
+      'https://cdn.example/volume/42',
+    )
+  }
   assert.equal(
     resolve_volume_entry_url({ path: 'orbital.cube', format: 'cube' }, base, page).href,
     'http://127.0.0.1:8765/session/orbital.cube',
