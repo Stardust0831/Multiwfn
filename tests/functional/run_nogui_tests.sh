@@ -169,6 +169,7 @@ EOF
   model=aIGM
   if [ "$analysis" = -12 ]; then model=amIGM; fi
   awk '
+    BEGIN { n=0; m=0; zeros=0; nonzeros=0 }
     FNR > 8 {
       for (i=1; i<=NF; i++) {
         if (tolower($i) ~ /nan|inf/) exit 1
