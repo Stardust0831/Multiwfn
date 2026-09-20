@@ -275,7 +275,9 @@ mod tests {
                 axes.as_ptr(),
                 samples.as_ptr(),
                 count as i64,
-                30_000,
+                // Match the production initial-stream deadline. macOS pipes can
+                // require many reader polls for the memory-budget test grids.
+                300_000,
             )
         }
     }
