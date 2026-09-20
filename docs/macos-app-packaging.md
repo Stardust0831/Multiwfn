@@ -67,23 +67,26 @@ The bundle utilizes a dual launcher architecture:
 | Protein Data Bank | `.pdb` |
 | Quantum Chemistry Inputs (ORCA/CP2K/Gaussian) | `.gjf`, `.com`, `.inp`, `.cp2k` |
 
-## Proactive De-quarantine & Gatekeeper Resolution
+## Gatekeeper Resolution & Installation Security
 
 When downloaded via web browsers, macOS attaches the `com.apple.quarantine` extended attribute. For community distributions without an Apple Developer ID signature:
 
 1. **DMG Installer Script (`Install_Multiwfn.command`)**:
-   The distributed DMG includes an English-named script `Install_Multiwfn.command`. Double-clicking this script:
+   The distributed DMG includes an English-named script `Install_Multiwfn.command`. Double-clicking this script performs a one-time installation step:
    - Copies `Multiwfn.app` to `/Applications/`
    - Strips the `com.apple.quarantine` attribute via `xattr -cr /Applications/Multiwfn.app`
    - Applies a local ad-hoc signature via `codesign --force --deep -s - /Applications/Multiwfn.app`
    - Reveals the installed app in Finder.
-2. **Self-Healing Launcher**:
-   Even if Gatekeeper partially permits the main binary, nested libraries could trigger secondary crash warnings. The launcher script proactively clears quarantine attributes from `Contents/Resources` at startup.
-3. **Manual Terminal Fallback**:
-   Users can manually de-quarantine the app with:
+   To respect macOS Gatekeeper security boundaries, de-quarantine is performed explicitly at installation time rather than implicitly on every launch.
+2. **Manual Terminal Fallback**:
+   Users who manually drag `Multiwfn.app` into `/Applications` can de-quarantine the app with:
    ```bash
    xattr -cr /Applications/Multiwfn.app
    ```
+
+## Direct GUI Format Support
+
+The direct GUI pipeline routes single-state molecular and wavefunction inputs (`.xyz`, `.fchk`, `.fch`, `.cub`, `.cube`, `.molden`, `.wfn`, `.wfx`, `.mwfn`, `.pdb`, `.cif`, `.mol`, `.gbw`) directly into function 0 without intermediate prompts. For multi-frame trajectory or output logs (e.g. multi-step Gaussian `.out` / `.log`) where frame selection is required, users should use standard terminal CLI execution (`/Applications/Multiwfn.app/Contents/MacOS/Multiwfn file.out`).
 
 ## Packaging Pipeline
 
@@ -108,7 +111,7 @@ cmake --build . --target multiwfn_macos_app
 
 Automated unit tests in `tests/test_macos_app_bundle.py` verify:
 - XML syntax and schema compliance of `Info.plist.in`
-- Complete coverage of all 17 registered chemical file extensions
+- Complete coverage of all 19 registered chemical file extensions
 - Syntax and contract compliance of `multiwfn_macos_launcher.sh` and `Install_Multiwfn.command`
 - RPATH relocation rules and DMG creation logic
 - High-resolution `Multiwfn.icns` integrity and magic header bytes

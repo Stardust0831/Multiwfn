@@ -171,6 +171,12 @@ else
     cp -R "$LIB_DIR"/* "$RESOURCES/lib/" 2>/dev/null || true
   fi
   install_name_tool -add_rpath "@executable_path/../Resources/lib" "$MACOS/Multiwfn_MatterVizGUI" 2>/dev/null || true
+  if [[ -z "$(ls -A "$RESOURCES/lib" 2>/dev/null)" ]]; then
+    echo "Error: no dynamic libraries were staged into $RESOURCES/lib." >&2
+    echo "       Install dylibbundler or pass --lib-dir <path>; the original rpaths were removed," >&2
+    echo "       so the bundled binary cannot resolve its dependencies." >&2
+    exit 1
+  fi
 fi
 
 # Clean up pycache or unwanted files

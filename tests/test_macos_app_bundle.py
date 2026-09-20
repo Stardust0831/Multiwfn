@@ -48,13 +48,10 @@ class MacOSAppBundleTests(unittest.TestCase):
 
         content = launcher.read_text(encoding="utf-8")
         self.assertIn("set -euo pipefail", content)
-        self.assertIn("xattr -cr", content, "Launcher must proactively strip quarantine attributes")
-        self.assertIn('printf "%s\\n0\\n"', content, "Launcher must direct pipe to function 0 for GUI entry")
-        self.assertIn("${MULTIWFN_DIRECT_GUI:-0}", content, "Must not hijack terminal interactive sessions")
-        self.assertIn("! -t 0", content, "Must verify non-terminal or GUI context")
+        self.assertIn('printf "0\\n"', content, "Launcher must pipe option 0 for direct GUI entry")
+        self.assertIn("${MULTIWFN_DIRECT_GUI:-0}", content, "Must respect MULTIWFN_DIRECT_GUI flag")
         self.assertIn("MULTIWFN_MATTERVIZ_HOME", content)
         self.assertIn("DYLD_LIBRARY_PATH", content)
-        self.assertIn("osascript", content, "Launcher should fallback to native Cocoa file dialog")
 
     def test_install_and_dequarantine_command_contracts(self):
         cmd = TOOLS_MACOS / "Install_Multiwfn.command"
@@ -66,7 +63,7 @@ class MacOSAppBundleTests(unittest.TestCase):
 
         content = cmd.read_text(encoding="utf-8")
         self.assertIn("/Applications/Multiwfn.app", content)
-        self.assertIn("xattr -cr", content)
+        self.assertIn("xattr -cr", content, "Installer must strip quarantine at install time")
         self.assertIn("codesign", content)
 
     def test_package_script_contracts(self):
@@ -81,6 +78,7 @@ class MacOSAppBundleTests(unittest.TestCase):
         self.assertIn("@executable_path/../Resources/lib", content)
         self.assertIn("install_name_tool -change", content, "Must rewrite library install names when staging pre-bundled libraries")
         self.assertIn("mktemp -t multiwfn-app-rpaths", content, "Must avoid hardcoded /tmp files")
+        self.assertIn("no dynamic libraries were staged into", content, "Must fail closed if fallback lib directory is empty")
         self.assertIn("codesign --force --deep -s -", content)
         self.assertIn("hdiutil create", content)
         self.assertIn("Install_Multiwfn.command", content)

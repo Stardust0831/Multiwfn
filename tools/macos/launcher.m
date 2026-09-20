@@ -88,9 +88,10 @@
 @end
 
 int main(int argc, const char * argv[]) {
-    // If invoked from an interactive terminal (stdin/stdout is a TTY)
-    // or if arguments are explicitly passed on CLI (other than macOS -psn_...):
+    // If invoked from an interactive terminal (stdin/stdout is a TTY),
+    // from an SSH or CI environment, or if arguments are explicitly passed on CLI:
     BOOL isTerminal = isatty(STDIN_FILENO) || isatty(STDOUT_FILENO);
+    BOOL isNonGuiEnv = getenv("SSH_CONNECTION") != NULL || getenv("SSH_CLIENT") != NULL || getenv("CI") != NULL;
     BOOL hasCliFile = NO;
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "-psn", 4) != 0 && argv[i][0] != '\0') {
@@ -99,7 +100,7 @@ int main(int argc, const char * argv[]) {
         }
     }
 
-    if (isTerminal || hasCliFile) {
+    if (isTerminal || isNonGuiEnv || hasCliFile) {
         // Forward directly to runner script
         NSString *execPath = [NSString stringWithUTF8String:argv[0]];
         NSString *macosDir = [execPath stringByDeletingLastPathComponent];
