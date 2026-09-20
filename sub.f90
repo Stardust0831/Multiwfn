@@ -2375,7 +2375,7 @@ if (allocated(b)) then !If loaded file contains wavefuntion information
 	write(ifileid,"(' Hamiltonian kinetic energy K(r):',E18.10)") valK
 ! 	valKx=Hamkin(inx,iny,inz,1);valKy=Hamkin(inx,iny,inz,2);valKz=Hamkin(inx,iny,inz,3)
 ! 	write(ifileid,"(' K(r) in X,Y,Z:',3E18.10)") valKx,valKy,valKz
-	write(ifileid,"(' Potential energy density V(r):',E18.10)") -valK-valG !When without EDF, also equals to flapl(inx,iny,inz,'t')/4D0-2*valG
+	write(ifileid,"(' Potential energy density V(r):',E18.10)") -valK-valG !When without EDF, also equals flapl(inx,iny,inz,'t')/4D0-2*valG
 	write(ifileid,"(' Energy density E(r) or H(r):',E18.10)") -valK
 	write(ifileid,"(' Laplacian of electron density:',E18.10)") laplfac*(elehess(1,1)+elehess(2,2)+elehess(3,3))
 	write(ifileid,"(' Electron localization function (ELF):',E18.10)") ELF_LOL(inx,iny,inz,"ELF")
@@ -2444,24 +2444,24 @@ end if
 
 write(ifileid,*)
 if (ifuncsel==1) then
-	write(ifileid,*) "Note: Below information is for electron density"
+	write(ifileid,*) "Note: The following information is for electron density"
 	funchess=elehess
 	funcgrad=elegrad
 else
 	if (ifuncsel==3) then
-        write(ifileid,*) "Note: Below information is for Laplacian of electron density"
+        write(ifileid,*) "Note: The following information is for Laplacian of electron density"
 	else if (ifuncsel==4) then
-        write(ifileid,*) "Note: Below information is for value of orbital wavefunction"
+        write(ifileid,*) "Note: The following information is for value of orbital wavefunction"
 	else if (ifuncsel==9) then
-        write(ifileid,*) "Note: Below information is for electron localization function"
+        write(ifileid,*) "Note: The following information is for electron localization function"
 	else if (ifuncsel==10) then
-        write(ifileid,*) "Note: Below information is for localized orbital locator"
+        write(ifileid,*) "Note: The following information is for localized orbital locator"
 	else if (ifuncsel==12) then
-        write(ifileid,*) "Note: Below information is for total ESP"
+        write(ifileid,*) "Note: The following information is for total ESP"
 	else if (ifuncsel==100) then
-        write(ifileid,*) "Note: Below information is for user-defined real space function"
+        write(ifileid,*) "Note: The following information is for user-defined real space function"
 	else
-        write(ifileid,"(a,i4)") " Note: Below information is for real space function",ifuncsel
+        write(ifileid,"(a,i4)") " Note: The following information is for real space function",ifuncsel
     end if
 	call gencalchessmat(2,ifuncsel,inx,iny,inz,funcvalue,funcgrad,funchess)
 end if
@@ -3275,9 +3275,9 @@ end subroutine
 
 !!------- Calculate Tian Lu weighting function of iatm at (x,y,z). PBC is taken into account
 !Calculate value of simple atomic decaying function for all atoms, and finally calculate weight of iatm using Hirshfeld-like manner
-!itype=1: Error function type. xscale = 0.85, leading to modest sharpness. Weight of 0.5 equals to CSD covalent radii
+!itype=1: Error function type. xscale = 0.85, leading to modest sharpness. Weight of 0.5 equals CSD covalent radii
 !itype=2: Gaussian function type. FWHM is CSD covalent radii
-!itype=3: Becke function type. Weight of 0.5 equals to CSD covalent radii. This is poor, because this function decays quickly to zero, making weighting function at distant region cannot be calculated
+!itype=3: Becke function type. Weight of 0.5 equals CSD covalent radii. This is poor, because this function decays quickly to zero, making weighting function at distant region cannot be calculated
 !See http://sobereva.com/539 for illustration of different weighting functions
 !
 !All the functions have deficiency, namely they become exactly zero at distant region, &

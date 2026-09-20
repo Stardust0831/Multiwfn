@@ -259,7 +259,7 @@ end if
 end subroutine
 
 
-!!---------- Calculate Coulomb interaction between two fragment based on atomic charges in .chg file
+!!---------- Calculate Coulomb interaction between two fragments based on atomic charges in .chg file
 subroutine coulint_atmchg
 use defvar
 use util
@@ -911,13 +911,13 @@ call gen1cintgrid(gridatmorg,iradcut)
 if (chgtype==1.or.chgtype==2.or.chgtype==6.or.chgtype==7.or.chgtype==-7) then
     if (ifPBC==0) then
 	    write(*,*) "This task requests atomic densities, please select how to obtain them"
-	    write(*,*) "1 Use build-in sphericalized atomic densities in free-states (more convenient)"
+	    write(*,*) "1 Use built-in sphericalized atomic densities in free-states (more convenient)"
 	    write(*,"(a)") " 2 Provide wavefunction file of involved elements by yourself or invoke Gaussian to automatically calculate them"
 	    read(*,*) iatmdensmode
 	    if (iatmdensmode==2) call setpromol !In this routine reload first molecule at the end
     else
         iatmdensmode=1
-        write(*,"(a)") " Note: Build-in sphericalized atomic densities in free-states will be used in the calculation"
+        write(*,"(a)") " Note: Built-in sphericalized atomic densities in free-states will be used in the calculation"
     end if
 	write(*,"(' Radial grids:',i5,'    Angular grids:',i5,'   Total:',i10)") radpot,sphpot,radpot*sphpot
 	write(*,*) "Calculating, please wait..."
@@ -5310,8 +5310,8 @@ if (iset==1) then !Parameters fitted to Mulliken charge at HF/STO-3G, Int. J. Mo
 	Bparm(7,2)= 0.611D0
 	Aparm(8,2)= 2.580D0  !O,multi=2
 	Bparm(8,2)= 0.691D0
-else if (iset==2) then !Parameters fitted to CHELPG charges at B3LYP/6-31G*, J. Comput. Chem., 30, 1174 (2009)
-	write(*,"(a)") " Parameters have been set to those fitted to CHELPG charges at B3LYP/6-31G*, see J. Comput. Chem., 30, 1174 (2009)"
+else if (iset==2) then !Parameters fitted to MK charges at B3LYP/6-31G*, J. Comput. Chem., 30, 1174 (2009)
+	write(*,"(a)") " Parameters have been set to those fitted to MK charges at B3LYP/6-31G*, see J. Comput. Chem., 30, 1174 (2009)"
 	kappa=0.302D0
 	Aparm(35,1)= 2.659D0  !Br,multi=1
 	Bparm(35,1)= 1.802D0
@@ -5337,8 +5337,8 @@ else if (iset==2) then !Parameters fitted to CHELPG charges at B3LYP/6-31G*, J. 
 	Bparm(7,2)= 0.377D0
 	Aparm(8,2)= 2.789D0  !O,multi=2
 	Bparm(8,2)= 0.834D0
-else if (iset==3) then !Parameters fitted to CHELPG charges at HF/6-31G*, J. Comput. Chem., 30, 1174 (2009)
-	write(*,"(a)") " Parameters have been set to those fitted to CHELPG charges at HF/6-31G*, see J. Comput. Chem., 30, 1174 (2009)"
+else if (iset==3) then !Parameters fitted to MK charges at HF/6-31G*, J. Comput. Chem., 30, 1174 (2009)
+	write(*,"(a)") " Parameters have been set to those fitted to MK charges at HF/6-31G*, see J. Comput. Chem., 30, 1174 (2009)"
 	kappa=0.227D0
 	Aparm(35,1)= 2.615D0  !Br,multi=1
 	Bparm(35,1)= 1.436D0
@@ -5519,7 +5519,7 @@ parma(53,1)=9.90D0; parmb(53,1)=7.96D0; parmc(53,1)=0.96D0 !One bond
 !Antechamber first determines Amber atom types, then convert to Gasgeiter types according to ATOMTYPE_GAS.DEF,&
 !then checks GASPARM.DAT to determine actual parameters, finally invokes "charge.c" to carry out Gasteiger calculation.&
 !The resulting Gasteiger type can be found from intermediate file ANTECHAMBER_GAS_AT.AC
-!The O1 in below information corresponds to oxygen in =O case
+!The O1 in the following information corresponds to oxygen in =O case
 !                  a       b       c      d     formal_charge
 ! GASPARM	h	  7.17	  6.24	 -0.56	 20.02	  0.00  !numbond=1
 ! GASPARM	c1	 10.39	  9.45	  0.73	 20.57	  0.00  !numbond=1 or 2

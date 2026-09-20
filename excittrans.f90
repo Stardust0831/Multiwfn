@@ -3731,6 +3731,17 @@ call loadallexcinfo(1)
 call selexcit(istate)
 call loadexccoeff(istate,1)
 
+!SF-TDDFT is not supported, which contains a->b
+if (wfntype==1) then
+	do iexcitorb=1,excnorb
+		if (orbleft(iexcitorb)<=nbasis.and.orbright(iexcitorb)>nbasis) then
+			write(*,"(/,a)") " Error: This seems to be a spin-flip calculation, NTO is not supported for this case. Press ENTER button to return"
+			read(*,*)
+			return
+		end if
+	end do
+end if
+
 NTOvalcoeff=2
 if (allocated(CObasb)) NTOvalcoeff=1
 
@@ -5412,8 +5423,8 @@ deallocate(tmparr,tmpmat)
 ! 		!Four points:
 ! 		!1) The negative sign: Because we ignored the negative sign when evaluating magnetic integrals
 ! 		!2) Diveded by two: Necessary by definition
-! 		!3) 2.54174619D-018: convert electric dipole moment from a.u. to cgs, see gabedit build-in converter
-! 		!4) 1.85480184D-020: convert magnetic dipole moment from a.u. to cgs, see gabedit build-in converter
+! 		!3) 2.54174619D-018: convert electric dipole moment from a.u. to cgs, see gabedit built-in converter
+! 		!4) 1.85480184D-020: convert magnetic dipole moment from a.u. to cgs, see gabedit built-in converter
 ! 		Rlen=-(Teledipx*Tmagdipx+Teledipy*Tmagdipy+Teledipz*Tmagdipz)/2D0*2.54174619D-018*1.85480184D-020 *1D40
 ! 		write(*,"(' Rotatory strength in length representation:',f14.8,' 10^-40 cgs')") Rlen
 ! 		cycle
@@ -6193,13 +6204,13 @@ else if (iprog==2) then !ORCA
     open(10,file=filename,status="old")
     if (iORCAsTD==0) then !Normal case
         call loclabel(10,"N(Alpha)",ifound)
-        if (ifound==1) then
+        if (ifound==1) then !Numbers of electrons has been directly printed, load them
             read(10,"(a)") c80tmp
             itmp=index(c80tmp,':')
             read(c80tmp(itmp+1:),*) naelec
             read(10,"(a)") c80tmp
             read(c80tmp(itmp+1:),*) nbelec
-        else !Determine number of electrons from orbital information
+        else !Determine number of electrons from orbital information by summing up orbital occupancy
             call loclabel(10,"ORBITAL ENERGIES",ifound)
             if (ifound==1) then
                 read(10,*);read(10,*)
@@ -6210,7 +6221,7 @@ else if (iprog==2) then !ORCA
                 naelec=0
                 do while(.true.)
                     read(10,"(a)") c80tmp
-                    if (c80tmp==" ".or.index(c80tmp,"time")/=0) exit
+                    if (c80tmp==" ".or.index(c80tmp,"time")/=0.or.index(c80tmp,"*")/=0) exit
                     read(c80tmp,*) inouse,tmpval
                     naelec=naelec+tmpval
                 end do
@@ -6219,7 +6230,7 @@ else if (iprog==2) then !ORCA
                     read(10,*);read(10,*)
                     do while(.true.)
                         read(10,"(a)") c80tmp
-                        if (c80tmp==" ".or.index(c80tmp,"time")/=0) exit
+                        if (c80tmp==" ".or.index(c80tmp,"time")/=0.or.index(c80tmp,"*")/=0) exit
                         read(c80tmp,*) inouse,tmpval
                         nbelec=nbelec+tmpval
                     end do

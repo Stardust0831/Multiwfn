@@ -615,8 +615,8 @@ end module
 !For NAOset, NAOocc, NAOene, the second index is spin, 0/1/2=total/alpha/beta. For other NAO related arrays, they are independent of spin
 module NAOmod
 integer iopshNAO !0: Closed shell, 1: Open shell (total, alpha and beta are respectively analyzed). This variable is set during loadNAOinfo
-integer ncenter_NAO !The number of centers in involved in NAO analysis, usually equals to ncenter
-character(len=2),allocatable :: atmname_NAO(:) !Name of centers in involved in NAO analysis, e.g. C, H, O, usually equals to a%name
+integer ncenter_NAO !The number of centers in involved in NAO analysis, usually equals ncenter
+character(len=2),allocatable :: atmname_NAO(:) !Name of centers in involved in NAO analysis, e.g. C, H, O, usually equals a%name
 !NAO information
 integer numNAO !The number of NAOs
 integer,allocatable :: NAOinit(:),NAOend(:) !size of ncenter_NAO. Initial and ending indices of NAOs of atoms

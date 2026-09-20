@@ -179,9 +179,9 @@ do while(.true.)
     grdspcv2=v2len/(ny-1)
     grdspcv3=v3len/(nz-1)
     if (ifPBC==3) then
-        gridv1(:)=cellv1(:)/v1len*grdspcv1
-        gridv2(:)=cellv2(:)/v2len*grdspcv2
-        gridv3(:)=cellv3(:)/v3len*grdspcv3
+        gridv1(:)=cellv1(:)/dsqrt(sum(cellv1**2))*grdspcv1
+        gridv2(:)=cellv2(:)/dsqrt(sum(cellv2**2))*grdspcv2
+        gridv3(:)=cellv3(:)/dsqrt(sum(cellv3**2))*grdspcv3
     else
         gridv1(:)=(/ grdspcv1,0D0,0D0 /)
         gridv2(:)=(/ 0D0,grdspcv2,0D0 /)
@@ -373,7 +373,7 @@ real*8,allocatable :: fiterr(:),fitrho(:) !Fitting error and fitted density at e
 integer :: npoint_CB=0
 real*8,allocatable :: radr_CB(:),radw_CB(:),rho_CB(:) !Position, weight and sphericalized density at second kind Gauss-Chebyshev points
 real*8 :: tol=1D-5 !Fitting tolerance. Should not be too small, otherwise it is too difficult to converge until reach maximum of function calls
-integer :: iscale=1 !=1: Scale coefficients so that integral equals to actual number of electrons, =0: Do not scale
+integer :: iscale=1 !=1: Scale coefficients so that integral equals actual number of electrons, =0: Do not scale
 integer :: isort=1,idelredun=1
 external :: atmdens_fiterr
 integer,parameter :: nsphpt=170 !Number of points used to calculate sphericalized radial density
