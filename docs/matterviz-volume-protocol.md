@@ -173,7 +173,8 @@ high-quality grid (about 1,728,000 points) without downsampling or the major-1
 Initial-stream admission closes when `session_init` arrives. Subsequent major-2
 frames must match a registered HTTP stream request, as before. Bootstrap allows
 300 seconds per stage to match the initial-volume producer timeout; pipe closure
-or shutdown still cancels the wait immediately.
+or shutdown still cancels the wait immediately. Once the control bootstrap frame
+starts arriving, its completion deadline remains 30 seconds.
 
 Rust owns pipe readers, cache lifetime, HTTP serving, and shutdown. The narrow
 GUI/session C ABI owns inherited pipe ends and complete-frame writes. POSIX must

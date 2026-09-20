@@ -275,7 +275,8 @@ impl HttpService {
                 let frame = transport
                     .read_frame_startup(
                         session_bootstrap_wait_timeout(bootstrap_stage_timeout),
-                        bootstrap_stage_timeout,
+                        // Only the pre-bootstrap volume wait needs the longer deadline.
+                        bootstrap_stage_timeout.min(Duration::from_secs(30)),
                         shutdown.flag(),
                     )
                     .map_err(|error| format!("could not receive session bootstrap: {error}"))?;
