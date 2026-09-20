@@ -25,7 +25,7 @@ character ctemp*5,c80tmp*80
 !Note that due to limitation of DISLIN, it is not possible to view molecule in all viewpoints. The YVU should be limited to between -90 and 90, else the viewpoint will suddently flip
 XVUold=XVU
 YVUold=YVU
-if (YVU==90) YVU=89.999D0 !Temporarily modify YVU, otherwise when YVU equals to 90 or -90, the perspective will jump suddenly
+if (YVU==90) YVU=89.999D0 !Temporarily modify YVU, otherwise when YVU equals 90 or -90, the perspective will jump suddenly
 if (YVU==-90) YVU=-89.999D0
 
 !Determine x/y/zlow, x/y/zhigh and plotlenx/y/z, which are lower, upper positions and length of the axis

@@ -80,8 +80,7 @@ integer :: iMDformat=1,nMDsavefreq=1,ioutcube=0,idiagOT=1,imixing=2,ismear=0,iat
 integer :: natmcons=0,nthermoatm=0,ikpoint1=1,ikpoint2=1,ikpoint3=1,nrep1=1,nrep2=1,nrep3=1,ikeepcell=0
 integer,allocatable :: atmcons(:),thermoatm(:)
 real*8 :: efieldvec(3)=0,vacsizex=5/b2a,vacsizey=5/b2a,vacsizez=5/b2a
-real*8 :: frag1chg,frag2chg
-integer :: frag1multi,frag2multi,totalmulti
+integer :: frag1chg,frag2chg,frag1multi,frag2multi,totalmulti
 integer :: iprestype=1,ioutSbas=0,ioutKSbas=0,ioutorbene=0,istate_force=1,idiaglib=1,iGAPW=0,iLSSCF=0,iLRIGPW=0,iPSOLVER=1,niter_evGW=1,niter_scGW0=1,istructfile=0
 real*8 :: Piso=1.01325D0,Ptens(3,3)=reshape( [1.01325D0,0D0,0D0, 0D0,1.01325D0,0D0, 0D0,0D0,1.01325D0], shape=shape(Ptens))
 real*8 :: PBEh_HFX=45
@@ -1820,8 +1819,16 @@ if (method=="GFN1-xTB") then
     write(ifileid,"(a)") "        CHECK_ATOMIC_CHARGES F #xTB calculation often crashes without setting this to false"
     write(ifileid,"(a)") "      &END xTB"
 else if (method=="GFN2-xTB") then
+    !Suitable for <=2026.1
+    !write(ifileid,"(a)") "      METHOD xTB"
+    !write(ifileid,"(a)") "      &xTB"
+    !write(ifileid,"(a)") "        &TBLITE"
+    !write(ifileid,"(a)") "          METHOD GFN2"
+    !write(ifileid,"(a)") "        &END TBLITE"
+    !write(ifileid,"(a)") "      &END xTB"
     write(ifileid,"(a)") "      METHOD xTB"
     write(ifileid,"(a)") "      &xTB"
+    write(ifileid,"(a)") "        GFN_TYPE TBLITE"
     write(ifileid,"(a)") "        &TBLITE"
     write(ifileid,"(a)") "          METHOD GFN2"
     write(ifileid,"(a)") "        &END TBLITE"
@@ -2575,6 +2582,12 @@ if (imolden==1.or.ioutSbas==1.or.ioutKSbas==1.or.ioutcube>0.or.iatomcharge>0.or.
     if (imolden==1) then
         write(ifileid,"(a)") "      &MO_MOLDEN #Exporting .molden file containing wavefunction information"
         write(ifileid,"(a)") "        NDIGITS 9 #Output orbital coefficients if absolute value is larger than 1E-9"
+        if (ifPBC==0.or.PBCdir=="NONE") then
+            continue
+        else
+            write(ifileid,"(a)") "        WRITE_CELL T #Write cell information"
+        end if
+        write(ifileid,"(a)") "        WRITE_PSEUDO T #Write number of valence electrons of atoms"
         write(ifileid,"(a)") "      &END MO_MOLDEN"
     end if
     if (iDFTplusU==1) then
@@ -3172,7 +3185,7 @@ if (itask==3.or.itask==4.or.itask==5.or.itask==6.or.itask==7.or.itask==8.or.itas
         write(ifileid,"(a)") "    KEEP_ANGLES F #If T, then cell angles will be kepted"
         write(ifileid,"(a)") "    KEEP_SYMMETRY F #If T, then cell symmetry specified by &CELL / SYMMETRY will be kepted"
         write(ifileid,"(a)") "    KEEP_SPACE_GROUP F #If T, then space group will be detected and preserved"
-        write(ifileid,"(a)") "    TYPE DIRECT_CELL_OPT #Geometry and cell are optimized at the same time. Can also be GEO_OPT, MD"
+        !write(ifileid,"(a)") "    TYPE DIRECT_CELL_OPT #Geometry and cell are optimized at the same time. Can also be GEO_OPT, MD". No longer available since CP2K 2026.2
         write(ifileid,"(a)") "    #The following thresholds of optimization convergence are the default ones"
         write(ifileid,"(a)") "    MAX_DR 3E-3 #Maximum geometry change"
         write(ifileid,"(a)") "    RMS_DR 1.5E-3 #RMS geometry change"

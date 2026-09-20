@@ -340,7 +340,7 @@ end subroutine
 
 
 !------ Load NAOMO matrix
-!numorb: The number of actual MOs (equals to NBsUse of Gaussian) 
+!numorb: The number of actual MOs (equals NBsUse of Gaussian) 
 subroutine loadNAOMO(numorb)
 use util
 use NAOmod
