@@ -356,5 +356,20 @@ if(MULTIWFN_WITH_OPENMP)
   endif()
 endif()
 
+if(APPLE AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
+  add_custom_target(multiwfn_macos_app
+    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tools/macos/package_macos_app.sh"
+      --binary "$<TARGET_FILE:${MULTIWFN_EXECUTABLE_NAME}>"
+      --desktop "${MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE}"
+      --viewer-dist "${MULTIWFN_MATTERVIZ_DIST}"
+      --settings "${CMAKE_CURRENT_SOURCE_DIR}/settings.ini"
+      --output-dir "${CMAKE_CURRENT_BINARY_DIR}/macos-app"
+      --create-dmg
+    DEPENDS ${MULTIWFN_EXECUTABLE_NAME} multiwfn_matterviz_resources
+    COMMENT "Packaging macOS Multiwfn.app bundle and DMG installer"
+    VERBATIM
+  )
+endif()
+
 install(TARGETS ${MULTIWFN_EXECUTABLE_NAME} RUNTIME DESTINATION bin)
 install(FILES settings.ini DESTINATION etc/multiwfn)
