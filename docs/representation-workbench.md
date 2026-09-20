@@ -42,8 +42,22 @@ camera, fit-to-visible action, background, four lights and measurement mode.
   thickness fields show the actual renderer values. Element labels and atom
   indices stay available, including source indices for periodic copies.
 - Volume Reps choose a dataset, isovalue, positive/negative colors, surface or
-  wireframe, and an optional compatible color grid, palette and manual range.
-  The ESP legend follows the selected visible mapping.
+  wireframe, and an optional compatible color grid, color scale and manual range.
+  **Color scale / 色彩轴** replaces the former Colormap label. Choose a preset
+  for a compact preview. Only **Custom / 自定义** shows the control-point editor,
+  retaining the current colors when entered. Its **Load preset / 载入预设**
+  selector replaces the points while staying in Custom mode. Edit each point's
+  color (picker or hex) and percentage, or add/remove points. Selecting a named
+  scale hides the editor again. Points sort by position;
+  duplicate positions, invalid colors and positions outside 0–100% are rejected.
+  Scales contain 2–32 points. Adding a point splits the widest gap with its
+  existing interpolated color. 0% means the current scalar-range minimum and
+  100% the maximum; colors extend flat beyond the first and last points.
+  The pink/white/blue preset has three points; other D3 presets are sampled at
+  eighths into nine editable points. All points interpolate piecewise in sRGB,
+  with linear RGB conversion for the renderer. The ESP legend follows the
+  selected visible mapping, using the same points and the actual renderer range
+  for both manual and automatic coloring. Zero-width ranges use the midpoint.
 - Appearance uses opacity and diffuse reflection with matte, glossy, PBR and
   unlit models. Glossy exposes highlight strength/sharpness; PBR exposes
   roughness/metalness. Atoms, gradient-colored bonds and surfaces use the same
@@ -96,8 +110,12 @@ Old snapshots migrate their layers, materials, supercell dimensions, boundary
 atom choice and cell visibility. New snapshots retain selection, order, source
 identity, coloring, materials and custom PBC. Invalid cells, ranges and duplicate
 Rep IDs are rejected. PBC display and Rep selection never mutate scientific data.
+Custom color scales belong to each Rep and survive copy/save/restore. Older
+palettes migrate into editable points; saved asymmetric or one-sided Trans Flag
+ranges retain their original physical-zero anchoring. Loading a fresh preset
+uses its defined percentage positions.
 
-The `reps1` vendor patch replays onto `upstream1`; every installed package file
+The `reps2` vendor patch replays onto `reps1`, which replays onto `upstream1`; every installed package file
 has been compared with the archive. Earlier topology, material, parsing and
 sampling fixes are preserved. Reproduction commands are in the frontend README.
 
@@ -119,11 +137,16 @@ sampling fixes are preserved. Reproduction commands are in the frontend README.
 - `tests/browser/rep-color.mjs`: actual grayscale, enhanced saturation and
   diffuse gain in all material models, bond gradients and mapped/wireframe
   surfaces, with unchanged alpha/camera and independent saved settings.
+- `tests/color-scale.test.ts` and `tests/browser/color-scale.mjs`: nonuniform
+  interpolation, bounds/invalid data, legacy migration, independent copies and
+  settings round-trip, linear vertex RGB and matching legend stops, actual WebGL
+  recoloring without mesh replacement, surface-fitted legend ranges, and
+  bilingual controls at desktop and 600 px widths.
 - Existing advanced UI and language browser regressions pass. The topology
   browser regression retains ordinary/analysis measurements, hidden-bond picking,
   editing, partial occupancies, labels and surface visibility masks.
 - Final verification: frontend tests pass with one existing skip; Svelte
-  reports zero errors/warnings; production build and all eight vendor replay
+  reports zero errors/warnings; production build and all nine vendor replay
   tests pass. Screenshots and portable scene
   states are emitted by the browser acceptance test.
 

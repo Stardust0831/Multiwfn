@@ -6,12 +6,13 @@
   import { rep_structure, rep_clip_planes, rep_translations, rep_bonds, type RepBondEdits } from './rep-periodic'
   import RepAppearance from './RepAppearance.svelte'
   import RepVolume from './RepVolume.svelte'
-  let { rep, structure, volumes, bondEdits, measureMode, measurementOwner, budget, sceneProps, onmeasure, oncontext, onerror, order = 0 }: {
+  let { rep, structure, volumes, bondEdits, measureMode, measurementOwner, budget, sceneProps, onmeasure, oncontext, onerror, oncolorrange, order = 0 }: {
     rep: Rep; structure: AnyStructure; volumes: VolumetricData[]; measureMode: MeasureMode; measurementOwner: string; budget?: number
     bondEdits: RepBondEdits
     sceneProps: Record<string, unknown>
     onmeasure: (id: string, structure: AnyStructure, sites: number[]) => void
     oncontext: (detail: SelectedBondContext) => void; onerror: (id: string, message: string) => void
+    oncolorrange?: (id: string, range: [number, number] | undefined) => void
     order?: number
   } = $props()
   let sites = $state<number[]>([])
@@ -75,7 +76,7 @@
         on_selected_bond_context={oncontext}
       />
     {:else if rep.source.kind === 'volume'}
-      <RepVolume {rep} {volumes} translations={data.translations!} {budget} onerror={(message) => onerror(rep.id, message)} />
+      <RepVolume {rep} {volumes} translations={data.translations!} {budget} onerror={(message) => onerror(rep.id, message)} oncolorrange={(range) => oncolorrange?.(rep.id, range)} />
     {/if}
   </RepAppearance>
   {#if rep.periodic.showCell && valid_cell(cell)}

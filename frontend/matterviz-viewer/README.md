@@ -6,12 +6,15 @@ It consumes the Multiwfn session manifest and serialized backend API. Protected
 core sources are unchanged relative to the main-branch baseline. Data capture and
 user-confirmed metadata live entirely in the GUI adapters and frontend.
 
-The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.tgz`.
-Its reviewable patch extends the retained `r25.upstream1` archive, preserving the
+The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz`.
+Its reviewable patch extends the retained `r25.reps1` archive, preserving the
 reviewed topology, measurement, material, parser and sampling fixes. Reps render
 geometry in the host scene without adding cameras or lights. Their atoms and
 bonds share the standard matte/glossy/PBR/unlit material pool, with gradient bond
 colors, opacity, rim shading and local clipping.
+Editable color scales use shared sRGB control points for surface coloring and
+the legend; color-only edits reuse the extracted geometry. The renderer reports
+its actual surface-fitted color range so automatic legend ticks remain accurate.
 
 See [the representation workbench](../../docs/representation-workbench.md) for
 controls, migration, resource limits and browser acceptance coverage.
@@ -34,35 +37,43 @@ orientation after declarative pose setters, while identical live Arcball
 feedback preserves the current quaternion. Worker buffer returns support
 environments without SharedArrayBuffer.
 
-The Trans Flag palette uses negative pink `#f5a9b8`, physical-zero white and
-positive blue `#5bcefa`. Vertex colors and colorbars share those semantics for
+Legacy Trans Flag coloring uses negative pink `#f5a9b8`, physical-zero white and
+positive blue `#5bcefa`. Its vertex colors and colorbars share those semantics for
 asymmetric, one-sided and zero-width ranges, with an odd-sized LUT preserving
-exact white at zero. Explicit ESP layers use it by default; other volume defaults
-remain unchanged. Typed Worker geometry recomputes area-weighted normals from
+exact white at zero. Saved ranges migrate to editable points with those colors
+intact. The fresh pink/white/blue preset places its points at 0%, 50% and 100%;
+subsequent range changes keep their percentage positions fixed. Explicit ESP
+layers use this palette by default. Typed Worker geometry recomputes area-weighted normals from
 its final Cartesian vertices, reusing the allocated normal buffer. This matches
 the legacy path for rotated, anisotropic and nonorthogonal cells. Unlit and
 wireframe surfaces bypass tone mapping so their colors agree with the legend;
 lit finishes retain the renderer's tone mapping and transparency.
 
-The retained lineage is r25 → workbench1 → workbench2 → upstream1 → reps1.
+The retained lineage is r25 → workbench1 → workbench2 → upstream1 → reps1 → reps2.
 Earlier reviewed archives and patches remain reproducible bases. The current
-reps1 archive SHA-256 is `0bf09d6755f124f56e00c07c37c1b73d358c7b31024b1300c8711b1e311a35b8`;
+reps2 archive SHA-256 is `cef5d1e2c97e6c65041ba3b0a50d94b41acbd7705d85a8d3cd4b7ed7218632ec`;
 `package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
 To reproduce the current package (Node.js 24 and npm):
 
 ```bash
 workbench_tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.upstream1.tgz -C "$workbench_tmpdir"
-patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.patch
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.tgz -C "$workbench_tmpdir"
+patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.patch
 npm pack --ignore-scripts --pack-destination vendor "$workbench_tmpdir/package"
-sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.tgz
+sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz
 ```
 
 The checksum identifies the retained archive. To verify a repack across npm
 versions, `tests/test_matterviz_topology_vendor.py` compares every extracted
 package file against an independent patch replay, avoiding tar metadata
 differences. It also checks that both reviewed vendor branches remain present.
+
+`pnpm test:color-scale` checks editable preset/custom stops against real WebGL
+surface buffers and pixels, legend ranges, independent copies, saved settings,
+validation and bilingual/narrow-screen controls. Like the other representation
+browser scripts, it uses the running local session preview and accepts
+`PLAYWRIGHT_MODULE`, `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, `PREVIEW_URL` and `ARTIFACT_DIR`.
 
 `pnpm test:topology-picking` runs the installed scene in Chromium with real Three.js
 raycasting and Threlte event registration. It requires Playwright and its Chromium

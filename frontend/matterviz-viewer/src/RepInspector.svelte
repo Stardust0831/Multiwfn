@@ -6,6 +6,8 @@
   import { REPRESENTATION_PRESETS, apply_representation_preset } from './representation'
   import { dataset_source, copy_rep, material_preset, rep_surface_settings, MAX_REPS, type Cell, type Rep, type RepCollection, type RepMaterial } from './reps'
   import RepPeriodicControls from './RepPeriodicControls.svelte'
+  import ColorScaleEditor from './ColorScaleEditor.svelte'
+  import { volume_color_scale } from './color-scale'
   import type { Snippet } from 'svelte'
 
   let { collection, entries, sourceCell, onchange, onadd, onclose, scene, errors = {} }: {
@@ -120,7 +122,7 @@
               <div class="rep-fields"><label class="rep-field"><span>{$t('Positive color')}</span><input type="color" value={selected.volume.color} oninput={(event) => patch({ volume: { ...selected!.volume, color: event.currentTarget.value } })} /></label><label class="rep-field"><span>{$t('Negative color')}</span><input type="color" value={selected.volume.negative_color} oninput={(event) => patch({ volume: { ...selected!.volume, negative_color: event.currentTarget.value } })} /></label></div>
               <label class="rep-field"><span>{$t('Color by')}</span><select value={selected.volume.color_volume_idx ?? -1} onchange={(event) => { const index = Number(event.currentTarget.value); patch({ volume: { ...selected!.volume, color_volume_idx: index < 0 ? undefined : index, colorSourcePath: entries[index]?.path, colorSourceSlot: dataset_source(entries, index).slot, colormap: selected!.volume.colormap ?? 'interpolateTransFlag' } }) }}><option value="-1">{$t('Solid colors')}</option>{#each entries as entry, index}<option value={index}>{entry.name ?? entry.path}</option>{/each}</select></label>
               {#if selected.volume.color_volume_idx !== undefined}
-                <label class="rep-field"><span>{$t('Colormap')}</span><select value={selected.volume.colormap ?? 'interpolateTransFlag'} onchange={(event) => patch({ volume: { ...selected!.volume, colormap: event.currentTarget.value as Rep['volume']['colormap'] } })}>{#each ['TransFlag', 'Viridis', 'RdBu', 'Turbo', 'Plasma', 'Inferno', 'Magma', 'Cividis', 'RdYlBu', 'Spectral', 'PiYG', 'BrBG', 'PuOr', 'Cool', 'Warm', 'RdYlGn', 'Greys'] as name}<option value={`interpolate${name}`}>{name === 'TransFlag' ? $t('Pink · White · Blue') : name}</option>{/each}</select></label>
+                {#key selected.id}<ColorScaleEditor value={volume_color_scale(selected.volume)} onchange={(colorScale) => patch({ volume: { ...selected!.volume, colorScale } })} />{/key}
                 <label class="rep-toggle"><input type="checkbox" checked={Boolean(selected.volume.color_range)} onchange={(event) => patch({ volume: { ...selected!.volume, color_range: event.currentTarget.checked ? [-0.05, 0.05] : undefined } })} />{$t('Manual color range')}</label>
                 {#if selected.volume.color_range}<div class="rep-fields">{#each ['Minimum', 'Maximum'] as label, index}<label class="rep-field"><span>{$t(label)}</span><input type="number" step="0.01" value={selected.volume.color_range[index]} oninput={(event) => numeric(event, (value) => { const range = [...selected!.volume.color_range!] as [number, number]; range[index] = value; patch({ volume: { ...selected!.volume, color_range: range } }) })} /></label>{/each}</div>{/if}
               {/if}

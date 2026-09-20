@@ -11,6 +11,29 @@ VERSION = "matterviz-0.4.2-multiwfn.d8719d12.r25"
 
 
 class TopologyVendor(unittest.TestCase):
+    def test_editable_color_scales_replay_from_reps1_to_exact_package(self):
+        with tempfile.TemporaryDirectory(prefix="color-scale-vendor-replay-") as directory:
+            base, target = Path(directory) / "base", Path(directory) / "target"
+            base.mkdir()
+            target.mkdir()
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".reps1.tgz")), "-C", str(base)], check=True)
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".reps2.tgz")), "-C", str(target)], check=True)
+            before = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            with (VENDOR / "patches" / (VERSION + ".reps2.patch")).open("rb") as patch:
+                subprocess.run(["patch", "-p1", "-d", str(base / "package")], stdin=patch, check=True, capture_output=True)
+            after = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            packaged = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+            self.assertEqual(after, packaged)
+            self.assertEqual({str(path) for path in set(after) - set(before)}, {
+                "package/dist/colors/stops.js", "package/dist/colors/stops.d.ts",
+            })
+            changed = {str(path) for path in before if before[path] != after[path]}
+            self.assertEqual(changed, {
+                "package/package.json", "package/dist/isosurface/types.d.ts",
+                "package/dist/isosurface/coloring.js", "package/dist/isosurface/coloring.d.ts",
+                "package/dist/isosurface/Isosurface.svelte", "package/dist/isosurface/Isosurface.svelte.d.ts",
+            })
+
     def test_representations_replay_from_upstream1_to_exact_package(self):
         with tempfile.TemporaryDirectory(prefix="reps-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"

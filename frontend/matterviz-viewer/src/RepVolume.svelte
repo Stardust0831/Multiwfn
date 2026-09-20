@@ -3,7 +3,7 @@
   import { T, useTask, useThrelte } from '@threlte/core'
   import { Group, Mesh } from 'three'
   import { rep_surface_settings, type Rep, type Vec } from './reps'
-  let { rep, volumes, translations, budget, onerror }: { rep: Rep; volumes: VolumetricData[]; translations: Vec[]; budget?: number; onerror: (message: string) => void } = $props()
+  let { rep, volumes, translations, budget, onerror, oncolorrange }: { rep: Rep; volumes: VolumetricData[]; translations: Vec[]; budget?: number; onerror: (message: string) => void; oncolorrange?: (range: [number, number] | undefined) => void } = $props()
   let source = $state.raw<Group>()
   const copies = new Group()
   const { invalidate } = useThrelte()
@@ -33,6 +33,6 @@
 <!-- Extract once per Rep; translated copies borrow the same geometry/materials.
      Only the source owns their lifetime. -->
 <T.Group visible={false} bind:ref={source}>
-  <VolumetricIsosurface {volumes} {settings} on_geometry_error={onerror} />
+  <VolumetricIsosurface {volumes} {settings} on_geometry_error={onerror} on_color_ranges={(ranges) => oncolorrange?.(ranges[0])} />
 </T.Group>
 <T is={copies} dispose={false} name={`rep-copies-${rep.id}`} />

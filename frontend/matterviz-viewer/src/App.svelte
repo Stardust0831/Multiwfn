@@ -43,6 +43,7 @@
   import MeasurementReadout, { type BondResult } from './MeasurementReadout.svelte'
   import { scene_registry } from 'matterviz'
   import { scene_to_png_blob } from './scene-export'
+  import { volume_color_scale } from './color-scale'
   import { render_plot_document } from './plot-export'
   import {
     cached_plot_resolver, download_blob, import_plot_document, plot_data_csv,
@@ -200,6 +201,7 @@
   let previousRepLayers = new Map<string, string>()
   let advancedStructure = $state(false)
   let repErrors = $state<Record<string, string>>({})
+  let repColorRanges = $state<Record<string, [number, number] | undefined>>({})
   let repMeasurement = $state<{ id: string; structure: AnyStructure; sites: number[] }>()
   const measurementSites = $derived(!advancedStructure && !topologyActive && !surfaceActive ? repMeasurement?.sites ?? [] : measuredSites)
   const measurementStructure = $derived(!advancedStructure && !topologyActive && !surfaceActive && repMeasurement ? repMeasurement.structure : displayedStructure ?? structure)
@@ -239,6 +241,7 @@
   })
   const update_representations = (next: RepCollection) => {
     representations = next
+    repColorRanges = Object.fromEntries(Object.entries(repColorRanges).filter(([id]) => next.items.some((rep) => rep.id === id)))
     const rep = next.items.find((item) => item.id === next.selectedId)
     if (rep?.source.kind === 'volume' && rep.source.index >= 0) activeVolumeIdx = rep.source.index
     if (repMeasurement && !next.items.some((item) => item.id === repMeasurement?.id && item.visible)) repMeasurement = undefined
@@ -251,6 +254,9 @@
   }
   const report_rep_error = (id: string, message: string) => {
     if ((repErrors[id] ?? '') !== message) repErrors = { ...repErrors, [id]: message }
+  }
+  const report_rep_color_range = (id: string, range: [number, number] | undefined) => {
+    if (repColorRanges[id]?.[0] !== range?.[0] || repColorRanges[id]?.[1] !== range?.[1]) repColorRanges = { ...repColorRanges, [id]: range }
   }
   const measure_rep = (id: string, displayed: AnyStructure, sites: number[]) => {
     repMeasurement = sites.length ? { id, structure: displayed, sites } : undefined
@@ -893,7 +899,7 @@
     if (!repsInitialized || advancedStructure) return isosurfaceSettings.layers ?? []
     const items = [...representations.items].sort((a, b) => Number(b.id === representations.selectedId) - Number(a.id === representations.selectedId))
     return items.flatMap((rep) => rep.source.kind === 'volume' && rep.source.index >= 0
-      ? [{ ...rep.volume, volume_idx: rep.source.index, visible: rep.visible, opacity: rep.material.opacity }] : [])
+      ? [{ ...rep.volume, color_stops: volume_color_scale(rep.volume).stops, color_range: rep.volume.color_range ?? repColorRanges[rep.id], volume_idx: rep.source.index, visible: rep.visible, opacity: rep.material.opacity }] : [])
   }
   const esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined => {
     return find_mapped_esp_pair(volumeEntries, displayed_volume_layers(), grids_compatible)
@@ -920,7 +926,7 @@
   const linked_esp_range = (): [number, number] | undefined => {
     const pair = esp_pair()
     if (!pair) return undefined
-    const layer = displayed_volume_layers().find((item) => item.volume_idx === pair.densityIdx && item.visible)
+    const layer = displayed_volume_layers().find((item) => item.volume_idx === pair.densityIdx && item.color_volume_idx === pair.potentialIdx && item.visible)
     const potentialRange = volumetricData?.[pair.potentialIdx]?.data_range
     const range = layer?.color_range ?? (potentialRange ? [potentialRange.min, potentialRange.max] : undefined)
     if (!Array.isArray(range) || range.length < 2) return undefined
@@ -934,8 +940,12 @@
 
   const current_esp_colormap = (): NonNullable<IsosurfaceLayer['colormap']> => {
     const pair = esp_pair()
-    return displayed_volume_layers().find((layer) => layer.volume_idx === pair?.densityIdx && layer.visible)?.colormap
+    return displayed_volume_layers().find((layer) => layer.volume_idx === pair?.densityIdx && layer.color_volume_idx === pair?.potentialIdx && layer.visible)?.colormap
       ?? 'interpolateTransFlag'
+  }
+  const current_esp_color_stops = (): IsosurfaceLayer['color_stops'] => {
+    const pair = esp_pair()
+    return displayed_volume_layers().find((layer) => layer.volume_idx === pair?.densityIdx && layer.color_volume_idx === pair?.potentialIdx && layer.visible)?.color_stops
   }
 
   const state_url = (): URL | undefined => {
@@ -2119,7 +2129,7 @@
       {/if}
       {#if !topologyActive && !surfaceActive && espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
-        <EspLegend min={legendRange[0]} max={legendRange[1]} colormap={current_esp_colormap()} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
+        <EspLegend min={legendRange[0]} max={legendRange[1]} colormap={current_esp_colormap()} color_stops={current_esp_color_stops()} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
       {/if}
     </div>
     {#if loading || measurementSites.length || bondResults.length}
@@ -2298,7 +2308,7 @@
               {/if}
               {#if layer?.color_volume_idx !== undefined}
                 <label>
-                  <span>{$t("Colormap")}</span>
+                  <span>{$t("Color scale")}</span>
                   <select
                     value={layer.colormap || 'interpolateRdBu'}
                     onchange={(event) => update_layer(volumeIdx, { colormap: event.currentTarget.value as IsosurfaceLayer['colormap'] })}
@@ -2404,7 +2414,7 @@
       <RepLayer {rep} {order} {structure} {bondEdits} volumes={volumetricData ?? []} {measureMode} sceneProps={sceneProps}
         measurementOwner={repMeasurement?.id ?? ''}
         budget={isosurfaceSettings.geometry_memory_budget_bytes === undefined ? undefined : Math.floor(isosurfaceSettings.geometry_memory_budget_bytes / Math.max(1, representations.items.filter((item) => item.visible && item.source.kind === 'volume').length))}
-        onmeasure={measure_rep} oncontext={open_bond_context_menu} onerror={report_rep_error} />
+        onmeasure={measure_rep} oncontext={open_bond_context_menu} onerror={report_rep_error} oncolorrange={report_rep_color_range} />
     {/each}
   {/if}
 {/snippet}

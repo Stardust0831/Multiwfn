@@ -1,6 +1,7 @@
 import type { IsosurfaceLayer, IsosurfaceSettings } from 'matterviz'
 import { SURFACE_DEFAULTS, SURFACE_PRESETS } from './material.ts'
 import { detect_representation_preset, type RepresentationPreset } from './representation.ts'
+import { legacy_color_scale, normalize_color_scale, preset_color_scale, volume_color_scale, type ColorScale } from './color-scale.ts'
 
 export type Vec = [number, number, number]
 export type Cell = [Vec, Vec, Vec]
@@ -34,7 +35,7 @@ export type Rep = {
   followData?: boolean
   source: { kind: 'structure' } | { kind: 'volume'; index: number; path?: string; slot?: number }
   structure: { style: RepresentationPreset; selection: string; radius: number; bondRadius: number; labels: boolean; indices: boolean }
-  volume: IsosurfaceLayer & { wireframe: boolean; colorSourcePath?: string; colorSourceSlot?: number }
+  volume: IsosurfaceLayer & { wireframe: boolean; colorSourcePath?: string; colorSourceSlot?: number; colorScale?: ColorScale }
   material: RepMaterial
   periodic: RepPeriodic
 }
@@ -57,7 +58,7 @@ export const unit_range = (): RepRange => [[0, 1], [0, 1], [0, 1]]
 export const create_rep = (source: Rep['source'], id: string = crypto.randomUUID()): Rep => ({
   id, name: source.kind === 'structure' ? 'Structure' : `Volume ${source.index + 1}`, visible: true, source: { ...source },
   structure: { style: 'ballstick', selection: 'all', radius: 0.7, bondRadius: 0.07, labels: false, indices: false },
-  volume: { isovalue: 0.02, opacity: 1, color: '#3177ba', negative_color: '#ce5588', show_negative: true, visible: true, wireframe: false, volume_idx: source.kind === 'volume' ? source.index : 0 },
+  volume: { isovalue: 0.02, opacity: 1, color: '#3177ba', negative_color: '#ce5588', show_negative: true, visible: true, wireframe: false, volume_idx: source.kind === 'volume' ? source.index : 0, colorScale: preset_color_scale('interpolateTransFlag') },
   material: { ...DEFAULT_REP_MATERIAL },
   periodic: { enabled: false, axes: [true, true, true], range: unit_range(), showCell: false, boundary: 'clip' },
 })
@@ -115,6 +116,9 @@ export const normalize_rep = (value: unknown): Rep | undefined => {
   if (typeof volume.colorSourcePath === 'string') rep.volume.colorSourcePath = volume.colorSourcePath
   if (typeof volume.colorSourceSlot === 'number') rep.volume.colorSourceSlot = Math.floor(number(volume.colorSourceSlot, 0, 0, 100000))
   if (Array.isArray(volume.color_range) && volume.color_range.length === 2 && volume.color_range.every((n) => typeof n === 'number' && Number.isFinite(n))) rep.volume.color_range = [...volume.color_range].sort((a, b) => a - b) as [number, number]
+  rep.volume.colorScale = volume.colorScale !== undefined ? normalize_color_scale(volume.colorScale)
+    : volume.color_stops !== undefined ? normalize_color_scale({ stops: volume.color_stops })
+    : legacy_color_scale(rep.volume.colormap, rep.volume.color_range)
   return rep
 }
 
@@ -137,7 +141,9 @@ export const rep_surface_settings = (rep: Rep, budget?: number): IsosurfaceSetti
   material: rep.material.model, roughness: rep.material.roughness, metalness: rep.material.metalness,
   shininess: rep.material.shininess, specular: rep.material.specular, outline: rep.material.outline,
   outlineWidth: rep.material.outlineWidth, transmode: rep.material.angleOpacity ? 1 : 0, flat_shading: rep.material.faceted,
-  layers: [{ ...rep.volume, volume_idx: rep.source.kind === 'volume' ? rep.source.index : 0, opacity: rep.material.opacity, visible: rep.visible }],
+  layers: [{ ...rep.volume, color_stops: volume_color_scale(rep.volume).stops,
+    color_range: rep.volume.color_range ? [...rep.volume.color_range].sort((a, b) => a - b) as [number, number] : undefined,
+    volume_idx: rep.source.kind === 'volume' ? rep.source.index : 0, opacity: rep.material.opacity, visible: rep.visible }],
   geometry_memory_budget_bytes: budget,
 })
 
@@ -180,7 +186,7 @@ export const migrate_reps = (scene: Record<string, unknown>, settings: Isosurfac
     const rep = create_rep(dataset_source(entries, volumeIdx), `volume-${index + 1}`)
     rep.followData = true
     rep.name = entries[volumeIdx]?.name ?? `Volume ${volumeIdx + 1}`
-    rep.volume = { ...layer, wireframe: settings.wireframe, colorSourcePath: layer.color_volume_idx === undefined ? undefined : entries[layer.color_volume_idx]?.path,
+    rep.volume = { ...layer, colorScale: volume_color_scale(layer), wireframe: settings.wireframe, colorSourcePath: layer.color_volume_idx === undefined ? undefined : entries[layer.color_volume_idx]?.path,
       colorSourceSlot: layer.color_volume_idx === undefined ? undefined : dataset_source(entries, layer.color_volume_idx).slot }
     const appearance = { ...SURFACE_DEFAULTS, ...settings }
     rep.material = { ...rep.material, model: appearance.material ?? 'matte', opacity: layer.opacity,

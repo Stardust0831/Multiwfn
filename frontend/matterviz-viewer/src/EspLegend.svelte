@@ -2,6 +2,7 @@
   import { t } from './i18n'
   import { onMount } from 'svelte'
   import { get_d3_interpolator, trans_flag_color, type D3InterpolateName } from 'matterviz/colors'
+  import { color_stop_hex, color_stops_gradient, type ColorStop } from 'matterviz/colors/stops'
   import {
     clampLegendPosition,
     espLegendTicks,
@@ -13,6 +14,7 @@
   export let min = -0.05
   export let max = 0.05
   export let colormap: D3InterpolateName = 'interpolateTransFlag'
+  export let color_stops: ColorStop[] | undefined = undefined
   export let ticks: EspLegendTick[] | undefined = undefined
   export let visible = true
   export let position: LegendPosition = { left: 16, top: 16 }
@@ -29,7 +31,7 @@
   let measured_position: LegendPosition = { left: 16, top: 16 }
 
   $: legend_ticks = ticks?.length ? ticks : espLegendTicks(min, max, 5)
-  $: gradient = esp_legend_gradient(min, max, (value, lower, upper) =>
+  $: gradient = color_stops ? min === max ? color_stop_hex(color_stops, 0.5) : color_stops_gradient(color_stops, 'to top') : esp_legend_gradient(min, max, (value, lower, upper) =>
     colormap === 'interpolateTransFlag'
       ? trans_flag_color(value, [lower, upper])
       : get_d3_interpolator(colormap)(lower === upper ? 0.5 : (value - lower) / (upper - lower)))
