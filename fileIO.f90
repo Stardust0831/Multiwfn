@@ -3111,7 +3111,7 @@ if (mo_number==0.or.mo_number==1) then !Commonly case, below code has the best c
     else !CP2K 2026.1 using 6E13.5E3 to output (http://bbs.keinsci.com/thread-60030-1-1.html), making Multiwfn compatible with it
 		write(*,*) "Unable to load grid data using free format, trying loading using 6E13.5E3..."
         rewind(10)
-        call skiplines(10,ncenter+6)
+        call skiplines(10,abs(ncentertmp)+6)
 		read(10,"(6E13.5E3)",iostat=ierror) tmpreadcub(:,:,:)
         if (ierror/=0) then
 			write(*,*) "Unable to load grid data, the format should be problematic"

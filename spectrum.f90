@@ -856,7 +856,7 @@ do while(.true.)
 							end if
 						end do
 					end do
-					write(*,"(' Done!',i8,' frequencies have been scaled')") nsclall
+					write(*,"(' Done!',i8,' frequencies have been scaled')") nscl
 				else if (c200tmp(1:1)=='0') then
 					cycle
 				else !Select according to index, or select 

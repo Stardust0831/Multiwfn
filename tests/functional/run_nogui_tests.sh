@@ -19,6 +19,7 @@ cleanup() {
 trap cleanup EXIT
 
 export OMP_STACKSIZE="${OMP_STACKSIZE:-64000000}"
+export OMP_THREAD_LIMIT=1
 
 assert_contains() {
   local file="$1"
@@ -99,6 +100,17 @@ assert_contains "$workdir/grid-only.out" "Grid date has been successfully loaded
 assert_contains "$workdir/grid-only.out" "Formula: H2 O1"
 assert_contains "$workdir/grid-only.out" "Geometry center (X/Y/Z):    0.30666667    0.00000000    0.24000000 Angstrom"
 
+# Exercise both new paths together: the fallback must skip the cube's one
+# atom record, not the three atoms retained in the current water structure.
+(
+  cd "$workdir"
+  printf '1000\n19\ncp2k.cub\n13\n0\ncp2k-grid-only.cub\n-1\n26\n1\n\nq\n0\nq\n' | "$exe" water.xyz > cp2k-grid-only.out
+)
+assert_contains "$workdir/cp2k-grid-only.out" "Grid date has been successfully loaded!"
+assert_contains "$workdir/cp2k-grid-only.out" "Formula: H2 O1"
+assert_contains "$workdir/cp2k-grid-only.cub" "-1.00000E-002 -2.00000E-002"
+assert_contains "$workdir/cp2k-grid-only.cub" "-7.00000E-002 -8.00000E-002"
+
 # CP2K Molden files may declare the cell in Bohr and valence nuclear charges.
 # Both cell encodings must retain their dimensions, without a second conversion.
 for cell_format in parameters vectors; do
@@ -132,6 +144,48 @@ EOF
   assert_contains "$workdir/cell-$cell_format.out" "Cell vector 1,  X=   10.00000  Y=    0.00000  Z=    0.00000  Norm:   10.00000"
   assert_contains "$workdir/cell-$cell_format.out" "Cell vector 2,  X=    0.00000  Y=   12.00000  Z=    0.00000  Norm:   12.00000"
   assert_contains "$workdir/cell-$cell_format.out" "Cell vector 3,  X=    0.00000  Y=    0.00000  Z=   14.00000  Norm:   14.00000"
+done
+
+# Compare the new standard-deviation/TFI export with the established TFI
+# calculation for both gradient models. This small trajectory includes an
+# interacting grid point and screened zero-density points.
+for analysis in 12 -12; do
+  case_dir="$workdir/tfi-$analysis"
+  mkdir "$case_dir"
+  cat > "$case_dir/trajectory.xyz" <<'EOF'
+2
+frame one
+H 0 0 0
+H 1 0 0
+2
+frame two
+H 0 0 0
+H 1.2 0 0
+EOF
+  (
+    cd "$case_dir"
+    printf '20\n%s\n2\n1\n2\n\n5\n0.5,0.5,0.5\n4,4,4\n3,3,3\n6\n8\n0\n0\nq\n' "$analysis" | "$exe" trajectory.xyz > tfi.out
+  )
+  model=aIGM
+  if [ "$analysis" = -12 ]; then model=amIGM; fi
+  awk '
+    FNR > 8 {
+      for (i=1; i<=NF; i++) {
+        if (tolower($i) ~ /nan|inf/) exit 1
+        if (FILENAME == ARGV[1]) {
+          ref[n++]=$i+0
+          if ($i+0 == 0) zeros++; else nonzeros++
+        } else {
+          delta=($i+0)-ref[m]
+          if (delta<0) delta=-delta
+          scale=ref[m]; if (scale<0) scale=-scale
+          if (delta>1e-10+1e-5*scale) exit 1
+          m++
+        }
+      }
+    }
+    END { if (n!=27 || m!=n || !zeros || !nonzeros) exit 1 }
+  ' "$case_dir/TFI-$model.cub" "$case_dir/TFI_$model.cub"
 done
 
 echo "noGUI functional tests passed"

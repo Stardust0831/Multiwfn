@@ -1457,7 +1457,7 @@ do while (.true.)
  !   if (iIGMtype==1) write(*,*) "6 Compute TFI(aIGM) and export to TFI_aIGM.cub in current folder"
 	!if (iIGMtype==-1) write(*,*) "6 Compute TFI(amIGM) and export to TFI_amIGM.cub in current folder"
 	!write(*,"(a)") " 7 Evaluate contribution of atomic pairs and atoms to interfragment interaction (atom and atomic pair delta-g indices as well as IBSIW index)"
-	write(*,"(a)") " 8 Compute and export grid data of standard deviation of delta-g_inter and TFI(amIGM)"
+	write(*,"(a)") " 8 Compute and export grid data of standard deviation of delta-g_inter and TFI"
     read(*,*) isel
     
 	if (isel==-3) then
@@ -1606,7 +1606,11 @@ do while (.true.)
 						grad_inter=0
 						IGM_gradnorm_inter=0
 						do ifrag=1,nIGMfrag
-							call IGMgrad_Hirshpromol(tmpx,tmpy,tmpz,IGMfrag(ifrag,1:IGMfragsize(ifrag)),gradtmp(:),rnouse) !Supports PBC
+							if (iIGMtype==-1) then !amIGM
+								call IGMgrad_Hirshpromol(tmpx,tmpy,tmpz,IGMfrag(ifrag,1:IGMfragsize(ifrag)),gradtmp(:),rnouse) !Supports PBC
+							else if (iIGMtype==1) then !aIGM
+								call IGMgrad_promol(tmpx,tmpy,tmpz,IGMfrag(ifrag,1:IGMfragsize(ifrag)),gradtmp(:),rnouse) !Supports PBC
+							end if
 							grad_inter(:)=grad_inter(:)+gradtmp(:)
 							IGM_gradnorm_inter=IGM_gradnorm_inter+dsqrt(sum(gradtmp**2))
 						end do
@@ -1632,9 +1636,18 @@ do while (.true.)
 		open(10,file="stddg_inter.cub",status="replace")
 		call outcube(stddg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
-        stddg_inter(:,:,:)=stddg_inter(:,:,:)/dg_inter(:,:,:)
-		write(*,*) "Exporting TFI(amIGM) to TFI_amIGM.cub..."
-		open(10,file="TFI_amIGM.cub",status="replace")
+        where (dg_inter/=0D0)
+            stddg_inter=stddg_inter/dg_inter
+        elsewhere
+            stddg_inter=0D0
+        end where
+        if (iIGMtype==1) then
+            write(*,*) "Exporting TFI(aIGM) to TFI_aIGM.cub..."
+            open(10,file="TFI_aIGM.cub",status="replace")
+        else
+            write(*,*) "Exporting TFI(amIGM) to TFI_amIGM.cub..."
+            open(10,file="TFI_amIGM.cub",status="replace")
+        end if
 		call outcube(stddg_inter,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
 		close(10)
         write(*,*) "Done!"
