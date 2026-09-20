@@ -158,6 +158,23 @@ test('integer tiling and fractional ranges sample the same physical periodic fie
   }
 })
 
+test('periodic buffer reuse closes boundary cells without cell-spanning triangles', () => {
+  const volume = planeVolume(true)
+  const prepared = sampling.prepare_geometry_grid(volume, null, { preserve_grid: true })
+  const mesh = marching.marching_cubes_typed(prepared.grid, 0.37, prepared.lattice,
+    { periodic: prepared.periodic, centered: false, interpolate: true, normals: false })
+  assert.ok(mesh.indices.length > 0)
+  const lengths = [20, 13, 8]
+  for (let offset = 0; offset < mesh.indices.length; offset += 3) {
+    for (let axis = 0; axis < 3; axis++) {
+      const coords = [0, 1, 2].map(corner => mesh.positions[mesh.indices[offset + corner] * 3 + axis])
+      assert.ok(Math.min(...coords) >= -1e-6 && Math.max(...coords) <= lengths[axis] + 1e-6)
+      assert.ok(Math.max(...coords) - Math.min(...coords) <= lengths[axis] / volume.grid_dims[axis] + 1e-5,
+        'a wrapped edge must not connect opposite faces of the displayed cell')
+    }
+  }
+})
+
 test('the rendered isosurface uses the tested preparation and boundary mode', async () => {
   const component = await readFile(new URL('../node_modules/matterviz/dist/isosurface/Isosurface.svelte', import.meta.url), 'utf8')
   assert.match(component, /prepare_geometry_grid\(vol, effective_range\(vol\)/)

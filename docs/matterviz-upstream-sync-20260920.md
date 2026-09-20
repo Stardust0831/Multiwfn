@@ -46,11 +46,13 @@ controls and native transport remain in the retained package lineage.
 
 ## Validation
 
-- Twelve executable upstream regression cases exercise the installed package:
+- Thirteen executable upstream regression cases exercise the installed package:
   valid/invalid Cube and CHGCAR data, physical finite-grid coordinates, allocation
   guards, Fortran exponents, CRLF, inflated-stream boundaries, analytic planes in
-  orthogonal/skew cells, retained buffers, periodic spacing and tiled/ranged grids.
-- Full frontend suite: 262 pass, one existing skip. Svelte check: no errors or
+  orthogonal/skew cells, retained buffers, periodic spacing, tiled/ranged grids,
+  and periodic boundary triangles that stay within one voxel of each other.
+- Full frontend suite before the extra periodic boundary case: 262 pass, one
+  existing skip; the extra case also passes independently. Svelte check: no errors or
   warnings. Production build passes with the existing large-bundle warning.
 - Seven vendor replay/composition tests pass, including byte-identical replay
   from workbench2 to upstream1 and preservation of the previous extensions.
