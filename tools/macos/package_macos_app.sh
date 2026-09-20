@@ -97,8 +97,16 @@ mkdir -p "$RESOURCES/frontend/matterviz-viewer"
 # 1. Copy main binary and launcher
 echo "==> Staging binaries and launcher..."
 cp "$BINARY" "$MACOS/Multiwfn_MatterVizGUI"
-cp "$SCRIPT_DIR/multiwfn_macos_launcher.sh" "$MACOS/Multiwfn"
-chmod +x "$MACOS/Multiwfn" "$MACOS/Multiwfn_MatterVizGUI"
+if command -v clang >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/launcher.m" ]]; then
+  echo "==> Compiling native Cocoa LaunchServices event launcher..."
+  clang -O2 -fobjc-arc -framework Cocoa "$SCRIPT_DIR/launcher.m" -o "$MACOS/Multiwfn"
+  cp "$SCRIPT_DIR/multiwfn_macos_launcher.sh" "$MACOS/multiwfn_macos_launcher.sh"
+  chmod +x "$MACOS/multiwfn_macos_launcher.sh" "$MACOS/Multiwfn"
+else
+  cp "$SCRIPT_DIR/multiwfn_macos_launcher.sh" "$MACOS/Multiwfn"
+  chmod +x "$MACOS/Multiwfn"
+fi
+chmod +x "$MACOS/Multiwfn_MatterVizGUI"
 # Link resources in MacOS directory so @executable_path/resources resolves to Contents/Resources
 ln -sf ../Resources "$MACOS/resources"
 

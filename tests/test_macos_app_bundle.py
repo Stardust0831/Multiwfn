@@ -98,6 +98,17 @@ class MacOSAppBundleTests(unittest.TestCase):
             magic = f.read(4)
         self.assertEqual(magic, b"icns", "File must have Apple ICNS magic header")
 
+    def test_cocoa_launcher_contract(self):
+        launcher_src = TOOLS_MACOS / "launcher.m"
+        self.assertTrue(launcher_src.exists(), "launcher.m must exist")
+
+        content = launcher_src.read_text(encoding="utf-8")
+        self.assertIn("openFiles:(NSArray<NSString *> *)", content, "Must handle LaunchServices openFiles event")
+        self.assertIn("openFile:(NSString *)", content, "Must handle single openFile event")
+        self.assertIn("NSOpenPanel", content, "Must fallback to native Cocoa open dialog")
+        self.assertIn("MULTIWFN_DIRECT_GUI", content)
+        self.assertIn("multiwfn_macos_launcher.sh", content)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,7 +19,8 @@ Multiwfn.app/
     ├── Info.plist                     # Bundle metadata, retina flags, document types
     ├── PkgInfo                        # APPL????
     ├── MacOS/
-    │   ├── Multiwfn                   # Intelligent shell launcher
+    │   ├── Multiwfn                   # Native Cocoa LaunchServices Apple Event launcher
+    │   ├── multiwfn_macos_launcher.sh # Intelligent environment and pipe setup
     │   └── Multiwfn_MatterVizGUI      # Relocated binary with embedded RPATHs
     └── Resources/
         ├── Multiwfn.icns              # 10-layer multi-resolution icon (16x16 to 1024x1024)
@@ -34,15 +35,20 @@ Multiwfn.app/
 
 ## Launch & Direct GUI Entry Mechanism
 
-The wrapper script at `Contents/MacOS/Multiwfn` provides seamless execution:
+The bundle utilizes a dual launcher architecture:
 
-- **Environment Resolution**: Dynamically calculates `MULTIWFN_MATTERVIZ_HOME` and exports `DYLD_LIBRARY_PATH` to point to `Contents/Resources/lib`.
-- **Proactive Quarantine Removal**: Runs `xattr -cr` recursively across the bundle upon launch to prevent Gatekeeper from blocking nested `.dylib` libraries or the `matterviz-desktop` helper executable.
-- **Input Routing**:
-  - **Launched via "Open With..." or CLI file argument**: Receives the target file path `$1`.
-  - **Launched by double-clicking without a file**: Prompts the user with a native Cocoa file chooser (`choose file with prompt ...`).
-  - **Direct GUI Mode**: Passes the selected file path and main menu selection `0` via standard input pipe (`printf "%s\n0\n" "$INPUT_FILE" | exec "$BINARY"`), opening the MatterViz 3D viewer directly without requiring manual keystrokes.
-  - **Terminal Compatibility**: If executed interactively within a terminal (`[ -t 0 ]`), standard CLI workflows are preserved.
+1. **Native Cocoa Launcher (`Contents/MacOS/Multiwfn`)**:
+   - Compiled from `tools/macos/launcher.m` using native Apple `clang` with zero external dependencies.
+   - Implements `NSApplicationDelegate` (`application:openFiles:` and `application:openFile:`).
+   - Correctly intercepts macOS LaunchServices Apple Events (`kAEOpenDocuments`) sent when a file is double-clicked or opened via "Open With...".
+   - When double-clicked directly without documents, presents a native Cocoa `NSOpenPanel` file selection dialog.
+   - If executed in a terminal, immediately invokes `execv` to pass control to interactive CLI sessions without starting a GUI runloop.
+
+2. **Backend Setup & Direct GUI Pipe (`Contents/MacOS/multiwfn_macos_launcher.sh`)**:
+   - **Environment Resolution**: Dynamically calculates `MULTIWFN_MATTERVIZ_HOME` and exports `DYLD_LIBRARY_PATH` to point to `Contents/Resources/lib`.
+   - **Proactive Quarantine Removal**: Runs `xattr -cr` recursively across the bundle upon launch to prevent Gatekeeper from blocking nested `.dylib` libraries or the `matterviz-desktop` helper executable.
+   - **Direct GUI Mode**: Passes the selected file path and main menu selection `0` via standard input pipe (`printf "%s\n0\n" "$INPUT_FILE" | exec "$BINARY"`), opening the MatterViz 3D viewer directly without requiring manual keystrokes.
+   - **Terminal Compatibility**: Preserves standard CLI workflows when executed interactively or in batch pipelines.
 
 ## File Associations (`CFBundleDocumentTypes`)
 
