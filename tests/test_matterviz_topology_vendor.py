@@ -11,6 +11,29 @@ VERSION = "matterviz-0.4.2-multiwfn.d8719d12.r25"
 
 
 class TopologyVendor(unittest.TestCase):
+    def test_upstream_fixes_replay_from_workbench2_without_losing_extensions(self):
+        with tempfile.TemporaryDirectory(prefix="upstream-vendor-replay-") as directory:
+            base, target = Path(directory) / "base", Path(directory) / "target"
+            base.mkdir()
+            target.mkdir()
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".workbench2.tgz")), "-C", str(base)], check=True)
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".upstream1.tgz")), "-C", str(target)], check=True)
+            before = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            with (VENDOR / "patches" / (VERSION + ".upstream1.patch")).open("rb") as patch:
+                subprocess.run(["patch", "-p1", "-d", str(base / "package")], stdin=patch, check=True, capture_output=True)
+            after = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            packaged = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+            self.assertEqual(after, packaged)
+            self.assertEqual(set(before), set(after))
+            changed = {str(path) for path in before if before[path] != after[path]}
+            self.assertEqual(changed, {
+                "package/package.json",
+                "package/dist/io/decompress.js", "package/dist/io/decompress.d.ts",
+                "package/dist/io/is-binary.js", "package/dist/isosurface/parse.js",
+                "package/dist/isosurface/sampling.js", "package/dist/isosurface/sampling.d.ts",
+                "package/dist/isosurface/Isosurface.svelte",
+            })
+
     def test_workbench_patch_replays_from_r25_to_exact_package_contents(self):
         archive = VENDOR / (VERSION + ".workbench1.tgz")
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), "52b5475da106a6faf9daabc440c327f3f9e2998fa1efda4d1ed35d046c041118")

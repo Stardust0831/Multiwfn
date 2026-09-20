@@ -88,8 +88,11 @@ test('ordinary ArrayBuffer grid content survives coordinator completion', async 
 
 test('standard flat geometry preparation bypasses the legacy downsample budget', async () => {
   const source = await readFile(new URL('../node_modules/matterviz/dist/isosurface/Isosurface.svelte', import.meta.url), 'utf8')
-  assert.match(source, /direct_flat\s*=\s*is_unit_tiling\s*&&\s*halo\s*===\s*0\s*&&\s*managed_budget\s*&&\s*is_scalar_grid\(tiled\.grid\)/)
-  assert.match(source, /direct_flat\s*\n\s*\? \{ grid: tiled\.grid, dims: tiled\.grid_dims, factor: 1 \}/)
+  // The shared preparation helper now owns this fast path. Its executable
+  // upstream regression verifies buffer identity and physical voxel spacing.
+  assert.match(source, /preserve_source_grid/)
+  assert.match(source, /prepare_geometry_grid\(vol, effective_range\(vol\)/)
+  assert.match(source, /preserve_grid,/)
 })
 
 test('worker URL uses a Vite-static module expression', async () => {
