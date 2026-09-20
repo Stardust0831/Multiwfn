@@ -1,0 +1,501 @@
+--- a/dist/isosurface/Isosurface.svelte.d.ts
++++ b/dist/isosurface/Isosurface.svelte.d.ts
+@@ -6,6 +6,7 @@
+     settings?: IsosurfaceSettings;
+     active_volume_idx?: number;
+     tiling?: Vec3;
++    on_geometry_error?: (message: string) => void;
+ };
+ declare const Isosurface: import("svelte").Component<$$ComponentProps, {}, "">;
+ type Isosurface = ReturnType<typeof Isosurface>;
+--- a/dist/settings.d.ts
++++ b/dist/settings.d.ts
+@@ -18,7 +18,7 @@
+ export declare const SHOW_BONDS_OPTIONS: readonly ["never", "always", "crystals", "molecules"];
+ export type ShowBonds = (typeof SHOW_BONDS_OPTIONS)[number];
+ export type CameraProjection = `perspective` | `orthographic`;
+-export type MaterialStyle = `matte` | `glossy` | `pbr`;
++export type MaterialStyle = `matte` | `glossy` | `pbr` | `unlit`;
+ export type LightingMode = `camera` | `world`;
+ export declare const VECTOR_COLOR_MODES: readonly ["auto", "element", "spin_direction", "magnitude", "uniform"];
+ export type VectorColorMode = (typeof VECTOR_COLOR_MODES)[number];
+--- a/dist/structure/AtomMaterial.svelte
++++ b/dist/structure/AtomMaterial.svelte
+@@ -6,16 +6,16 @@
+ 
+   let {
+     color, opacity = 1, material_style = `glossy`, roughness = 0.32,
+-    metalness = 0, shininess = 42, specular = 0.28, outline = 0, outline_width = 0.6,
++    metalness = 0, shininess = 42, specular = 0.28, outline = 0, outline_width = 0.6, transmode = 0,
+   }: {
+     color: string; opacity?: number; material_style?: MaterialStyle; roughness?: number;
+-    metalness?: number; shininess?: number; specular?: number; outline?: number; outline_width?: number;
++    metalness?: number; shininess?: number; specular?: number; outline?: number; outline_width?: number; transmode?: number;
+   } = $props()
+   const { invalidate } = useThrelte()
+   const materials = create_atom_materials(DoubleSide)
+-  let active = $derived(material_style === `matte` ? materials.matte : material_style === `pbr` ? materials.pbr : materials.glossy)
++  let active = $derived(material_style === `matte` ? materials.matte : material_style === `pbr` ? materials.pbr : material_style === `unlit` ? materials.unlit : materials.glossy)
+   $effect(() => {
+-    materials.update({ color, opacity, roughness, metalness, shininess, specular, outline, outline_width })
++    materials.update({ color, opacity, roughness, metalness, shininess, specular, outline, outline_width, transmode })
+     invalidate()
+   })
+   $effect(() => () => materials.dispose())
+--- a/dist/structure/AtomMaterial.svelte.d.ts
++++ b/dist/structure/AtomMaterial.svelte.d.ts
+@@ -9,6 +9,7 @@
+     specular?: number;
+     outline?: number;
+     outline_width?: number;
++    transmode?: number;
+ };
+ declare const AtomMaterial: import('svelte').Component<Props, {}, ''>;
+ type AtomMaterial = ReturnType<typeof AtomMaterial>;
+--- a/dist/structure/Bond.svelte
++++ b/dist/structure/Bond.svelte
+@@ -1,5 +1,6 @@
+ <script lang="ts">
+-  import type { BondGroupWithGradients } from './'
++  import type { BondGroupWithGradients, MaterialStyle } from './'
++  import { create_atom_materials, type AtomMaterialSettings } from './atom-material'
+   import { T, useTask, useThrelte } from '@threlte/core'
+   import {
+     create_tmim_view_directions,
+@@ -18,6 +19,8 @@
+ 
+   let {
+     group,
++    material_style,
++    material_settings,
+     saturation = 1,
+     brightness = 1,
+     shininess = 28,
+@@ -26,6 +29,8 @@
+     outline_width = 0.04,
+   }: {
+     group: BondGroupWithGradients
++    material_style?: MaterialStyle
++    material_settings?: AtomMaterialSettings
+     saturation?: number
+     brightness?: number
+     shininess?: number
+@@ -205,6 +210,29 @@
+ 
+   // Create the GPU material once + mutate uniforms reactively (a $derived would leak a new
+   // ShaderMaterial per lighting tweak). The $effect sets real uniform values before paint.
++  // Geometry-only Reps share the atom/surface material models. Keep the legacy
++  // shader for the standalone viewer and its established appearance.
++  const rep_materials = create_atom_materials()
++  for (const material of [rep_materials.matte, rep_materials.glossy, rep_materials.pbr, rep_materials.unlit]) {
++    const compile = material.onBeforeCompile, cacheKey = material.customProgramCacheKey()
++    material.onBeforeCompile = (shader, renderer) => {
++      compile(shader, renderer)
++      shader.vertexShader = `attribute vec3 instanceColorStart;
++        attribute vec3 instanceColorEnd;
++        varying vec3 bondColor;
++` + shader.vertexShader
++      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
++        '#include <begin_vertex>\nbondColor = mix(instanceColorStart, instanceColorEnd, position.y + 0.5);')
++      shader.fragmentShader = 'varying vec3 bondColor;\n' + shader.fragmentShader
++      shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
++        '#include <color_fragment>\ndiffuseColor.rgb *= bondColor;')
++    }
++    material.customProgramCacheKey = () => `${cacheKey}:bond-gradient`
++  }
++  const active_material = $derived(material_style ? rep_materials[material_style] : shader_material)
++  $effect(() => { rep_materials.update(material_settings); invalidate() })
++  $effect(() => () => rep_materials.dispose())
++
+   const tmim_directions = create_tmim_view_directions()
+   const shader_material = new ShaderMaterial({
+     vertexShader: vertex_shader,
+@@ -281,6 +309,6 @@
+     />
+   </T.InstancedMesh>
+ {/if}
+-<T.InstancedMesh args={[undefined, shader_material, group.instances.length]} bind:ref={mesh}>
++<T.InstancedMesh args={[undefined, active_material, group.instances.length]} bind:ref={mesh} material={active_material}>
+   <T.CylinderGeometry args={[group.thickness, group.thickness, 1, 16]} />
+ </T.InstancedMesh>
+--- a/dist/structure/Bond.svelte.d.ts
++++ b/dist/structure/Bond.svelte.d.ts
+@@ -1,6 +1,9 @@
+-import type { BondGroupWithGradients } from './';
++import type { AtomMaterialSettings } from './atom-material';
++import type { BondGroupWithGradients, MaterialStyle } from './';
+ type $$ComponentProps = {
+     group: BondGroupWithGradients;
++    material_style?: MaterialStyle;
++    material_settings?: AtomMaterialSettings;
+     saturation?: number;
+     brightness?: number;
+     shininess?: number;
+--- a/dist/structure/InstancedAtoms.svelte
++++ b/dist/structure/InstancedAtoms.svelte
+@@ -40,6 +40,7 @@
+     outline_color = `#252a30`,
+     outline_width = 0.04,
+     ghost = false,
++    atom_transmode = 0,
+     atom_opacity = 1,
+     atom_outline = 0,
+     atom_outline_width = 0.6,
+@@ -57,6 +58,7 @@
+     outline_width?: number
+     // edit-mode PBC image atoms: desaturated + translucent
+     ghost?: boolean
++    atom_transmode?: number
+     atom_opacity?: number
+     atom_outline?: number
+     atom_outline_width?: number
+@@ -83,7 +85,7 @@
+       ? matte_material
+       : material_style === `pbr`
+         ? pbr_material
+-        : glossy_material,
++        : material_style === `unlit` ? materials.unlit : glossy_material,
+   )
+   $effect(() => () => {
+     materials.dispose()
+@@ -93,7 +95,7 @@
+   $effect(() => {
+     const opacity = atom_unit_interval(atom_opacity, 1) * (ghost ? 0.5 : 1)
+     materials.update({ opacity, roughness, metalness, shininess, specular,
+-      outline: atom_outline, outline_width: atom_outline_width })
++      outline: atom_outline, outline_width: atom_outline_width, transmode: atom_transmode })
+     outline_material.color.set(outline_color)
+     outline_material.opacity = (ghost ? 0.25 : 0.68) * atom_unit_interval(atom_opacity, 1)
+     outline_material.visible = outline_enabled && outline_width > 0
+--- a/dist/structure/InstancedAtoms.svelte.d.ts
++++ b/dist/structure/InstancedAtoms.svelte.d.ts
+@@ -17,6 +17,7 @@
+     outline_color?: string;
+     outline_width?: number;
+     ghost?: boolean;
++    atom_transmode?: number;
+     atom_opacity?: number;
+     atom_outline?: number;
+     atom_outline_width?: number;
+--- a/dist/structure/Structure.svelte
++++ b/dist/structure/Structure.svelte
+@@ -119,6 +119,9 @@
+   let {
+     structure = $bindable(),
+     bonds = $bindable(),
++    added_bonds = $bindable<StructureBond[]>([]),
++    removed_bonds = $bindable<StructureBond[]>([]),
++    bond_order_overrides = $bindable<StructureBond[]>([]),
+     scene_props: scene_props_in = $bindable(),
+     lattice_props: lattice_props_in = $bindable(),
+     controls_open = $bindable(false),
+@@ -172,6 +175,7 @@
+     // expose the displayed structure (with image atoms and supercell) for external use
+     displayed_structure = $bindable(),
+     // Track hidden elements across component lifecycle
++    show_atom_legend = true,
+     hidden_elements = $bindable(new SvelteSet<ElementSymbol>()),
+     // Track hidden property values (e.g. Wyckoff positions, coordination numbers)
+     hidden_prop_vals = $bindable(new SvelteSet<number | string>()),
+@@ -211,6 +215,9 @@
+     ...rest
+   }: {
+     structure?: AnyStructure
++    added_bonds?: StructureBond[]
++    removed_bonds?: StructureBond[]
++    bond_order_overrides?: StructureBond[]
+     bonds?: StructureBond[]
+     scene_props?: ComponentProps<typeof StructureScene>
+     // Controls visibility configuration.
+@@ -273,6 +280,7 @@
+     // so external writes to this prop are ignored (overwritten on the next pipeline run)
+     displayed_structure?: AnyStructure
+     // Track which elements are hidden (bindable across frames in trajectories)
++    show_atom_legend?: boolean
+     hidden_elements?: Set<ElementSymbol>
+     // Track which property values are hidden (e.g. Wyckoff positions, coordination numbers)
+     hidden_prop_vals?: Set<number | string>
+@@ -515,9 +523,6 @@
+   let focused = $state(false)
+ 
+   // Bond customization state
+-  let added_bonds = $state<StructureBond[]>([])
+-  let removed_bonds = $state<StructureBond[]>([])
+-  let bond_order_overrides = $state<StructureBond[]>([])
+   let bond_undo_stack = $state<BondEditHistorySnapshot[]>([])
+   let bond_redo_stack = $state<BondEditHistorySnapshot[]>([])
+   // These hold object-identity tokens (structure_identity) compared with ===/!==,
+@@ -1927,6 +1932,7 @@
+       {@render top_right_controls?.()}
+     </ViewerChrome>
+ 
++    {#if show_atom_legend}
+     <AtomLegend
+       bind:atom_color_config
+       {property_colors}
+@@ -1954,6 +1960,7 @@
+         {/if}
+       {/snippet}
+     </AtomLegend>
++    {/if}
+ 
+     <!-- One StructureViewport renders the single view; four render the 2x2 multi-view.
+       The primary pane (index 0) carries the external camera API: scene/camera are bound
+--- a/dist/structure/Structure.svelte.d.ts
++++ b/dist/structure/Structure.svelte.d.ts
+@@ -17,6 +17,9 @@
+ type EventHandler = (data: StructureHandlerData) => void;
+ type $$ComponentProps = {
+     structure?: AnyStructure;
++    added_bonds?: StructureBond[];
++    removed_bonds?: StructureBond[];
++    bond_order_overrides?: StructureBond[];
+     bonds?: StructureBond[];
+     scene_props?: ComponentProps<typeof StructureScene>;
+     show_controls?: ShowControlsProp;
+@@ -57,6 +60,7 @@
+     hovered_site_idx?: number | null;
+     measured_sites?: number[];
+     displayed_structure?: AnyStructure;
++    show_atom_legend?: boolean;
+     hidden_elements?: Set<ElementSymbol>;
+     hidden_prop_vals?: Set<number | string>;
+     element_radius_overrides?: Partial<Record<ElementSymbol, number>>;
+@@ -85,6 +89,6 @@
+     on_camera_reset?: EventHandler;
+     on_bonds_change?: (bonds: StructureBond[] | undefined) => void;
+ } & Omit<ComponentProps<typeof StructureControls>, `children` | `onclose`> & Omit<HTMLAttributes<HTMLDivElement>, `children`>;
+-declare const Structure: import("svelte").Component<$$ComponentProps, {}, "height" | "width" | "dragover" | "color_scheme" | "fullscreen" | "wrapper" | "hovered" | "controls_open" | "structure" | "active_volume_idx" | "background_color" | "background_opacity" | "show_image_atoms" | "sym_data" | "lattice_props" | "measure_mode" | "selected_sites" | "measured_sites" | "bond_edit_mode" | "bond_edit_order" | "hidden_elements" | "hidden_prop_vals" | "element_radius_overrides" | "site_radius_overrides" | "atom_color_config" | "volumetric_data" | "isosurface_settings" | "scene_props" | "hovered_site_idx" | "bonds" | "element_mapping" | "supercell_scaling" | "cell_type" | "loading" | "png_dpi" | "highlighted_sites" | "info_pane_open" | "multi_view" | "enable_measure_mode" | "error_msg" | "performance_mode" | "displayed_structure" | "symmetry_settings">;
++declare const Structure: import("svelte").Component<$$ComponentProps, {}, "height" | "width" | "dragover" | "color_scheme" | "fullscreen" | "wrapper" | "hovered" | "controls_open" | "structure" | "active_volume_idx" | "background_color" | "background_opacity" | "show_image_atoms" | "sym_data" | "lattice_props" | "measure_mode" | "selected_sites" | "measured_sites" | "bond_edit_mode" | "bond_edit_order" | "hidden_elements" | "hidden_prop_vals" | "element_radius_overrides" | "site_radius_overrides" | "atom_color_config" | "volumetric_data" | "isosurface_settings" | "scene_props" | "hovered_site_idx" | "bonds" | "added_bonds" | "removed_bonds" | "bond_order_overrides" | "element_mapping" | "supercell_scaling" | "cell_type" | "loading" | "png_dpi" | "highlighted_sites" | "info_pane_open" | "multi_view" | "enable_measure_mode" | "error_msg" | "performance_mode" | "displayed_structure" | "symmetry_settings">;
+ type Structure = ReturnType<typeof Structure>;
+ export default Structure;
+--- a/dist/structure/StructureScene.svelte
++++ b/dist/structure/StructureScene.svelte
+@@ -242,6 +242,7 @@
+     atom_metalness = DEFAULTS.structure.atom_metalness,
+     atom_shininess = DEFAULTS.structure.atom_shininess,
+     atom_specular = DEFAULTS.structure.atom_specular,
++    atom_transmode = 0,
+     atom_opacity = 1,
+     atom_outline = 0,
+     atom_outline_width = 0.6,
+@@ -304,6 +305,8 @@
+     volume_scaling = [1, 1, 1],
+     interactive = true,
+     scene_children,
++    geometry_only = false,
++    render_geometry = true,
+     topology_view = false,
+     surface_view = false,
+   }: SceneControlProps & {
+@@ -315,6 +318,7 @@
+     atom_metalness?: number
+     atom_shininess?: number
+     atom_specular?: number
++    atom_transmode?: number
+     atom_opacity?: number
+     atom_outline?: number
+     atom_outline_width?: number
+@@ -449,6 +453,9 @@
+     // view so inactive panes skip interaction-only work while the active pane stays editable.
+     interactive?: boolean
+     scene_children?: Snippet
++    // Reuse geometry inside an existing scene without extra cameras or lights.
++    geometry_only?: boolean
++    render_geometry?: boolean
+     topology_view?: boolean
+     surface_view?: boolean
+     on_camera_change?: () => void // Internal camera change synchronization callback
+@@ -472,6 +479,7 @@
+   // orientation and zoom after OrbitControls moves. Normalize external values before applying
+   // them so malformed inputs cannot produce a zero, NaN, or infinite camera basis.
+   $effect(() => {
++    if (geometry_only) return
+     const normalized_up = canonical_camera_up
+     if (
+       !Array.isArray(camera_up) ||
+@@ -526,7 +534,7 @@
+   // Camera-relative lighting keeps highlights stable while orbiting, which is
+   // easier to read for molecular models. World mode is available for fixed scenes.
+   useTask(() => {
+-    if (!camera) return
++    if (geometry_only || !camera) return
+     if (lighting_rig === `tmim`) {
+       // Historical TMIM key follows the actual camera position. Fill and rim
+       // directions remain fixed in world space while their target follows the model.
+@@ -2093,6 +2101,10 @@
+   {#key group.instances.length}
+     <Bond
+       {group}
++      material_style={geometry_only ? atom_material : undefined}
++      material_settings={geometry_only ? { opacity: effective_atom_opacity, roughness: atom_roughness,
++        metalness: atom_metalness, shininess: atom_shininess, specular: atom_specular,
++        outline: atom_outline, outline_width: atom_outline_width, transmode: atom_transmode } : undefined}
+       saturation={bond_saturation}
+       brightness={bond_brightness}
+       shininess={bond_shininess}
+@@ -2114,6 +2126,7 @@
+     specular={atom_specular}
+     outline={atom_outline}
+     outline_width={atom_outline_width}
++    transmode={atom_transmode}
+   />
+ {/snippet}
+ 
+@@ -2283,21 +2296,22 @@
+       >
+         {#if show_site_labels}
+           {#if site.species.length === 1}
+-            {site.species[0].element}{#if show_site_indices}-{site_idx + 1}{/if}
++            {site.species[0].element}{#if show_site_indices}-{Number(site.properties.rep_source_index ?? site_idx) + 1}{/if}
+           {:else}
+             {#each site.species as { element, occu, oxidation_state } (`${element}-${occu}-${oxidation_state}`)}
+               {element}<sub>{format_num(occu, `.3~`).replace(`0.`, `.`)}</sub>
+             {/each}
+-            {#if show_site_indices}-{site_idx + 1}{/if}
++            {#if show_site_indices}-{Number(site.properties.rep_source_index ?? site_idx) + 1}{/if}
+           {/if}
+         {:else if show_site_indices}
+-          {site_idx + 1}
++          {Number(site.properties.rep_source_index ?? site_idx) + 1}
+         {/if}
+       </button>
+     {/if}
+   {/if}
+ {/snippet}
+ 
++{#if !geometry_only}
+ {#if camera_control_mode === `orbit`}
+   {#key camera_up_key}
+     <SceneCamera
+@@ -2341,11 +2355,14 @@
+   <T.AmbientLight intensity={ambient_light} />
+ {/if}
+ 
++{/if}
++
+ <!-- Apply manual rotation around center: translate to origin, rotate, translate back -->
+ <T.Group position={rotation_target}>
+   <T.Group {rotation}>
+     <T.Group position={neg_rotation_target}>
+       {@render scene_children?.()}
++      {#if render_geometry}
+       {#if show_atoms || topology_view}
+         <!-- Instanced rendering for full-occupancy atoms: one InstancedMesh for
+           base atoms and one for PBC image atoms (which ghost + lose interaction
+@@ -2360,6 +2377,7 @@
+             shininess={atom_shininess}
+             specular={atom_specular}
+             {atom_opacity}
++            {atom_transmode}
+             {atom_outline}
+             {atom_outline_width}
+             {outline_enabled}
+@@ -2379,6 +2397,7 @@
+             shininess={atom_shininess}
+             specular={atom_specular}
+             {atom_opacity}
++            {atom_transmode}
+             {atom_outline}
+             {atom_outline_width}
+             {outline_enabled}
+@@ -2698,7 +2717,7 @@
+             <!-- shift selected site labels down to avoid overlapping regular site labels-->
+             {@const selection_offset = math.add<Vec3>(site_label_offset, [0, -0.5, 0])}
+             {@const pos = math.add(site.xyz, selection_offset)}
+-            <extras.HTML center position={pos}>
++            <extras.HTML center position={pos} style="pointer-events: none">
+               <span class="selection-label">{loop_idx + 1}</span>
+             </extras.HTML>
+           {/if}
+@@ -2946,6 +2965,7 @@
+           {/if}
+         {/if}
+       {/if}
++      {/if}
+     </T.Group>
+   </T.Group>
+ </T.Group>
+--- a/dist/structure/StructureScene.svelte.d.ts
++++ b/dist/structure/StructureScene.svelte.d.ts
+@@ -27,6 +27,7 @@
+     atom_metalness?: number;
+     atom_shininess?: number;
+     atom_specular?: number;
++    atom_transmode?: number;
+     atom_opacity?: number;
+     atom_outline?: number;
+     atom_outline_width?: number;
+@@ -144,6 +145,8 @@
+     volume_scaling?: Vec3;
+     interactive?: boolean;
+     scene_children?: Snippet;
++    geometry_only?: boolean;
++    render_geometry?: boolean;
+     topology_view?: boolean;
+     surface_view?: boolean;
+     on_camera_change?: () => void;
+--- a/dist/structure/atom-material.d.ts
++++ b/dist/structure/atom-material.d.ts
+@@ -1,4 +1,4 @@
+-import type { ColorRepresentation, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, Side } from 'three';
++import type { ColorRepresentation, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial, Side } from 'three';
+ export declare const atom_unit_interval: (value: unknown, fallback: number) => number;
+ export type AtomMaterialSettings = {
+     color?: ColorRepresentation;
+@@ -9,8 +9,10 @@
+     specular?: number;
+     outline?: number;
+     outline_width?: number;
++    transmode?: number;
+ };
+ export declare function create_atom_materials(side?: Side): {
++    unlit: MeshBasicMaterial;
+     matte: MeshLambertMaterial;
+     glossy: MeshPhongMaterial;
+     pbr: MeshStandardMaterial;
+--- a/dist/structure/atom-material.js
++++ b/dist/structure/atom-material.js
+@@ -1,4 +1,4 @@
+-import { FrontSide, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial } from 'three';
++import { FrontSide, MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial, MeshStandardMaterial } from 'three';
+ import { install_isosurface_shading } from '../isosurface/material';
+ 
+ export const atom_unit_interval = (value, fallback) => Number.isFinite(value)
+@@ -11,11 +11,12 @@
+     const matte = new MeshLambertMaterial({ side });
+     const glossy = new MeshPhongMaterial({ side });
+     const pbr = new MeshStandardMaterial({ side });
+-    const materials = [matte, glossy, pbr];
++    const unlit = new MeshBasicMaterial({ side, toneMapped: false });
++    const materials = [matte, glossy, pbr, unlit];
+     const outline = { value: 0 };
+     const width = { value: 0.6 };
+     const transmode = { value: 0 };
+-    for (const material of materials) {
++    for (const material of [matte, glossy, pbr]) {
+         install_isosurface_shading(material, { outline: 0, outlineWidth: 0.6, transmode: 0 });
+         const compile = material.onBeforeCompile;
+         material.onBeforeCompile = (shader, renderer) => {
+@@ -26,9 +27,10 @@
+         };
+     }
+     return {
+-        matte, glossy, pbr,
++        matte, glossy, pbr, unlit,
+         update(settings = {}) {
+             const opacity = atom_unit_interval(settings.opacity, 1);
++            transmode.value = settings.transmode === 1 ? 1 : 0;
+             outline.value = atom_unit_interval(settings.outline, 0);
+             width.value = atom_unit_interval(settings.outline_width, 0.6);
+             for (const material of materials) {
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25.upstream1",
++  "version": "0.4.2-multiwfn.d8719d12.r25.reps1",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",

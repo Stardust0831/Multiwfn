@@ -35,7 +35,7 @@ test('backend work does not unmount Structure and all numerical readouts have a 
   assert.doesNotMatch(app, /bind:loading\s/)
   assert.doesNotMatch(app, /Working\.\.\./)
   assert.match(app, /<div class="calculation-status" role="status">/)
-  assert.match(app, /<\/div>\s*\{#if loading \|\| measuredSites.length \|\| bondResults.length\}/)
+  assert.match(app, /<\/div>\s*\{#if loading \|\| measurementSites.length \|\| bondResults.length\}/)
   assert.match(css, /\.viewer-shell\s*\{[^}]*grid-template-rows: minmax\(0, 1fr\) auto/)
   assert.match(css, /\.scene-viewport \.measure-label\s*\{[^}]*display: none/)
 })

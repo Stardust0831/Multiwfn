@@ -11,6 +11,25 @@ VERSION = "matterviz-0.4.2-multiwfn.d8719d12.r25"
 
 
 class TopologyVendor(unittest.TestCase):
+    def test_representations_replay_from_upstream1_to_exact_package(self):
+        with tempfile.TemporaryDirectory(prefix="reps-vendor-replay-") as directory:
+            base, target = Path(directory) / "base", Path(directory) / "target"
+            base.mkdir()
+            target.mkdir()
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".upstream1.tgz")), "-C", str(base)], check=True)
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".reps1.tgz")), "-C", str(target)], check=True)
+            before = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            with (VENDOR / "patches" / (VERSION + ".reps1.patch")).open("rb") as patch:
+                subprocess.run(["patch", "-p1", "-d", str(base / "package")], stdin=patch, check=True, capture_output=True)
+            after = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            packaged = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+            self.assertEqual(after, packaged)
+            self.assertEqual(set(before), set(after))
+            changed = {str(path) for path in before if before[path] != after[path]}
+            # Existing parsing, geometry, analysis and surface fixes stay byte-identical.
+            self.assertTrue(all(name == "package/package.json" or name.startswith("package/dist/structure/")
+                                or name in {"package/dist/isosurface/Isosurface.svelte.d.ts", "package/dist/settings.d.ts"} for name in changed), changed)
+
     def test_upstream_fixes_replay_from_workbench2_without_losing_extensions(self):
         with tempfile.TemporaryDirectory(prefix="upstream-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"

@@ -31,6 +31,7 @@ try {
   await page.goto(preview, { waitUntil: 'networkidle', timeout: 180000 })
   await page.waitForFunction(() => document.querySelector('.statusbar')?.textContent.includes('2 volume'))
   await page.locator('canvas').waitFor()
+  await button('Tools').click(); await button('Edit atoms and bonds...').click()
   assert.equal(await page.locator('html').getAttribute('lang'), 'en')
   assert.match(await button('Atom material preset').innerText(), /Renderer default/)
   await choose('Scene appearance preset', 'Studio lighting')
@@ -84,7 +85,8 @@ try {
 
   await button('Switch to English').click()
   await button('View').waitFor()
-  await button('Open surfaces inspector').click()
+  await button('Tools').click(); await button('Edit atoms and bonds...').click()
+  await page.getByRole('tab', { name: 'Surfaces', exact: true }).click()
   assert.match(await button('Original surface material preset').innerText(), /BrushedMetal/)
   await page.screenshot({ path: path.join(artifacts, 'language-en.png') })
   await button('切换到中文').click()

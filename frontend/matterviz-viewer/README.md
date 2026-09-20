@@ -6,12 +6,15 @@ It consumes the Multiwfn session manifest and serialized backend API. Protected
 core sources are unchanged relative to the main-branch baseline. Data capture and
 user-confirmed metadata live entirely in the GUI adapters and frontend.
 
-The frontend consumes the reproducible prebuilt package
-`matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.tgz` in `vendor/`. Its reviewable
-patch applies directly to the retained r25 archive and combines the complete
-`r25.surface1.picking1` and `r25.material2` extensions. The r25 baseline preserves
-ordered measurements, angle/dihedral and bond context menus, Arcball camera
-controls, flat grids, Worker meshing and immediate resource release.
+The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.tgz`.
+Its reviewable patch extends the retained `r25.upstream1` archive, preserving the
+reviewed topology, measurement, material, parser and sampling fixes. Reps render
+geometry in the host scene without adding cameras or lights. Their atoms and
+bonds share the standard matte/glossy/PBR/unlit material pool, with gradient bond
+colors, opacity, rim shading and local clipping.
+
+See [the representation workbench](../../docs/representation-workbench.md) for
+controls, migration, resource limits and browser acceptance coverage.
 
 The topology extension exposes shared scene snippets, `topology_view` and
 `surface_view` masks, and shares native scene/lattice control dictionaries with
@@ -41,23 +44,19 @@ the legacy path for rotated, anisotropic and nonorthogonal cells. Unlit and
 wireframe surfaces bypass tone mapping so their colors agree with the legend;
 lit finishes retain the renderer's tone mapping and transparency.
 
-The retained lineage starts r24 → r25, followed by the topology/surface and
-material branches, now combined in workbench1. Earlier archives and patches
-remain available as reproducible bases. PR #54's r26 was based on r24 and cannot
-replace r25 without losing measurement controls. Its older material archive
-reused the r25 version name; use this repository's retained r25 and lockfile.
-The current workbench1 archive SHA-256 is
-`52b5475da106a6faf9daabc440c327f3f9e2998fa1efda4d1ed35d046c041118`;
+The retained lineage is r25 → workbench1 → workbench2 → upstream1 → reps1.
+Earlier reviewed archives and patches remain reproducible bases. The current
+reps1 archive SHA-256 is `0bf09d6755f124f56e00c07c37c1b73d358c7b31024b1300c8711b1e311a35b8`;
 `package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
-To reproduce the combined package (Node.js 24 and npm):
+To reproduce the current package (Node.js 24 and npm):
 
 ```bash
 workbench_tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.tgz -C "$workbench_tmpdir"
-patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.patch
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.upstream1.tgz -C "$workbench_tmpdir"
+patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.patch
 npm pack --ignore-scripts --pack-destination vendor "$workbench_tmpdir/package"
-sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.workbench1.tgz
+sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.tgz
 ```
 
 The checksum identifies the retained archive. To verify a repack across npm
@@ -341,6 +340,9 @@ offline reopening; they preserve source metadata, not transient native chart-con
 edits. Image exports reflect current chart controls and exclude workbench buttons.
 Native command-line image export still uses the authenticated host path and returns
 to Multiwfn after saving. The 3D PNG command uses the existing MatterViz renderer.
+Its **Transparent background** checkbox defaults to off: PNG files keep the
+selected scene background color (white initially). Check it to retain alpha.
+This affects only the exported image, leaving the scene and materials unchanged.
 
 Native binary plot arrays stay typed in transport/cache. At the ScatterPlot boundary,
 immutable coordinate and fill arrays are converted once with a weak cache, because
@@ -400,3 +402,28 @@ lighting controls, material choices, display-setting download/restore, volume
 visibility, backend-unavailability help, the single canvas lifecycle and a
 600 px viewport. The supplied molecule preview has no calculation backend;
 analysis controls retain their real unavailable state.
+
+
+## Local session preview
+
+Provide an existing session's data under `session/` in a separate public directory.
+The frontend does not invent calculation results or contact a calculation backend
+for this preview. The manifest can expose structures, cubes and existing analysis
+artifacts; unavailable calculation actions keep their disabled explanations.
+
+```bash
+PREVIEW_PUBLIC_DIR=/path/to/preview/public pnpm preview:session
+# http://127.0.0.1:5297/ (reads /session/manifest.json)
+# Add ?manifest=/session/surface-manifest.json for another manifest.
+```
+
+`pnpm test:representations` checks the molecule/density/ESP fixture in Chromium.
+Set `PREVIEW_URL` to its manifest URL, `PLAYWRIGHT_MODULE` to an external Playwright
+`index.mjs`, and optionally `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. `ARTIFACT_DIR` controls
+where it saves screenshots, portable states and verification JSON. The fixture
+expects two compatible grids named Density and ESP and at least 32 structure sites.
+`workbench-ui.mjs` and `workbench-language.mjs` additionally cover the retained
+advanced inspector.
+`pnpm test:scene-export` checks downloaded PNG pixels for white, chosen-color and
+transparent backgrounds, translucent materials, bilingual controls and unchanged
+camera/scene state, using the same environment variables and surface fixture.
