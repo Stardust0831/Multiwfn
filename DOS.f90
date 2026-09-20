@@ -111,9 +111,10 @@ call setfil("dislin."//trim(graphformat))
 
 ireadgautype=1
 if (ifiletype==0) then
-	!Read energy level information from text file, the first number in first row define how many energy levels
-	!in there, the second number in first row if equals to 1, means below data are only energies, if equals to 2,
-	!means both strength and FWHM also present.
+	!Text header: number of orbitals, then mode. Each orbital requires energy and occupation.
+	!Modes 1/3 read MOene, MOocc; modes 2/4 also read strength and FWHM.
+	!Mode 3 uses eV for energy; mode 4 uses eV for both energy and FWHM.
+	!One value per orbital is insufficient and can misalign list-directed reads.
 	open(10,file=filename,status="old")
 	call loclabel(10,"Gaussian, Inc",igauout,maxline=100)
 	rewind(10)

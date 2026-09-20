@@ -686,7 +686,7 @@ write(*,"(a,f16.6,' Hartree')") " E_electrostatic:",E_elst
 write(*,"(a,f16.6,' Hartree')") " E_quantum:      ",E_quan
 write(*,"(/,a,f16.6,' Hartree')") " E_total:        ",E_tot
 
-!I found for G16 A.03 with M06-2X, the E_tot shown above, which is exactly equals to "ETot=" printed by L608, is remarkably
+!I found for G16 A.03 with M06-2X, the E_tot shown above, which is exactly equal to "ETot=" printed by L608, is remarkably
 !different to the single point energy printed in either output file or fch file. By comparing with G09, I found the reason is
 !that the "Ec=" shown by G16 with M06-2X is incorrect
 !Same problem was found for G03 E.01+B3LYP and G16 A.03+B3LYP, while G09 D.01 works normally with B3LYP and M06-2X
