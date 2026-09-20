@@ -23,7 +23,7 @@ export OMP_STACKSIZE="${OMP_STACKSIZE:-64000000}"
 assert_contains() {
   local file="$1"
   local text="$2"
-  if ! grep -Fq "$text" "$file"; then
+  if ! grep -Fq -- "$text" "$file"; then
     echo "Expected to find: $text" >&2
     echo "--- $file tail ---" >&2
     tail -n 120 "$file" >&2 || true
