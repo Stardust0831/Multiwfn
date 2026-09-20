@@ -52,7 +52,8 @@
   }
   const scalarControls = $derived(selected ? [
     { key: 'opacity' as const, label: 'Opacity', min: 0, max: 1, step: 0.01, enabled: true },
-    { key: 'diffuse' as const, label: 'Diffuse reflection', min: 0, max: 1, step: 0.01, enabled: selected.material.model !== 'unlit' },
+    { key: 'diffuse' as const, label: 'Diffuse reflection', min: 0, max: 3, step: 0.01, enabled: selected.material.model !== 'unlit' },
+    { key: 'saturation' as const, label: 'Saturation', min: 0, max: 3, step: 0.01, enabled: true },
     { key: 'specular' as const, label: 'Highlight strength', min: 0, max: 1, step: 0.01, enabled: selected.material.model === 'glossy' },
     { key: 'shininess' as const, label: 'Highlight sharpness', min: 1, max: 120, step: 1, enabled: selected.material.model === 'glossy' },
     { key: 'roughness' as const, label: 'Roughness', min: 0, max: 1, step: 0.01, enabled: selected.material.model === 'pbr' },
@@ -127,7 +128,7 @@
           </Tabs.Content>
           <Tabs.Content value="material" class="rep-tab-content">
             <div class="rep-section-label"><span>03</span>{$t('Material')}</div>
-            <label class="rep-field"><span>{$t('Preset')}</span><select aria-label={$t('Material preset')} value={selected.material.diffuse === 1 ? detect_surface_preset(rep_surface_settings(selected)) : 'custom'} onchange={(event) => patch({ material: material_preset(selected!.material, event.currentTarget.value) })}><option value="custom">{$t('Custom')}</option>{#each SURFACE_PRESETS as preset}<option value={preset.value}>{$t(preset.label)}</option>{/each}</select></label>
+            <label class="rep-field"><span>{$t('Preset')}</span><select aria-label={$t('Material preset')} value={selected.material.diffuse === 1 && selected.material.saturation === 1 ? detect_surface_preset(rep_surface_settings(selected)) : 'custom'} onchange={(event) => patch({ material: material_preset(selected!.material, event.currentTarget.value) })}><option value="custom">{$t('Custom')}</option>{#each SURFACE_PRESETS as preset}<option value={preset.value}>{$t(preset.label)}</option>{/each}</select></label>
             <label class="rep-field"><span>{$t('Shading model')}</span><select value={selected.material.model} onchange={(event) => material('model', event.currentTarget.value)}><option value="matte">{$t('Matte')}</option><option value="glossy">{$t('Glossy')}</option><option value="pbr">PBR</option><option value="unlit">{$t('Unlit')}</option></select></label>
             {#each scalarControls as control}
               <label class="rep-scalar"><span>{$t(control.label)}</span><input type="number" min={control.min} max={control.max} step={control.step} value={selected.material[control.key]} oninput={(event) => numeric(event, (value) => material(control.key, Math.max(control.min, Math.min(control.max, value))))} /><input type="range" min={control.min} max={control.max} step={control.step} value={selected.material[control.key]} aria-label={$t(control.label)} oninput={(event) => numeric(event, (value) => material(control.key, value))} /></label>
@@ -140,6 +141,7 @@
               </details>
             {/if}
             <p class="rep-help">{$t('Opacity controls visibility; diffuse reflection controls the matte response. Scene lighting is shared by all Reps.')}</p>
+            <p class="rep-help">{$t('Diffuse reflection: 1 is normal, above 1 is brighter. Saturation: 0 is grayscale, 1 is original, 3 is vivid.')}</p>
           </Tabs.Content>
           <Tabs.Content value="pbc" class="rep-tab-content">
             {#key selected.id}<RepPeriodicControls structure={selected.source.kind === 'structure'} value={selected.periodic} {sourceCell} onchange={(periodic) => patch({ periodic })} />{/key}

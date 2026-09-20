@@ -45,6 +45,8 @@ export const zh = {
   "Material preset": "材质预设",
   "Shading model": "光照模型",
   "Diffuse reflection": "漫反射",
+  "Saturation": "饱和度",
+  "Diffuse reflection: 1 is normal, above 1 is brighter. Saturation: 0 is grayscale, 1 is original, 3 is vivid.": "漫反射：1 为原始强度，大于 1 增亮。饱和度：0 为灰度，1 为原色，3 更鲜艳。",
   "Highlight strength": "高光强度",
   "Highlight sharpness": "高光锐度",
   "Edges & transparency": "边缘与透明效果",

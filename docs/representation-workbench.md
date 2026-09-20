@@ -49,6 +49,13 @@ camera, fit-to-visible action, background, four lights and measurement mode.
   roughness/metalness. Atoms, gradient-colored bonds and surfaces use the same
   models. Glass presets set opacity to 0.35; opaque presets set it to 1. Rim
   contrast, rim width and angle-dependent opacity are optional refinements.
+  Diffuse reflection ranges from 0 to 3 (1 is the original response; values above
+  1 amplify diffuse light). Saturation independently ranges from 0 (grayscale)
+  through 1 (unchanged) to 3 (enhanced), including unlit and wireframe materials.
+  Saturation operates after tone mapping, before output color conversion and
+  transparency blending; source colors, scalar data and color-scale ranges are
+  unchanged. Missing values default to 1 when loading older saved scenes; both
+  controls reset to 1 when applying a material preset.
 - PBC changes are staged until **Apply periodic display**. Each Rep has its own
   axes, fractional bounds and optional nonsingular translation matrix in Å.
   Structure boundaries can clip geometry, include whole boundary atoms, or
@@ -109,10 +116,13 @@ sampling fixes are preserved. Reproduction commands are in the frontend README.
 - `tests/browser/scene-export.mjs`: downloaded PNG pixels for opaque white,
   chosen-color and transparent backgrounds; translucent surface alpha; unchanged
   scene, materials and camera; bilingual export and source-editing controls.
+- `tests/browser/rep-color.mjs`: actual grayscale, enhanced saturation and
+  diffuse gain in all material models, bond gradients and mapped/wireframe
+  surfaces, with unchanged alpha/camera and independent saved settings.
 - Existing advanced UI and language browser regressions pass. The topology
   browser regression retains ordinary/analysis measurements, hidden-bond picking,
   editing, partial occupancies, labels and surface visibility masks.
-- Final verification: 279 frontend tests pass with one existing skip; Svelte
+- Final verification: frontend tests pass with one existing skip; Svelte
   reports zero errors/warnings; production build and all eight vendor replay
   tests pass. Screenshots and portable scene
   states are emitted by the browser acceptance test.

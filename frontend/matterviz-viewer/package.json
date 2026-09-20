@@ -14,7 +14,8 @@
     "test:topology-picking": "node tests/browser/topology-picking.mjs",
     "preview:session": "node scripts/preview-session.mjs",
     "test:representations": "node tests/browser/representations.mjs",
-    "test:scene-export": "node tests/browser/scene-export.mjs"
+    "test:scene-export": "node tests/browser/scene-export.mjs",
+    "test:rep-color": "node tests/browser/rep-color.mjs"
   },
   "dependencies": {
     "@lucide/svelte": "1.45.0",

@@ -9,6 +9,7 @@ export type RepMaterial = {
   model: 'matte' | 'glossy' | 'pbr' | 'unlit'
   opacity: number
   diffuse: number
+  saturation: number
   specular: number
   shininess: number
   roughness: number
@@ -48,7 +49,7 @@ export const dataset_key = (entries: Array<{ path: string; datasetSlot?: number 
   return JSON.stringify([source.path ?? `index:${index}`, source.slot])
 }
 export const DEFAULT_REP_MATERIAL: RepMaterial = {
-  model: 'glossy', opacity: 1, diffuse: 1, specular: 0.28, shininess: 42,
+  model: 'glossy', opacity: 1, diffuse: 1, saturation: 1, specular: 0.28, shininess: 42,
   roughness: 0.5, metalness: 0, outline: 0, outlineWidth: 0.6,
   angleOpacity: false, faceted: false,
 }
@@ -93,7 +94,8 @@ export const normalize_rep = (value: unknown): Rep | undefined => {
   rep.structure.bondRadius = number(structure.bondRadius, 0.07, 0.01, 1)
   rep.structure.labels = bool(structure.labels, false); rep.structure.indices = bool(structure.indices, false)
   if (['matte', 'glossy', 'pbr', 'unlit'].includes(String(material.model))) rep.material.model = material.model as RepMaterial['model']
-  for (const key of ['opacity', 'diffuse', 'specular', 'roughness', 'metalness', 'outline', 'outlineWidth'] as const) rep.material[key] = number(material[key], rep.material[key], 0, 1)
+  for (const key of ['opacity', 'specular', 'roughness', 'metalness', 'outline', 'outlineWidth'] as const) rep.material[key] = number(material[key], rep.material[key], 0, 1)
+  for (const key of ['diffuse', 'saturation'] as const) rep.material[key] = number(material[key], 1, 0, 3)
   rep.material.shininess = number(material.shininess, 42, 1, 120)
   rep.material.angleOpacity = bool(material.angleOpacity, false); rep.material.faceted = bool(material.faceted, false)
   if (['clip', 'atoms', 'none'].includes(String(periodic.boundary))) rep.periodic.boundary = periodic.boundary as RepPeriodic['boundary']
@@ -155,7 +157,7 @@ export const material_preset = (material: RepMaterial, preset: string): RepMater
   const definition = SURFACE_PRESETS.find((item) => item.value === preset)
   if (!definition) return material
   const appearance = { ...SURFACE_DEFAULTS, ...definition.appearance }
-  return { ...material, opacity: preset.includes('glass') ? 0.35 : 1, model: appearance.material ?? 'matte', diffuse: 1, specular: appearance.specular,
+  return { ...material, opacity: preset.includes('glass') ? 0.35 : 1, model: appearance.material ?? 'matte', diffuse: 1, saturation: 1, specular: appearance.specular,
     shininess: appearance.shininess, roughness: appearance.roughness, metalness: appearance.metalness,
     outline: appearance.outline, outlineWidth: appearance.outlineWidth,
     angleOpacity: appearance.transmode === 1, faceted: appearance.flat_shading }

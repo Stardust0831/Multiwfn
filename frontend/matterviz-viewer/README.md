@@ -427,3 +427,6 @@ advanced inspector.
 `pnpm test:scene-export` checks downloaded PNG pixels for white, chosen-color and
 transparent backgrounds, translucent materials, bilingual controls and unchanged
 camera/scene state, using the same environment variables and surface fixture.
+`pnpm test:rep-color` checks diffuse gain and saturation against actual WebGL
+pixels for atoms, bonds, mapped surfaces and wireframes, including settings
+round-trip and unchanged alpha/camera state.

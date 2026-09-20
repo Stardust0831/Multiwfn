@@ -88,8 +88,9 @@ test('atom selection is explicit and cannot accidentally select a different atom
 test('all independent Reps round trip and remap geometry and color sources by identity', () => {
   const first = create_rep({ kind: 'volume', index: 0, path: 'density.cube' }, 'density')
   first.volume.color_volume_idx = 1; first.volume.colorSourcePath = 'esp.cube'
-  first.material.diffuse = 0.4; first.material.opacity = 0.6
+  first.material.diffuse = 2.4; first.material.saturation = 2.6; first.material.opacity = 0.6
   const second = copy_rep(first, 'copy')
+  second.material.saturation = 0
   second.periodic.cell = cubic; second.periodic.range[1] = [-0.25, 1.25]; second.periodic.enabled = true
   const representations = { items: [first, second], selectedId: 'copy' }
   const entries = [{ path: 'density.cube' }, { path: 'esp.cube' }]
@@ -100,6 +101,9 @@ test('all independent Reps round trip and remap geometry and color sources by id
   assert.equal(restored.selectedId, 'copy')
   assert.equal(restored.items[0].source.kind === 'volume' && restored.items[0].source.index, 1)
   assert.equal(restored.items[0].volume.color_volume_idx, 0)
+  assert.equal(restored.items[0].material.diffuse, 2.4)
+  assert.equal(restored.items[0].material.saturation, 2.6)
+  assert.equal(restored.items[1].material.saturation, 0)
   assert.deepEqual(restored.items[1].periodic.range[1], [-0.25, 1.25])
   assert.equal((remap_rep_sources(representations, [{ path: 'unrelated.cube' }]).items[0].source as { index: number }).index, -1)
 })
@@ -122,25 +126,52 @@ test('legacy layers migrate with their sign, palette, opacity, material and cros
   assert.equal(migrated.items[1].volume.colorSourcePath, 'esp')
 })
 
-test('diffuse changes affect the real Three light accumulator without rebuilding material or geometry', () => {
+test('diffuse gain and saturation update live uniforms without rebuilding the material', () => {
   const rep = create_rep({ kind: 'structure' }, 'appearance'), material = new MeshPhongMaterial()
   update_rep_material(material, rep.material, [])
   const shader = { vertexShader: ShaderLib.phong.vertexShader, fragmentShader: ShaderLib.phong.fragmentShader, uniforms: {} }
   material.onBeforeCompile(shader, null as never)
   assert.match(shader.fragmentShader, /reflectedLight.directDiffuse \*= repDiffuse/)
   const uniform = (shader.uniforms as Record<string, { value: number }>).repDiffuse
+  const saturation = (shader.uniforms as Record<string, { value: number }>).repSaturation
+  assert.equal(saturation.value, 1)
+  assert.ok(shader.fragmentShader.indexOf('float repLuminance') > shader.fragmentShader.indexOf('#include <tonemapping_fragment>'))
+  assert.ok(shader.fragmentShader.indexOf('float repLuminance') < shader.fragmentShader.indexOf('#include <colorspace_fragment>'))
   const version = material.version
-  update_rep_material(material, { ...rep.material, diffuse: 0.2 }, [])
-  assert.equal(uniform.value, 0.2)
+  update_rep_material(material, { ...rep.material, diffuse: 3, saturation: 2.5 }, [])
+  assert.equal(uniform.value, 3)
+  assert.equal(saturation.value, 2.5)
   assert.equal(material.version, version)
   material.dispose()
   const unlit = new MeshBasicMaterial()
-  update_rep_material(unlit, { ...rep.material, model: 'unlit', diffuse: 0.2 }, [])
+  update_rep_material(unlit, { ...rep.material, model: 'unlit', diffuse: 0.2, saturation: 0 }, [])
   const basicShader = { vertexShader: ShaderLib.basic.vertexShader, fragmentShader: ShaderLib.basic.fragmentShader, uniforms: {} }
   unlit.onBeforeCompile(basicShader, null as never)
   assert.equal((basicShader.uniforms as Record<string, { value: number }>).repDiffuse.value, 1,
     'unlit and wireframe colors ignore inactive diffuse controls')
+  assert.equal((basicShader.uniforms as Record<string, { value: number }>).repSaturation.value, 0,
+    'unlit and wireframe still support saturation')
   unlit.dispose()
+})
+
+test('legacy saturation defaults to 1 and gain controls clamp independently from opacity', () => {
+  const rep = create_rep({ kind: 'structure' }, 'legacy')
+  const normalize = (material: Record<string, unknown>) => normalize_reps({ items: [{ ...rep, material }], selectedId: rep.id })!.items[0].material
+  assert.equal(normalize({ diffuse: 0.4 }).saturation, 1)
+  assert.equal(normalize({ diffuse: 0.4 }).diffuse, 0.4)
+  for (const value of [0, 1, 2.5, 3]) {
+    const material = normalize({ diffuse: value, saturation: value, opacity: value })
+    assert.equal(material.diffuse, value)
+    assert.equal(material.saturation, value)
+    assert.equal(material.opacity, Math.min(value, 1))
+  }
+  for (const [value, expected] of [[-4, 0], [8, 3], [Infinity, 1], [NaN, 1], [undefined, 1]] as const) {
+    const material = normalize({ diffuse: value, saturation: value })
+    assert.equal(material.diffuse, expected)
+    assert.equal(material.saturation, expected)
+  }
+  const reset = material_preset({ ...rep.material, diffuse: 2, saturation: 3 }, 'glass1')
+  assert.equal(reset.diffuse, 1); assert.equal(reset.saturation, 1)
 })
 
 test('clipped atoms cannot be picked and changing planes updates existing hit targets', () => {
