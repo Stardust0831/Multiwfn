@@ -74,4 +74,29 @@ assert_contains "$workdir/roundtrip.cub" "Totally            8 grid points"
 assert_contains "$workdir/roundtrip.cub" "1.00000E-001  2.00000E-001"
 assert_contains "$workdir/roundtrip.cub" "7.00000E-001  8.00000E-001"
 
+# CP2K 2026.1 writes adjacent 13-column fields: there is no whitespace
+# between negative values, so free-format input cannot read this valid cube.
+head -n 7 "$workdir/tiny.cub" > "$workdir/cp2k.cub"
+cat >> "$workdir/cp2k.cub" <<'EOF'
+-0.10000E-001-0.20000E-001-0.30000E-001-0.40000E-001-0.50000E-001-0.60000E-001
+-0.70000E-001-0.80000E-001
+EOF
+(
+  cd "$workdir"
+  printf '13\n0\ncp2k-roundtrip.cub\n-1\nq\n' | "$exe" cp2k.cub > cp2k.out
+)
+assert_contains "$workdir/cp2k.out" "trying loading using 6E13.5E3"
+assert_contains "$workdir/cp2k-roundtrip.cub" "-1.00000E-002 -2.00000E-002"
+assert_contains "$workdir/cp2k-roundtrip.cub" "-7.00000E-002 -8.00000E-002"
+
+# Loading an external grid through 1000 -> 19 must not replace water with
+# the oxygen-only structure in the cube. Check the subsequent analysis.
+(
+  cd "$workdir"
+  printf '1000\n19\ntiny.cub\n26\n1\n\nq\n0\nq\n' | "$exe" water.xyz > grid-only.out
+)
+assert_contains "$workdir/grid-only.out" "Grid date has been successfully loaded!"
+assert_contains "$workdir/grid-only.out" "Formula: H2 O1"
+assert_contains "$workdir/grid-only.out" "Geometry center (X/Y/Z):    0.30666667    0.00000000    0.24000000 Angstrom"
+
 echo "noGUI functional tests passed"
