@@ -5186,8 +5186,8 @@ EEMcyc: do while(.true.)
 			write(*,*) "-1 Export present parameters to external file"
 			write(*,*) "0 Load parameters from external file"
 			write(*,*) "1 Use parameters fitted to HF/STO-3G Mulliken charge, IJMS, 8, 572 (2007)"
-			write(*,*) "2 Use parameters fitted to B3LYP/6-31G* CHELPG charge, JCC, 30, 1174 (2009)"
-			write(*,*) "3 Use parameters fitted to HF/6-31G* CHELPG charge, JCC, 30, 1174 (2009)"
+			write(*,*) "2 Use parameters fitted to B3LYP/6-31G* MK charge, JCC, 30, 1174 (2009)"
+			write(*,*) "3 Use parameters fitted to HF/6-31G* MK charge, JCC, 30, 1174 (2009)"
 			write(*,*) "4 Use parameters fitted to B3LYP/6-311G* NPA charge, J Cheminform, 8, 57(2016)"
 			read(*,*) isel2
 			if (isel2==-2) then
