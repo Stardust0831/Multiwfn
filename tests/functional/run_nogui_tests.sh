@@ -99,4 +99,39 @@ assert_contains "$workdir/grid-only.out" "Grid date has been successfully loaded
 assert_contains "$workdir/grid-only.out" "Formula: H2 O1"
 assert_contains "$workdir/grid-only.out" "Geometry center (X/Y/Z):    0.30666667    0.00000000    0.24000000 Angstrom"
 
+# CP2K Molden files may declare the cell in Bohr and valence nuclear charges.
+# Both cell encodings must retain their dimensions, without a second conversion.
+for cell_format in parameters vectors; do
+  {
+    printf '[Molden Format]\n[Cell] AU\n'
+    if [ "$cell_format" = parameters ]; then
+      printf '10 12 14 90 90 90\n'
+    else
+      printf '%s\n' 'A 10 0 0' 'B 0 12 0' 'C 0 0 14'
+    fi
+    cat <<'EOF'
+[Atoms] AU
+C 1 6 0 0 0
+[Pseudo]
+C 1 4
+[GTO]
+1 0
+s 1 1.0
+1.0 1.0
+
+[MO]
+Sym= A1
+Ene= -0.5
+Spin= Alpha
+Occup= 2.0
+1 1.0
+EOF
+  } > "$workdir/cell-$cell_format.molden"
+  printf 'q\n' | "$exe" "$workdir/cell-$cell_format.molden" > "$workdir/cell-$cell_format.out"
+  assert_contains "$workdir/cell-$cell_format.out" "Nuclear charge of atom     1 has been changed to   4"
+  assert_contains "$workdir/cell-$cell_format.out" "Cell vector 1,  X=   10.00000  Y=    0.00000  Z=    0.00000  Norm:   10.00000"
+  assert_contains "$workdir/cell-$cell_format.out" "Cell vector 2,  X=    0.00000  Y=   12.00000  Z=    0.00000  Norm:   12.00000"
+  assert_contains "$workdir/cell-$cell_format.out" "Cell vector 3,  X=    0.00000  Y=    0.00000  Z=   14.00000  Norm:   14.00000"
+done
+
 echo "noGUI functional tests passed"
