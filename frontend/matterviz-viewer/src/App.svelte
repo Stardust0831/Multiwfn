@@ -196,7 +196,7 @@
   let sliceManualMax = $state('')
   let espLegendOpen = $state(false)
   let interactionLegendOpen = $state(true)
-  let interactionLegendPosition = $state<LegendPosition>({ left: 16, top: 16 })
+  let interactionLegendPosition = $state<LegendPosition>({ left: 232, top: 16 })
   let espExtremaOpen = $state(false)
   let espExtremaLoading = $state(false)
   let espExtrema = $state<EspExtremaResult | undefined>()
