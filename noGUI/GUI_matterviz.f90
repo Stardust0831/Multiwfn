@@ -24,6 +24,10 @@ integer(c_intptr_t) :: gui_volume_write=-1_c_intptr_t,gui_ack_read=-1_c_intptr_t
 integer(c_intptr_t) :: gui_request_read=-1_c_intptr_t,gui_response_write=-1_c_intptr_t
 integer(c_int64_t) :: gui_volume_serial=0_c_int64_t
 integer*8 :: gui_cubmat_volume_id=-1,gui_cubmattmp_volume_id=-1
+! Borrowed only for a synchronous mapped-isosurface launch; never owns or edits the grid.
+real*8,pointer :: gui_color_grid(:,:,:)=>null()
+character(len=32) :: gui_mapped_name=""
+real*8 :: gui_color_range(2)=0D0,gui_color_midpoint=0.5D0
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 type(topology_data) :: gui_topology
 integer(c_int64_t) :: gui_topology_id=0
@@ -222,6 +226,65 @@ integer,intent(in) :: iallowsetstyle
 GUI_mode=3
 idrawisosur=1
 call launch_matterviz_gui("drawisosurgui",3,iallowsetstyle,0D0,0D0,0D0,0D0,0D0,0D0)
+end subroutine
+
+subroutine draw_funcvsfunc_isosurface(iallowsetstyle,analysis,color_grid)
+integer,intent(in) :: iallowsetstyle,analysis
+real*8,intent(in),target :: color_grid(:,:,:)
+
+! Official examples: IRIfill.vmd, RDGfill.vmd, RDGfill_pro.vmd, DORIfill.vmd.
+! The caller already placed the requested surface in cubmat. Its backup is
+! sign(lambda2)rho; cubmattmp still contains another copy of the surface.
+select case(analysis)
+case(1)
+    call draw_mapped_isosurface(iallowsetstyle,color_grid,"NCI (RDG)",-0.035D0,0.02D0,0.5D0)
+case(2)
+    call draw_mapped_isosurface(iallowsetstyle,color_grid,"NCI (promolecular RDG)",-0.035D0,0.03D0,0.5D0)
+case(4)
+    call draw_mapped_isosurface(iallowsetstyle,color_grid,"IRI",-0.04D0,0.02D0,0.666D0)
+case(5)
+    call draw_mapped_isosurface(iallowsetstyle,color_grid,"DORI",-0.04D0,0.02D0,0.666D0)
+case default
+    call drawisosurgui(iallowsetstyle)
+end select
+end subroutine
+
+subroutine draw_igm_isosurface(iallowsetstyle,analysis,field,color_grid)
+integer,intent(in) :: iallowsetstyle,analysis,field
+real*8,intent(in),target :: color_grid(:,:,:)
+character(len=32) :: title
+
+if (field<1.or.field>3) then
+    call drawisosurgui(iallowsetstyle)
+    return
+end if
+title="IGM"
+if (analysis==-1) title="mIGM"
+if (analysis==2) title="IGMH"
+if (field==1) title=trim(title)//" inter"
+if (field==2) title=trim(title)//" intra"
+if (field==3) title=trim(title)//" total"
+call draw_mapped_isosurface(iallowsetstyle,color_grid,trim(title),-0.05D0,0.05D0,0.5D0)
+end subroutine
+
+subroutine draw_mapped_isosurface(iallowsetstyle,color_grid,title,lower,upper,midpoint)
+integer,intent(in) :: iallowsetstyle
+real*8,intent(in),target :: color_grid(:,:,:)
+character(len=*),intent(in) :: title
+real*8,intent(in) :: lower,upper,midpoint
+
+if (.not.allocated(cubmat)) return
+if (any(shape(cubmat)/=shape(color_grid))) then
+    write(*,*) "MatterViz: surface and coloring grids have different dimensions"
+    return
+end if
+gui_color_grid=>color_grid
+gui_mapped_name=title
+gui_color_range=[lower,upper]
+gui_color_midpoint=midpoint
+call drawisosurgui(iallowsetstyle)
+nullify(gui_color_grid)
+gui_mapped_name=""
 end subroutine
 
 subroutine drawmoltopogui
@@ -1105,7 +1168,10 @@ if (.not.memory_session) then
         call write_cube(trim(session)//"/cubmat.cube",cubmat)
         gui_has_cubmat_file=.true.
     end if
-    if (allocated(cubmattmp)) then
+    if (associated(gui_color_grid)) then
+        call write_cube(trim(session)//"/cubmattmp.cube",gui_color_grid)
+        gui_has_cubmattmp_file=.true.
+    else if (allocated(cubmattmp)) then
         call write_cube(trim(session)//"/cubmattmp.cube",cubmattmp)
         gui_has_cubmattmp_file=.true.
     end if
@@ -1323,14 +1389,17 @@ character(len=160) :: message
 
 status=0
 if (allocated(cubmat).and.trim(entry)/="drawmolgui".and.trim(entry)/="drawsurfanalysis") then
-    published=publish_matterviz_volume(cubmat,1_8,4,4,gui_cubmat_volume_id,1,volume_status)
+    published=publish_matterviz_volume(cubmat,1_8,4,4,gui_cubmat_volume_id,2,volume_status)
     if (.not.published) then
         status=volume_status
         return
     end if
 end if
-if (allocated(cubmattmp).and.trim(entry)/='drawsurfanalysis') then
-    published=publish_matterviz_volume(cubmattmp,2_8,4,4,gui_cubmattmp_volume_id,1,volume_status)
+if (associated(gui_color_grid)) then
+    published=publish_matterviz_volume(gui_color_grid,2_8,4,4,gui_cubmattmp_volume_id,2,volume_status)
+    if (.not.published) status=volume_status
+else if (allocated(cubmattmp).and.trim(entry)/='drawsurfanalysis') then
+    published=publish_matterviz_volume(cubmattmp,2_8,4,4,gui_cubmattmp_volume_id,2,volume_status)
     if (.not.published) status=volume_status
 end if
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
@@ -2875,6 +2944,9 @@ end if
 call emit_orbital_metadata(sink)
 call emit_matterviz_json(sink,'  "cubes": [')
 ncube=0
+if (associated(gui_color_grid)) then
+    call emit_mapped_cube_entries(sink,ncube)
+else
 if (gui_cubmat_volume_id>0) then
     call emit_native_cube_entry(sink,ncube,"cubmat",gui_cubmat_volume_id,"density",abs(sur_value))
 else if (gui_has_cubmat_file) then
@@ -2885,9 +2957,43 @@ if (gui_cubmattmp_volume_id>0) then
 else if (gui_has_cubmattmp_file) then
     call emit_cube_entry(sink,ncube,"cubmattmp","cubmattmp.cube","custom",0,abs(sur_value))
 end if
+end if
 call emit_orbital_cube_manifest(sink,ncube)
 call emit_matterviz_json(sink,'  ]')
 call emit_matterviz_json(sink,"}")
+end subroutine
+
+subroutine emit_mapped_cube_entries(sink,ncube)
+type(matterviz_json_sink),intent(inout) :: sink
+integer,intent(inout) :: ncube
+character(len=256) :: surface_path,color_path,volume_format
+character(len=1024) :: line
+
+surface_path="cubmat.cube"
+color_path="cubmattmp.cube"
+volume_format="cube"
+if (gui_cubmat_volume_id>0.and.gui_cubmattmp_volume_id>0) then
+    write(surface_path,'(a,i0)') "/api/volume/",gui_cubmat_volume_id
+    write(color_path,'(a,i0)') "/api/volume/",gui_cubmattmp_volume_id
+    volume_format="mwfn-volume-v2"
+end if
+if (ncube>0) call emit_matterviz_json(sink,",")
+call emit_matterviz_json(sink,'    { "name": "'//trim(gui_mapped_name)//'", "path": "'//trim(surface_path)//'",')
+call emit_matterviz_json(sink,'      "format": "'//trim(volume_format)//'", "role": "custom", "mode": "positive",')
+call emit_matterviz_json(sink,'      "analysisKind": "weak-interaction-surface", "opacity": 1,')
+write(line,'(a,es24.16,a)') '      "isovalue": ',abs(sur_value),','
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'      "colorMapping": { "path": "'//trim(color_path)//'",')
+write(line,'(a,es24.16,a,es24.16,a)') '        "range": [',gui_color_range(1),',',gui_color_range(2),'],'
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'        "stops": [{"position":0,"color":"#0000ff"},')
+write(line,'(a,es24.16,a)') '          {"position":',gui_color_midpoint,',"color":"#00ff00"},'
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'          {"position":1,"color":"#ff0000"}] } },')
+call emit_matterviz_json(sink,'    { "name": "sign(lambda2)rho", "path": "'//trim(color_path)//'",')
+call emit_matterviz_json(sink,'      "format": "'//trim(volume_format)//'", "role": "custom", "mode": "signed",')
+call emit_matterviz_json(sink,'      "analysisKind": "weak-interaction-color", "visible": false, "isovalue": 0.02 }')
+ncube=ncube+2
 end subroutine
 
 subroutine emit_native_cube_entry(sink,ncube,name,volume_id,role,isoval)
@@ -2901,7 +3007,7 @@ character(len=1024) :: line
 if (ncube>0) call emit_matterviz_json(sink,",")
 ncube=ncube+1
 write(line,"(a,a,a,i0,a,a,a,1pe16.8,a)") '    { "name": "',trim(name), &
-    '", "path": "/api/volume/',volume_id,'", "format": "mwfn-volume-v1", "role": "', &
+    '", "path": "/api/volume/',volume_id,'", "format": "mwfn-volume-v2", "role": "', &
     trim(role),'", "mode": "signed", "isovalue": ',isoval,' }'
 call emit_matterviz_json(sink,line)
 end subroutine

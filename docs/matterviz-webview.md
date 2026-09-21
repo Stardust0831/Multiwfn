@@ -18,6 +18,9 @@ files, stop flag or temporary Cube. A pipe failure ends that session; it does
 not silently switch to files. See the [control protocol](matterviz-control-protocol.md)
 and [volume protocol](matterviz-volume-protocol.md) for ownership and framing.
 
+Weak-interaction surfaces use explicit surface/coloring grid pairs and the
+[official VMD template scales](matterviz-weak-interactions.md).
+
 File-backed startup remains an explicit diagnostic compatibility mode:
 
 ```text

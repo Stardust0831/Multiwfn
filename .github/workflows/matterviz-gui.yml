@@ -12,6 +12,7 @@ on:
       - main
     paths:
       - CMakeLists.txt
+      - cmake/**
       - noGUI/GUI_matterviz.f90
       - noGUI/dislin_d_empty.f90
       - noGUI/matterviz_plot_capture.f90
@@ -19,8 +20,11 @@ on:
       - frontend/matterviz-desktop/**
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
+      - tests/test_matterviz_mapped_surfaces.py
       - tests/test_matterviz_plot_adapter.py
       - tests/test_matterviz_topology_vendor.py
+      - tests/test_macos_app_bundle.py
+      - tools/macos/**
       - tests/matterviz_plot_capture_harness.f90
       - tests/matterviz-volume-e2e/**
       - tests/fixtures/**
@@ -30,6 +34,7 @@ on:
       - frontend/matterviz-updater/**
       - docs/matterviz-webview.md
       - docs/matterviz-updater.md
+      - docs/macos-app-packaging.md
       - .github/workflows/matterviz-gui.yml
   workflow_dispatch:
 
@@ -117,7 +122,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
@@ -151,6 +156,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Test macOS formal and preview package arguments
+        if: runner.os == 'macOS'
+        run: python3 -m unittest -v tests/test_macos_app_bundle.py
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -448,6 +457,12 @@ jobs:
             WEBKIT_DISABLE_COMPOSITING_MODE=1 \
             python3 tests/linux/test_matterviz_real_orbital.py \
               --executable "$root/Multiwfn_MatterVizGUI"
+          dbus-run-session -- xvfb-run -a env \
+            GDK_BACKEND=x11 \
+            NO_AT_BRIDGE=1 \
+            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+            python3 tests/linux/test_matterviz_mapped_surfaces.py \
+              --executable "$root/Multiwfn_MatterVizGUI"
       - name: Package macOS preview
         if: runner.os == 'macOS'
         shell: bash
@@ -506,6 +521,40 @@ jobs:
           fi
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
+          app_args=(
+            --binary "package/$PKG/Multiwfn_MatterVizGUI"
+            --desktop "package/$PKG/resources/tools/matterviz-desktop"
+            --viewer-dist "package/$PKG/resources/frontend/matterviz-viewer/dist"
+            --settings "package/$PKG/settings.ini"
+            --lib-dir "package/$PKG/resources/lib"
+            --output-dir "macos-dist"
+            --create-dmg
+            --dmg-name "$PKG.dmg"
+          )
+          if [[ -e "package/$PKG/resources/tools/multiwfn-matterviz-updater" ]]; then
+            app_args+=(--updater "package/$PKG/resources/tools/multiwfn-matterviz-updater")
+          fi
+          bash tools/macos/package_macos_app.sh "${app_args[@]}"
+          expected_version="$(sed -nE 's/.*"Version ([0-9]+\.[0-9]+\.[0-9]+) .*/\1/p' Multiwfn.f90)"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
+
+      - name: Verify macOS installer license and attribution
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_mount="$(mktemp -d "$RUNNER_TEMP/multiwfn-dmg-verify.XXXXXX")"
+          trap 'hdiutil detach "$dmg_mount" >/dev/null 2>&1 || true; rmdir "$dmg_mount" 2>/dev/null || true' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$dmg_mount" "macos-dist/$PKG.dmg"
+          for required_file in LICENSE.txt ATTRIBUTION.txt; do
+            cmp "$required_file" "macos-dist/Multiwfn.app/Contents/Resources/$required_file"
+            cmp "$required_file" "$dmg_mount/$required_file"
+            cmp "$required_file" "$dmg_mount/Multiwfn.app/Contents/Resources/$required_file"
+          done
+          hdiutil detach "$dmg_mount"
+          rmdir "$dmg_mount"
+          trap - EXIT
 
       - name: Test extracted macOS package
         if: runner.os == 'macOS'
@@ -517,6 +566,12 @@ jobs:
           tar -xzf "dist/$PKG.tar.gz" -C clean-test
           root="$PWD/clean-test/$PKG"
           bash tests/functional/run_nogui_tests.sh "$root/Multiwfn_MatterVizGUI"
+          test -d macos-dist/Multiwfn.app
+          test -f "macos-dist/$PKG.dmg"
+          test -n "$(ls -A macos-dist/Multiwfn.app/Contents/Resources/lib 2>/dev/null)"
+          otool -L macos-dist/Multiwfn.app/Contents/MacOS/Multiwfn_MatterVizGUI | grep -q '@executable_path/\.\./Resources/lib/'
+          codesign -vvv --deep macos-dist/Multiwfn.app
+          plutil -lint macos-dist/Multiwfn.app/Contents/Info.plist
 
       - name: Package Windows preview
         if: runner.os == 'Windows'
@@ -686,6 +741,14 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+      - name: Upload macOS DMG installer
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-macos-dmg
+          path: macos-dist/*.dmg
+          if-no-files-found: error
+
   sign-preview:
     name: Sign MatterViz preview packages
     if: startsWith(github.ref, 'refs/tags/matterviz-preview-')
@@ -839,6 +902,13 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Download formal macOS installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/download-artifact@v4
+        with:
+          name: matterviz-macos-dmg
+          path: release-assets
+
       - name: Verify release package metadata contract
         working-directory: release-assets
         shell: bash
@@ -882,6 +952,9 @@ jobs:
           fi
           sha256sum -c SHA256SUMS.txt
           test "$(find . -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) | wc -l)" -eq 3
+          if [[ "$GITHUB_REF_NAME" == v*-matterviz.* ]]; then
+            test "$(find . -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 1
+          fi
           release_flags=(--verify-tag)
           if [[ "$GITHUB_REF_NAME" == matterviz-preview-* ]]; then
             preview="${GITHUB_REF_NAME#matterviz-preview-}"

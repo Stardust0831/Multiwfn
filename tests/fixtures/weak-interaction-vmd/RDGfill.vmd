@@ -1,0 +1,15 @@
+mol new func1.cub
+mol addfile func2.cub
+mol delrep 0 top
+mol representation CPK 1.0 0.3 18.0 16.0
+mol addrep top
+mol representation Isosurface 0.50000 1 0 0 1 1
+mol color Volume 0
+mol addrep top
+mol scaleminmax top 1 -0.035 0.02
+color scale method BGR
+color Display Background white
+axes location Off
+display depthcue off
+display rendermode GLSL
+light 3 on

@@ -5,10 +5,25 @@ import {
   adapt_matterviz_volume,
   decode_matterviz_volume,
   read_matterviz_volume_response,
+  read_geometry_memory_budget,
 } from '../src/volume.ts'
 
 const fixture_hex = new URL('../../../tests/fixtures/matterviz-volume-v1-orbital.hex', import.meta.url)
 const HEADER_BYTES = 304
+
+test('geometry budgets distinguish a missing legacy header from zero and reject malformed bounds', () => {
+  const headers = new Headers()
+  assert.equal(read_geometry_memory_budget(headers), undefined)
+  assert.throws(() => read_geometry_memory_budget(headers, true), /invalid geometry memory budget/)
+  for (const value of ['', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992']) {
+    headers.set('x-matterviz-geometry-memory-budget', value)
+    assert.throws(() => read_geometry_memory_budget(headers), /invalid geometry memory budget/)
+  }
+  for (const value of [0, 64 * 1024 * 1024]) {
+    headers.set('x-matterviz-geometry-memory-budget', String(value))
+    assert.equal(read_geometry_memory_budget(headers), value)
+  }
+})
 
 function parse_hex(text: string): Uint8Array {
   const clean = text.replace(/#[^\n]*|\s+/g, '')

@@ -126,6 +126,8 @@ export const zh = {
   "Density iso": "密度等值面值",
   "ESP surface": "静电势表面",
   "ESP legend": "静电势图例",
+  "Interaction color scale": "相互作用色彩轴",
+  "Hide color scale": "隐藏色彩轴",
   "Approx. ESP extrema": "估算静电势极值",
   "Bond-order analysis": "键级分析",
   "PNG image": "PNG 图像",

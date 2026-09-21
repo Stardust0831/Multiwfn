@@ -290,6 +290,27 @@ pub fn decode_stream_volume_header(frame: &[u8]) -> Result<StreamVolumeHeader, V
 
 pub struct Crc32c(u32);
 
+/// Validate a retained major-2 frame without allocating a second sample array.
+pub fn validate_stream_volume(frame: &[u8]) -> Result<StreamVolumeHeader, VolumeError> {
+    let header = frame
+        .get(..VOLUME_HEADER_BYTES)
+        .ok_or(VolumeError::Truncated)?;
+    let metadata = decode_stream_volume_header(header)?;
+    let body = &frame[VOLUME_HEADER_BYTES..];
+    if body.len() as u64 != metadata.body_bytes {
+        return Err(VolumeError::InconsistentByteCount);
+    }
+    if crc32c(body) != metadata.body_crc32c {
+        return Err(VolumeError::InvalidCrc);
+    }
+    validate_statistics(
+        metadata.statistics,
+        body.chunks_exact(8)
+            .map(|chunk| f64::from_le_bytes(chunk.try_into().expect("chunks_exact(8)"))),
+    )?;
+    Ok(metadata)
+}
+
 impl Default for Crc32c {
     fn default() -> Self {
         Self::new()
@@ -518,7 +539,7 @@ pub fn decode_volume(frame: &[u8]) -> Result<Volume, VolumeError> {
         samples.push(value);
     }
     validate_finite(origin, voxel_axes, lattice, statistics)?;
-    validate_statistics(statistics, &samples)?;
+    validate_statistics(statistics, samples.iter().copied())?;
     Ok(Volume {
         request_id,
         volume_id,
@@ -561,7 +582,7 @@ pub fn encode_volume(volume: &Volume) -> Result<Vec<u8>, VolumeError> {
         volume.lattice,
         volume.statistics,
     )?;
-    validate_statistics(volume.statistics, &volume.samples)?;
+    validate_statistics(volume.statistics, volume.samples.iter().copied())?;
     let frame_bytes = (VOLUME_HEADER_BYTES as u64)
         .checked_add(body_bytes)
         .ok_or(VolumeError::Overflow)?;
@@ -663,21 +684,29 @@ fn validate_finite(
     Ok(())
 }
 
-fn validate_statistics(stored: Statistics, samples: &[f64]) -> Result<(), VolumeError> {
-    if samples.is_empty() || samples.iter().any(|value| !value.is_finite()) {
-        return Err(VolumeError::NonFinite);
-    }
+fn validate_statistics(
+    stored: Statistics,
+    samples: impl Iterator<Item = f64>,
+) -> Result<(), VolumeError> {
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
     let mut abs_max: f64 = 0.0;
     let mut sum = 0.0;
-    for &value in samples {
+    let mut count = 0_u64;
+    for value in samples {
+        if !value.is_finite() {
+            return Err(VolumeError::NonFinite);
+        }
         min = min.min(value);
         max = max.max(value);
         abs_max = abs_max.max(value.abs());
         sum += value;
+        count += 1;
     }
-    let mean = sum / samples.len() as f64;
+    if count == 0 || !sum.is_finite() {
+        return Err(VolumeError::NonFinite);
+    }
+    let mean = sum / count as f64;
     for (actual, expected) in [
         (stored.min, min),
         (stored.max, max),
@@ -858,6 +887,42 @@ mod tests {
         let mut header = frame[..VOLUME_HEADER_BYTES].to_vec();
         header[36..40].fill(0);
         put_u32(frame, 36, crc32c(&header));
+    }
+
+    #[test]
+    fn retained_stream_validates_crc_samples_and_statistics() {
+        let mut frame = fixture();
+        put_u16(&mut frame, 8, STREAM_MAJOR);
+        refresh_header_crc(&mut frame);
+        assert_eq!(validate_stream_volume(&frame).unwrap().volume_id, 1001);
+
+        let mut corrupt = frame.clone();
+        corrupt[VOLUME_HEADER_BYTES] ^= 1;
+        assert_eq!(
+            validate_stream_volume(&corrupt),
+            Err(VolumeError::InvalidCrc)
+        );
+        assert_eq!(
+            validate_stream_volume(&frame[..frame.len() - 8]),
+            Err(VolumeError::InconsistentByteCount)
+        );
+
+        let mut invalid = frame.clone();
+        put_f64(&mut invalid, VOLUME_HEADER_BYTES, f64::NAN);
+        let body_crc = crc32c(&invalid[VOLUME_HEADER_BYTES..]);
+        put_u32(&mut invalid, 40, body_crc);
+        refresh_header_crc(&mut invalid);
+        assert_eq!(
+            validate_stream_volume(&invalid),
+            Err(VolumeError::NonFinite)
+        );
+
+        put_f64(&mut frame, 280, 100.0);
+        refresh_header_crc(&mut frame);
+        assert_eq!(
+            validate_stream_volume(&frame),
+            Err(VolumeError::InconsistentStatistics)
+        );
     }
 
     #[test]

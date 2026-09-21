@@ -1,0 +1,67 @@
+<Title>
+H2 two-Gaussian integration fixture (not a benchmark wavefunction)
+</Title>
+<Keywords>
+GTO
+</Keywords>
+<Number of Nuclei>
+2
+</Number of Nuclei>
+<Number of Primitives>
+2
+</Number of Primitives>
+<Number of Occupied Molecular Orbitals>
+1
+</Number of Occupied Molecular Orbitals>
+<Nuclear Names>
+H1 H2
+</Nuclear Names>
+<Atomic Numbers>
+1 1
+</Atomic Numbers>
+<Nuclear Charges>
+1.0 1.0
+</Nuclear Charges>
+<Nuclear Cartesian Coordinates>
+0 0 -0.7
+0 0 0.7
+</Nuclear Cartesian Coordinates>
+<Number of Electrons>
+2
+</Number of Electrons>
+<Number of Alpha Electrons>
+1
+</Number of Alpha Electrons>
+<Number of Beta Electrons>
+1
+</Number of Beta Electrons>
+<Primitive Centers>
+1 2
+</Primitive Centers>
+<Primitive Types>
+1 1
+</Primitive Types>
+<Primitive Exponents>
+1.0 1.0
+</Primitive Exponents>
+<Molecular Orbital Occupation Numbers>
+2.0
+</Molecular Orbital Occupation Numbers>
+<Molecular Orbital Energies>
+-0.5
+</Molecular Orbital Energies>
+<Molecular Orbital Spin Types>
+Alpha and Beta
+</Molecular Orbital Spin Types>
+<Molecular Orbital Primitive Coefficients>
+<MO Number>
+1
+</MO Number>
+4.2972895817321416e-01 4.2972895817321416e-01
+</Molecular Orbital Primitive Coefficients>
+<Energy = T + Vne + Vee + Vnn>
+-1.0
+</Energy = T + Vne + Vee + Vnn>
+<Virial Ratio (-V/T)>
+2.0
+</Virial Ratio (-V/T)>
