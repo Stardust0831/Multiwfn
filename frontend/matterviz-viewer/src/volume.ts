@@ -65,6 +65,16 @@ function has_volume_magic(bytes: Uint8Array): boolean {
   return true
 }
 
+export function read_geometry_memory_budget(headers: Headers, required = false): number | undefined {
+  const declared = headers.get('x-matterviz-geometry-memory-budget')
+  if (declared === null && !required) return undefined
+  const budget = declared !== null && /^\d+$/.test(declared) ? Number(declared) : Number.NaN
+  if (!Number.isSafeInteger(budget) || budget < 0) {
+    throw new Error('Multiwfn returned an invalid geometry memory budget')
+  }
+  return budget
+}
+
 export async function read_matterviz_volume_response(response: Response): Promise<ArrayBufferLike> {
   const declared = response.headers.get('content-length')
   const length = declared === null ? Number.NaN : Number(declared)

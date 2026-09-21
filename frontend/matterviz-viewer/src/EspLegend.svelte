@@ -7,15 +7,18 @@
     clampLegendPosition,
     espLegendTicks,
     esp_legend_gradient,
-    type EspLegendTick,
     type LegendPosition,
   } from './esp'
 
   export let min = -0.05
+  export let title = 'Electrostatic Potential'
+  export let units = 'kcal/mol/e'
+  export let label = 'Electrostatic potential legend'
+  export let close_label = 'Hide ESP legend'
   export let max = 0.05
   export let colormap: D3InterpolateName = 'interpolateTransFlag'
   export let color_stops: ColorStop[] | undefined = undefined
-  export let ticks: EspLegendTick[] | undefined = undefined
+  export let ticks: Array<{ label: string }> | undefined = undefined
   export let visible = true
   export let position: LegendPosition = { left: 16, top: 16 }
   export let container_width = 0
@@ -121,7 +124,7 @@
   class:closed={!visible}
   class:is-dragging={Boolean(drag)}
   aria-hidden={!visible}
-  aria-label={$t("Electrostatic potential legend")}
+  aria-label={$t(label)}
   style={`left: ${measured_position.left}px; top: ${measured_position.top}px;`}
   onpointerdown={start_drag}
   onpointermove={move_drag}
@@ -129,9 +132,9 @@
   onpointercancel={finish_drag}
 >
   <header class="legend-header">
-    <strong>{$t("Electrostatic Potential")}</strong>
-    <span>kcal/mol/e</span>
-    <button type="button" aria-label={$t("Hide ESP legend")} title={$t("Hide ESP legend")} onclick={close}>×</button>
+    <strong>{$t(title)}</strong>
+    <span>{units}</span>
+    <button type="button" aria-label={$t(close_label)} title={$t(close_label)} onclick={close}>×</button>
   </header>
   <div class="legend-scale">
     <div class="legend-gradient" style:background={gradient} aria-hidden="true"></div>

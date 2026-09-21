@@ -11,6 +11,11 @@ export type ManifestEntry = {
   datasetSlot?: number
   visible?: boolean
   analysisKind?: string
+  colorMapping?: {
+    path: string
+    range: [number, number]
+    stops: Array<{ position: number; color: string }>
+  }
 }
 
 export type PlotExport = {

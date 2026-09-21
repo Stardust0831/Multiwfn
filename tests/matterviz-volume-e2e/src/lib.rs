@@ -200,6 +200,12 @@ mod tests {
             let response = request_bytes(base, &format!("/api/volume/{id}?cap={cap}"));
             let (headers, frame) = split_response(&response);
             assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
+            // Two retained grids plus the frontend's copy of both; geometry
+            // must use the remaining shared budget without downsampling.
+            let geometry_budget = 64 * 1024 * 1024 - 4 * frame.len();
+            assert!(headers.contains(&format!(
+                "X-MatterViz-Geometry-Memory-Budget: {geometry_budget}\r\n"
+            )));
             let metadata = validate_stream_volume(frame).unwrap();
             assert_eq!(metadata.dimensions, [120; 3]);
             assert_eq!(metadata.volume_id, id);

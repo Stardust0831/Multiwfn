@@ -12,6 +12,7 @@ on:
       - main
     paths:
       - CMakeLists.txt
+      - cmake/**
       - noGUI/GUI_matterviz.f90
       - noGUI/dislin_d_empty.f90
       - noGUI/matterviz_plot_capture.f90
@@ -19,6 +20,7 @@ on:
       - frontend/matterviz-desktop/**
       - tests/test_gui_session_paths.py
       - tests/test_matterviz_build_names.py
+      - tests/test_matterviz_mapped_surfaces.py
       - tests/test_matterviz_plot_adapter.py
       - tests/test_matterviz_topology_vendor.py
       - tests/matterviz_plot_capture_harness.f90
@@ -117,7 +119,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
@@ -447,6 +449,12 @@ jobs:
             NO_AT_BRIDGE=1 \
             WEBKIT_DISABLE_COMPOSITING_MODE=1 \
             python3 tests/linux/test_matterviz_real_orbital.py \
+              --executable "$root/Multiwfn_MatterVizGUI"
+          dbus-run-session -- xvfb-run -a env \
+            GDK_BACKEND=x11 \
+            NO_AT_BRIDGE=1 \
+            WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+            python3 tests/linux/test_matterviz_mapped_surfaces.py \
               --executable "$root/Multiwfn_MatterVizGUI"
       - name: Package macOS preview
         if: runner.os == 'macOS'

@@ -91,12 +91,14 @@
     type WorkbenchCameraState,
   } from './state'
   import { signal_frontend_ready } from './startup'
+  import { apply_manifest_color_mapping } from './volume-mapping'
   import { create_update_client, type UpdateStatus } from './update'
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
   import {
     adapt_matterviz_volume,
     decode_matterviz_volume,
     read_matterviz_volume_response,
+    read_geometry_memory_budget,
   } from './volume'
   import {
     compact_volume_cache,
@@ -193,6 +195,8 @@
   let sliceManualMin = $state('')
   let sliceManualMax = $state('')
   let espLegendOpen = $state(false)
+  let interactionLegendOpen = $state(true)
+  let interactionLegendPosition = $state<LegendPosition>({ left: 16, top: 16 })
   let espExtremaOpen = $state(false)
   let espExtremaLoading = $state(false)
   let espExtrema = $state<EspExtremaResult | undefined>()
@@ -666,7 +670,7 @@
   const parse_volume_entry = async (
     entry: ManifestEntry,
     base: URL,
-  ): Promise<{ structure?: AnyStructure; volumes: VolumetricData[] }> => {
+  ): Promise<{ structure?: AnyStructure; volumes: VolumetricData[]; geometryBudget?: number }> => {
     if (entry.format === 'mwfn-volume-v1' || entry.format === 'mwfn-volume-v2') {
       const url = resolve_volume_entry_url(entry, base)
       const response = await fetch(url, { cache: 'no-store' })
@@ -679,6 +683,7 @@
         decode_matterviz_volume(await read_matterviz_volume_response(response)),
       )
       return {
+        geometryBudget: read_geometry_memory_budget(response.headers),
         volumes: [{
           ...volume,
           label: entry.name || entry.role || 'Volume',
@@ -720,9 +725,14 @@
     const firstVolumeIdx = previousVolumes.length
     volumetricData = nextVolumes
     volumeEntries = mode === 'append' ? [...volumeEntries, ...expandedEntries] : expandedEntries
+    const budgets = parsed.flatMap(({ geometryBudget }) => geometryBudget === undefined ? [] : [geometryBudget])
+    if (mode === 'append' && isosurfaceSettings.geometry_memory_budget_bytes !== undefined) {
+      budgets.push(isosurfaceSettings.geometry_memory_budget_bytes)
+    }
     isosurfaceSettings = {
       ...(mode === 'append' ? isosurfaceSettings : DEFAULT_ISOSURFACE_SETTINGS),
       display_range: display_range(manifest),
+      geometry_memory_budget_bytes: budgets.length ? Math.min(...budgets) : undefined,
       layers: [...previousLayers, ...entries.flatMap((entry, idx) =>
         parsed[idx].volumes.map((_, local_idx) =>
           layer_for_entry(
@@ -730,6 +740,12 @@
             firstVolumeIdx + parsed.slice(0, idx).reduce((sum, item) => sum + item.volumes.length, 0) + local_idx,
           ),
         ),
+      )],
+    }
+    isosurfaceSettings = {
+      ...isosurfaceSettings,
+      layers: [...previousLayers, ...apply_manifest_color_mapping(
+        (isosurfaceSettings.layers ?? []).slice(previousLayers.length), volumeEntries, grids_compatible,
       )],
     }
     activeVolumeIdx = firstVolumeIdx
@@ -907,6 +923,10 @@
     return items.flatMap((rep) => rep.source.kind === 'volume' && rep.source.index >= 0
       ? [{ ...rep.volume, color_stops: migrate_color_scale(rep.volume)?.stops, color_range: rep.volume.color_range ?? repColorRanges[rep.id], volume_idx: rep.source.index, visible: rep.visible, opacity: rep.material.opacity }] : [])
   }
+  const interaction_legend = (): IsosurfaceLayer | undefined => displayed_volume_layers().find((layer) =>
+    layer.visible && layer.color_volume_idx !== undefined && layer.color_range
+    && volumeEntries[layer.color_volume_idx]?.analysisKind === 'weak-interaction-color')
+
   const esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined => {
     return find_mapped_esp_pair(volumeEntries, displayed_volume_layers(), grids_compatible)
   }
@@ -1231,12 +1251,7 @@
       const contentType = response.headers.get('content-type') || ''
       let activeIdx: number
       if (response.ok && contentType.includes('application/vnd.multiwfn.volume')) {
-        const geometryBudget = Number(
-          response.headers.get('x-matterviz-geometry-memory-budget'),
-        )
-        if (!Number.isSafeInteger(geometryBudget) || geometryBudget < 0) {
-          throw new Error('Multiwfn returned an invalid geometry memory budget')
-        }
+        const geometryBudget = read_geometry_memory_budget(response.headers, true)
         const decoded = decode_matterviz_volume(await read_matterviz_volume_response(response))
         if (decoded.protocol_major !== 2 || decoded.quantity_kind !== 'orbital') {
           throw new Error('Multiwfn returned an unexpected volume for the orbital request')
@@ -1882,6 +1897,7 @@
     <label><input type="checkbox" bind:checked={inspectorOpen} onchange={() => { surfacePanelOpen = false; topologyPanelOpen = false }} /><span>{$t("Inspector")}</span></label>
     {#if orbital_selection_available()}<label><input type="checkbox" bind:checked={orbitalPanelOpen} /><span>{$t("Orbitals")}</span></label>{/if}
     <label><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} /><span>{$t("Axes")}</span></label>
+    {#if interaction_legend()}<label><input type="checkbox" bind:checked={interactionLegendOpen} /><span>{$t("Interaction color scale")}</span></label>{/if}
     <Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; open_panel('layers') }}>{$t("Volume layers ({count})", { count: volumeEntries.length })}</Button>
     <Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; open_panel('slice') }} disabled={!volumetricData?.length}>{$t("2D Slice")}</Button>
     {#if topologyResult}<Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; surfaceActive = false; surfacePanelOpen = false; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>{$t("Topology view")}</Button>{/if}
@@ -2136,6 +2152,17 @@
       {#if !topologyActive && !surfaceActive && espLegendOpen && esp_pair()}
         {@const legendRange = current_esp_range()}
         <EspLegend min={legendRange[0]} max={legendRange[1]} colormap={current_esp_colormap()} color_stops={current_esp_color_stops()} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
+      {/if}
+      {#if !topologyActive && !surfaceActive && interactionLegendOpen && interaction_legend()}
+        {@const layer = interaction_legend()!}
+        {@const range = layer.color_range!}
+        <EspLegend title="sign(λ₂)ρ" units="a.u." label="Interaction color scale" close_label="Hide color scale"
+          min={range[0]} max={range[1]} colormap={layer.colormap} color_stops={layer.color_stops}
+          ticks={Array.from({ length: 7 }, (_, idx) => {
+            const value = range[1] - idx * (range[1] - range[0]) / 6
+            return { label: Math.abs(value) < 1e-12 ? '0' : Number(value.toPrecision(3)).toString() }
+          })}
+          bind:visible={interactionLegendOpen} bind:position={interactionLegendPosition} />
       {/if}
     </div>
     {#if loading || measurementSites.length || bondResults.length}
