@@ -75,20 +75,55 @@ assert_contains "$workdir/roundtrip.cub" "Totally            8 grid points"
 assert_contains "$workdir/roundtrip.cub" "1.00000E-001  2.00000E-001"
 assert_contains "$workdir/roundtrip.cub" "7.00000E-001  8.00000E-001"
 
-# CP2K 2026.1 writes adjacent 13-column fields: there is no whitespace
-# between negative values, so free-format input cannot read this valid cube.
-head -n 7 "$workdir/tiny.cub" > "$workdir/cp2k.cub"
-cat >> "$workdir/cp2k.cub" <<'EOF'
--0.10000E-001-0.20000E-001-0.30000E-001-0.40000E-001-0.50000E-001-0.60000E-001
--0.70000E-001-0.80000E-001
+# CP2K 2026.2 writes adjacent 13-column fields and starts a new record
+# for each (x,y) column. Seven z samples exercise both a full six-value
+# record and a short final record; reading across columns would insert zeros.
+cat > "$workdir/cp2k.cub" <<'EOF'
+CP2K fixed-width cube
+Seven z samples per column
+    1    0.000000    0.000000    0.000000
+    2    1.000000    0.000000    0.000000
+    2    0.000000    1.000000    0.000000
+    7    0.000000    0.000000    1.000000
+    8    0.000000    0.000000    0.000000    0.000000
 EOF
+awk 'BEGIN {
+  for (column=0; column<4; column++)
+    for (z=1; z<=7; z++) {
+      printf "-0.%05dE+000", (column*7+z)*1000
+      if (z%6==0 || z==7) printf "\n"
+    }
+}' >> "$workdir/cp2k.cub"
+
+assert_cp2k_grid() {
+  awk -v scale="$2" '
+    FNR==3 { atoms=$1; if (atoms<0) atoms=-atoms; header=atoms+6 }
+    FNR>header && FNR>3 {
+      for (i=1; i<=NF; i++) {
+        n++
+        if (tolower($i) ~ /nan|inf/) exit 1
+        delta=($i+0)+scale*n/100
+        if (delta<0) delta=-delta
+        if (delta>1e-9) exit 1
+      }
+    }
+    END { if (n!=28) exit 1 }
+  ' "$1"
+}
 (
   cd "$workdir"
   printf '13\n0\ncp2k-roundtrip.cub\n-1\nq\n' | "$exe" cp2k.cub > cp2k.out
 )
 assert_contains "$workdir/cp2k.out" "trying loading using 6E13.5E3"
-assert_contains "$workdir/cp2k-roundtrip.cub" "-1.00000E-002 -2.00000E-002"
-assert_contains "$workdir/cp2k-roundtrip.cub" "-7.00000E-002 -8.00000E-002"
+assert_cp2k_grid "$workdir/cp2k-roundtrip.cub" 1
+
+# Menu 13 -> 11 reads the auxiliary field through readcubetmp. Add both
+# the CP2K source and its ordinary Cube export, checking every output sample.
+(
+  cd "$workdir"
+  printf '13\n11\n2\ncp2k.cub\n11\n2\ncp2k-roundtrip.cub\n0\ncp2k-sum.cub\n-1\nq\n' | "$exe" cp2k-roundtrip.cub > cp2k-sum.out
+)
+assert_cp2k_grid "$workdir/cp2k-sum.cub" 3
 
 # Loading an external grid through 1000 -> 19 must not replace water with
 # the oxygen-only structure in the cube. Check the subsequent analysis.
@@ -108,8 +143,7 @@ assert_contains "$workdir/grid-only.out" "Geometry center (X/Y/Z):    0.30666667
 )
 assert_contains "$workdir/cp2k-grid-only.out" "Grid date has been successfully loaded!"
 assert_contains "$workdir/cp2k-grid-only.out" "Formula: H2 O1"
-assert_contains "$workdir/cp2k-grid-only.cub" "-1.00000E-002 -2.00000E-002"
-assert_contains "$workdir/cp2k-grid-only.cub" "-7.00000E-002 -8.00000E-002"
+assert_cp2k_grid "$workdir/cp2k-grid-only.cub" 1
 
 # CP2K Molden files may declare the cell in Bohr and valence nuclear charges.
 # Both cell encodings must retain their dimensions, without a second conversion.
