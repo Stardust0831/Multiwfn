@@ -21,6 +21,8 @@ on:
       - tests/test_matterviz_build_names.py
       - tests/test_matterviz_plot_adapter.py
       - tests/test_matterviz_topology_vendor.py
+      - tests/test_macos_app_bundle.py
+      - tools/macos/**
       - tests/matterviz_plot_capture_harness.f90
       - tests/matterviz-volume-e2e/**
       - tests/fixtures/**
@@ -30,6 +32,7 @@ on:
       - frontend/matterviz-updater/**
       - docs/matterviz-webview.md
       - docs/matterviz-updater.md
+      - docs/macos-app-packaging.md
       - .github/workflows/matterviz-gui.yml
   workflow_dispatch:
 
@@ -117,7 +120,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
@@ -506,6 +509,21 @@ jobs:
           fi
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
+          updater_arg=()
+          if [[ -e "package/$PKG/resources/tools/multiwfn-matterviz-updater" ]]; then
+            updater_arg=(--updater "package/$PKG/resources/tools/multiwfn-matterviz-updater")
+          fi
+          bash tools/macos/package_macos_app.sh \
+            --binary "package/$PKG/Multiwfn_MatterVizGUI" \
+            --desktop "package/$PKG/resources/tools/matterviz-desktop" \
+            --viewer-dist "package/$PKG/resources/frontend/matterviz-viewer/dist" \
+            --settings "package/$PKG/settings.ini" \
+            --lib-dir "package/$PKG/resources/lib" \
+            --output-dir "macos-dist" \
+            --version "${version:-2026.9.13}" \
+            --create-dmg \
+            --dmg-name "$PKG.dmg" \
+            "${updater_arg[@]}"
 
       - name: Test extracted macOS package
         if: runner.os == 'macOS'
@@ -517,6 +535,12 @@ jobs:
           tar -xzf "dist/$PKG.tar.gz" -C clean-test
           root="$PWD/clean-test/$PKG"
           bash tests/functional/run_nogui_tests.sh "$root/Multiwfn_MatterVizGUI"
+          test -d macos-dist/Multiwfn.app
+          test -f "macos-dist/$PKG.dmg"
+          test -n "$(ls -A macos-dist/Multiwfn.app/Contents/Resources/lib 2>/dev/null)"
+          otool -L macos-dist/Multiwfn.app/Contents/MacOS/Multiwfn_MatterVizGUI | grep -q '@executable_path/\.\./Resources/lib/'
+          codesign -vvv --deep macos-dist/Multiwfn.app
+          plutil -lint macos-dist/Multiwfn.app/Contents/Info.plist
 
       - name: Package Windows preview
         if: runner.os == 'Windows'
@@ -684,6 +708,14 @@ jobs:
         with:
           name: matterviz-package-${{ matrix.platform }}
           path: dist/*
+          if-no-files-found: error
+
+      - name: Upload macOS DMG installer
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-macos-dmg
+          path: macos-dist/*.dmg
           if-no-files-found: error
 
   sign-preview:
