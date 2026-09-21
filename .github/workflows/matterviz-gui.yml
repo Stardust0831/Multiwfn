@@ -157,6 +157,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Test macOS formal and preview package arguments
+        if: runner.os == 'macOS'
+        run: python3 -m unittest -v tests/test_macos_app_bundle.py
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -517,20 +521,20 @@ jobs:
           fi
           mkdir -p dist
           tar -czf "dist/$PKG.tar.gz" -C package "$PKG"
-          updater_arg=()
+          app_args=(
+            --binary "package/$PKG/Multiwfn_MatterVizGUI"
+            --desktop "package/$PKG/resources/tools/matterviz-desktop"
+            --viewer-dist "package/$PKG/resources/frontend/matterviz-viewer/dist"
+            --settings "package/$PKG/settings.ini"
+            --lib-dir "package/$PKG/resources/lib"
+            --output-dir "macos-dist"
+            --create-dmg
+            --dmg-name "$PKG.dmg"
+          )
           if [[ -e "package/$PKG/resources/tools/multiwfn-matterviz-updater" ]]; then
-            updater_arg=(--updater "package/$PKG/resources/tools/multiwfn-matterviz-updater")
+            app_args+=(--updater "package/$PKG/resources/tools/multiwfn-matterviz-updater")
           fi
-          bash tools/macos/package_macos_app.sh \
-            --binary "package/$PKG/Multiwfn_MatterVizGUI" \
-            --desktop "package/$PKG/resources/tools/matterviz-desktop" \
-            --viewer-dist "package/$PKG/resources/frontend/matterviz-viewer/dist" \
-            --settings "package/$PKG/settings.ini" \
-            --lib-dir "package/$PKG/resources/lib" \
-            --output-dir "macos-dist" \
-            --create-dmg \
-            --dmg-name "$PKG.dmg" \
-            "${updater_arg[@]}"
+          bash tools/macos/package_macos_app.sh "${app_args[@]}"
           expected_version="$(sed -nE 's/.*"Version ([0-9]+\.[0-9]+\.[0-9]+) .*/\1/p' Multiwfn.f90)"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
