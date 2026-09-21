@@ -60,6 +60,12 @@ release. `matterviz-preview-*` tags continue to publish prereleases. Both paths
 reject Python/3Dmol runtime files and use the same real-orbital and zero-runtime-
 artifact package gates.
 
+Formal MatterViz releases also include the macOS `.dmg` installer containing
+`Multiwfn.app`, alongside the three platform archives. Its application version
+is read from the official `Multiwfn.f90` banner and verified against `Info.plist`
+during packaging. The installer is included in `SHA256SUMS.txt` and the release
+workflow downloads and verifies it before publishing the release.
+
 Windows noGUI executables embed `Multiwfn.ico` through `Multiwfn.rc`. The icon
 asset follows the upstream Multiwfn visual identity and is carried with the same
 source/release license obligations as the rest of this redistributed Multiwfn

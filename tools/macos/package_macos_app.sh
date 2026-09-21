@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-VERSION="2026.9.13"
+VERSION=""
 BINARY=""
 DESKTOP=""
 VIEWER_DIST=""
@@ -31,7 +31,7 @@ Options:
   --settings <path>      Path to settings.ini (default: root settings.ini)
   --lib-dir <path>       Path to existing bundled libraries (optional)
   --output-dir <path>    Output directory for Multiwfn.app (default: build/macos-app)
-  --version <string>     Application version (default: 2026.9.13)
+  --version <string>     Application version (default: version in Multiwfn.f90)
   --create-dmg           Create a distributable DMG package
   --dmg-name <name>      Name of DMG file (default: Multiwfn_<version>_macOS.dmg)
   -h, --help             Show this help message
@@ -68,6 +68,14 @@ while [[ $# -gt 0 ]]; do
       usage ;;
   esac
 done
+
+if [[ -z "$VERSION" ]]; then
+  VERSION="$(sed -nE 's/.*"Version ([0-9]+\.[0-9]+\.[0-9]+) .*/\1/p' "$ROOT_DIR/Multiwfn.f90")"
+fi
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Error: Expected a numeric Multiwfn version (YYYY.M.D), got: $VERSION" >&2
+  exit 1
+fi
 
 if [[ -z "$BINARY" || ! -f "$BINARY" ]]; then
   echo "Error: Valid Multiwfn binary required (--binary <path>)" >&2
