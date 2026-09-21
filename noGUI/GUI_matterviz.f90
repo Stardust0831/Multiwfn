@@ -5,6 +5,7 @@ use iso_c_binding, only: c_char,c_int,c_int32_t,c_int64_t,c_intptr_t,c_double,c_
 use matterviz_plot_capture
 use matterviz_topology
 use matterviz_surface
+use matterviz_vibration
 #endif
 implicit none
 
@@ -266,6 +267,185 @@ subroutine miniGUI
 GUI_mode=7
 call launch_matterviz_gui("miniGUI",7,0,0D0,0D0,0D0,0D0,0D0,0D0)
 end subroutine
+
+subroutine drawvibgui(ispectrum,numdata,freqs,intens)
+integer,intent(in) :: ispectrum,numdata
+real*8,intent(in) :: freqs(numdata),intens(numdata)
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+call launch_matterviz_vibration(ispectrum,numdata,freqs,intens)
+#else
+write(*,"(a)") " Vibrational mode animation requires the MatterViz GUI backend (Multiwfn_MatterVizGUI)."
+#endif
+end subroutine
+
+#ifdef MULTIWFN_MATTERVIZ_BACKEND
+subroutine launch_matterviz_vibration(ispectrum,numdata,freqs,intens)
+integer,intent(in) :: ispectrum,numdata
+real*8,intent(in) :: freqs(numdata),intens(numdata)
+type(vibration_data) :: vib
+character(len=512) :: session,manifest,frontend,native
+character(len=256) :: message
+integer :: launch_status,transport_error,status
+integer(c_int64_t) :: dataset_id
+logical :: session_ok
+
+call load_vibration_data(ispectrum,numdata,freqs,intens,vib,message)
+if (len_trim(message)/=0) then
+    write(*,"(a)") " "//trim(message)
+    return
+end if
+if (matterviz_cube_fallback_enabled()) then
+    write(*,"(a)") " Vibrational mode animation requires the native in-memory host (not diagnostic Cube mode)"
+    call release_vibration_data(vib)
+    return
+end if
+call close_matterviz_transport()
+gui_volume_serial=0_c_int64_t
+call get_session_identity(session,session_ok)
+if (.not.session_ok) then
+    call release_vibration_data(vib)
+    return
+end if
+call prepare_gui_structure_topology()
+manifest=trim(session)//"/manifest.json"
+call resolve_matterviz_launch_paths(frontend,native)
+call launch_matterviz_native(trim(native),trim(frontend),trim(session),trim(manifest), &
+    launch_status,transport_error)
+if (launch_status/=0.or.transport_error/=0.or.gui_response_write<0_c_intptr_t) then
+    write(*,"(a,i0,a,i0)") " MatterViz vibration GUI launch failed (status ",launch_status, &
+        ", transport ",transport_error
+    call close_matterviz_transport()
+    call release_vibration_data(vib)
+    return
+end if
+call publish_vibration_displacements(vib,dataset_id,status)
+if (status==0) call send_matterviz_vibration_init(vib,dataset_id,status)
+if (status/=0) then
+    write(*,"(a,i0,a)") " MatterViz vibration session bootstrap failed (",status,")"
+else
+    write(*,"(a)") " Vibrational mode animation is running in the MatterViz window"
+    call wait_matterviz_plot_close(status)
+end if
+call close_matterviz_transport()
+call release_vibration_data(vib)
+end subroutine
+
+subroutine publish_vibration_displacements(vib,dataset_id,status)
+type(vibration_data),intent(in) :: vib
+integer(c_int64_t),intent(out) :: dataset_id
+integer,intent(out) :: status
+integer(c_int32_t) :: roles(5)
+integer(c_int64_t) :: counts(5)
+real(c_double) :: dummy(1)
+
+roles=0;counts=0;dummy=0D0
+roles(1)=4_c_int32_t !Role "u": the flat displacement array channel of the MWFNP2D frame
+counts(1)=int(3*vib%n_atoms*vib%n_modes,c_int64_t)
+gui_volume_serial=gui_volume_serial+1_c_int64_t
+dataset_id=gui_volume_serial
+!Scientific plot frames use their dataset ID as the independent transport ACK identity.
+status=int(multiwfn_matterviz_publish_plot_data(gui_volume_write,gui_ack_read,dataset_id, &
+    dataset_id,roles,vib%displacements,dummy,dummy,dummy,dummy,counts,1_c_int32_t,300000_c_int32_t))
+end subroutine
+
+subroutine send_matterviz_vibration_init(vib,dataset_id,status)
+type(vibration_data),intent(in) :: vib
+integer(c_int64_t),intent(in) :: dataset_id
+integer,intent(out) :: status
+type(matterviz_json_sink) :: sink
+integer(c_int) :: c_status
+
+status=-1
+sink%buffer=multiwfn_matterviz_control_buffer_create()
+if (sink%buffer<=0_c_intptr_t) return
+call emit_matterviz_json(sink,"{")
+call emit_matterviz_json(sink,'  "format": "multiwfn-matterviz-control",')
+call emit_matterviz_json(sink,'  "version": 1,')
+call emit_matterviz_json(sink,'  "kind": "session_init",')
+call emit_matterviz_json(sink,'  "manifest":')
+call emit_vibration_manifest_json(sink,vib,dataset_id)
+call emit_matterviz_json(sink,',')
+call emit_matterviz_json(sink,'  "structure":')
+call emit_structure_json(sink)
+call emit_matterviz_json(sink,',')
+call emit_matterviz_json(sink,'  "state": null')
+call emit_matterviz_json(sink,"}")
+if (sink%status==0) then
+    c_status=multiwfn_matterviz_control_buffer_send(sink%buffer,gui_response_write, &
+        2_c_int32_t,0_c_int64_t,30000_c_int32_t)
+    status=int(c_status)
+else
+    status=sink%status
+end if
+call multiwfn_matterviz_control_buffer_destroy(sink%buffer)
+end subroutine
+
+subroutine emit_vibration_manifest_json(sink,vib,dataset_id)
+type(matterviz_json_sink),intent(inout) :: sink
+type(vibration_data),intent(in) :: vib
+integer(c_int64_t),intent(in) :: dataset_id
+character(len=1024) :: line
+character(len=16) :: program_name,intensity_unit
+integer :: imode
+
+select case(vib%iprog)
+case(1); program_name='gaussian'
+case(2); program_name='orca'
+case(5); program_name='cp2k'
+case(6); program_name='xtb'
+case default; program_name='unknown'
+end select
+intensity_unit=''
+if (vib%has_intensity) then
+    if (trim(vib%spectrum_kind)=='ir') intensity_unit='km/mol'
+    if (trim(vib%spectrum_kind)=='raman') intensity_unit='A^4/AMU'
+end if
+call emit_matterviz_json(sink,"{")
+call emit_matterviz_json(sink,'  "format": "multiwfn-matterviz-vibration",')
+call emit_matterviz_json(sink,'  "version": 1,')
+call emit_matterviz_json(sink,'  "generatedBy": "Multiwfn_MatterViz",')
+call emit_matterviz_json(sink,'  "multiwfnGui": { "entry": "drawvibgui" },')
+call emit_matterviz_json(sink,'  "structure": { "path": "structure.json", "format": "json" },')
+call emit_matterviz_json(sink,'  "vibrations": {')
+call emit_matterviz_json(sink,'    "sourceProgram": "'//trim(program_name)//'",')
+if (len_trim(vib%spectrum_kind)>0) then
+    call emit_matterviz_json(sink,'    "spectrumKind": "'//trim(vib%spectrum_kind)//'",')
+else
+    call emit_matterviz_json(sink,'    "spectrumKind": null,')
+end if
+write(line,"(a,i0,a)") '    "atomCount": ',vib%n_atoms,','
+call emit_matterviz_json(sink,line)
+write(line,"(a,i0,a)") '    "modeCount": ',vib%n_modes,','
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'    "coordinateUnit": "angstrom",')
+call emit_matterviz_json(sink,'    "frequencyUnit": "cm^-1",')
+if (len_trim(intensity_unit)>0) then
+    call emit_matterviz_json(sink,'    "intensityUnit": "'//trim(intensity_unit)//'",')
+else
+    call emit_matterviz_json(sink,'    "intensityUnit": null,')
+end if
+call emit_matterviz_json(sink,'    "displacementConvention": "normalized Cartesian (not mass weighted), as printed by the source program",')
+call emit_matterviz_json(sink,'    "modes": [')
+do imode=1,vib%n_modes
+    if (vib%has_intensity) then
+        write(line,"(a,i0,a,es24.16,a,es24.16,a)") '      { "index": ',imode, &
+            ', "frequency": ',vib%frequencies(imode),', "intensity": ',vib%intensities(imode),' }'
+    else
+        write(line,"(a,i0,a,es24.16,a)") '      { "index": ',imode, &
+            ', "frequency": ',vib%frequencies(imode),', "intensity": null }'
+    end if
+    if (imode<vib%n_modes) line=trim(line)//','
+    call emit_matterviz_json(sink,line)
+end do
+call emit_matterviz_json(sink,'    ],')
+write(line,"(a,i0,a,i0,a,i0,a,i0,a)") '    "displacements": { "datasetId": ',dataset_id, &
+    ', "format": "mwfn-plot-data-v1", "role": "u", "layout": "mode-major-atom-xyz", "shape": [', &
+    vib%n_modes,', ',vib%n_atoms,', 3] }'
+call emit_matterviz_json(sink,line)
+call emit_matterviz_json(sink,'  }')
+call emit_matterviz_json(sink,"}")
+end subroutine
+#endif
 
 #ifdef MULTIWFN_MATTERVIZ_BACKEND
 subroutine begin_matterviz_plot(sink,plot_kind,title,export_format,export_path)
