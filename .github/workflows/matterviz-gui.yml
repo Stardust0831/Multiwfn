@@ -520,10 +520,12 @@ jobs:
             --settings "package/$PKG/settings.ini" \
             --lib-dir "package/$PKG/resources/lib" \
             --output-dir "macos-dist" \
-            --version "${version:-2026.9.13}" \
             --create-dmg \
             --dmg-name "$PKG.dmg" \
             "${updater_arg[@]}"
+          expected_version="$(sed -nE 's/.*"Version ([0-9]+\.[0-9]+\.[0-9]+) .*/\1/p' Multiwfn.f90)"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
 
       - name: Test extracted macOS package
         if: runner.os == 'macOS'
@@ -871,6 +873,13 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Download formal macOS installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/download-artifact@v4
+        with:
+          name: matterviz-macos-dmg
+          path: release-assets
+
       - name: Verify release package metadata contract
         working-directory: release-assets
         shell: bash
@@ -914,6 +923,9 @@ jobs:
           fi
           sha256sum -c SHA256SUMS.txt
           test "$(find . -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) | wc -l)" -eq 3
+          if [[ "$GITHUB_REF_NAME" == v*-matterviz.* ]]; then
+            test "$(find . -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 1
+          fi
           release_flags=(--verify-tag)
           if [[ "$GITHUB_REF_NAME" == matterviz-preview-* ]]; then
             preview="${GITHUB_REF_NAME#matterviz-preview-}"
