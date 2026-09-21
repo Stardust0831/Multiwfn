@@ -836,6 +836,7 @@
     volumeEntries = volumeEntries.map((current, index) => index === volumeIdx ? entry : current)
     isosurfaceSettings = {
       ...isosurfaceSettings,
+      geometry_memory_budget_bytes: parsed.geometryBudget ?? isosurfaceSettings.geometry_memory_budget_bytes,
       layers: (isosurfaceSettings.layers ?? []).map((layer) =>
         layer.volume_idx === volumeIdx ? layer_for_entry(entry, volumeIdx) : layer),
     }

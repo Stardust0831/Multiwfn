@@ -52,17 +52,17 @@ test('rejects missing, identical or incompatible coloring grids and invalid scal
   assert.deepEqual(apply_manifest_color_mapping(layers, [{ path: 'generic.cube' }], () => false), layers)
 })
 
-test('the production manifest loader retains native geometry budgets and preserves edited mappings on append', async () => {
+test('the production manifest loader retains native geometry budgets on append and replacement', async () => {
   const app = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8')
   const start = app.indexOf('  const layer_for_entry =')
-  const end = app.indexOf('  const compact_volumes =', start)
+  const end = app.indexOf('  const upsert_loaded_volume =', start)
   assert.ok(start > 0 && end > start)
   // Execute the real loading path with only network/volume decoding stubbed;
   // losing this header used to silently resample initial high-quality grids.
   const code = transpileModule(app.slice(start, end), { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText
   const responseHeaders = new Map([
     ['/api/volume/1', '2000000'], ['/api/volume/2', '1000000'], ['/api/volume/3', '3000000'],
-    ['/invalid', '-1'],
+    ['/invalid', '-1'], ['/no-memory', '0'],
   ])
   const loader = new Function('env', `
     const { fetch, read_geometry_memory_budget, apply_manifest_color_mapping } = env
@@ -72,7 +72,7 @@ test('the production manifest loader retains native geometry budgets and preserv
     const read_matterviz_volume_response = async () => ({}), decode_matterviz_volume = x => x, adapt_matterviz_volume = x => x
     const grids_compatible = () => true
     ${code}
-    return { apply_entries, settings: () => isosurfaceSettings }
+    return { apply_entries, replace_volume_entry, settings: () => isosurfaceSettings }
   `)({
     read_geometry_memory_budget, apply_manifest_color_mapping,
     fetch: async (url: URL) => {
@@ -94,4 +94,19 @@ test('the production manifest loader retains native geometry budgets and preserv
   assert.equal(loader.settings().geometry_memory_budget_bytes, 1000000)
   await loader.apply_entries([{ path: '/legacy', format: 'mwfn-volume-v1' }], base)
   assert.equal(loader.settings().geometry_memory_budget_bytes, undefined)
+
+  // Recomputing an existing orbital via a JSON response uses replacement,
+  // which must receive the newly admitted budget just like an appended grid.
+  await loader.replace_volume_entry(0, { path: '/api/volume/1', format: 'mwfn-volume-v2' }, base)
+  assert.equal(loader.settings().geometry_memory_budget_bytes, 2000000)
+  await loader.replace_volume_entry(0, { path: '/no-memory', format: 'mwfn-volume-v2' }, base)
+  assert.equal(loader.settings().geometry_memory_budget_bytes, 0)
+  await loader.replace_volume_entry(0, { path: '/legacy', format: 'mwfn-volume-v1' }, base)
+  assert.equal(loader.settings().geometry_memory_budget_bytes, 0)
+  await loader.replace_volume_entry(0, { path: '/api/volume/2', format: 'mwfn-volume-v2' }, base)
+  assert.equal(loader.settings().geometry_memory_budget_bytes, 1000000)
+  await loader.replace_volume_entry(0, { path: '/legacy', format: 'mwfn-volume-v1' }, base)
+  assert.equal(loader.settings().geometry_memory_budget_bytes, 1000000)
+  await assert.rejects(loader.replace_volume_entry(0, { path: '/invalid', format: 'mwfn-volume-v2' }, base), /invalid geometry memory budget/)
+  assert.equal(loader.settings().geometry_memory_budget_bytes, 1000000)
 })
