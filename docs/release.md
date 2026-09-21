@@ -65,6 +65,9 @@ Formal MatterViz releases also include the macOS `.dmg` installer containing
 is read from the official `Multiwfn.f90` banner and verified against `Info.plist`
 during packaging. The installer is included in `SHA256SUMS.txt` and the release
 workflow downloads and verifies it before publishing the release.
+The app retains `LICENSE.txt` and `ATTRIBUTION.txt` inside `Contents/Resources`,
+and both documents are also visible at the DMG root. macOS CI mounts the
+completed DMG read-only and compares all copies with the source documents.
 
 Windows noGUI executables embed `Multiwfn.ico` through `Multiwfn.rc`. The icon
 asset follows the upstream Multiwfn visual identity and is carried with the same

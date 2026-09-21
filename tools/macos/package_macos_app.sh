@@ -127,6 +127,7 @@ if [[ -n "$UPDATER" && -f "$UPDATER" ]]; then
 fi
 
 cp -R "$VIEWER_DIST" "$RESOURCES/frontend/matterviz-viewer/dist"
+cp "$ROOT_DIR/LICENSE.txt" "$ROOT_DIR/ATTRIBUTION.txt" "$RESOURCES/"
 if [[ -f "$SETTINGS" ]]; then
   cp "$SETTINGS" "$RESOURCES/settings.ini"
 fi
@@ -217,6 +218,7 @@ if [[ "$CREATE_DMG" -eq 1 ]]; then
   trap cleanup_dmg EXIT
 
   cp -R "$APP_BUNDLE" "$DMG_STAGING/Multiwfn.app"
+  cp "$ROOT_DIR/LICENSE.txt" "$ROOT_DIR/ATTRIBUTION.txt" "$DMG_STAGING/"
   ln -s /Applications "$DMG_STAGING/Applications"
   cp "$SCRIPT_DIR/Install_Multiwfn.command" "$DMG_STAGING/Install_Multiwfn.command"
   chmod +x "$DMG_STAGING/Install_Multiwfn.command"
