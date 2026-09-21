@@ -535,6 +535,23 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
 
+      - name: Verify macOS installer license and attribution
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_mount="$(mktemp -d "$RUNNER_TEMP/multiwfn-dmg-verify.XXXXXX")"
+          trap 'hdiutil detach "$dmg_mount" >/dev/null 2>&1 || true; rmdir "$dmg_mount" 2>/dev/null || true' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$dmg_mount" "macos-dist/$PKG.dmg"
+          for required_file in LICENSE.txt ATTRIBUTION.txt; do
+            cmp "$required_file" "macos-dist/Multiwfn.app/Contents/Resources/$required_file"
+            cmp "$required_file" "$dmg_mount/$required_file"
+            cmp "$required_file" "$dmg_mount/Multiwfn.app/Contents/Resources/$required_file"
+          done
+          hdiutil detach "$dmg_mount"
+          rmdir "$dmg_mount"
+          trap - EXIT
+
       - name: Test extracted macOS package
         if: runner.os == 'macOS'
         shell: bash
