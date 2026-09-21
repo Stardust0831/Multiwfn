@@ -3108,25 +3108,20 @@ if (mo_number==0.or.mo_number==1) then !Commonly case, below code has the best c
 				end do
 			end do
 		end do
-    else !CP2K 2026.1 using 6E13.5E3 to output (http://bbs.keinsci.com/thread-60030-1-1.html), making Multiwfn compatible with it
-		write(*,*) "Unable to load grid data using free format, trying loading using 6E13.5E3..."
+    else !CP2K 2026.2 using 6E13.5E3 to output (http://bbs.keinsci.com/thread-60030-1-1.html), making Multiwfn compatible with it
+		write(*,"(a)") " Warning: Unable to load grid data using free format because format of this file is nonstandard, trying loading using 6E13.5E3..."
         rewind(10)
         call skiplines(10,ncenter+6)
-		read(10,"(6E13.5E3)",iostat=ierror) tmpreadcub(:,:,:)
-        if (ierror/=0) then
-			write(*,*) "Unable to load grid data, the format should be problematic"
-            write(*,*) "Press ENTER buton to exit"
-            read(*,*)
-            stop
-        else
-			do i=1,nx
-				do j=1,ny
-					do k=1,nz
-						cubmat(i,j,k)=tmpreadcub(k,j,i)
-					end do
-				end do
+		do i=1,nx
+			do j=1,ny
+				read(10,"(6E13.5E3)",iostat=ierror) cubmat(i,j,:)
+				if (ierror/=0) then
+					write(*,*) "Unable to load grid data, the format should be problematic"
+					write(*,*) "Press ENTER buton to exit"
+					read(*,*)
+                end if
 			end do
-        end if
+		end do
     end if
 	deallocate(tmpreadcub)
 else !Load specified of many orbitals
@@ -3186,6 +3181,7 @@ subroutine readcubetmp(cubname,infomode,inconsis)
 use defvar
 implicit real*8 (a-h,o-z)
 character(len=*) cubname
+character c80tmp*80
 integer inconsis
 integer,allocatable :: mo_serial(:)
 real*8,allocatable :: temp_readdata(:)
@@ -3241,14 +3237,24 @@ if (mo_number==1) then
 	end if
 end if
 
-if (infomode<2) write(*,*)
-if (infomode<2) write(*,*) "Loading grid data, please wait..."
+if (infomode<2) write(*,"(/,a)") " Loading grid data, please wait..."
+
+!Compatible with the problemic format of cube file exported by CP2K 2026.2
+read(10,"(a)") c80tmp
+backspace(10)
+iCP2Kcub=0
+if (c80tmp(9:9)=='E'.and.c80tmp(22:22)=='E') iCP2Kcub=1
+
 !Load data
 ii=0
 do i=1,nx
 	do j=1,ny
 		if (mo_number==0.or.mo_number==1) then
-			read(10,*) cubmattmp(i,j,:)
+			if (iCP2Kcub==0) then
+				read(10,*) cubmattmp(i,j,:)
+            else
+				read(10,"(6E13.5E3)") cubmattmp(i,j,:)
+            end if
 		else !Load the specified MO from vast of MOs
 			read(10,*) temp_readdata
 			cubmattmp(i,j,:)=temp_readdata(mo_select:size(temp_readdata):mo_number)
@@ -3569,7 +3575,7 @@ end do
 !Read exponents
 read(10,"(10x,5E14.7)") (b(i)%exp,i=1,nprims)
 
-!From Gaussian09 B.01, if ECP is used, additional CENTER, TYPE, EXPONENTS field present to represent EDF(electron density functions) likewise .wfx file
+!From Gaussian 09 B.01, if ECP is used, additional CENTER, TYPE, EXPONENTS field present to represent EDF(electron density functions) likewise .wfx file
 !However such wfn file is foolish, the number of GTFs used to represent EDF is not explicitly recorded, so we must use trick to guess the number
 !The coefficient of EDF is not written, how we use these EDF information? Obviously impossible! So we just skip these mad fields
 read(10,"(a)") c80tmp
