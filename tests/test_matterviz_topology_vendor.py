@@ -34,6 +34,29 @@ class TopologyVendor(unittest.TestCase):
                 "package/dist/isosurface/Isosurface.svelte", "package/dist/isosurface/Isosurface.svelte.d.ts",
             })
 
+    def test_trajectory_series_reference_replays_from_reps2_to_exact_package(self):
+        with tempfile.TemporaryDirectory(prefix="series-vendor-replay-") as directory:
+            base, target = Path(directory) / "base", Path(directory) / "target"
+            base.mkdir()
+            target.mkdir()
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".reps2.tgz")), "-C", str(base)], check=True)
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".series1.tgz")), "-C", str(target)], check=True)
+            before = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            with (VENDOR / "patches" / (VERSION + ".series1.patch")).open("rb") as patch:
+                subprocess.run(["patch", "-p1", "-d", str(base / "package")], stdin=patch, check=True, capture_output=True)
+            after = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            packaged = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+            self.assertEqual(after, packaged)
+            self.assertEqual(set(before), set(after))
+            changed = {str(path) for path in before if before[path] != after[path]}
+            self.assertEqual(changed, {
+                "package/package.json",
+                "package/dist/structure/Structure.svelte", "package/dist/structure/Structure.svelte.d.ts",
+                "package/dist/structure/StructureScene.svelte", "package/dist/structure/StructureScene.svelte.d.ts",
+                "package/dist/structure/StructureViewport.svelte", "package/dist/structure/StructureViewport.svelte.d.ts",
+                "package/dist/trajectory/TrajectoryExportPane.svelte",
+            })
+
     def test_representations_replay_from_upstream1_to_exact_package(self):
         with tempfile.TemporaryDirectory(prefix="reps-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"

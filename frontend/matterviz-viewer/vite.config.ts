@@ -14,5 +14,11 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        vibration: fileURLToPath(new URL('./vibration.html', import.meta.url)),
+      },
+    },
   },
 })

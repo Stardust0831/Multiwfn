@@ -430,3 +430,18 @@ button:disabled { opacity: 0.45; cursor: default; }
   .layer-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .result-picker { flex-basis: 140px; }
 }
+
+.save-toast {
+  position: fixed;
+  right: 16px;
+  z-index: 9999;
+  max-width: min(560px, 80vw);
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgb(20 22 26 / 92%);
+  color: #f2f4f8;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 35%);
+}
+.save-toast[title] { cursor: pointer; }
