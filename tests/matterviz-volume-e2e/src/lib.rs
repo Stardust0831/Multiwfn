@@ -140,6 +140,155 @@ mod tests {
     }
 
     #[test]
+    fn high_quality_initial_grids_reach_http_without_downsampling() {
+        use crate::control_protocol::{encode_frame, MessageType};
+        use crate::control_transport::ControlTransportConfig;
+        use crate::volume_protocol::{validate_stream_volume, VOLUME_HEADER_BYTES};
+
+        crate::memory_budget::set_test_active_limit_bytes(64 * 1024 * 1024);
+        let root = temp_dir();
+        let frontend = root.join("frontend");
+        let session = root.join("session-must-not-exist");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        let (transport, mut producer) = pipes();
+        let (_hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+        let producer = thread::spawn(move || {
+            read_ready(&mut producer);
+            // Multiwfn's high-quality preset is about 120^3 = 1,728,000 points.
+            // Both IRI grids exceed the legacy 1,500,000-point limit.
+            for id in 1..=2 {
+                assert_eq!(publish_grid(&producer, id, [120; 3]), 0);
+            }
+            let body = serde_json::json!({
+                "format": "multiwfn-matterviz-control", "version": 1, "kind": "session_init",
+                "manifest": {
+                    "format": "multiwfn-matterviz-workbench", "version": 2,
+                    "structure": null,
+                    "cubes": [{"path": "/api/volume/1"}, {"path": "/api/volume/2"}]
+                },
+                "structure": null
+            });
+            bootstrap_write
+                .write_all(&encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap())
+                .unwrap();
+            // Keep the inherited pipes alive while the service serves both grids.
+            (producer, bootstrap_write)
+        });
+        let service = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session: session.clone(),
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: Some(transport),
+                multiwfn_pid: None,
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read) as u64,
+                write_pipe: into_raw_pipe(hello_write) as u64,
+            }),
+        )
+        .unwrap();
+        let (producer, _bootstrap_write) = producer.join().unwrap();
+        let base = service.url();
+        let cap = capability(base);
+        for id in 1..=2 {
+            let response = request_bytes(base, &format!("/api/volume/{id}?cap={cap}"));
+            let (headers, frame) = split_response(&response);
+            assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
+            // Two retained grids plus the frontend's copy of both; geometry
+            // must use the remaining shared budget without downsampling.
+            let geometry_budget = 64 * 1024 * 1024 - 4 * frame.len();
+            assert!(headers.contains(&format!(
+                "X-MatterViz-Geometry-Memory-Budget: {geometry_budget}\r\n"
+            )));
+            let metadata = validate_stream_volume(frame).unwrap();
+            assert_eq!(metadata.dimensions, [120; 3]);
+            assert_eq!(metadata.volume_id, id);
+            for (index, chunk) in frame[VOLUME_HEADER_BYTES..].chunks_exact(8).enumerate() {
+                assert_eq!(
+                    f64::from_le_bytes(chunk.try_into().unwrap()),
+                    grid_sample(index, id as i64)
+                );
+            }
+        }
+        // Unsolicited streams must still be rejected after bootstrap.
+        assert_eq!(publish_grid(&producer, 1, [2; 3]), REJECTED_ACK);
+        assert!(!session.exists());
+        service.shutdown();
+        service.join();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn initial_stream_budget_rejection_drains_frame_and_allows_retry() {
+        use crate::shutdown::ShutdownSignal;
+        use crate::transport::VolumeTransport;
+        use crate::volume_store::VolumeStore;
+        use std::sync::Arc;
+
+        crate::memory_budget::set_test_active_limit_bytes(64 * 1024 * 1024);
+        let (transport, mut producer) = pipes();
+        let store = Arc::new(VolumeStore::new());
+        store.set_bootstrapping(true);
+        let shutdown = ShutdownSignal::new("127.0.0.1:9".parse().unwrap());
+        let receiver = VolumeTransport::start(transport, store.clone(), shutdown.clone()).unwrap();
+        read_ready(&mut producer);
+        // Each grid fits; together they exceed the configured active budget.
+        assert_eq!(publish_grid(&producer, 1, [164; 3]), 0);
+        assert_eq!(publish_grid(&producer, 2, [164; 3]), REJECTED_ACK);
+        assert!(store.get(1).is_some());
+        assert!(store.get(2).is_none());
+        assert_eq!(publish_grid(&producer, 2, [2; 3]), 0);
+        assert_eq!(store.len(), 2);
+        assert!(store.bytes() <= 64 * 1024 * 1024);
+        shutdown.request();
+        receiver.join();
+        assert!(store.is_empty());
+    }
+
+    fn grid_sample(index: usize, id: i64) -> f64 {
+        (index % 101) as f64 / 128.0 - id as f64 / 4.0
+    }
+
+    fn publish_grid(pipes: &ProducerPipes, id: i64, dims: [i32; 3]) -> c_int {
+        let count = dims.iter().map(|&n| n as usize).product::<usize>();
+        let samples = (0..count)
+            .map(|index| grid_sample(index, id))
+            .collect::<Vec<_>>();
+        let origin = [0.0; 3];
+        let axes = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        unsafe {
+            multiwfn_matterviz_publish_volume_stream(
+                pipes.volume_write,
+                pipes.ack_read,
+                id,
+                id,
+                dims[0],
+                dims[1],
+                dims[2],
+                1,
+                0,
+                1,
+                4,
+                4,
+                origin.as_ptr(),
+                axes.as_ptr(),
+                axes.as_ptr(),
+                samples.as_ptr(),
+                count as i64,
+                // Match the production initial-stream deadline. macOS pipes can
+                // require many reader polls for the memory-budget test grids.
+                300_000,
+            )
+        }
+    }
+
+    #[test]
     fn request_publish_stream_rejection_then_success() {
         crate::memory_budget::set_test_active_limit_bytes(64 * 1024 * 1024);
         let root = temp_dir();

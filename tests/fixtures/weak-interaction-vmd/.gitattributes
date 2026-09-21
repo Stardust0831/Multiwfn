@@ -1,0 +1,2 @@
+# Preserve the official Windows template bytes, including CRLF line endings.
+*.vmd -text whitespace=cr-at-eol

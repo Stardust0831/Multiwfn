@@ -25,7 +25,8 @@ use crate::volume_store::VolumeStore;
 use serde_json::{json, Value};
 use socket2::{Domain, Protocol, Socket, Type};
 
-const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(30);
+// Match the producer's 300-second deadline for each initial volume stream.
+const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(300);
 const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
 const MAX_PLOT_EXPORT_BYTES: usize = 64 * 1024 * 1024;
 static PLOT_EXPORT_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -248,6 +249,7 @@ impl HttpService {
         let shutdown = ShutdownSignal::new(address);
         let frontend_ready = Arc::new(AtomicBool::new(false));
         let volume_store = Arc::new(VolumeStore::new());
+        volume_store.set_bootstrapping(in_memory_session);
         let plot_store = Arc::new(PlotStore::new());
         let stream_broker = Arc::new(VolumeStreamBroker::default());
         let streaming_volume_enabled = config.transport.is_some();
@@ -273,7 +275,8 @@ impl HttpService {
                 let frame = transport
                     .read_frame_startup(
                         session_bootstrap_wait_timeout(bootstrap_stage_timeout),
-                        bootstrap_stage_timeout,
+                        // Only the pre-bootstrap volume wait needs the longer deadline.
+                        bootstrap_stage_timeout.min(Duration::from_secs(30)),
                         shutdown.flag(),
                     )
                     .map_err(|error| format!("could not receive session bootstrap: {error}"))?;
@@ -293,6 +296,7 @@ impl HttpService {
                     Some(data),
                 )
             });
+        volume_store.set_bootstrapping(false);
         let has_state = state.is_some()
             || session_data
                 .as_ref()
@@ -430,11 +434,7 @@ impl HttpService {
         result
     }
     #[cfg(test)]
-    pub fn insert_volume<B>(&self, frame: B) -> Result<u64, InsertError>
-    where
-        B: Into<Arc<[u8]>>,
-    {
-        let frame: Arc<[u8]> = frame.into();
+    pub fn insert_volume(&self, frame: Vec<u8>) -> Result<u64, InsertError> {
         let active = (self.volume_store.bytes() + self.plot_store.bytes()) as u64;
         let budget =
             memory_budget::active_data_budget(active).map_err(|_| InsertError::FrameTooLarge)?;
@@ -856,13 +856,35 @@ impl ServiceRunner {
                 return;
             }
             if let Some(frame) = self.volume_store.get(parsed_id) {
-                respond(
+                let volume_bytes = self.volume_store.bytes() as u64;
+                let current_active = volume_bytes.saturating_add(self.plot_store.bytes() as u64);
+                let budget = match memory_budget::active_data_budget(current_active) {
+                    Ok(value) => value,
+                    Err(message) => {
+                        respond_json(
+                            &mut stream,
+                            &json!({"ok": false, "message": message}),
+                            500,
+                            false,
+                        );
+                        return;
+                    }
+                };
+                // Retained grids also live in the frontend. Reserve that copy
+                // before offering the remaining budget for full-grid meshing.
+                let geometry_budget = budget
+                    .active_limit_bytes
+                    .saturating_sub(current_active.saturating_add(volume_bytes));
+                if write_volume_header(
                     &mut stream,
-                    200,
+                    frame.len() as u64,
                     "application/vnd.multiwfn.volume",
-                    &frame,
-                    false,
-                );
+                    geometry_budget,
+                )
+                .is_ok()
+                {
+                    let _ = stream.write_all(&frame);
+                }
             } else {
                 respond(&mut stream, 404, "text/plain", b"Not Found", false);
             }
@@ -1196,7 +1218,13 @@ impl ServiceRunner {
                     };
                     let geometry_budget =
                         budget.active_limit_bytes.saturating_sub(requested_active);
-                    if write_stream_header(stream, content_length, geometry_budget).is_err()
+                    if write_volume_header(
+                        stream,
+                        content_length,
+                        "application/vnd.multiwfn.volume; version=2",
+                        geometry_budget,
+                    )
+                    .is_err()
                         || stream.write_all(header.as_ref()).is_err()
                     {
                         return;
@@ -1868,13 +1896,14 @@ fn respond_redirect(stream: &mut TcpStream, location: &str) {
     let header = format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nCache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: same-origin\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
     let _ = stream.write_all(header.as_bytes());
 }
-fn write_stream_header(
+fn write_volume_header(
     stream: &mut TcpStream,
     content_length: u64,
+    content_type: &str,
     geometry_budget: u64,
 ) -> std::io::Result<()> {
     let header = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.multiwfn.volume; version=2\r\nContent-Length: {content_length}\r\nX-MatterViz-Geometry-Memory-Budget: {geometry_budget}\r\nCache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {content_length}\r\nX-MatterViz-Geometry-Memory-Budget: {geometry_budget}\r\nCache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n"
     );
     stream.write_all(header.as_bytes())
 }

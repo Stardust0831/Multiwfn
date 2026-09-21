@@ -217,6 +217,10 @@ else()
   list(APPEND MULTIWFN_CORE_SOURCES ext/no2F2.c)
 endif()
 
+if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
+  include(cmake/MatterVizMappedSurfaces.cmake)
+endif()
+
 add_executable(${MULTIWFN_EXECUTABLE_NAME} ${MULTIWFN_CORE_SOURCES})
 
 if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
