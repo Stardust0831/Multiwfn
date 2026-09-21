@@ -152,10 +152,28 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
     let cleanup_service = service.clone();
     let stop_service = service.clone();
     let ready_service = service.clone();
+    let picker_service = service.clone();
     let navigation_reports_ready = service.is_none();
     let result = tauri::Builder::default()
         .setup(move |app| {
             let callback_status = setup_status.clone();
+            if let Some(service) = picker_service.as_ref() {
+                let app_handle = app.handle().clone();
+                service.set_save_path_picker(move |suggested: &str| {
+                    let (sender, receiver) = std::sync::mpsc::channel();
+                    let suggested = suggested.to_owned();
+                    if app_handle
+                        .run_on_main_thread(move || {
+                            let path = rfd::FileDialog::new().set_file_name(&suggested).save_file();
+                            let _ = sender.send(path);
+                        })
+                        .is_err()
+                    {
+                        return None;
+                    }
+                    receiver.recv().ok().flatten()
+                });
+            }
             let window_result =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::External(page_url.clone()))
                     .title("MatterViz")

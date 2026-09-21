@@ -14,7 +14,7 @@ use crate::control_protocol::MessageType;
 use crate::control_transport::{ControlTransport, ControlTransportConfig};
 use crate::memory_budget;
 use crate::plot_store::PlotStore;
-use crate::session_data::{PlotExportDirective, PlotExportFormat, SessionData};
+use crate::session_data::{PlotExportDirective, PlotExportFormat, SessionData, SessionPage};
 use crate::shutdown::ShutdownSignal;
 use crate::stream_broker::{StreamEvent, VolumeStreamBroker};
 use crate::transport::{TransportConfig, VolumeTransport};
@@ -29,6 +29,11 @@ const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
 const MAX_PLOT_EXPORT_BYTES: usize = 64 * 1024 * 1024;
 static PLOT_EXPORT_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Produces the target path for a user-initiated file save, typically by
+/// showing a native save dialog on the UI thread. `None` means cancelled or
+/// unavailable.
+pub type SavePathPicker = Arc<dyn Fn(&str) -> Option<PathBuf> + Send + Sync>;
 
 fn session_bootstrap_wait_timeout(stage_timeout: Duration) -> Duration {
     stage_timeout.saturating_mul(SESSION_BOOTSTRAP_STAGES)
@@ -67,6 +72,7 @@ pub struct HttpService {
     return_signaled: Arc<Mutex<bool>>,
     updater: Arc<UpdateManager>,
     plot_export_written: Arc<AtomicBool>,
+    save_path_picker: Arc<Mutex<Option<SavePathPicker>>>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -293,11 +299,27 @@ impl HttpService {
                     Some(data),
                 )
             });
+        if session_data
+            .as_ref()
+            .is_some_and(|data| data.page() == SessionPage::Vibration)
+        {
+            let vibration_document = frontend.join("vibration.html");
+            if !vibration_document.is_file() {
+                return Err("frontend entry document vibration.html was not found".to_owned());
+            }
+            fs::File::open(&vibration_document).map_err(|error| {
+                format!("frontend entry document vibration.html is not readable: {error}")
+            })?;
+        }
         let has_state = state.is_some()
             || session_data
                 .as_ref()
                 .is_some_and(|data| data.state_bytes().is_some());
-        let mut entry_location = "/index.html?manifest=/session/manifest.json".to_owned();
+        let entry_document = session_data
+            .as_ref()
+            .map_or(SessionPage::Workbench, SessionData::page)
+            .entry_document();
+        let mut entry_location = format!("{entry_document}?manifest=/session/manifest.json");
         if has_state {
             entry_location.push_str("&state=/session/workbench-state.json");
         }
@@ -337,6 +359,7 @@ impl HttpService {
             return_signaled: Arc::new(Mutex::new(false)),
             updater: Arc::new(UpdateManager::new(config.multiwfn_pid)),
             plot_export_written: Arc::new(AtomicBool::new(false)),
+            save_path_picker: Arc::new(Mutex::new(None)),
             worker: Mutex::new(None),
         };
         let runner = service.clone_for_thread(frontend, manifest, state);
@@ -385,6 +408,7 @@ impl HttpService {
             return_signaled: self.return_signaled.clone(),
             updater: self.updater.clone(),
             plot_export_written: self.plot_export_written.clone(),
+            save_path_picker: self.save_path_picker.clone(),
         }
     }
     pub fn url(&self) -> &str {
@@ -460,6 +484,16 @@ impl HttpService {
     pub fn confirm_update_after_ready(&self) {
         self.updater.confirm_after_ready();
     }
+
+    pub fn set_save_path_picker<F>(&self, picker: F)
+    where
+        F: Fn(&str) -> Option<PathBuf> + Send + Sync + 'static,
+    {
+        *self
+            .save_path_picker
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(picker));
+    }
 }
 
 struct ServiceRunner {
@@ -485,6 +519,7 @@ struct ServiceRunner {
     return_signaled: Arc<Mutex<bool>>,
     updater: Arc<UpdateManager>,
     plot_export_written: Arc<AtomicBool>,
+    save_path_picker: Arc<Mutex<Option<SavePathPicker>>>,
 }
 impl ServiceRunner {
     fn run(self) {
@@ -533,6 +568,7 @@ impl ServiceRunner {
             return_signaled: self.return_signaled.clone(),
             updater: self.updater.clone(),
             plot_export_written: self.plot_export_written.clone(),
+            save_path_picker: self.save_path_picker.clone(),
         }
     }
     fn handle(&self, mut stream: TcpStream) {
@@ -790,6 +826,58 @@ impl ServiceRunner {
                 return;
             }
             respond_json(&mut stream, &json!({"ok": true}), 200, false);
+            return;
+        }
+        if path == "/api/save-file" {
+            if method != "POST" {
+                respond(
+                    &mut stream,
+                    405,
+                    "text/plain",
+                    b"Method Not Allowed",
+                    method == "HEAD",
+                );
+                return;
+            }
+            let suggested = sanitize_save_file_name(
+                query
+                    .iter()
+                    .find(|(key, _)| key == "name")
+                    .map(|(_, value)| value.as_str()),
+            );
+            let picker = self
+                .save_path_picker
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
+            let Some(picker) = picker else {
+                respond_json(
+                    &mut stream,
+                    &json!({"ok": false, "message": "Save dialog is not available"}),
+                    409,
+                    false,
+                );
+                return;
+            };
+            let Some(target) = picker(&suggested) else {
+                respond_json(
+                    &mut stream,
+                    &json!({"ok": false, "cancelled": true}),
+                    200,
+                    false,
+                );
+                return;
+            };
+            if let Err(error) = write_export_file(&target, body) {
+                respond(&mut stream, 500, "text/plain", error.as_bytes(), false);
+                return;
+            }
+            respond_json(
+                &mut stream,
+                &json!({"ok": true, "path": target.display().to_string()}),
+                200,
+                false,
+            );
             return;
         }
         if method == "POST" {
@@ -1576,15 +1664,34 @@ fn plot_export_magic_matches(format: &PlotExportFormat, body: &[u8]) -> bool {
 }
 
 fn write_plot_export(export: &PlotExportDirective, body: &[u8]) -> Result<(), String> {
-    let parent = export
-        .path
+    write_export_file(&export.path, body)
+}
+
+fn sanitize_save_file_name(raw: Option<&str>) -> String {
+    let name = raw
+        .unwrap_or("")
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect::<String>();
+    if name.is_empty() || name == "." || name == ".." {
+        "export.bin".to_owned()
+    } else {
+        name
+    }
+}
+
+fn write_export_file(path: &Path, body: &[u8]) -> Result<(), String> {
+    let parent = path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let name = export
-        .path
+    let name = path
         .file_name()
-        .ok_or_else(|| "plot export path has no file name".to_owned())?
+        .ok_or_else(|| "export path has no file name".to_owned())?
         .to_string_lossy();
     let counter = PLOT_EXPORT_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let temp = parent.join(format!(
@@ -1596,12 +1703,11 @@ fn write_plot_export(export: &PlotExportDirective, body: &[u8]) -> Result<(), St
             .write(true)
             .create_new(true)
             .open(&temp)
-            .map_err(|error| format!("could not create plot export temporary file: {error}"))?;
+            .map_err(|error| format!("could not create export temporary file: {error}"))?;
         file.write_all(body)
             .and_then(|_| file.sync_all())
-            .map_err(|error| format!("could not write plot export: {error}"))?;
-        replace_file(&temp, &export.path)
-            .map_err(|error| format!("could not finalize plot export: {error}"))
+            .map_err(|error| format!("could not write export: {error}"))?;
+        replace_file(&temp, path).map_err(|error| format!("could not finalize export: {error}"))
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temp);
@@ -2034,6 +2140,147 @@ mod tests {
         service.shutdown();
         join_service(service);
         assert!(!session.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn vibration_session_init_body() -> serde_json::Value {
+        serde_json::json!({
+            "format": "multiwfn-matterviz-control",
+            "version": 1,
+            "kind": "session_init",
+            "manifest": {
+                "format": "multiwfn-matterviz-vibration",
+                "version": 1,
+                "generatedBy": "Multiwfn_MatterViz",
+                "multiwfnGui": {"entry": "drawvibgui"},
+                "structure": {"path": "structure.json", "format": "json"},
+                "vibrations": {
+                    "sourceProgram": "gaussian",
+                    "spectrumKind": "ir",
+                    "atomCount": 3,
+                    "modeCount": 3,
+                    "coordinateUnit": "angstrom",
+                    "frequencyUnit": "cm^-1",
+                    "intensityUnit": "km/mol",
+                    "modes": [
+                        {"index": 1, "frequency": 1650.25, "intensity": 61.5},
+                        {"index": 2, "frequency": 3820.0, "intensity": 4.2},
+                        {"index": 3, "frequency": 3935.5, "intensity": 0.9}
+                    ],
+                    "displacements": {
+                        "datasetId": 1,
+                        "format": "mwfn-plot-data-v1",
+                        "role": "u",
+                        "layout": "mode-major-atom-xyz",
+                        "shape": [3, 3, 3]
+                    }
+                }
+            },
+            "structure": {"sites": [], "charge": 0, "properties": {"bonds": []}},
+            "state": null
+        })
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn vibration_bootstrap_opens_the_vibration_entry_document() {
+        let root = fixture("vibration-bootstrap");
+        let frontend = root.join("frontend");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(frontend.join("vibration.html"), "MatterViz vibration").unwrap();
+
+        let (mut hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let hello = read_control_frame(&mut hello_read);
+            assert_eq!(
+                decode_frame(&hello).unwrap().header.message_type,
+                MessageType::Hello
+            );
+            let body = vibration_session_init_body();
+            let frame = encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap();
+            bootstrap_write.write_all(&frame).unwrap();
+            let shutdown = read_control_frame(&mut hello_read);
+            assert_eq!(
+                decode_frame(&shutdown).unwrap().header.message_type,
+                MessageType::Shutdown
+            );
+        });
+
+        let service = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session: root.join("session-must-not-exist"),
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+                multiwfn_pid: Some(1),
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read),
+                write_pipe: into_raw_pipe(hello_write),
+            }),
+        )
+        .unwrap();
+
+        assert!(service
+            .url()
+            .contains("/vibration.html?manifest=/session/manifest.json"));
+        let manifest = request(service.url(), "GET", "/session/manifest.json");
+        assert!(manifest.starts_with("HTTP/1.1 200 OK"));
+        assert!(manifest.contains("\"multiwfn-matterviz-vibration\""));
+        let structure = request(service.url(), "GET", "/session/structure.json");
+        assert!(structure.starts_with("HTTP/1.1 200 OK"));
+
+        service.signal_return().unwrap();
+        producer.join().unwrap();
+        service.shutdown();
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn vibration_bootstrap_requires_the_vibration_entry_document() {
+        let root = fixture("vibration-missing-document");
+        let frontend = root.join("frontend");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+
+        let (mut hello_read, hello_write) = pipe_pair();
+        let (bootstrap_read, mut bootstrap_write) = pipe_pair();
+        let producer = std::thread::spawn(move || {
+            let _ = read_control_frame(&mut hello_read);
+            let body = vibration_session_init_body();
+            let frame = encode_frame(MessageType::SessionInit, 0, Some(&body)).unwrap();
+            let _ = bootstrap_write.write_all(&frame);
+        });
+
+        let result = HttpService::start_with_control(
+            AppConfig {
+                frontend,
+                session: root.join("session-must-not-exist"),
+                manifest: None,
+                state: None,
+                host: "127.0.0.1".to_owned(),
+                port: 0,
+                transport: None,
+                multiwfn_pid: Some(1),
+            },
+            Some(ControlTransportConfig {
+                read_pipe: into_raw_pipe(bootstrap_read),
+                write_pipe: into_raw_pipe(hello_write),
+            }),
+        );
+        let Err(error) = result else {
+            panic!("a vibration session without vibration.html must not start")
+        };
+        assert!(error.contains("vibration.html"));
+
+        producer.join().unwrap();
         let _ = fs::remove_dir_all(root);
     }
 
@@ -3528,6 +3775,102 @@ mod tests {
             assert_eq!(fs::read(&path).unwrap(), body);
             let _ = fs::remove_dir_all(root);
         }
+    }
+
+    fn post_request(base: &str, path: &str, body: &[u8]) -> String {
+        let url = Url::parse(base).unwrap();
+        let mut stream = connect_client(&url);
+        write!(
+            stream,
+            "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            authority(&url),
+            body.len()
+        )
+        .unwrap();
+        stream.write_all(body).unwrap();
+        String::from_utf8(read_response(&mut stream, false)).unwrap()
+    }
+
+    #[test]
+    fn save_file_name_is_sanitized() {
+        assert_eq!(
+            super::sanitize_save_file_name(Some("mode9.webm")),
+            "mode9.webm"
+        );
+        assert_eq!(
+            super::sanitize_save_file_name(Some("/tmp/evil/../x.png")),
+            "x.png"
+        );
+        assert_eq!(super::sanitize_save_file_name(Some("a\\b.png")), "b.png");
+        assert_eq!(super::sanitize_save_file_name(Some("..")), "export.bin");
+        assert_eq!(super::sanitize_save_file_name(Some("  ")), "export.bin");
+        assert_eq!(super::sanitize_save_file_name(None), "export.bin");
+    }
+
+    #[test]
+    fn save_file_writes_body_to_the_picked_path() {
+        let root = fixture("save-file");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+        let service = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            transport: None,
+            multiwfn_pid: Some(1),
+        })
+        .unwrap();
+
+        // without an installed picker the endpoint reports the dialog as unavailable
+        let unavailable = post_request(
+            service.url(),
+            &authorized_path(service.url(), "/api/save-file?name=mode9.webm"),
+            b"webm-bytes",
+        );
+        assert!(unavailable.starts_with("HTTP/1.1 409 Conflict"));
+
+        let target = root.join("picked video.webm");
+        let picker_target = target.clone();
+        service.set_save_path_picker(move |suggested| {
+            assert_eq!(suggested, "mode9.webm");
+            Some(picker_target.clone())
+        });
+        let response = post_request(
+            service.url(),
+            &authorized_path(service.url(), "/api/save-file?name=mode9.webm"),
+            b"webm-bytes",
+        );
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("\"ok\":true"));
+        assert!(response.contains("picked video.webm"));
+        assert_eq!(fs::read(&target).unwrap(), b"webm-bytes");
+
+        service.set_save_path_picker(|_| None);
+        let cancelled = post_request(
+            service.url(),
+            &authorized_path(service.url(), "/api/save-file?name=mode9.webm"),
+            b"webm-bytes",
+        );
+        assert!(cancelled.starts_with("HTTP/1.1 200 OK"));
+        assert!(cancelled.contains("\"cancelled\":true"));
+
+        let wrong_method = request(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/save-file?name=mode9.webm"),
+        );
+        assert!(wrong_method.starts_with("HTTP/1.1 405 Method Not Allowed"));
+
+        service.shutdown();
+        join_service(service);
+        let _ = fs::remove_dir_all(root);
     }
 
     fn golden_frame() -> Vec<u8> {

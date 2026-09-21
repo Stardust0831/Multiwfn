@@ -56,3 +56,6 @@ Thumbs.db
 
 # Generated documentation
 *.pdf
+
+# Tauri build artifacts
+frontend/matterviz-desktop/gen/

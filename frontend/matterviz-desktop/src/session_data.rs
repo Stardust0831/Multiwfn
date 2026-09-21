@@ -18,6 +18,10 @@ const CONTROL_VERSION: u64 = 1;
 const SESSION_KIND: &str = "session_init";
 const WORKBENCH_FORMAT: &str = "multiwfn-matterviz-workbench";
 const WORKBENCH_VERSION: u64 = 2;
+const VIBRATION_FORMAT: &str = "multiwfn-matterviz-vibration";
+const VIBRATION_VERSION: u64 = 1;
+const MAX_VIBRATION_MODES: u64 = 10_000;
+const MAX_VIBRATION_DISPLACEMENT_SAMPLES: u64 = 200_000_000;
 const PLOT_FORMAT: &str = "multiwfn-matterviz-plot";
 const PLOT_VERSION: u64 = 1;
 const PLOT_V2_VERSION: u64 = 2;
@@ -43,6 +47,7 @@ pub(crate) enum SessionDataError {
     InvalidManifestFormat,
     InvalidManifestVersion,
     InvalidManifestEntry,
+    InvalidManifestVibration(&'static str),
     InvalidManifestPlot(&'static str),
     InvalidPlotExport(&'static str),
     InvalidOptionalObject(&'static str),
@@ -78,14 +83,23 @@ impl fmt::Display for SessionDataError {
             Self::InvalidKind => f.write_str("session_init envelope kind must be \"session_init\""),
             Self::ManifestNotObject => f.write_str("session_init manifest must be a JSON object"),
             Self::InvalidManifestFormat => {
-                write!(f, "manifest format must be {WORKBENCH_FORMAT:?}")
+                write!(
+                    f,
+                    "manifest format must be {WORKBENCH_FORMAT:?} or {VIBRATION_FORMAT:?}"
+                )
             }
             Self::InvalidManifestVersion => {
-                write!(f, "manifest version must be integer {WORKBENCH_VERSION}")
+                write!(
+                    f,
+                    "manifest version must be integer {WORKBENCH_VERSION} (workbench) or {VIBRATION_VERSION} (vibration)"
+                )
             }
             Self::InvalidManifestEntry => f.write_str(
                 "formal manifest entries must use in-memory session or volume API paths",
             ),
+            Self::InvalidManifestVibration(reason) => {
+                write!(f, "manifest vibrations are invalid: {reason}")
+            }
             Self::InvalidManifestPlot(reason) => {
                 write!(f, "manifest plot is invalid: {reason}")
             }
@@ -114,6 +128,22 @@ pub(crate) struct PlotExportDirective {
 
 impl std::error::Error for SessionDataError {}
 
+/// Entry document served for a bootstrapped session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SessionPage {
+    Workbench,
+    Vibration,
+}
+
+impl SessionPage {
+    pub(crate) fn entry_document(self) -> &'static str {
+        match self {
+            Self::Workbench => "/index.html",
+            Self::Vibration => "/vibration.html",
+        }
+    }
+}
+
 /// Session objects retained as immutable, cheaply shareable JSON bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SessionData {
@@ -121,6 +151,7 @@ pub(crate) struct SessionData {
     structure: Option<Arc<[u8]>>,
     state: Option<Arc<[u8]>>,
     plot_export: Option<PlotExportDirective>,
+    page: SessionPage,
 }
 
 impl SessionData {
@@ -160,22 +191,39 @@ impl SessionData {
         let manifest_object = manifest
             .as_object()
             .ok_or(SessionDataError::ManifestNotObject)?;
-        require_string(
-            manifest_object,
-            "format",
-            WORKBENCH_FORMAT,
-            SessionDataError::InvalidManifestFormat,
-            SessionDataError::MissingManifestField("format"),
-        )?;
-        require_integer(
-            manifest_object,
-            "version",
-            WORKBENCH_VERSION,
-            SessionDataError::InvalidManifestVersion,
-            SessionDataError::MissingManifestField("version"),
-        )?;
+        let format = match manifest_object.get("format") {
+            Some(Value::String(value)) => value.as_str(),
+            Some(_) => return Err(SessionDataError::InvalidManifestFormat),
+            None => return Err(SessionDataError::MissingManifestField("format")),
+        };
+        let page = match format {
+            WORKBENCH_FORMAT => {
+                require_integer(
+                    manifest_object,
+                    "version",
+                    WORKBENCH_VERSION,
+                    SessionDataError::InvalidManifestVersion,
+                    SessionDataError::MissingManifestField("version"),
+                )?;
+                SessionPage::Workbench
+            }
+            VIBRATION_FORMAT => {
+                require_integer(
+                    manifest_object,
+                    "version",
+                    VIBRATION_VERSION,
+                    SessionDataError::InvalidManifestVersion,
+                    SessionDataError::MissingManifestField("version"),
+                )?;
+                SessionPage::Vibration
+            }
+            _ => return Err(SessionDataError::InvalidManifestFormat),
+        };
         validate_manifest_entries(manifest_object)?;
         validate_manifest_plot(manifest_object)?;
+        if page == SessionPage::Vibration {
+            validate_manifest_vibration(manifest_object)?;
+        }
         let plot_export = validate_plot_export(manifest_object)?;
 
         let manifest = serialize(manifest)?;
@@ -189,6 +237,7 @@ impl SessionData {
             structure,
             state,
             plot_export,
+            page,
         })
     }
 
@@ -214,6 +263,11 @@ impl SessionData {
 
     pub(crate) fn plot_export(&self) -> Option<&PlotExportDirective> {
         self.plot_export.as_ref()
+    }
+
+    /// Entry document this session should open.
+    pub(crate) fn page(&self) -> SessionPage {
+        self.page
     }
 }
 
@@ -274,6 +328,97 @@ fn validate_manifest_entries(
                 .filter(|value| *value > 0)
                 .ok_or(SessionDataError::InvalidManifestEntry)?;
         }
+    }
+    Ok(())
+}
+
+/// Validate the `vibrations` object of a `multiwfn-matterviz-vibration` manifest:
+/// mode metadata inline, displacement vectors referenced as an MWFNP2D dataset.
+fn validate_manifest_vibration(
+    manifest: &serde_json::Map<String, Value>,
+) -> Result<(), SessionDataError> {
+    let vibrations = manifest
+        .get("vibrations")
+        .and_then(Value::as_object)
+        .ok_or(SessionDataError::InvalidManifestVibration(
+            "vibrations must be an object",
+        ))?;
+    let atom_count = vibrations
+        .get("atomCount")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or(SessionDataError::InvalidManifestVibration("atomCount"))?;
+    let mode_count = vibrations
+        .get("modeCount")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0 && *value <= MAX_VIBRATION_MODES)
+        .ok_or(SessionDataError::InvalidManifestVibration("modeCount"))?;
+    if vibrations.get("coordinateUnit").and_then(Value::as_str) != Some("angstrom") {
+        return Err(SessionDataError::InvalidManifestVibration("coordinateUnit"));
+    }
+    if vibrations.get("frequencyUnit").and_then(Value::as_str) != Some("cm^-1") {
+        return Err(SessionDataError::InvalidManifestVibration("frequencyUnit"));
+    }
+    let modes = vibrations
+        .get("modes")
+        .and_then(Value::as_array)
+        .filter(|modes| modes.len() as u64 == mode_count)
+        .ok_or(SessionDataError::InvalidManifestVibration("modes"))?;
+    for mode in modes {
+        let mode = mode
+            .as_object()
+            .ok_or(SessionDataError::InvalidManifestVibration("modes"))?;
+        mode.get("frequency")
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite())
+            .ok_or(SessionDataError::InvalidManifestVibration("frequency"))?;
+        match mode.get("intensity") {
+            None | Some(Value::Null) => {}
+            Some(value) => {
+                value
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or(SessionDataError::InvalidManifestVibration("intensity"))?;
+            }
+        }
+    }
+    let displacements = vibrations
+        .get("displacements")
+        .and_then(Value::as_object)
+        .ok_or(SessionDataError::InvalidManifestVibration("displacements"))?;
+    displacements
+        .get("datasetId")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or(SessionDataError::InvalidManifestVibration("datasetId"))?;
+    if displacements.get("format").and_then(Value::as_str) != Some("mwfn-plot-data-v1") {
+        return Err(SessionDataError::InvalidManifestVibration("format"));
+    }
+    if displacements.get("role").and_then(Value::as_str) != Some("u") {
+        return Err(SessionDataError::InvalidManifestVibration("role"));
+    }
+    if displacements.get("layout").and_then(Value::as_str) != Some("mode-major-atom-xyz") {
+        return Err(SessionDataError::InvalidManifestVibration("layout"));
+    }
+    let shape = displacements
+        .get("shape")
+        .and_then(Value::as_array)
+        .ok_or(SessionDataError::InvalidManifestVibration("shape"))?
+        .iter()
+        .map(Value::as_u64)
+        .collect::<Option<Vec<u64>>>()
+        .ok_or(SessionDataError::InvalidManifestVibration("shape"))?;
+    if shape != [mode_count, atom_count, 3] {
+        return Err(SessionDataError::InvalidManifestVibration("shape"));
+    }
+    let samples = mode_count
+        .checked_mul(atom_count)
+        .and_then(|value| value.checked_mul(3))
+        .ok_or(SessionDataError::InvalidManifestVibration("shape"))?;
+    if samples > MAX_VIBRATION_DISPLACEMENT_SAMPLES {
+        return Err(SessionDataError::InvalidManifestVibration(
+            "displacements too large",
+        ));
     }
     Ok(())
 }
@@ -990,6 +1135,101 @@ mod tests {
             SessionData::parse(&frame(wrong_version)),
             Err(SessionDataError::InvalidManifestVersion)
         );
+    }
+
+    fn valid_vibration_body() -> Value {
+        json!({
+            "format": CONTROL_FORMAT,
+            "version": CONTROL_VERSION,
+            "kind": SESSION_KIND,
+            "manifest": {
+                "format": VIBRATION_FORMAT,
+                "version": VIBRATION_VERSION,
+                "generatedBy": "Multiwfn_MatterViz",
+                "multiwfnGui": {"entry": "drawvibgui"},
+                "structure": {"path": "structure.json", "format": "json"},
+                "vibrations": {
+                    "sourceProgram": "gaussian",
+                    "spectrumKind": "ir",
+                    "atomCount": 3,
+                    "modeCount": 2,
+                    "coordinateUnit": "angstrom",
+                    "frequencyUnit": "cm^-1",
+                    "intensityUnit": "km/mol",
+                    "modes": [
+                        {"index": 1, "frequency": 1650.25, "intensity": 61.5},
+                        {"index": 2, "frequency": 3800.0, "intensity": null}
+                    ],
+                    "displacements": {
+                        "datasetId": 7,
+                        "format": "mwfn-plot-data-v1",
+                        "role": "u",
+                        "layout": "mode-major-atom-xyz",
+                        "shape": [2, 3, 3]
+                    }
+                }
+            },
+            "structure": {"sites": []},
+            "state": null
+        })
+    }
+
+    #[test]
+    fn accepts_a_valid_vibration_session() {
+        let data = SessionData::parse(&frame(valid_vibration_body())).unwrap();
+        assert_eq!(data.page(), SessionPage::Vibration);
+        assert_eq!(data.page().entry_document(), "/vibration.html");
+        let manifest = serde_json::from_slice::<Value>(data.manifest_bytes()).unwrap();
+        assert_eq!(manifest["format"], VIBRATION_FORMAT);
+        assert!(data.structure_bytes().is_some());
+        assert!(data.state_bytes().is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_vibration_manifests() {
+        for patch in [
+            json!({"vibrations": null}),
+            json!({"vibrations": {"atomCount": 0}}),
+        ] {
+            let mut body = valid_vibration_body();
+            let manifest = body["manifest"].as_object_mut().unwrap();
+            for (key, value) in patch.as_object().unwrap() {
+                manifest.insert(key.clone(), value.clone());
+            }
+            assert!(matches!(
+                SessionData::parse(&frame(body)),
+                Err(SessionDataError::InvalidManifestVibration(_))
+            ));
+        }
+        for (path, value) in [
+            ("/manifest/vibrations/atomCount", json!(0)),
+            ("/manifest/vibrations/modeCount", json!(3)),
+            ("/manifest/vibrations/coordinateUnit", json!("bohr")),
+            ("/manifest/vibrations/frequencyUnit", json!("THz")),
+            ("/manifest/vibrations/modes/0/frequency", json!("1650.25")),
+            ("/manifest/vibrations/modes/0/intensity", json!("strong")),
+            ("/manifest/vibrations/displacements/datasetId", json!(0)),
+            (
+                "/manifest/vibrations/displacements/format",
+                json!("mwfn-plot-data-v2"),
+            ),
+            ("/manifest/vibrations/displacements/role", json!("x")),
+            (
+                "/manifest/vibrations/displacements/layout",
+                json!("atom-major"),
+            ),
+            ("/manifest/vibrations/displacements/shape", json!([2, 3, 1])),
+        ] {
+            let mut body = valid_vibration_body();
+            *body.pointer_mut(path).unwrap() = value;
+            assert!(
+                matches!(
+                    SessionData::parse(&frame(body)),
+                    Err(SessionDataError::InvalidManifestVibration(_))
+                ),
+                "patch {path} must be rejected"
+            );
+        }
     }
 
     #[test]
