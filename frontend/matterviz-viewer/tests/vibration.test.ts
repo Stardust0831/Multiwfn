@@ -229,10 +229,10 @@ test('loads and validates a full vibration session over HTTP', async () => {
   const request = async (input: URL | RequestInfo): Promise<Response> => {
     const url = String(input)
     requested.push(url)
-    if (url === 'http://127.0.0.1/session/manifest.json') {
+    if (url === 'http://127.0.0.1/session/manifest.json?cap=testcap') {
       return new Response(JSON.stringify(valid_manifest()))
     }
-    if (url === 'http://127.0.0.1/session/structure.json') return new Response(structure_json)
+    if (url === 'http://127.0.0.1/session/structure.json?cap=testcap') return new Response(structure_json)
     if (url === 'http://127.0.0.1/api/plot-data/7?cap=testcap') {
       return new Response(encode_plot_dataset(7, 4, displacements), {
         headers: { 'content-type': 'application/vnd.multiwfn.matterviz-plot-data-v1' },
@@ -247,8 +247,8 @@ test('loads and validates a full vibration session over HTTP', async () => {
   // an explicitly empty bond list is removed so the renderer auto-detects bonds
   assert.equal(session.structure.properties?.bonds, undefined)
   assert.deepEqual(requested, [
-    'http://127.0.0.1/session/manifest.json',
-    'http://127.0.0.1/session/structure.json',
+    'http://127.0.0.1/session/manifest.json?cap=testcap',
+    'http://127.0.0.1/session/structure.json?cap=testcap',
     'http://127.0.0.1/api/plot-data/7?cap=testcap',
   ])
   // the loaded session drives the animation pipeline end to end
@@ -260,8 +260,8 @@ test('rejects a session whose structure does not match the vibration data', asyn
   const page = new URL('http://127.0.0.1/vibration.html?manifest=/session/manifest.json&cap=testcap')
   const structure_json = JSON.stringify({ sites: [], charge: 0, properties: {} })
   const request = async (input: URL | RequestInfo): Promise<Response> => {
-    const url = String(input)
-    if (url.endsWith('manifest.json')) return new Response(JSON.stringify(valid_manifest()))
+    const url = new URL(String(input))
+    if (url.pathname.endsWith('manifest.json')) return new Response(JSON.stringify(valid_manifest()))
     return new Response(structure_json)
   }
   await assert.rejects(

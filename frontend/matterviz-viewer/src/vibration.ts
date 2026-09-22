@@ -124,13 +124,14 @@ export const parse_vibration_manifest = (value: unknown): VibrationManifest => {
 
 export const api_url = (path: string, page: URL = new URL(window.location.href)): URL => {
   const url = new URL(path, page)
+  vibration_assert(url.origin === page.origin, 'session requests must remain same-origin')
   const capability = page.searchParams.get('cap')
   if (capability) url.searchParams.set('cap', capability)
   return url
 }
 
 const vibration_manifest_url = (page: URL): URL =>
-  new URL(page.searchParams.get('manifest') || '/session/manifest.json', page)
+  api_url(page.searchParams.get('manifest') || '/session/manifest.json', page)
 
 // Load and validate the full vibration session: manifest, structure and the binary
 // displacement dataset referenced by it.
@@ -146,7 +147,8 @@ export const load_vibration_session = async (
 
   const manifest_base = new URL('.', manifest_endpoint)
   const structure_path = manifest.structure?.path ?? 'structure.json'
-  const structure_response = await request(new URL(structure_path, manifest_base), { cache: 'no-store' })
+  const structure_endpoint = api_url(new URL(structure_path, manifest_base).href, page)
+  const structure_response = await request(structure_endpoint, { cache: 'no-store' })
   if (!structure_response.ok) vibration_fail(`structure request returned HTTP ${structure_response.status}`)
   const structure = parse_vibration_structure(await structure_response.text(), vibrations.atomCount)
   // An explicitly empty bond list would suppress automatic bond detection; let the
@@ -317,7 +319,7 @@ export const sanitize_save_file_name = (filename: string | undefined): string =>
   const name = (filename ?? '').split(/[\\/]/).pop()?.trim() ?? ''
   const cleaned = [...name].filter((character) => {
     const code = character.codePointAt(0) ?? 0
-    return code >= 0x20 && code !== 0x7f
+    return code >= 0x20 && code !== 0x7f && character !== ':'
   }).join('')
   return cleaned === '' || cleaned === '.' || cleaned === '..' ? 'export.bin' : cleaned
 }

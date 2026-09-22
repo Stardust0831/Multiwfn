@@ -412,22 +412,24 @@ class ManifestAndStructureTests(unittest.TestCase):
             )
 
 
-class HttpServiceTests(unittest.TestCase):
+class HttpServiceTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.data = viewer.parse_gaussian_output(FIXTURES / "h2o_freq_gaussian.out")
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
-        root = Path(self.directory.name)
+        root = Path(self.directory.name).resolve()
         self.session = root / "session"
         self.export = root / "export"
         viewer.write_session(self.data, self.session)
         self.frame = viewer.encode_plot_dataset(1, self.data.displacements)
         handler = viewer.make_vibration_handler(self.session, {1: self.frame}, self.export)
+        self.capability = getattr(handler, "capability", "test-capability")
         handler.log_message = lambda *args: None  # type: ignore[method-assign]
         self.server = viewer.bind_vibration_server("127.0.0.1", 0, handler)
         self.port = self.server.server_address[1]
+        self.origin = f"http://127.0.0.1:{self.port}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.addCleanup(self._stop)
@@ -439,6 +441,15 @@ class HttpServiceTests(unittest.TestCase):
         self.directory.cleanup()
 
     def _request(self, method, path, body=None, headers=None):
+        separator = "&" if "?" in path else "?"
+        if "cap=" not in path:
+            path += f"{separator}cap={self.capability}"
+        headers = dict(headers or {})
+        if method == "POST":
+            headers.setdefault("Origin", self.origin)
+        return self._raw_request(method, path, body, headers)
+
+    def _raw_request(self, method, path, body=None, headers=None):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         connection.request(method, path, body=body, headers=headers or {})
         response = connection.getresponse()
@@ -446,6 +457,8 @@ class HttpServiceTests(unittest.TestCase):
         connection.close()
         return response, payload
 
+
+class HttpServiceTests(HttpServiceTestCase):
     def test_session_files_are_served(self):
         response, payload = self._request("GET", "/session/manifest.json")
         self.assertEqual(response.status, 200)
@@ -465,9 +478,9 @@ class HttpServiceTests(unittest.TestCase):
         self.assertEqual(dataset_id, 1)
         self.assertEqual(arrays[4], self.data.displacements)
 
-    def test_plot_data_with_capability_query(self):
-        response, _ = self._request("GET", "/api/plot-data/1?cap=testcap")
-        self.assertEqual(response.status, 200)
+    def test_plot_data_with_wrong_capability_is_forbidden(self):
+        response, _ = self._raw_request("GET", "/api/plot-data/1?cap=wrong-capability")
+        self.assertEqual(response.status, 403)
 
     def test_unknown_dataset_is_404(self):
         response, _ = self._request("GET", "/api/plot-data/999")
@@ -611,6 +624,258 @@ class DesktopLaunchE2ETests(unittest.TestCase):
                 launch=True,
             )
             self.assertEqual(code, 0)
+
+
+class ReviewParserRegressions(unittest.TestCase):
+    """Constructed edge cases, not claims of real-engine end-to-end coverage."""
+
+    def _parse(self, text, parser=viewer.load_vibration_input):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review-output.out"
+            path.write_text(text, encoding="utf-8")
+            return parser(path)
+
+    def _gaussian_pair(self):
+        first = (FIXTURES / "h2o_freq_gaussian.out").read_text(encoding="utf-8")
+        second = (first.replace("1650.0000", "1750.0000")
+                  .replace("61.5000", "71.5000")
+                  .replace("0.117300", "0.217300")
+                  .replace("-0.56", "-0.66"))
+        return first, second
+
+    def test_gaussian_repeated_runs_keep_all_arrays_in_last_section(self):
+        first, second = self._gaussian_pair()
+        expected = self._parse(second)
+        actual = self._parse(first + second)
+        self.assertEqual(actual.frequencies, expected.frequencies)
+        self.assertEqual(actual.intensities, expected.intensities)
+        self.assertEqual(actual.atoms, expected.atoms)
+        self.assertEqual(actual.displacements, expected.displacements)
+
+    def test_gaussian_incomplete_last_run_does_not_borrow_old_vectors(self):
+        first, second = self._gaussian_pair()
+        actual = self._parse(first + second.split(" Atom  AN", 1)[0])
+        expected = self._parse(first)
+        self.assertEqual(actual.atoms, expected.atoms)
+        self.assertEqual(actual.frequencies, expected.frequencies)
+        self.assertEqual(actual.displacements, expected.displacements)
+
+    def test_gaussian_last_run_without_ir_does_not_borrow_old_intensities(self):
+        first, second = self._gaussian_pair()
+        second = "\n".join(line for line in second.splitlines() if "IR Inten" not in line)
+        actual = self._parse(first + second)
+        self.assertIsNone(actual.intensities)
+        self.assertEqual(actual.frequencies[0], 1750.0)
+
+    def test_gaussian_multiple_blocks_in_one_section_are_not_discarded(self):
+        actual = self._parse(XTB_G98_SAMPLE, viewer.parse_gaussian_output)
+        self.assertEqual(actual.frequencies, [-0.0, -0.0, 3650.0, 3820.0])
+        self.assertEqual(flat(actual.displacements, 4, 2, 2, 2), 1.0)
+
+    def test_gaussian_partial_last_atom_table_is_not_a_complete_run(self):
+        first, second = self._gaussian_pair()
+        second = second[:second.index("    2   1     0.00   0.00  -0.66")]
+        actual = self._parse(first + second)
+        self.assertEqual(actual.atoms, self._parse(first).atoms)
+
+    def test_cp2k_repeated_runs_keep_all_arrays_in_last_section(self):
+        second = (CP2K_OUTPUT_SAMPLE.replace("1650.0000", "1750.0000")
+                  .replace("61.5000", "71.5000")
+                  .replace("0.117300", "0.217300")
+                  .replace("-0.56", "-0.66"))
+        expected = self._parse(second)
+        actual = self._parse(CP2K_OUTPUT_SAMPLE + "\n" + second)
+        self.assertEqual(actual.frequencies, expected.frequencies)
+        self.assertEqual(actual.intensities, expected.intensities)
+        self.assertEqual(actual.atoms, expected.atoms)
+        self.assertEqual(actual.displacements, expected.displacements)
+
+    def test_cp2k_incomplete_last_run_does_not_borrow_old_vectors(self):
+        second = CP2K_OUTPUT_SAMPLE.replace("0.117300", "0.217300")
+        actual = self._parse(CP2K_OUTPUT_SAMPLE + "\n" + second.split(" VIB|ATOM", 1)[0])
+        self.assertEqual(actual.atoms, self._parse(CP2K_OUTPUT_SAMPLE).atoms)
+
+    def test_orca_ir_reads_int_not_eps(self):
+        lines = ["IR SPECTRUM", "Mode freq eps Int T**2 TX TY TZ",
+                 "6: 1146.68 0.000341 1.73 0.000093 (0.0 -0.009640 0.0)", ""]
+        frequencies, intensities = viewer._orca_frequencies(lines, 6)
+        self.assertEqual(frequencies, [1146.68])
+        self.assertEqual(intensities, [1.73])
+
+    def test_orca_invalid_int_does_not_substitute_eps(self):
+        lines = ["IR SPECTRUM", "Mode freq eps Int T**2 TX TY TZ",
+                 "6: 1146.68 0.000341 ***** 0.000093 (0.0 -0.009640 0.0)", ""]
+        _, intensities = viewer._orca_frequencies(lines, 6)
+        self.assertIsNone(intensities)
+
+    def test_orca_legacy_ir_without_int_keeps_legacy_column(self):
+        lines = ["IR SPECTRUM", "Mode freq (cm**-1) T**2", "1: 3650.0 10.25", ""]
+        self.assertEqual(viewer._orca_frequencies(lines, 1), ([3650.0], [10.25]))
+
+    def _xtb(self, spectrum, g98=XTB_G98_SAMPLE):
+        with tempfile.TemporaryDirectory() as directory:
+            path, companion = Path(directory) / "vibspectrum", Path(directory) / "g98.out"
+            path.write_text(spectrum, encoding="utf-8")
+            companion.write_text(g98, encoding="utf-8")
+            return viewer.load_vibration_input(path, g98_out=companion)
+
+    def _selection_rule_spectrum(self):
+        return ("$vibrational spectrum\n"
+                "# mode symmetry wave number IR intensity selection rules\n"
+                "# cm**(-1) km/mol IR RAMAN\n"
+                "1 -0.00 0.00 - -\n2 -0.00 0.00 - -\n"
+                "3 a 3650.00 10.25 YES YES\n4 a 3820.00 4.20 YES YES\n$end\n")
+
+    def test_xtb_standalone_selection_rules_preserve_mode_alignment(self):
+        actual = self._xtb(self._selection_rule_spectrum())
+        self.assertEqual(actual.frequencies, [-0.0, -0.0, 3650.0, 3820.0])
+        self.assertEqual(actual.intensities, [0.0, 0.0, 10.25, 4.2])
+        self.assertEqual(flat(actual.displacements, 3, 1, 1, 2), 0.1)
+
+    def test_xtb_late_spectrum_after_banner_is_found(self):
+        actual = self._xtb("x T B\n" + "calculation progress\n" * 600 + self._selection_rule_spectrum())
+        self.assertEqual(actual.nmode, 4)
+
+    def test_xtb_blank_lines_and_comments_inside_section_are_allowed(self):
+        actual = self._xtb("x T B\n" + self._selection_rule_spectrum().replace("3 a", "\n# note\n3 a"))
+        self.assertEqual(actual.nmode, 4)
+
+    def test_xtb_missing_end_marker_is_rejected(self):
+        with self.assertRaises(viewer.VibrationError):
+            self._xtb(XTB_OUTPUT_SAMPLE.replace("$end", ""))
+
+    def test_xtb_duplicate_mode_numbers_are_rejected(self):
+        with self.assertRaises(viewer.VibrationError):
+            self._xtb(XTB_OUTPUT_SAMPLE.replace(" 4         a", " 3         a"))
+
+    def test_xtb_companion_frequency_mismatch_is_rejected(self):
+        with self.assertRaisesRegex(viewer.VibrationError, "g98|companion"):
+            self._xtb(XTB_OUTPUT_SAMPLE, XTB_G98_SAMPLE.replace("3650.0000", "3750.0000"))
+
+    def test_xtb_companion_mode_count_mismatch_is_rejected(self):
+        spectrum = XTB_OUTPUT_SAMPLE.replace(" 4         a       3820.00        4.20\n", "")
+        with self.assertRaisesRegex(viewer.VibrationError, "g98|companion"):
+            self._xtb(spectrum)
+
+    def test_gaussian_uses_the_coordinate_frame_before_selected_frequencies(self):
+        first, second = self._gaussian_pair()
+        second = second.replace("Standard orientation:", "Input orientation:")
+        actual = self._parse(first + second)
+        self.assertAlmostEqual(actual.atoms[0].z_coord, 0.2173)
+
+    def test_xtb_projected_zero_vectors_are_filtered_only_after_alignment(self):
+        g98 = (XTB_G98_SAMPLE
+               .replace("0.00   0.00   0.07    0.00   0.00  -0.07", "0.00   0.00   0.00    0.00   0.00   0.00")
+               .replace("0.00   0.00  -0.07    0.00   0.00   0.07", "0.00   0.00   0.00    0.00   0.00   0.00"))
+        actual = self._xtb(XTB_OUTPUT_SAMPLE, g98)
+        self.assertEqual(actual.frequencies, [3650.0, 3820.0])
+        self.assertEqual(flat(actual.displacements, 1, 1, 1, 2), 0.1)
+        self.assertEqual([item["index"] for item in viewer.build_manifest(actual)["vibrations"]["modes"]], [3, 4])
+
+
+class ReviewFilenameRegressions(unittest.TestCase):
+    def test_export_name_cannot_carry_a_windows_drive_or_stream(self):
+        from pathlib import PureWindowsPath
+        for name in ("C:evil.exe", "D:out.webm", "movie.webm:payload", "C:", "::"):
+            with self.subTest(name=name):
+                cleaned = viewer.sanitize_save_file_name(name)
+                self.assertNotIn(":", cleaned)
+                self.assertEqual(PureWindowsPath("D:/exports") / cleaned,
+                                 PureWindowsPath("D:/exports", cleaned))
+                self.assertEqual((PureWindowsPath("D:/exports") / cleaned).parent,
+                                 PureWindowsPath("D:/exports"))
+
+
+class ReviewTimeoutRegressions(unittest.TestCase):
+    def test_task_timeout_kills_and_reaps_the_real_child(self):
+        import subprocess
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory:
+            child = Path(directory) / "slow_engine.py"
+            completed = Path(directory) / "completed"
+            child.write_text(
+                "import time\nfrom pathlib import Path\n"
+                "time.sleep(0.4)\n"
+                f"Path({str(completed)!r}).write_text('finished')\n", encoding="utf-8")
+            processes = []
+            real_popen = subprocess.Popen
+            def record_process(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                return process
+            try:
+                with mock.patch.object(viewer, "MULTIWFN_TASK_TIMEOUT", 0.05, create=True), \
+                     mock.patch.object(viewer.subprocess, "Popen", side_effect=record_process):
+                    with self.assertRaisesRegex(viewer.VibrationError, "slow_engine.py"):
+                        viewer.run_multiwfn_tasks(sys.executable, [(child, [])])
+                self.assertFalse(completed.exists())
+                self.assertEqual(len(processes), 1)
+                self.assertIsNotNone(processes[0].returncode)
+            finally:
+                for process in processes:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=5)
+
+
+class ReviewHttpRegressions(HttpServiceTestCase):
+    def test_missing_capability_cannot_read_session_files(self):
+        for path in ("/api/plot-data/1", "/session/manifest.json", "/session/structure.json"):
+            with self.subTest(path=path):
+                response, _ = self._raw_request("GET", path)
+                self.assertEqual(response.status, 403)
+
+    def test_wrong_capability_cannot_stop_the_session(self):
+        response, _ = self._raw_request("GET", "/api/return?cap=wrong")
+        self.assertEqual(response.status, 403)
+        self.assertTrue(self.thread.is_alive())
+        self.assertFalse((self.session / "gui_stop.flag").exists())
+
+    def test_cross_origin_save_does_not_write(self):
+        response, _ = self._raw_request(
+            "POST", f"/api/save-file?cap={self.capability}&name=attack.bin", b"payload",
+            {"Origin": "https://untrusted.invalid"})
+        self.assertEqual(response.status, 403)
+        self.assertFalse((self.export / "attack.bin").exists())
+
+    def test_bad_host_is_rejected_even_with_correct_capability(self):
+        response, _ = self._raw_request("GET", f"/api/plot-data/1?cap={self.capability}",
+                                        headers={"Host": "untrusted.invalid"})
+        self.assertEqual(response.status, 403)
+
+    def test_post_requires_origin(self):
+        response, _ = self._raw_request("POST", f"/api/ready?cap={self.capability}")
+        self.assertEqual(response.status, 403)
+
+    def test_duplicate_capability_is_rejected(self):
+        response, _ = self._raw_request("GET", f"/api/plot-data/1?cap={self.capability}&cap=wrong")
+        self.assertEqual(response.status, 403)
+
+    def test_unicode_capability_is_rejected_without_server_error(self):
+        response, _ = self._raw_request("GET", "/api/plot-data/1?cap=%E9%BE%99")
+        self.assertEqual(response.status, 403)
+
+    def test_oversized_save_is_rejected_before_writing(self):
+        from unittest import mock
+        with mock.patch.object(viewer, "MAX_SAVE_FILE_BYTES", 8, create=True):
+            response, _ = self._request("POST", "/api/save-file?name=large.bin", b"123456789")
+        self.assertEqual(response.status, 413)
+        self.assertFalse((self.export / "large.bin").exists())
+
+    def test_negative_content_length_is_rejected(self):
+        response, _ = self._request("POST", "/api/save-file?name=invalid.bin", b"",
+                                    {"Content-Length": "-1"})
+        self.assertEqual(response.status, 400)
+        self.assertFalse((self.export / "invalid.bin").exists())
+
+    def test_handler_generates_distinct_nonempty_capabilities(self):
+        first = viewer.make_vibration_handler(self.session, {1: self.frame}, self.export)
+        second = viewer.make_vibration_handler(self.session, {1: self.frame}, self.export)
+        self.assertIsInstance(getattr(first, "capability", None), str)
+        self.assertGreaterEqual(len(first.capability), 32)
+        self.assertNotEqual(first.capability, second.capability)
+
+
 
 
 if __name__ == "__main__":
