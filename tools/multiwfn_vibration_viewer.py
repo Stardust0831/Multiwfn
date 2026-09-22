@@ -1671,9 +1671,10 @@ def _collect_artifacts(task: MultiwfnTask, task_dir: Path) -> list[Path]:
 def run_multiwfn_tasks(exe, tasks, *, work_root=None) -> list[MultiwfnTaskResult]:
     """Run MultiwfnTask items sequentially against `exe` and collect their artifacts.
 
-    Each task starts `<exe> <input_file>` in its own task directory, feeds the
-    numeric menu lines over stdin and captures the combined stdout/stderr as a
-    diagnostic log. Declared artifacts are collected from the task directory
+    Each task starts `<exe> <input_file>` in its own freshly created unique
+    task directory under `work_root` (relative input paths are resolved from
+    the caller's directory first), feeds the numeric menu lines over stdin and
+    captures the combined stdout/stderr as a diagnostic log. Declared artifacts are collected from the task directory
     afterwards; a missing artifact raises MissingArtifactError naming the input
     file, the expected pattern and the actual directory contents. Plain
     (input_file, menu_lines[, artifacts]) tuples are accepted for compatibility.
@@ -1689,9 +1690,13 @@ def run_multiwfn_tasks(exe, tasks, *, work_root=None) -> list[MultiwfnTaskResult
     results = []
     for index, task in enumerate(_normalize_task(item) for item in tasks):
         _validate_artifact_patterns(task)
-        input_path = Path(task.input_file)
-        task_dir = work_root / f"task-{index + 1:02d}-{input_path.stem}"
-        task_dir.mkdir(parents=True, exist_ok=True)
+        input_path = Path(task.input_file).resolve()
+        # A unique directory per run keeps stale artifacts from an earlier
+        # invocation from being collected and parsed as fresh results.
+        task_dir = Path(tempfile.mkdtemp(
+            prefix=f"task-{index + 1:02d}-{input_path.stem}-",
+            dir=work_root,
+        ))
         stdin_text = "".join(f"{line}\n" for line in task.menu_lines)
         process = subprocess.Popen(
             [str(exe), str(input_path)],

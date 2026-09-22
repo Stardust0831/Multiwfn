@@ -569,7 +569,12 @@ class ExternalEngineTests(unittest.TestCase):
             ]
             results = viewer.run_multiwfn_tasks(engine, tasks, work_root=Path(directory) / "work")
             self.assertEqual([result.returncode for result in results], [0, 0])
-            self.assertEqual([str(result.input_file) for result in results], ["first.out", "second.out"])
+            # Input paths are resolved to absolute before the working directory
+            # changes into the per-task directory.
+            self.assertEqual(
+                [result.input_file.name for result in results], ["first.out", "second.out"]
+            )
+            self.assertTrue(all(result.input_file.is_absolute() for result in results))
             # stdout stays a diagnostic log; the artifact files carry the payload.
             self.assertIn("fake engine diagnostics", results[0].output)
             self.assertNotIn("Frequencies --", results[0].output)
@@ -580,9 +585,46 @@ class ExternalEngineTests(unittest.TestCase):
                 self.assertEqual(artifact.parent, result.work_dir)
                 self.assertIn("Frequencies --", artifact.read_text(encoding="utf-8"))
             record = (Path(directory) / "engine_record.txt").read_text(encoding="utf-8")
-            self.assertEqual(record.splitlines(), ["ARG:first.out", "ARG:second.out"])
+            self.assertEqual(
+                [Path(line.removeprefix("ARG:")).name for line in record.splitlines()],
+                ["first.out", "second.out"],
+            )
             stdin_log = (Path(directory) / "engine_record.txt.stdin").read_text(encoding="utf-8")
             self.assertEqual(stdin_log, "11\n1\n-2\n0\nq\n11\n2\n")
+
+    def test_run_multiwfn_tasks_resolves_relative_input_before_changing_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            caller_dir = (Path(directory) / "caller").resolve()
+            caller_dir.mkdir()
+            (caller_dir / "relative_input.out").write_text("input", encoding="utf-8")
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            previous_cwd = os.getcwd()
+            os.chdir(caller_dir)
+            try:
+                results = viewer.run_multiwfn_tasks(
+                    engine,
+                    [viewer.MultiwfnTask("relative_input.out", ["q"], ["regenerated.out"])],
+                    work_root=Path(directory) / "work",
+                )
+            finally:
+                os.chdir(previous_cwd)
+            self.assertEqual(results[0].returncode, 0)
+            self.assertEqual(results[0].input_file, caller_dir / "relative_input.out")
+            self.assertEqual(len(results[0].artifacts), 1)
+
+    def test_run_multiwfn_tasks_uses_a_fresh_task_directory_per_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            task = viewer.MultiwfnTask("some_input.out", ["q"], ["regenerated.out"])
+            first = viewer.run_multiwfn_tasks(engine, [task], work_root=Path(directory) / "work")
+            second = viewer.run_multiwfn_tasks(engine, [task], work_root=Path(directory) / "work")
+            self.assertNotEqual(first[0].work_dir, second[0].work_dir)
+            # Repeating into the same work_root cannot inherit stale artifacts:
+            # each run starts from an empty directory.
+            self.assertEqual(
+                sorted(path.name for path in second[0].work_dir.iterdir()),
+                ["regenerated.out"],
+            )
 
     def test_run_multiwfn_tasks_reports_missing_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -626,7 +668,7 @@ class ExternalEngineTests(unittest.TestCase):
             stdin_log = (Path(directory) / "engine_record.txt.stdin").read_text(encoding="utf-8")
             self.assertEqual(stdin_log, "11\n1\n-2\n0\nq\n")
             # The collected artifact is the parsed payload; stdout is diagnostics only.
-            artifact = Path(directory) / "compute" / "task-01-gaussian_no_modes" / "regenerated.out"
+            artifact = next((Path(directory) / "compute").glob("task-01-gaussian_no_modes-*/regenerated.out"))
             self.assertIn("Atom  AN", artifact.read_text(encoding="utf-8"))
             log = Path(directory) / "compute" / "gaussian_no_modes.compute.log"
             self.assertEqual(log.read_text(encoding="utf-8").strip(), "fake engine diagnostics")

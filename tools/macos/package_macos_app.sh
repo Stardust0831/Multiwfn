@@ -129,7 +129,11 @@ if [[ -n "$UPDATER" && -f "$UPDATER" ]]; then
   cp "$UPDATER" "$RESOURCES/tools/multiwfn-matterviz-updater"
   chmod +x "$RESOURCES/tools/multiwfn-matterviz-updater"
 fi
-if [[ -n "$VIBRATION_LAUNCHER" && -f "$VIBRATION_LAUNCHER" ]]; then
+if [[ -n "$VIBRATION_LAUNCHER" ]]; then
+  [[ -f "$VIBRATION_LAUNCHER" ]] || {
+    echo "Vibration launcher does not exist: $VIBRATION_LAUNCHER" >&2
+    exit 1
+  }
   cp "$VIBRATION_LAUNCHER" "$RESOURCES/tools/multiwfn-vibration"
   chmod +x "$RESOURCES/tools/multiwfn-vibration"
 fi

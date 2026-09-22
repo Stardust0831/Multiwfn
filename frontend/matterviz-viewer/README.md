@@ -247,8 +247,9 @@ Gaussian, ORCA, CP2K or xTB frequency output file itself (started without
 arguments it collects a batch queue through the desktop shell's native file
 dialog), serves the session — including this entry document and its assets
 from the resolved frontend dist — over a loopback HTTP service and opens the
-desktop shell with `--url .../vibration.html?manifest=/session/manifest.json`,
-initially paused. No Multiwfn process or source change is involved; when an
+desktop shell with `--url .../vibration.html?manifest=/session/manifest.json&cap=<session-capability>`
+(the launcher generates and injects the per-session `cap` required by every
+`/session/*` and `/api/*` request), initially paused. No Multiwfn process or source change is involved; when an
 output file lacks displacement data, the launcher's `--compute` option drives
 an external engine over stdin menus and collects a declared file artifact
 carrying the normal-mode vectors (stock Multiwfn menus write none, so the

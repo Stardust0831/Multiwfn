@@ -325,8 +325,8 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
           "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools/multiwfn-vibration${CMAKE_EXECUTABLE_SUFFIX}"
       )
     else()
-      message(STATUS
-        "MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE does not exist; skipping vibration launcher staging: "
+      message(FATAL_ERROR
+        "MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE does not exist: "
         "${MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE}"
       )
     endif()
