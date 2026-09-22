@@ -70,9 +70,9 @@ Responsibilities in this topology:
 
 ```
 python3 tools/multiwfn_vibration_viewer.py OUTPUT [OUTPUT ...]
-    [--g98-out PATH] [--multiwfn EXE] [--compute] [--compute-menu LINES]
-    [--spectrum ir|raman] [--no-launch] [--session-dir DIR]
-    [--export-dir DIR] [--port N]
+    [--g98-out PATH] [--multiwfn EXE] [--compute] [--compute-artifact PATH]
+    [--compute-menu LINES] [--spectrum ir|raman] [--no-launch]
+    [--session-dir DIR] [--export-dir DIR] [--port N]
 ```
 
 - Multiple `OUTPUT` files are queued and shown one session at a time, in
@@ -80,6 +80,9 @@ python3 tools/multiwfn_vibration_viewer.py OUTPUT [OUTPUT ...]
 - `--no-launch` only builds the session(s) and prints the manifest/URL
   paths (used by tests and smoke checks).
 - `--g98-out` supplies the xTB companion g98.out; see below.
+- `--compute`/`--compute-artifact` engage the external batch engine; see
+  the next section for the artifact contract and the stock-Multiwfn
+  boundary.
 
 ## Supported output formats
 
@@ -129,29 +132,65 @@ parsing.
 
 When an output file parses for frequencies but carries no displacement data
 (the normal-mode tables/matrix were never printed), `--compute` engages the
-external batch engine instead of failing:
+external batch engine instead of failing. The engine is contractually an
+artifact producer: a task only passes data back through declared files, never
+through stdout.
 
-1. The launcher resolves the existing GUI-enabled Multiwfn executable
-   (`--multiwfn`, `$MULTIWFN`/`$Multiwfnpath`, `PATH`, or the repository
-   build directories).
-2. `run_multiwfn_tasks(exe, tasks)` runs each `(input_file, menu_lines)`
-   task sequentially: `Multiwfn <input_file>` is started with
-   `subprocess.Popen`, the numeric menu lines are fed over stdin, and the
-   combined stdout/stderr is captured. The default menu template
-   `11,{spectrum},-2,0,q` (spectrum menu, export transition data, return,
-   quit; `--compute-menu` overrides it, `{spectrum}` expands to the
-   `--spectrum` selector) drives only stock menu navigation — the engine
-   executable is never modified.
-3. The captured engine output is written to `<work>/compute/<name>.compute.log`
-   and parsed again with the same format auto-detection. If the wrapped
-   engine (e.g. a script that reruns the quantum chemistry program with
-   normal-mode printing enabled) emits a Gaussian/ORCA/CP2K-style
-   frequency output, the session proceeds from the regenerated data.
+1. **Tasks declare artifacts.** A `MultiwfnTask` carries the input file, the
+   stdin menu lines and an `artifacts` list of paths/globs relative to the
+   task's own working directory (e.g. `["g98.out"]` for a wrapper that reruns
+   xTB, or `["transinfo.txt"]` for a stock menu run). The CLI declares one
+   artifact with `--compute-artifact PATH`.
+2. **Sequential, isolated runs.** `run_multiwfn_tasks(exe, tasks, work_root=…)`
+   runs each task in its own `task-NN-<stem>` directory:
+   `<exe> <input_file>` is started with `subprocess.Popen`, the numeric menu
+   lines are fed over stdin (default template `11,{spectrum},-2,0,q`;
+   `--compute-menu` overrides it, `{spectrum}` expands to the `--spectrum`
+   selector), and the combined stdout/stderr is captured to
+   `<work>/compute/<name>.compute.log` as a diagnostic log only. Each task has
+   a 300-second timeout; on expiry the child is killed and reaped.
+3. **Collection.** After the run the declared artifacts are collected from the
+   task directory. A missing artifact aborts with an error naming the input
+   file, the expected pattern and the actual directory contents. Absolute
+   paths and `..` escapes in artifact patterns are rejected before the engine
+   is started.
+4. **Verification before parsing.** The launcher parses each collected
+   artifact with the same format auto-detection as direct inputs (for an xTB
+   input, the artifact is first tried as the regenerated g98.out companion of
+   the original spectrum). An artifact is accepted only if it parses and at
+   least one mode carries a nonzero displacement vector. Otherwise the error
+   names the input file and the artifact path, lists the per-artifact parse
+   failures, and explains the stock-Multiwfn boundary below. The captured
+   stdout log is never parsed.
+
+**Stock Multiwfn boundary.** No stock Multiwfn menu writes normal-mode
+displacement vectors to a file: the spectrum menu's `-2` export produces
+`transinfo.txt` with frequencies and intensities only. The default
+`--compute-menu` is therefore *not* a way to close the displacement loop, and
+the launcher refuses to pretend otherwise: `--compute` without
+`--compute-artifact` fails before the engine is started, with an error that
+explains the boundary and points here. A working setup points `--multiwfn` at
+a wrapper that reruns the quantum-chemistry program with normal-mode printing
+enabled. Example xTB wrapper (`xtb-vibration-wrapper.sh`):
+
+```sh
+#!/bin/sh
+# Invoked as: <wrapper> <input-file>, in the task's own working directory.
+# Reruns the xTB frequency job and leaves g98.out as the declared artifact.
+xtb --g98 --hess "$1" > xtb.out
+test -f g98.out
+```
+
+```sh
+python3 tools/multiwfn_vibration_viewer.py xtb_freq.out \
+    --compute --multiwfn ./xtb-vibration-wrapper.sh --compute-artifact g98.out
+```
 
 Only missing displacement data triggers the fallback; unrecognized or
-malformed inputs remain hard errors. The queue/stdin plumbing is covered by
-`tests/test_matterviz_vibration_viewer.py` with a fake executable shell
-script.
+malformed inputs remain hard errors. The queue/stdin/artifact plumbing is
+covered by `tests/test_matterviz_vibration_viewer.py` with a fake executable
+shell script that writes a real artifact file (success path), omits it
+(collection error) or writes a vector-free file (verification error).
 
 ## Manifest
 

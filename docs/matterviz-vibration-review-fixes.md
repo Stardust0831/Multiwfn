@@ -7,6 +7,43 @@ This is an incremental patch for the concrete parser, request-authentication,
 filename and process-timeout findings in review 5279104533. It is **not** a
 claim that PR #72 is ready to merge. No protected Fortran/core source is changed.
 
+## Finding 2 follow-up: `--compute` artifact contract
+
+The earlier fallback captured the external engine's stdout and reparsed it as
+a quantum-chemistry output. Review finding 2 correctly noted that this does
+not close the displacement-data loop with stock Multiwfn: the default menu
+ends at spectrum option `-2`, which exports `transinfo.txt` (frequencies and
+intensities only), and no stock menu writes normal-mode vectors. The fallback
+has been reworked around a declared-artifact contract:
+
+- `MultiwfnTask` declares `artifacts` (paths/globs relative to the task's own
+  working directory). `run_multiwfn_tasks()` runs each task in an isolated
+  `task-NN-<stem>` directory, keeps stdout as a diagnostic log only, and
+  collects the declared artifacts afterwards. A missing artifact raises
+  `MissingArtifactError` naming the input file, the expected pattern and the
+  actual directory contents; absolute paths and `..` escapes are rejected
+  before the engine starts.
+- `prepare_vibration_data()` no longer parses the stdout log. It requires
+  `--compute-artifact`, parses each collected artifact (for an xTB input the
+  artifact is first tried as the regenerated g98.out companion of the
+  original spectrum) and accepts it only when at least one mode carries a
+  nonzero displacement vector. Failure messages name the input file and the
+  artifact path and explain the stock-Multiwfn boundary.
+- `--compute` without `--compute-artifact` now fails before the engine is
+  started, with an error stating that stock Multiwfn menus write no
+  normal-mode vectors and pointing to the documented wrapper workflow (an
+  xTB `--g98 --hess` wrapper example is in
+  `docs/matterviz-vibration-protocol.md`). The default menu is retained only
+  as stock navigation for wrappers that key off it; it is not advertised as
+  producing vectors.
+
+Tests in `tests/test_matterviz_vibration_viewer.py` use a fake engine that
+writes a real artifact file into the task directory: success
+(collect → verify → parse yields three modes), missing artifact (error lists
+the input file, pattern and directory contents), vector-free artifact
+(explicit rejection) and undeclared artifact (engine is never started). The
+300-second task timeout behavior from the previous patch is unchanged.
+
 ## Implemented boundaries
 
 ### Session HTTP requests
@@ -94,11 +131,12 @@ Windows and descendant-process behavior need platform coverage.
    package smoke test is added. A direct HTTP check also confirms the current
    Python handler does not serve `/vibration.html` (404). Static frontend delivery
    must be addressed as part of the real entry/packaging work.
-2. **The real `--compute` artifact path remains unresolved.** Its default menu
-   still does not generate normal-mode vectors; stdout reparsing and the
-   synthetic fake-engine test are not evidence of a stock-Multiwfn integration.
-   The existing fallback is unchanged here and must not be advertised as a
-   working way to reconstruct missing vectors.
+2. **The `--compute` artifact contract is implemented but only exercised with a
+   fake engine.** Collection, verification and parsing are covered by tests
+   whose engine writes a real artifact file; no stock-Multiwfn or
+   xTB-wrapper integration run has been performed in this environment. The
+   stock-Multiwfn boundary (menus write no normal-mode vectors) is a hard,
+   documented failure by design.
 3. Real producer fixtures, complete frontend tests/type checks, renderer
    interaction and native packaging must be verified in the full repository.
 

@@ -519,58 +519,95 @@ class HttpServiceTests(HttpServiceTestCase):
         self.assertTrue((self.session / "gui_stop.flag").is_file())
 
 
-def make_fake_engine(directory: Path, stdout_file: Path) -> Path:
+def make_fake_engine(directory: Path, payload_file: Path, artifact_name: str = "regenerated.out") -> Path:
+    """Fake engine: records argv/stdin and writes `payload_file` as a real artifact.
+
+    The artifact is written into the engine's current working directory (the
+    per-task directory run_multiwfn_tasks assigns), never to stdout, mirroring
+    the contract that only declared file artifacts carry data back.
+    """
     script = Path(directory) / "fake_multiwfn.sh"
     script.write_text(
         "#!/bin/sh\n"
         'record="$(dirname "$0")/engine_record.txt"\n'
         'echo "ARG:$1" >> "$record"\n'
         "cat >> \"$record.stdin\"\n"
-        f'cat "{stdout_file}"\n',
+        f'cat "{payload_file}" > "{artifact_name}"\n'
+        'echo "fake engine diagnostics"\n',
         encoding="utf-8",
     )
     script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     return script
 
 
+GAUSSIAN_NO_MODES_SAMPLE = (
+    " Entering Gaussian System, Link 0=g16\n"
+    " Standard orientation:\n"
+    " ---------------------------------------------------------------------\n"
+    " Center     Atomic      Atomic             Coordinates (Angstroms)\n"
+    " Number     Number       Type             X           Y           Z\n"
+    " ---------------------------------------------------------------------\n"
+    "      1          8           0        0.000000    0.000000    0.117300\n"
+    "      2          1           0        0.000000    0.757200   -0.469200\n"
+    "      3          1           0        0.000000   -0.757200   -0.469200\n"
+    " ---------------------------------------------------------------------\n"
+    "                      1                      2                      3\n"
+    "                     A                      A                      A\n"
+    " Frequencies --  1650.0000            3820.0000            3935.0000\n"
+    " IR Inten    --     61.5000               4.2000               0.9000\n"
+)
+
+
 @unittest.skipIf(os.name == "nt", "the fake engine is a POSIX shell script")
 class ExternalEngineTests(unittest.TestCase):
-    def test_run_multiwfn_tasks_feeds_stdin_and_queues_in_order(self):
+    def test_run_multiwfn_tasks_feeds_stdin_collects_artifacts_and_queues_in_order(self):
         with tempfile.TemporaryDirectory() as directory:
             engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
             tasks = [
-                ("first.out", ["11", "1", "-2", "0", "q"]),
-                ("second.out", ["11", "2"]),
+                viewer.MultiwfnTask("first.out", ["11", "1", "-2", "0", "q"], ["regenerated.out"]),
+                viewer.MultiwfnTask("second.out", ["11", "2"], ["regenerated.*"]),
             ]
-            results = viewer.run_multiwfn_tasks(engine, tasks)
+            results = viewer.run_multiwfn_tasks(engine, tasks, work_root=Path(directory) / "work")
             self.assertEqual([result.returncode for result in results], [0, 0])
             self.assertEqual([str(result.input_file) for result in results], ["first.out", "second.out"])
-            self.assertIn("Frequencies --", results[0].output)
+            # stdout stays a diagnostic log; the artifact files carry the payload.
+            self.assertIn("fake engine diagnostics", results[0].output)
+            self.assertNotIn("Frequencies --", results[0].output)
+            for result in results:
+                self.assertEqual(len(result.artifacts), 1)
+                artifact = result.artifacts[0]
+                self.assertEqual(artifact.name, "regenerated.out")
+                self.assertEqual(artifact.parent, result.work_dir)
+                self.assertIn("Frequencies --", artifact.read_text(encoding="utf-8"))
             record = (Path(directory) / "engine_record.txt").read_text(encoding="utf-8")
             self.assertEqual(record.splitlines(), ["ARG:first.out", "ARG:second.out"])
             stdin_log = (Path(directory) / "engine_record.txt.stdin").read_text(encoding="utf-8")
             self.assertEqual(stdin_log, "11\n1\n-2\n0\nq\n11\n2\n")
 
-    def test_compute_fallback_regenerates_displacement_data(self):
-        sample = (
-            " Entering Gaussian System, Link 0=g16\n"
-            " Standard orientation:\n"
-            " ---------------------------------------------------------------------\n"
-            " Center     Atomic      Atomic             Coordinates (Angstroms)\n"
-            " Number     Number       Type             X           Y           Z\n"
-            " ---------------------------------------------------------------------\n"
-            "      1          8           0        0.000000    0.000000    0.117300\n"
-            "      2          1           0        0.000000    0.757200   -0.469200\n"
-            "      3          1           0        0.000000   -0.757200   -0.469200\n"
-            " ---------------------------------------------------------------------\n"
-            "                      1                      2                      3\n"
-            "                     A                      A                      A\n"
-            " Frequencies --  1650.0000            3820.0000            3935.0000\n"
-            " IR Inten    --     61.5000               4.2000               0.9000\n"
-        )
+    def test_run_multiwfn_tasks_reports_missing_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            task = viewer.MultiwfnTask("some_input.out", ["11", "1"], ["missing.out"])
+            with self.assertRaises(viewer.MissingArtifactError) as caught:
+                viewer.run_multiwfn_tasks(engine, [task], work_root=Path(directory) / "work")
+            message = str(caught.exception)
+            self.assertIn("some_input.out", message)
+            self.assertIn("missing.out", message)
+            self.assertIn("regenerated.out", message)  # actual directory contents are listed
+
+    def test_run_multiwfn_tasks_rejects_escaping_artifact_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            for pattern in ("../escape.out", "/abs/escape.out"):
+                with self.subTest(pattern=pattern):
+                    task = viewer.MultiwfnTask("some_input.out", ["q"], [pattern])
+                    with self.assertRaisesRegex(viewer.VibrationError, "invalid artifact path"):
+                        viewer.run_multiwfn_tasks(engine, [task], work_root=Path(directory) / "work")
+
+    def test_compute_fallback_collects_verifies_and_parses_the_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "gaussian_no_modes.out"
-            path.write_text(sample, encoding="utf-8")
+            path.write_text(GAUSSIAN_NO_MODES_SAMPLE, encoding="utf-8")
             with self.assertRaises(viewer.MissingDisplacementError):
                 viewer.load_vibration_input(path)
             engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
@@ -582,13 +619,64 @@ class ExternalEngineTests(unittest.TestCase):
                 spectrum="ir",
                 compute_menu=viewer.DEFAULT_COMPUTE_MENU,
                 work_root=Path(directory),
+                compute_artifact="regenerated.out",
             )
             self.assertEqual(data.nmode, 3)
             self.assertAlmostEqual(flat(data.displacements, 1, 2, 3, 3), -0.56)
             stdin_log = (Path(directory) / "engine_record.txt.stdin").read_text(encoding="utf-8")
             self.assertEqual(stdin_log, "11\n1\n-2\n0\nq\n")
+            # The collected artifact is the parsed payload; stdout is diagnostics only.
+            artifact = Path(directory) / "compute" / "task-01-gaussian_no_modes" / "regenerated.out"
+            self.assertIn("Atom  AN", artifact.read_text(encoding="utf-8"))
             log = Path(directory) / "compute" / "gaussian_no_modes.compute.log"
-            self.assertIn("Frequencies --", log.read_text(encoding="utf-8"))
+            self.assertEqual(log.read_text(encoding="utf-8").strip(), "fake engine diagnostics")
+
+    def test_compute_without_declared_artifact_fails_before_running_the_engine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gaussian_no_modes.out"
+            path.write_text(GAUSSIAN_NO_MODES_SAMPLE, encoding="utf-8")
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            with self.assertRaises(viewer.VibrationError) as caught:
+                viewer.prepare_vibration_data(
+                    path,
+                    g98_out=None,
+                    compute=True,
+                    multiwfn=str(engine),
+                    spectrum="ir",
+                    compute_menu=viewer.DEFAULT_COMPUTE_MENU,
+                    work_root=Path(directory),
+                    compute_artifact=None,
+                )
+            message = str(caught.exception)
+            self.assertIn("gaussian_no_modes.out", message)
+            self.assertIn("--compute-artifact", message)
+            self.assertIn("Stock Multiwfn", message)
+            self.assertFalse((Path(directory) / "engine_record.txt").exists())
+
+    def test_compute_artifact_without_displacement_vectors_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gaussian_no_modes.out"
+            path.write_text(GAUSSIAN_NO_MODES_SAMPLE, encoding="utf-8")
+            # The engine regenerates a file that still carries no normal-mode
+            # tables (exactly what a stock transinfo.txt-style run would do).
+            payload = Path(directory) / "still_no_modes.out"
+            payload.write_text(GAUSSIAN_NO_MODES_SAMPLE, encoding="utf-8")
+            engine = make_fake_engine(Path(directory), payload)
+            with self.assertRaises(viewer.VibrationError) as caught:
+                viewer.prepare_vibration_data(
+                    path,
+                    g98_out=None,
+                    compute=True,
+                    multiwfn=str(engine),
+                    spectrum="ir",
+                    compute_menu=viewer.DEFAULT_COMPUTE_MENU,
+                    work_root=Path(directory),
+                    compute_artifact="regenerated.out",
+                )
+            message = str(caught.exception)
+            self.assertIn("gaussian_no_modes.out", message)
+            self.assertIn("regenerated.out", message)
+            self.assertIn("Stock Multiwfn", message)
 
 
 class NoLaunchCliTests(unittest.TestCase):

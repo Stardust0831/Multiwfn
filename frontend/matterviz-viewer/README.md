@@ -245,8 +245,10 @@ the launcher parses a Gaussian, ORCA, CP2K or xTB frequency output file itself,
 serves the session over a loopback HTTP service and opens the desktop shell
 with `--url .../vibration.html?manifest=/session/manifest.json`, initially
 paused. No Multiwfn process or source change is involved; when an output file
-lacks displacement data, the launcher's `--compute` option drives the existing
-GUI-enabled Multiwfn executable as an external batch engine over stdin menus.
+lacks displacement data, the launcher's `--compute` option drives an external
+engine over stdin menus and collects a declared file artifact carrying the
+normal-mode vectors (stock Multiwfn menus write none, so the engine must be a
+wrapper producing a complete QC output).
 Mode frequencies and optional IR intensities arrive inline in the manifest;
 displacement vectors arrive as one flat MWFNP2D dataset in mode-major
 `[mode][atom][xyz]` order, fetched from the `/api/plot-data/<id>` route of the

@@ -21,11 +21,15 @@ Pipeline:
      shut the HTTP service down.
 
 When an input file lacks displacement data (e.g. a frequency run that did not
-print normal modes), --compute first drives the existing GUI-enabled Multiwfn
-executable (or any wrapper engine) as an external batch process: the tasks are
-queued, each `Multiwfn <file>` process is fed numeric menu lines over stdin,
-its stdout is captured to a log file and that log is parsed again. Use
---multiwfn to point at the executable.
+print normal modes), --compute drives an external engine as a batch process:
+the task is queued, `<engine> <file>` is fed numeric menu lines over stdin in
+its own task directory, and the launcher collects the task's declared file
+artifact (--compute-artifact), verifies it parses into vibrational data with
+at least one nonzero displacement vector, and only then builds the session.
+Stock Multiwfn cannot close this loop — its menus write no normal-mode
+vectors — so --multiwfn must point at a wrapper that produces a complete
+quantum-chemistry output (see docs/matterviz-vibration-protocol.md). The
+engine's captured stdout is kept only as a diagnostic log and is never parsed.
 
 xTB note: xTB output carries frequencies/intensities but no normal-mode
 vectors; pass the companion g98.out produced by `xtb --g98` via --g98-out. The
@@ -34,8 +38,8 @@ so the xTB flow never needs any geometry before the g98.out path is known.
 
 CLI:
   python3 tools/multiwfn_vibration_viewer.py OUTPUT [OUTPUT ...]
-      [--g98-out PATH] [--multiwfn EXE] [--compute] [--no-launch]
-      [--session-dir DIR] [--export-dir DIR] [--port N]
+      [--g98-out PATH] [--multiwfn EXE] [--compute] [--compute-artifact PATH]
+      [--no-launch] [--session-dir DIR] [--export-dir DIR] [--port N]
 """
 from __future__ import annotations
 
@@ -75,6 +79,10 @@ class UnsupportedFormatError(VibrationError):
 
 class MissingDisplacementError(VibrationError):
     """Frequencies parsed but the normal-mode displacement data is absent."""
+
+
+class MissingArtifactError(VibrationError):
+    """An external compute task did not produce its declared artifact."""
 
 
 # ---------------------------------------------------------------------------
@@ -1423,6 +1431,27 @@ def serve_vibration_session(
 SPECTRUM_CODES = {"ir": "1", "raman": "2"}
 DEFAULT_COMPUTE_MENU = "11,{spectrum},-2,0,q"
 MULTIWFN_TASK_TIMEOUT = 300.0
+STOCK_ENGINE_HINT = (
+    "Stock Multiwfn menus (including the default 11,-2 transition export, which only "
+    "writes transinfo.txt with frequencies and intensities) do not write normal-mode "
+    "displacement vectors to any file; point --multiwfn at a wrapper that produces a "
+    "complete quantum-chemistry output and declare its product with --compute-artifact "
+    "(see docs/matterviz-vibration-protocol.md)"
+)
+
+
+@dataclass
+class MultiwfnTask:
+    """One external engine run: input, stdin menu lines, declared file artifacts.
+
+    `artifacts` are paths or globs relative to the task's own working directory
+    (e.g. ["transinfo.txt"] for a stock menu run, ["g98.out"] for a wrapper that
+    reruns xTB). They are the only payload a task may pass back; stdout is kept
+    purely as a diagnostic log.
+    """
+    input_file: Path | str
+    menu_lines: list[str]
+    artifacts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1431,24 +1460,73 @@ class MultiwfnTaskResult:
     menu_lines: list[str]
     returncode: int
     output: str
+    artifacts: list[Path] = field(default_factory=list)
+    work_dir: Path | None = None
 
 
-def run_multiwfn_tasks(exe, tasks) -> list[MultiwfnTaskResult]:
-    """Run (input_file, menu_lines) tasks sequentially against `exe`.
+def _normalize_task(task) -> MultiwfnTask:
+    if isinstance(task, MultiwfnTask):
+        return task
+    input_file, menu_lines = task[0], task[1]
+    artifacts = list(task[2]) if len(task) > 2 else []
+    return MultiwfnTask(input_file=input_file, menu_lines=list(menu_lines), artifacts=artifacts)
 
-    Each task starts `<exe> <input_file>`, feeds the numeric menu lines over
-    stdin and collects the combined stdout/stderr. No Multiwfn behavior is
-    modified; the executable is driven entirely from the outside.
+
+def _validate_artifact_patterns(task: MultiwfnTask) -> None:
+    for pattern in task.artifacts:
+        parts = Path(pattern)
+        if parts.is_absolute() or ".." in parts.parts or not str(pattern).strip():
+            raise VibrationError(
+                f"Compute task for {task.input_file} declares an invalid artifact path: {pattern!r}"
+            )
+
+
+def _collect_artifacts(task: MultiwfnTask, task_dir: Path) -> list[Path]:
+    collected: list[Path] = []
+    for pattern in task.artifacts:
+        matches = sorted(candidate for candidate in task_dir.glob(str(pattern)) if candidate.is_file())
+        if not matches:
+            listing = sorted(entry.name for entry in task_dir.iterdir()) or ["(empty)"]
+            raise MissingArtifactError(
+                f"Compute task for {task.input_file} did not produce the declared artifact "
+                f"'{pattern}' in {task_dir}; directory contains: {', '.join(listing)}"
+            )
+        collected.extend(matches)
+    return collected
+
+
+def run_multiwfn_tasks(exe, tasks, *, work_root=None) -> list[MultiwfnTaskResult]:
+    """Run MultiwfnTask items sequentially against `exe` and collect their artifacts.
+
+    Each task starts `<exe> <input_file>` in its own task directory, feeds the
+    numeric menu lines over stdin and captures the combined stdout/stderr as a
+    diagnostic log. Declared artifacts are collected from the task directory
+    afterwards; a missing artifact raises MissingArtifactError naming the input
+    file, the expected pattern and the actual directory contents. Plain
+    (input_file, menu_lines[, artifacts]) tuples are accepted for compatibility.
+    No engine behavior is modified; the executable is driven entirely from the
+    outside.
     """
+    if work_root is None:
+        # The caller owns cleanup of the per-task directories it is handed back.
+        work_root = Path(tempfile.mkdtemp(prefix="multiwfn-compute-"))
+    else:
+        work_root = Path(work_root)
+        work_root.mkdir(parents=True, exist_ok=True)
     results = []
-    for input_file, menu_lines in tasks:
-        stdin_text = "".join(f"{line}\n" for line in menu_lines)
+    for index, task in enumerate(_normalize_task(item) for item in tasks):
+        _validate_artifact_patterns(task)
+        input_path = Path(task.input_file)
+        task_dir = work_root / f"task-{index + 1:02d}-{input_path.stem}"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        stdin_text = "".join(f"{line}\n" for line in task.menu_lines)
         process = subprocess.Popen(
-            [str(exe), str(input_file)],
+            [str(exe), str(input_path)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            cwd=task_dir,
         )
         try:
             try:
@@ -1461,7 +1539,7 @@ def run_multiwfn_tasks(exe, tasks) -> list[MultiwfnTaskResult]:
             # Wait for the child, not for EOF on pipes inherited by another process.
             process.wait(timeout=SHELL_STOP_GRACE_SECONDS)
             raise VibrationError(
-                f"The external engine did not finish within {MULTIWFN_TASK_TIMEOUT:g} seconds: {input_file}"
+                f"The external engine did not finish within {MULTIWFN_TASK_TIMEOUT:g} seconds: {input_path}"
             ) from None
         finally:
             for pipe in (process.stdin, process.stdout):
@@ -1469,10 +1547,12 @@ def run_multiwfn_tasks(exe, tasks) -> list[MultiwfnTaskResult]:
                     pipe.close()
         results.append(
             MultiwfnTaskResult(
-                input_file=Path(input_file),
-                menu_lines=list(menu_lines),
+                input_file=input_path,
+                menu_lines=list(task.menu_lines),
                 returncode=process.returncode or 0,
                 output=output or "",
+                artifacts=_collect_artifacts(task, task_dir),
+                work_dir=task_dir,
             )
         )
     return results
@@ -1514,6 +1594,14 @@ def compute_menu_lines(template: str, spectrum: str) -> list[str]:
     return [part.strip() for part in template.format(spectrum=code).split(",") if part.strip()]
 
 
+def _has_animatable_mode(data: VibrationData) -> bool:
+    stride = data.natom * 3
+    return any(
+        sum(value * value for value in data.displacements[imode * stride:(imode + 1) * stride]) > 0.0
+        for imode in range(data.nmode)
+    )
+
+
 def prepare_vibration_data(
     input_path: Path,
     *,
@@ -1523,34 +1611,67 @@ def prepare_vibration_data(
     spectrum: str,
     compute_menu: str,
     work_root: Path,
+    compute_artifact: str | None = None,
 ) -> VibrationData:
-    """Parse one input, optionally regenerating the displacement data externally.
+    """Parse one input, optionally recovering displacement data via an external engine.
 
     --compute only engages when frequencies parsed but the normal-mode
-    displacement data is missing: the configured Multiwfn executable is run as
-    an external batch engine and its captured output log is parsed again.
+    displacement data is missing. The engine task must declare a real file
+    artifact (compute_artifact) that carries the vectors; the collected
+    artifact is verified by parsing it and requiring at least one mode with a
+    nonzero displacement vector before it is used. The engine's stdout is kept
+    as a diagnostic log only and is never parsed as quantum-chemistry output.
     """
     try:
         return load_vibration_input(input_path, g98_out)
     except MissingDisplacementError as direct_error:
         if not compute:
             raise
+        if not compute_artifact:
+            raise VibrationError(
+                f"{input_path}: displacement data is missing and --compute cannot regenerate it "
+                f"without a declared artifact. {STOCK_ENGINE_HINT}."
+            ) from direct_error
         exe = resolve_multiwfn(multiwfn)
         work_dir = Path(work_root) / "compute"
         work_dir.mkdir(parents=True, exist_ok=True)
         menu = compute_menu_lines(compute_menu, spectrum)
+        task = MultiwfnTask(input_file=input_path, menu_lines=menu, artifacts=[compute_artifact])
         print(f"Displacement data missing ({direct_error}); running external engine:")
-        print(f"  {exe} {input_path}  < {' '.join(menu)}")
-        result = run_multiwfn_tasks(exe, [(input_path, menu)])[0]
+        print(f"  {exe} {input_path}  < {' '.join(menu)}  -> {compute_artifact}")
+        result = run_multiwfn_tasks(exe, [task], work_root=work_dir)[0]
         log_path = work_dir / f"{Path(input_path).stem}.compute.log"
         log_path.write_text(result.output, encoding="utf-8")
-        print(f"  engine exit code {result.returncode}; output captured to {log_path}")
+        print(f"  engine exit code {result.returncode}; diagnostics captured to {log_path}")
+
+        loaders = []
         try:
-            return load_vibration_input(log_path, g98_out)
-        except VibrationError as regenerated_error:
-            raise VibrationError(
-                f"The external engine output did not supply displacement data either: {regenerated_error}"
-            ) from regenerated_error
+            input_program = detect_program(input_path)
+        except VibrationError:
+            input_program = None
+        for artifact in result.artifacts:
+            # Prefer the cross-checked xTB pairing when the original input is an
+            # xTB spectrum and the artifact is its regenerated g98.out companion.
+            if input_program == "xtb":
+                loaders.append(("xtb companion", artifact, lambda a=artifact: parse_xtb_output(input_path, a)))
+            loaders.append(("artifact", artifact, lambda a=artifact: load_vibration_input(a, g98_out)))
+        failures: list[str] = []
+        for role, artifact, loader in loaders:
+            try:
+                data = loader()
+            except VibrationError as exc:
+                failures.append(f"  - {artifact} ({role}): {exc}")
+                continue
+            if not _has_animatable_mode(data):
+                failures.append(f"  - {artifact} ({role}): no mode carries a nonzero displacement vector")
+                continue
+            print(f"  displacement data recovered from {artifact}")
+            return data
+        detail = "\n".join(failures) if failures else "  - no artifacts were collected"
+        raise VibrationError(
+            f"{input_path}: the declared compute artifact did not yield vibrational "
+            f"displacement data:\n{detail}\n{STOCK_ENGINE_HINT}."
+        ) from direct_error
 
 
 # ---------------------------------------------------------------------------
@@ -1569,12 +1690,24 @@ def main(argv: list[str] | None = None) -> int:
         "Multiple inputs are shown one session at a time in order.",
     )
     parser.add_argument("--g98-out", help="Companion g98.out produced by xTB (required for xTB output)")
-    parser.add_argument("--multiwfn", help="Path to the GUI-enabled Multiwfn executable used by --compute")
+    parser.add_argument(
+        "--multiwfn",
+        help="Path to the external engine executable used by --compute (a wrapper producing "
+        "a complete QC output; stock Multiwfn menus write no normal-mode vectors)",
+    )
     parser.add_argument(
         "--compute",
         action="store_true",
-        help="When displacement data is missing, drive the existing Multiwfn executable "
-        "as an external batch engine and parse its regenerated output",
+        help="When displacement data is missing, drive the executable given by --multiwfn "
+        "as an external batch engine and parse the artifact it produces",
+    )
+    parser.add_argument(
+        "--compute-artifact",
+        metavar="PATH",
+        help="File (relative to the engine's task directory, glob allowed) that the external "
+        "engine must produce and that carries the normal-mode data, e.g. g98.out. Required "
+        "for --compute: stock Multiwfn menus write no normal-mode vectors, so --multiwfn "
+        "must be a wrapper producing a complete QC output",
     )
     parser.add_argument(
         "--compute-menu",
@@ -1628,10 +1761,13 @@ def main(argv: list[str] | None = None) -> int:
                         spectrum=args.spectrum,
                         compute_menu=args.compute_menu,
                         work_root=work_root,
+                        compute_artifact=args.compute_artifact,
                     )
                 except VibrationError as exc:
                     hint = "" if args.compute else " (retry with --compute to regenerate it externally)"
-                    print(f"Error: {input_path}: {exc}{hint}", file=sys.stderr)
+                    message = str(exc)
+                    prefix = "" if str(input_path) in message else f"{input_path}: "
+                    print(f"Error: {prefix}{message}{hint}", file=sys.stderr)
                     return 2
                 print(
                     f"Parsed {data.source_program} output: {data.natom} atoms, "
