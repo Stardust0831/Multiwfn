@@ -7,6 +7,62 @@ This is an incremental patch for the concrete parser, request-authentication,
 filename and process-timeout findings in review 5279104533. It is **not** a
 claim that PR #72 is ready to merge. No protected Fortran/core source is changed.
 
+## Finding 1 follow-up: standalone GUI executable delivered
+
+Finding 1 noted that the launcher existed only as a source-tree Python script,
+which cannot satisfy the standalone-GUI-executable requirement after
+installation (the formal MatterViz packages reject any Python runtime
+artifact). The launcher is now delivered as a real packaged executable:
+
+- **Native file selection and batch queue.** Started with no positional
+  argument in a desktop session, the launcher collects its input queue through
+  the native file dialog of the bundled shell (`matterviz-desktop
+  --select-file --output`, the same contract the Fortran GUI uses): every pick
+  is queued and the dialog reopens until Cancel, an empty collection prints
+  the usage and exits 2, and an rc-2 dialog failure is reported explicitly.
+  Right after an xTB spectrum is picked (and `--g98-out` is unset), one extra
+  dialog round offers to pick the companion g98.out; `--no-pick` keeps
+  headless/CI invocations well-defined.
+- **Frozen entry.** The MatterViz workflow freezes the launcher per platform
+  with PyInstaller (`--onefile --name multiwfn-vibration`), copies only the
+  frozen binary into `package/<pkg>/resources/tools/` on Linux, macOS and
+  Windows, and asserts its presence in "Verify package contents". The frozen
+  name matches none of the no-Python gate patterns, and the build
+  intermediates (`vibration-launcher-build/`, `vibration-launcher-dist/`,
+  `multiwfn-vibration.spec`) never enter the package tree. Under PyInstaller
+  (`sys.frozen`) the desktop shell and the frontend dist are resolved from
+  the executable's own directory, because `__file__` then points into the
+  unpack temporary directory.
+- **macOS .app and CMake.** `tools/macos/package_macos_app.sh` accepts an
+  optional `--vibration-launcher` that lands at
+  `Contents/Resources/tools/multiwfn-vibration` (same optional pattern as the
+  updater) and the workflow passes it to the .app assembly; CMake stages a
+  local frozen build into `resources/tools/` when the optional
+  `MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE` cache variable points at one
+  (unset or missing = silently skipped for local development).
+- **Static frontend delivery.** The loopback service now serves
+  `vibration.html` and its assets from the resolved frontend dist (previously
+  a 404), so the packaged `--url` session renders from the launcher's own
+  origin. The entry document and assets are public package content guarded by
+  the exact loopback `Host` header only; `/session/*` and `/api/*` keep the
+  bearer capability, and the static branch is traversal-guarded like
+  `/session/`.
+- **Packaged smoke tests.** The workflow runs the packaged frozen executable
+  on every platform: `--help` must exit 0 and a fixture `--no-launch
+  --no-pick` session must build with a parseable `manifest.json`; on Linux an
+  additional extracted-package HTTP smoke serves `vibration.html`, the
+  manifest and the MWFNP2D dataset from the packaged launcher and stops it
+  through `/api/return`.
+- **Tests.** `tests/test_matterviz_vibration_packaging.py` covers the
+  workflow/script/CMake/docs contracts statically and exercises the dialog
+  queue functionally against a fake `matterviz-desktop` shell script (queue
+  order until cancel, empty cancel, rc-2 error, `--no-pick`, positional
+  bypass, xTB companion round, frozen resolution, static frontend delivery).
+  The frozen binary itself was verified locally with a real PyInstaller
+  freeze: `--help` exits 0 and a fixture `--no-launch --no-pick` session
+  builds a parseable manifest.
+
+
 ## Finding 2 follow-up: `--compute` artifact contract
 
 The earlier fallback captured the external engine's stdout and reparsed it as
@@ -126,11 +182,13 @@ Windows and descendant-process behavior need platform coverage.
 
 ## Still blocking a complete delivery
 
-1. **Standalone GUI packaging and entry are not delivered by this patch.** No
-   chooser/queue executable, CMake staging change, release integration or native
-   package smoke test is added. A direct HTTP check also confirms the current
-   Python handler does not serve `/vibration.html` (404). Static frontend delivery
-   must be addressed as part of the real entry/packaging work.
+1. **Native end-to-end acceptance of the standalone entry remains manual.**
+   The frozen `multiwfn-vibration` executable, its file-dialog queue, the
+   static frontend delivery and the workflow/macOS/CMake packaging hooks are
+   in place with packaged CI smoke tests (see the finding 1 follow-up above).
+   What CI cannot cover is the interactive path: the real native file dialog,
+   the WebView animation page and renderer interaction on each platform still
+   need manual validation against a preview/formal package.
 2. **The `--compute` artifact contract is implemented but only exercised with a
    fake engine.** Collection, verification and parsing are covered by tests
    whose engine writes a real artifact file; no stock-Multiwfn or

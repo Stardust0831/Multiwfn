@@ -25,6 +25,10 @@ only) is the orchestrator:
    and encodes the displacement vectors as one MWFNP2D v1 binary dataset.
 3. **Local HTTP service.** A loopback-only (`127.0.0.1`, OS-assigned port
    unless `--port` is given) threading HTTP server serves:
+   - `GET /vibration.html` and the frontend assets (`/assets/*`) from the
+     resolved MatterViz frontend dist (see below). These are public package
+     files: they require only the exact loopback `Host` header, not the
+     bearer capability that guards every route below,
    - `GET /session/manifest.json`, `GET /session/structure.json` and
      `GET /session/<file>` (path-traversal guarded),
    - `GET /api/plot-data/<id>` — the displacement dataset frame with
@@ -36,14 +40,19 @@ only) is the orchestrator:
      the export directory (`--export-dir`, default: current working
      directory) after sanitizing the file name.
 4. **GUI launch.** The launcher locates the matterviz-desktop shell
-   (`MULTIWFN_MATTERVIZ_WEBVIEW` override, then `tools/matterviz-desktop`,
+   (`MULTIWFN_MATTERVIZ_WEBVIEW` override, then — when frozen with
+   PyInstaller — the executable's own directory, then
+   `tools/matterviz-desktop`,
    `frontend/matterviz-desktop/target/release/matterviz-desktop`, then
    `build-matterviz-gui/resources/tools/matterviz-desktop`) and starts it
    with `--url http://127.0.0.1:<port>/vibration.html?manifest=/session/manifest.json`.
-   The startup status/token handshake and the stop-file environment contract
-   are the same as `tools/multiwfn_matterviz_webview.py`. When the shell
-   exits or the session's `gui_stop.flag` appears, the HTTP service shuts
-   down.
+   The frontend dist carrying `vibration.html` is resolved beside the
+   executable in the frozen layout (`resources/frontend/matterviz-viewer/dist`),
+   then from the source/build trees; the whole page is therefore served by
+   the launcher's own loopback origin. The startup status/token handshake
+   and the stop-file environment contract are the same as
+   `tools/multiwfn_matterviz_webview.py`. When the shell exits or the
+   session's `gui_stop.flag` appears, the HTTP service shuts down.
 5. **Initial paused display.** `vibration.html` loads the session with the
    animation paused (`VIBRATION_AUTO_PLAY = false` in
    `frontend/matterviz-viewer/src/vibration.ts`); the user picks a mode and
@@ -69,20 +78,66 @@ Responsibilities in this topology:
 ## Command line
 
 ```
-python3 tools/multiwfn_vibration_viewer.py OUTPUT [OUTPUT ...]
+python3 tools/multiwfn_vibration_viewer.py [OUTPUT [OUTPUT ...]]
     [--g98-out PATH] [--multiwfn EXE] [--compute] [--compute-artifact PATH]
-    [--compute-menu LINES] [--spectrum ir|raman] [--no-launch]
+    [--compute-menu LINES] [--spectrum ir|raman] [--no-launch] [--no-pick]
     [--session-dir DIR] [--export-dir DIR] [--port N]
 ```
 
 - Multiple `OUTPUT` files are queued and shown one session at a time, in
   order.
+- With no `OUTPUT` and a desktop session, the launcher collects the queue
+  through the native file dialog of the matterviz-desktop shell; see the next
+  section. `--no-pick` disables that collection (headless/CI: no `OUTPUT`
+  then prints the usage and exits 2).
 - `--no-launch` only builds the session(s) and prints the manifest/URL
   paths (used by tests and smoke checks).
 - `--g98-out` supplies the xTB companion g98.out; see below.
 - `--compute`/`--compute-artifact` engage the external batch engine; see
   the next section for the artifact contract and the stock-Multiwfn
   boundary.
+
+## Installed standalone executable (`multiwfn-vibration`)
+
+The formal MatterViz packages ship the launcher as a PyInstaller onefile
+executable named `multiwfn-vibration` (`multiwfn-vibration.exe` on Windows)
+in `resources/tools/`, beside the `matterviz-desktop` shell it drives; the
+macOS `Multiwfn.app` carries it at `Contents/Resources/tools/multiwfn-vibration`.
+The MatterViz workflow freezes it per platform (`pyinstaller --onefile --name
+multiwfn-vibration tools/multiwfn_vibration_viewer.py`, stdlib only), copies
+only the frozen binary into the package — the `vibration-launcher-build/`,
+`vibration-launcher-dist/` and `multiwfn-vibration.spec` intermediates never
+enter the package tree — and smoke-tests the packaged executable: `--help`
+must exit 0 and a fixture `--no-launch --no-pick` session must build with a
+parseable `manifest.json`; on Linux an extracted-package HTTP smoke also
+serves `vibration.html`, the manifest and the displacement dataset from the
+packaged launcher. The frozen binary matches none of the no-Python gate
+patterns (`*.py`/`*.pyc`/`*.pyo`/`requirements*.txt`/`__pycache__`), so the
+packages still ship no Python runtime.
+
+Frozen layout: a onefile build unpacks its modules into a temporary
+directory, so `__file__` cannot locate the bundled tools. When `sys.frozen`
+is set, the launcher resolves both the `matterviz-desktop` shell and the
+frontend dist from the executable's own directory
+(`resources/tools/multiwfn-vibration` → `resources/tools/matterviz-desktop`
+and `resources/frontend/matterviz-viewer/dist`). The source-tree candidates
+are unchanged. For local development CMake stages a frozen build into
+`resources/tools/` when the optional `MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE`
+cache variable points at one (unset or missing = silently skipped).
+
+File selection and the batch queue: started with no `OUTPUT` argument in a
+desktop session, `multiwfn-vibration` collects its queue through the native
+file dialog of the bundled shell (`matterviz-desktop --select-file --output
+FILE`: exit 0 with the file written = the first line is the selected path,
+exit 0 without it = Cancel, exit 2 = dialog error such as a missing desktop
+session — the same contract the Fortran GUI uses). Every picked file is
+queued and the dialog reopens until Cancel ends the collection; an empty
+collection prints the usage and exits 2. Right after an xTB spectrum is
+picked (and `--g98-out` is unset), one extra dialog round offers to pick the
+companion g98.out, so a later queue pick is never mistaken for it; a single
+`--g98-out` applies to the whole queue, matching the CLI. Cancelling that
+round keeps the xTB input queued — it then fails with the usual `--g98-out`
+hint.
 
 ## Supported output formats
 

@@ -240,15 +240,19 @@ scope of this change.
 `vibration.html` is a standalone entry document, separate from the workbench
 payload schema. It renders the `multiwfn-matterviz-vibration` version 1 session
 produced by the standalone launcher
-[`../../tools/multiwfn_vibration_viewer.py`](../../tools/multiwfn_vibration_viewer.py):
-the launcher parses a Gaussian, ORCA, CP2K or xTB frequency output file itself,
-serves the session over a loopback HTTP service and opens the desktop shell
-with `--url .../vibration.html?manifest=/session/manifest.json`, initially
-paused. No Multiwfn process or source change is involved; when an output file
-lacks displacement data, the launcher's `--compute` option drives an external
-engine over stdin menus and collects a declared file artifact carrying the
-normal-mode vectors (stock Multiwfn menus write none, so the engine must be a
-wrapper producing a complete QC output).
+[`../../tools/multiwfn_vibration_viewer.py`](../../tools/multiwfn_vibration_viewer.py),
+shipped in the MatterViz packages as the PyInstaller-frozen
+`multiwfn-vibration` executable in `resources/tools/`: the launcher parses a
+Gaussian, ORCA, CP2K or xTB frequency output file itself (started without
+arguments it collects a batch queue through the desktop shell's native file
+dialog), serves the session — including this entry document and its assets
+from the resolved frontend dist — over a loopback HTTP service and opens the
+desktop shell with `--url .../vibration.html?manifest=/session/manifest.json`,
+initially paused. No Multiwfn process or source change is involved; when an
+output file lacks displacement data, the launcher's `--compute` option drives
+an external engine over stdin menus and collects a declared file artifact
+carrying the normal-mode vectors (stock Multiwfn menus write none, so the
+engine must be a wrapper producing a complete QC output).
 Mode frequencies and optional IR intensities arrive inline in the manifest;
 displacement vectors arrive as one flat MWFNP2D dataset in mode-major
 `[mode][atom][xyz]` order, fetched from the `/api/plot-data/<id>` route of the

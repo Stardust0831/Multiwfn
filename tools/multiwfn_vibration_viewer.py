@@ -36,10 +36,29 @@ vectors; pass the companion g98.out produced by `xtb --g98` via --g98-out. The
 geometry and the displacements are both read from g98.out (same atom order),
 so the xTB flow never needs any geometry before the g98.out path is known.
 
-CLI:
-  python3 tools/multiwfn_vibration_viewer.py OUTPUT [OUTPUT ...]
+CLI (source tree):
+  python3 tools/multiwfn_vibration_viewer.py [OUTPUT [OUTPUT ...]]
       [--g98-out PATH] [--multiwfn EXE] [--compute] [--compute-artifact PATH]
       [--no-launch] [--session-dir DIR] [--export-dir DIR] [--port N]
+      [--no-pick]
+
+Installed standalone executable (PyInstaller-frozen, shipped beside
+matterviz-desktop in resources/tools/ of the MatterViz packages):
+  multiwfn-vibration [OUTPUT [OUTPUT ...]] [same options]
+
+With no OUTPUT argument and a desktop session, the launcher opens the native
+file dialog of the matterviz-desktop shell (`--select-file`) repeatedly to
+collect the batch queue: every picked file is queued and the dialog reopens
+until Cancel ends the collection; an empty collection prints the usage and
+exits 2. When a picked input is an xTB spectrum and --g98-out was not given,
+one more dialog round offers to pick the companion g98.out. --no-pick turns
+the dialog collection off (no OUTPUT then prints the usage and exits 2), which
+keeps headless/CI invocations well-defined.
+
+Frozen layout: a PyInstaller onefile build unpacks its modules into a
+temporary directory, so __file__ cannot locate the bundled tools; when
+sys.frozen is set the launcher resolves matterviz-desktop from the
+executable's own directory (sys.executable) instead.
 """
 from __future__ import annotations
 
@@ -1084,9 +1103,11 @@ def bind_vibration_server(host: str, preferred_port: int, handler) -> http.serve
         return ThreadingHTTPServer((host, 0), handler)
 
 
-def make_vibration_handler(session_dir: Path, datasets: dict[int, bytes], export_dir: Path):
+def make_vibration_handler(session_dir: Path, datasets: dict[int, bytes], export_dir: Path, frontend_dir: Path | None = None):
     session_dir = Path(session_dir).resolve()
     export_dir = Path(export_dir).resolve()
+    if frontend_dir is not None:
+        frontend_dir = Path(frontend_dir).resolve()
     session_capability = secrets.token_urlsafe(32)
 
     def send_json(handler, payload: dict, status: int = 200) -> None:
@@ -1162,6 +1183,36 @@ def make_vibration_handler(session_dir: Path, datasets: dict[int, bytes], export
                 send_json(self, {"ok": False, "message": "Forbidden"}, status=403)
             return valid
 
+        def check_loopback_host(self) -> bool:
+            authority = f"127.0.0.1:{self.server.server_address[1]}"
+            if self.headers.get_all("Host", []) != [authority]:
+                send_json(self, {"ok": False, "message": "Forbidden"}, status=403)
+                return False
+            return True
+
+        def serve_frontend_file(self, request_path: str) -> None:
+            # The entry document and its assets are public package content; the
+            # bearer capability still guards /session/* and /api/*.
+            if not self.check_loopback_host():
+                return
+            if frontend_dir is None:
+                self.send_error(404, "Not found")
+                return
+            rel = request_path.lstrip("/")
+            if rel in ("", "."):
+                rel = "vibration.html"
+            candidate = (frontend_dir / rel).resolve()
+            try:
+                candidate.relative_to(frontend_dir)
+            except ValueError:
+                self.send_error(403, "Invalid frontend path")
+                return
+            if not candidate.is_file():
+                self.send_error(404, "File not found")
+                return
+            content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
+            send_bytes(self, candidate.read_bytes(), content_type)
+
         def read_request_body(self) -> bytes | None:
             lengths = self.headers.get_all("Content-Length", [])
             # No ambiguous framing, negative sizes or unbounded chunked streams.
@@ -1187,9 +1238,12 @@ def make_vibration_handler(session_dir: Path, datasets: dict[int, bytes], export
             return body
 
         def do_GET(self) -> None:  # noqa: N802 - http.server naming
+            request_path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
+            if not request_path.startswith(("/session/", "/api/")):
+                self.serve_frontend_file(request_path)
+                return
             if not self.authorize():
                 return
-            request_path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
             if request_path.startswith("/session/"):
                 send_session_file(self, request_path)
                 return
@@ -1255,13 +1309,40 @@ def resolve_desktop() -> Path | None:
         candidate = Path(configured).expanduser().resolve()
         return candidate if candidate.is_file() else None
     suffix = ".exe" if os.name == "nt" else ""
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        # PyInstaller onefile unpacks modules into a temporary directory, so
+        # __file__ cannot locate the bundled tools; the packaged layout places
+        # this launcher beside matterviz-desktop in resources/tools/.
+        candidates.append(Path(sys.executable).resolve().parent / f"matterviz-desktop{suffix}")
     here = Path(__file__).resolve()
-    candidates = (
+    candidates.extend((
         here.parent / f"matterviz-desktop{suffix}",
         here.parents[1] / "frontend" / "matterviz-desktop" / "target" / "release" / f"matterviz-desktop{suffix}",
         here.parents[1] / "build-matterviz-gui" / "resources" / "tools" / f"matterviz-desktop{suffix}",
-    )
+    ))
     return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def resolve_frontend_dist() -> Path | None:
+    """Locate the built MatterViz frontend dist that carries vibration.html.
+
+    The frozen package layout places the launcher at
+    resources/tools/multiwfn-vibration with the frontend at
+    resources/frontend/matterviz-viewer/dist.
+    """
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        candidates.append(
+            Path(sys.executable).resolve().parent.parent
+            / "frontend" / "matterviz-viewer" / "dist"
+        )
+    here = Path(__file__).resolve()
+    candidates.extend((
+        here.parents[1] / "frontend" / "matterviz-viewer" / "dist",
+        here.parents[1] / "build-matterviz-gui" / "resources" / "frontend" / "matterviz-viewer" / "dist",
+    ))
+    return next((candidate for candidate in candidates if (candidate / "vibration.html").is_file()), None)
 
 
 def startup_timeout() -> float:
@@ -1308,6 +1389,89 @@ def wait_for_desktop_startup(process, status_path: Path, token: str, timeout: fl
         time.sleep(STARTUP_POLL_INTERVAL)
 
 
+# ---------------------------------------------------------------------------
+# Native file-dialog input collection (matterviz-desktop --select-file)
+# ---------------------------------------------------------------------------
+
+def desktop_session_available() -> bool:
+    """Cheap headless pre-check; the dialog itself still fails closed (rc 2)."""
+    if os.name == "nt" or sys.platform == "darwin":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def run_file_dialog(desktop: Path, output: Path) -> Path | None:
+    """One `matterviz-desktop --select-file --output <output>` round.
+
+    Contract (frontend/matterviz-desktop/src/main.rs): exit 0 with `output`
+    written -> the first line is the selected path; exit 0 without `output`
+    -> the user cancelled; exit 2 -> the dialog failed (e.g. no desktop
+    session). Returns the selected path, or None on cancellation.
+    """
+    try:
+        output.unlink()
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(
+            [str(desktop), "--select-file", "--output", str(output)],
+            capture_output=True, text=True,
+        )
+    except OSError as exc:
+        raise VibrationError(f"Could not start the MatterViz file dialog: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        message = (
+            "The MatterViz native file dialog failed "
+            f"(exit code {result.returncode}); a desktop session is required. "
+            "Pass the input file(s) as arguments instead, or use --no-pick."
+        )
+        if detail:
+            message = f"{message}\n{detail}"
+        raise VibrationError(message)
+    try:
+        selected = output.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return None
+    return Path(selected) if selected else None
+
+
+def pick_input_files(desktop: Path, *, g98_out: str | None) -> tuple[list[Path], str | None]:
+    """Collect the batch queue through repeated native file-dialog rounds.
+
+    Every picked file is queued and the dialog reopens; Cancel ends the
+    collection. Right after an xTB spectrum is picked (and no g98.out
+    companion was supplied yet), one extra dialog round offers to pick the
+    companion, so a following queue pick is never mistaken for g98.out.
+    """
+    picked: list[Path] = []
+    with tempfile.TemporaryDirectory(prefix="multiwfn-vibration-pick-") as scratch:
+        output = Path(scratch) / "selected_file.txt"
+        while True:
+            selected = run_file_dialog(desktop, output)
+            if selected is None:
+                break
+            picked.append(selected)
+            print(f"Queued input {len(picked)}: {selected}")
+            if g98_out is not None:
+                continue
+            try:
+                program = detect_program(selected)
+            except VibrationError:
+                program = None
+            if program == "xtb":
+                print(
+                    "An xTB spectrum was selected; its normal-mode vectors live in the "
+                    "companion g98.out (xtb --g98). Pick it in the next dialog, or Cancel "
+                    "to keep it unset (the xTB session will then fail with the --g98-out hint)."
+                )
+                companion = run_file_dialog(desktop, output)
+                if companion is not None:
+                    g98_out = str(companion)
+                    print(f"Using g98.out companion: {companion}")
+    return picked, g98_out
+
+
 def serve_vibration_session(
     data: VibrationData,
     *,
@@ -1316,12 +1480,15 @@ def serve_vibration_session(
     port: int,
     launch: bool,
     desktop: Path | None = None,
+    frontend_dir: Path | None = None,
 ) -> int:
     """Build the session, serve it and (unless launch=False) open the desktop shell."""
     session_dir = Path(session_dir).resolve()
     write_session(data, session_dir)
     frame = encode_plot_dataset(DATASET_ID, data.displacements)
-    handler = make_vibration_handler(session_dir, {DATASET_ID: frame}, export_dir)
+    if frontend_dir is None:
+        frontend_dir = resolve_frontend_dist()
+    handler = make_vibration_handler(session_dir, {DATASET_ID: frame}, export_dir, frontend_dir)
     try:
         server = bind_vibration_server("127.0.0.1", port, handler)
     except OSError as exc:
@@ -1340,6 +1507,12 @@ def serve_vibration_session(
         server.server_close()
         return 0
 
+    if frontend_dir is None:
+        print(
+            "Warning: the MatterViz frontend dist was not found; the desktop shell cannot "
+            "display vibration.html from this service.",
+            file=sys.stderr,
+        )
     if desktop is None:
         desktop = resolve_desktop()
     if desktop is None:
@@ -1377,7 +1550,7 @@ def serve_vibration_session(
         print(f"Could not launch MatterViz desktop: {exc}", file=sys.stderr)
         return 2
 
-    print(f"MatterViz vibration session: {url}")
+    print(f"MatterViz vibration session: {url}", flush=True)
     exit_code = 0
     try:
         state, detail = wait_for_desktop_startup(process, status_path, token, timeout)
@@ -1685,9 +1858,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "inputs",
-        nargs="+",
+        nargs="*",
         help="Frequency output file(s): Gaussian/ORCA/CP2K output, or xTB output with --g98-out. "
-        "Multiple inputs are shown one session at a time in order.",
+        "Multiple inputs are shown one session at a time in order. When omitted and a desktop "
+        "session is available, the native file dialog collects the queue instead (see --no-pick).",
     )
     parser.add_argument("--g98-out", help="Companion g98.out produced by xTB (required for xTB output)")
     parser.add_argument(
@@ -1726,6 +1900,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Only build the session(s) and print their paths; do not start the desktop shell",
     )
+    parser.add_argument(
+        "--no-pick",
+        action="store_true",
+        help="Never open the native file dialog to collect inputs; with no INPUT argument "
+        "the launcher prints the usage and exits 2 (headless/CI mode)",
+    )
     parser.add_argument("--session-dir", help="Directory for the session files (default: temporary directory)")
     parser.add_argument(
         "--export-dir",
@@ -1736,12 +1916,43 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     inputs = [Path(item) for item in args.inputs]
+    g98_out = args.g98_out
+    if not inputs:
+        if args.no_pick:
+            parser.print_usage(sys.stderr)
+            print("Error: no input files given and --no-pick disables the file dialog.", file=sys.stderr)
+            return 2
+        if not desktop_session_available():
+            parser.print_usage(sys.stderr)
+            print(
+                "Error: no input files given and no desktop session is available for the "
+                "native file dialog; pass the input file(s) as arguments.",
+                file=sys.stderr,
+            )
+            return 2
+        desktop = resolve_desktop()
+        if desktop is None:
+            print(
+                "Error: no input files given and the MatterViz desktop executable was not "
+                "found; set MULTIWFN_MATTERVIZ_WEBVIEW to its path or pass input files.",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            inputs, g98_out = pick_input_files(desktop, g98_out=g98_out)
+        except VibrationError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        if not inputs:
+            parser.print_usage(sys.stderr)
+            print("Error: no input files were selected.", file=sys.stderr)
+            return 2
     for input_path in inputs:
         if not input_path.is_file():
             print(f"Error: cannot find the input file: {input_path}", file=sys.stderr)
             return 2
-    if args.g98_out and not Path(args.g98_out).is_file():
-        print(f"Error: cannot find the g98.out file: {args.g98_out}", file=sys.stderr)
+    if g98_out and not Path(g98_out).is_file():
+        print(f"Error: cannot find the g98.out file: {g98_out}", file=sys.stderr)
         return 2
 
     session_root = Path(args.session_dir).resolve() if args.session_dir else None
@@ -1755,7 +1966,7 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     data = prepare_vibration_data(
                         input_path,
-                        g98_out=args.g98_out,
+                        g98_out=g98_out,
                         compute=args.compute,
                         multiwfn=args.multiwfn,
                         spectrum=args.spectrum,
