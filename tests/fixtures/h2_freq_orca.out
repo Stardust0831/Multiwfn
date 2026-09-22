@@ -1,0 +1,25 @@
+                                 O   R   C   A
+                        (fixture for the MatterViz vibration adapter tests)
+
+VIBRATIONAL FREQUENCIES
+-----------------------
+
+The first frequency considered to be a vibration is    1
+The total number of atoms is 2
+Thus, these vectors are normalized but not mass weighted
+NORMAL MODES
+             0          1          2
+     0        0.000000   0.100000   0.000000
+     1        0.000000   0.200000   0.000000
+     2        1.000000   0.300000   0.000000
+     3        0.000000  -0.500000   0.000000
+     4        0.000000   0.000000   1.000000
+     5        0.000000   0.000000   0.000000
+
+IR SPECTRUM
+-----------
+Mode   freq (cm**-1)   T**2
+ 1:    3650.00          10.25
+ 2:    3820.00           4.20
+
+****ORCA TERMINATED NORMALLY****

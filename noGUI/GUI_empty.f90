@@ -38,9 +38,4 @@ end subroutine
 subroutine miniGUI
 end subroutine
 
-subroutine drawvibgui(ispectrum,numdata,freqs,intens)
-integer,intent(in) :: ispectrum,numdata
-real*8,intent(in) :: freqs(numdata),intens(numdata)
-end subroutine
-
 end module

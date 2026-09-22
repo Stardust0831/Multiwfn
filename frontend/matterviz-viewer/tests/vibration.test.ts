@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   CM_INV_PER_THZ,
   DEFAULT_VIBRATION_AMPLITUDE,
+  VIBRATION_AUTO_PLAY,
   frequency_thz,
   is_imaginary_frequency,
   load_vibration_session,
@@ -152,6 +153,13 @@ test('synthesizes one harmonic phase cycle as a valid trajectory', () => {
   assert.throws(() => synthesize_vibration_trajectory(structure, pattern, { n_frames: 1 }), /at least 2 frames/)
 })
 
+// Regression guard for issue #65: the viewer must open paused on a static frame and
+// only start animating after the user clicks Play. If someone flips
+// VIBRATION_AUTO_PLAY back to true, this test fails.
+test('vibration viewer starts paused (issue #65)', () => {
+  assert.equal(VIBRATION_AUTO_PLAY, false)
+})
+
 const crc32c = (bytes: Uint8Array): number => {
   let crc = 0xffffffff
   for (const byte of bytes) {
@@ -275,7 +283,7 @@ test('sanitizes suggested save-file names', () => {
 
 test('posts export payloads to the save-file endpoint with the session capability', async () => {
   const page = new URL('http://127.0.0.1/vibration.html?cap=testcap')
-  const requested: { url: string; method?: string; type?: string; body?: number[] } = []
+  const requested: { url: string; method?: string; type?: string; body?: number[] }[] = []
   const request = async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
     requested.push({
       url: String(input),

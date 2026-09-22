@@ -239,13 +239,18 @@ scope of this change.
 
 `vibration.html` is a standalone entry document, separate from the workbench
 payload schema. It renders the `multiwfn-matterviz-vibration` version 1 session
-emitted by the Fortran adapter from the spectrum menu (main function 11, option
-26 "Animate vibrational modes in MatterViz GUI", IR/Raman/VCD/ROA of a single
-system); the desktop shell opens it instead of `index.html` for that manifest
-format. Mode frequencies and optional IR/Raman intensities arrive inline in the
-manifest; displacement vectors arrive as one flat MWFNP2D dataset in mode-major
-`[mode][atom][xyz]` order, fetched from the authenticated `/api/plot-data/<id>`
-route. The full contract is documented in
+produced by the standalone launcher
+[`../../tools/multiwfn_vibration_viewer.py`](../../tools/multiwfn_vibration_viewer.py):
+the launcher parses a Gaussian, ORCA, CP2K or xTB frequency output file itself,
+serves the session over a loopback HTTP service and opens the desktop shell
+with `--url .../vibration.html?manifest=/session/manifest.json`, initially
+paused. No Multiwfn process or source change is involved; when an output file
+lacks displacement data, the launcher's `--compute` option drives the existing
+GUI-enabled Multiwfn executable as an external batch engine over stdin menus.
+Mode frequencies and optional IR intensities arrive inline in the manifest;
+displacement vectors arrive as one flat MWFNP2D dataset in mode-major
+`[mode][atom][xyz]` order, fetched from the `/api/plot-data/<id>` route of the
+session service. The full contract is documented in
 [`../../docs/matterviz-vibration-protocol.md`](../../docs/matterviz-vibration-protocol.md).
 
 The animation model follows the upstream MatterViz phonon components
@@ -258,7 +263,7 @@ the arrow overlay stays in sync with the animation. Multiwfn vibrations are
 molecular Gamma-point modes; no q-points, supercells or lattices are involved.
 Imaginary (negative) frequencies are flagged in the mode list. The page issues
 no backend commands beyond the generic `/api/ready` and `/api/return`
-lifecycle endpoints.
+lifecycle endpoints and the `/api/save-file` export route.
 
 ## Build
 

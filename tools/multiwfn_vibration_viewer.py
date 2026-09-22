@@ -1,34 +1,1278 @@
 #!/usr/bin/env python3
-"""Standalone vibrational mode animation entry for Multiwfn + MatterViz.
+"""Standalone MatterViz vibrational mode animation launcher for Multiwfn.
 
-This launcher follows the external-orchestration model recorded in
-docs/matterviz-control-protocol.md and issue #58: Multiwfn stays the scientific
-engine and is driven entirely from the outside by feeding numeric menu inputs
-into its stdin. No Multiwfn core behavior is changed by this program.
+This program follows the external-orchestration model recorded in
+docs/matterviz-vibration-protocol.md and issue #58: no Multiwfn source code is
+involved or modified. The launcher itself parses the vibrational data of a
+Gaussian, ORCA, CP2K or xTB frequency output file (mirroring the conventions of
+the Multiwfn spectrum module's PVS normal-coordinate analysis), builds a
+MatterViz vibration session (manifest.json + structure.json + one MWFNP2D
+binary displacement dataset), serves it over a loopback HTTP service and opens
+the session in the matterviz-desktop shell with `--url`. The viewer page
+(vibration.html) loads the session initially paused.
 
 Pipeline:
-  1. Start `Multiwfn <output-file>` (Gaussian/ORCA/CP2K frequency output).
-  2. Feed the menu path to the vibrational mode animation entry:
-       11            main function 11 (plot spectra)
-       <spectrum>    1=IR, 2=Raman, 5=VCD, 6=ROA
-       26            "Animate vibrational modes in MatterViz GUI"
-  3. Multiwfn parses the normal modes, spawns the MatterViz host and opens the
-     vibration page. The launcher waits until the user returns from the GUI.
-  4. Feed `-3` (leave the spectrum menu) and `q` (exit Multiwfn gracefully).
+  1. Parse frequencies, optional IR intensities, per-atom normal-mode
+     displacement vectors and the final geometry from the output file(s).
+  2. Write the session files into a temporary directory (or --session-dir).
+  3. Serve /session/* and /api/plot-data/<id> on http://127.0.0.1:<port>.
+  4. Launch matterviz-desktop --url <session url> and wait until the user
+     returns from the GUI (/api/return, gui_stop.flag or shell exit), then
+     shut the HTTP service down.
 
-xTB note: for xTB output files Multiwfn additionally asks for the companion
-g98.out path; pass it with --g98-out and it is fed at the right prompt.
+When an input file lacks displacement data (e.g. a frequency run that did not
+print normal modes), --compute first drives the existing GUI-enabled Multiwfn
+executable (or any wrapper engine) as an external batch process: the tasks are
+queued, each `Multiwfn <file>` process is fed numeric menu lines over stdin,
+its stdout is captured to a log file and that log is parsed again. Use
+--multiwfn to point at the executable.
+
+xTB note: xTB output carries frequencies/intensities but no normal-mode
+vectors; pass the companion g98.out produced by `xtb --g98` via --g98-out. The
+geometry and the displacements are both read from g98.out (same atom order),
+so the xTB flow never needs any geometry before the g98.out path is known.
+
+CLI:
+  python3 tools/multiwfn_vibration_viewer.py OUTPUT [OUTPUT ...]
+      [--g98-out PATH] [--multiwfn EXE] [--compute] [--no-launch]
+      [--session-dir DIR] [--export-dir DIR] [--port N]
 """
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass, field
+import http.server
+import json
+import math
+import mimetypes
 import os
 from pathlib import Path
+import re
+import secrets
 import shutil
+import socket
+import socketserver
+import struct
 import subprocess
 import sys
+import tempfile
+import threading
+import time
+import urllib.parse
 
-SPECTRUM_CODES = {"ir": "1", "raman": "2", "vcd": "5", "roa": "6"}
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+class VibrationError(ValueError):
+    """The input could not be parsed into a vibration session."""
+
+
+class UnsupportedFormatError(VibrationError):
+    """The input file is not a supported program output."""
+
+
+class MissingDisplacementError(VibrationError):
+    """Frequencies parsed but the normal-mode displacement data is absent."""
+
+
+# ---------------------------------------------------------------------------
+# CRC32C (Castagnoli, reflected polynomial 0x82F63B78) and MWFNP2D v1 framing
+# ---------------------------------------------------------------------------
+
+_CRC32C_TABLE: list[int] | None = None
+
+
+def _crc32c_table() -> list[int]:
+    global _CRC32C_TABLE
+    if _CRC32C_TABLE is None:
+        table = []
+        for value in range(256):
+            crc = value
+            for _ in range(8):
+                crc = (crc >> 1) ^ (0x82F63B78 & -(crc & 1))
+            table.append(crc)
+        _CRC32C_TABLE = table
+    return _CRC32C_TABLE
+
+
+def crc32c(data: bytes) -> int:
+    table = _crc32c_table()
+    crc = 0xFFFFFFFF
+    for byte in data:
+        crc = table[(crc ^ byte) & 0xFF] ^ (crc >> 8)
+    return (~crc) & 0xFFFFFFFF
+
+
+PLOT_DATA_MAGIC = b"MWFNP2D\x00"
+PLOT_DATA_HEADER_BYTES = 80
+PLOT_DATA_ENTRY_BYTES = 32
+PLOT_DATA_ROLE_U = 4
+PLOT_DATA_MIME = "application/vnd.multiwfn.matterviz-plot-data-v1"
+
+
+def encode_plot_dataset(dataset_id: int, values, role: int = PLOT_DATA_ROLE_U) -> bytes:
+    """Encode one single-array MWFNP2D v1 frame (docs/matterviz-plot-protocol-v2.md).
+
+    The layout mirrors the JavaScript reference in
+    frontend/matterviz-viewer/tests/vibration.test.ts: an 80-byte little-endian
+    header, one 32-byte directory entry per array and a contiguous f64 body.
+    The header CRC is computed over the final header with its own field zeroed.
+    """
+    if not isinstance(dataset_id, int) or dataset_id <= 0:
+        raise ValueError("dataset_id must be a positive integer")
+    values = list(values)
+    body = struct.pack(f"<{len(values)}d", *values)
+
+    entry = bytearray(PLOT_DATA_ENTRY_BYTES)
+    entry[0] = role
+    struct.pack_into("<Q", entry, 8, len(values))
+    struct.pack_into("<Q", entry, 16, 0)
+    struct.pack_into("<Q", entry, 24, len(body))
+
+    header = bytearray(PLOT_DATA_HEADER_BYTES)
+    header[0:8] = PLOT_DATA_MAGIC
+    struct.pack_into("<H", header, 8, 1)   # major version
+    struct.pack_into("<H", header, 10, 0)  # minor version
+    struct.pack_into("<H", header, 12, 1)  # dataset type
+    struct.pack_into("<H", header, 14, 1)  # flags
+    struct.pack_into("<I", header, 16, PLOT_DATA_HEADER_BYTES)
+    struct.pack_into("<Q", header, 20, dataset_id)
+    struct.pack_into("<I", header, 28, 1)  # array count
+    struct.pack_into("<I", header, 32, PLOT_DATA_ENTRY_BYTES)
+    struct.pack_into("<Q", header, 36, PLOT_DATA_ENTRY_BYTES)  # directory bytes
+    struct.pack_into("<Q", header, 44, len(body))
+    struct.pack_into("<Q", header, 52, len(values))
+    # offset 60: header CRC (kept zero until the header is final)
+    struct.pack_into("<I", header, 64, crc32c(body))
+    # offset 68: reserved, zero
+    struct.pack_into("<Q", header, 72, PLOT_DATA_HEADER_BYTES + PLOT_DATA_ENTRY_BYTES + len(body))
+    struct.pack_into("<I", header, 60, crc32c(bytes(header)))
+    return bytes(header) + bytes(entry) + body
+
+
+# ---------------------------------------------------------------------------
+# Vibrational data model and shared validation
+# ---------------------------------------------------------------------------
+
+ELEMENTS = [
+    "X",
+    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
+    "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca",
+    "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
+    "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr",
+    "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn",
+    "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd",
+    "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb",
+    "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg",
+    "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th",
+    "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm",
+    "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds",
+    "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og",
+]
+
+
+@dataclass
+class AtomSite:
+    element: str
+    z: int
+    x: float
+    y: float
+    z_coord: float
+
+
+@dataclass
+class VibrationData:
+    source_program: str               # gaussian | orca | cp2k | xtb
+    spectrum_kind: str | None         # "ir" when IR intensities were parsed
+    intensity_unit: str | None        # "km/mol" for IR
+    atoms: list[AtomSite] = field(default_factory=list)
+    frequencies: list[float] = field(default_factory=list)
+    intensities: list[float] | None = None
+    # Flat mode-major [mode][atom][xyz] normalized Cartesian displacement
+    # patterns as printed by the source program (not mass weighted).
+    displacements: list[float] = field(default_factory=list)
+
+    @property
+    def natom(self) -> int:
+        return len(self.atoms)
+
+    @property
+    def nmode(self) -> int:
+        return len(self.frequencies)
+
+
+def _parse_float(token: str) -> float:
+    return float(token.replace("D", "e").replace("d", "e"))
+
+
+def _line_floats(text: str) -> list[float]:
+    values = []
+    for token in text.split():
+        try:
+            values.append(_parse_float(token))
+        except ValueError:
+            break
+    return values
+
+
+def _line_ints(text: str) -> list[int]:
+    values = []
+    for token in text.split():
+        try:
+            values.append(int(token))
+        except ValueError:
+            break
+    return values
+
+
+def validate_vibration_data(data: VibrationData) -> VibrationData:
+    """Mirror the fail-closed checks of the Fortran adapter (matterviz_vibration.f90)."""
+    if data.nmode <= 0:
+        raise VibrationError("No vibrational transitions are loaded")
+    if data.natom <= 0:
+        raise VibrationError(
+            "Vibrational mode animation requires the molecular geometry; "
+            "no coordinate block was found in the input"
+        )
+    if not all(math.isfinite(value) for value in data.frequencies):
+        raise VibrationError("The loaded frequencies contain non-finite values")
+    if data.intensities is not None:
+        if len(data.intensities) != data.nmode:
+            raise VibrationError("The number of intensities does not match the number of modes")
+        if not all(math.isfinite(value) for value in data.intensities):
+            raise VibrationError("The loaded intensities contain non-finite values")
+    for site in data.atoms:
+        if not (math.isfinite(site.x) and math.isfinite(site.y) and math.isfinite(site.z_coord)):
+            raise VibrationError("The loaded geometry contains non-finite coordinates")
+    expected = data.nmode * data.natom * 3
+    if len(data.displacements) != expected:
+        raise VibrationError(
+            f"The displacement table holds {len(data.displacements)} values, expected {expected}"
+        )
+    if not all(math.isfinite(value) for value in data.displacements):
+        raise VibrationError("The normal-mode table contains non-finite values")
+    for imode in range(data.nmode):
+        base = imode * data.natom * 3
+        total = sum(value * value for value in data.displacements[base:base + data.natom * 3])
+        if total <= 0.0:
+            raise VibrationError(f"Mode {imode + 1} has a zero displacement vector")
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Output program detection, mirroring outputprog in util.f90
+# ---------------------------------------------------------------------------
+
+def _contains_label(lines: list[str], label: str, maxline: int) -> bool:
+    for line in lines[:maxline]:
+        if label in line:
+            return True
+    return False
+
+
+def detect_program(path) -> str:
+    lines = _read_lines(path)
+    if _contains_label(lines, "Gaussian, Inc", 500) or _contains_label(lines, "Entering Gaussian System", 200):
+        return "gaussian"
+    if _contains_label(lines, "O   R   C   A", 500):
+        return "orca"
+    if _contains_label(lines, "CP2K|", 500):
+        return "cp2k"
+    if _contains_label(lines, "x T B", 500):
+        return "xtb"
+    raise UnsupportedFormatError(
+        "Vibrational mode animation is not supported for this input file; "
+        "Gaussian, ORCA, CP2K and xTB output files are supported"
+    )
+
+
+def _read_lines(path) -> list[str]:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.read().splitlines()
+    except OSError as exc:
+        raise VibrationError(f"Unable to open the input file: {path} ({exc})") from exc
+
+
+def _rindex(lines: list[str], label: str) -> int | None:
+    for index in range(len(lines) - 1, -1, -1):
+        if label in lines[index]:
+            return index
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Per-atom displacement tables ("Atom  AN" / "Atom AN" / "ATOM  EL" blocks),
+# mirroring read_mode_atom_tables: three modes per block, one row per atom,
+# list-directed (token) fields. Fixed atoms stay zero.
+# ---------------------------------------------------------------------------
+
+def _read_mode_atom_tables(
+    lines: list[str],
+    label_pattern: re.Pattern,
+    natom: int,
+    nmodes: int,
+    label: str,
+) -> list[list[list[float]]]:
+    norm = [[[0.0, 0.0, 0.0] for _ in range(natom)] for _ in range(nmodes)]
+    cursor = 0
+    inow = 0
+    while inow < nmodes:
+        iread = min(3, nmodes - inow)
+        found = None
+        for index in range(cursor, len(lines)):
+            if label_pattern.search(lines[index]):
+                found = index
+                break
+        if found is None:
+            raise MissingDisplacementError(
+                f'Unable to find the normal-mode displacement table ("{label}") in the output file'
+            )
+        row = found + 1  # the label line itself carries the X Y Z column header
+        while row < len(lines):
+            line = lines[row]
+            if line[:6].strip() == "":
+                break
+            tokens = line.split()
+            try:
+                iatm = int(tokens[0])
+            except (ValueError, IndexError):
+                raise VibrationError("Unexpected atom index in the normal-mode displacement table") from None
+            if iatm < 1 or iatm > natom:
+                raise VibrationError("Unexpected atom index in the normal-mode displacement table")
+            try:
+                values = [_parse_float(token) for token in tokens[2:2 + 3 * iread]]
+            except ValueError:
+                raise VibrationError("Failed to parse the normal-mode displacement table") from None
+            if len(values) != 3 * iread:
+                raise VibrationError("Failed to parse the normal-mode displacement table")
+            for imode in range(iread):
+                norm[inow + imode][iatm - 1] = values[3 * imode:3 * imode + 3]
+            row += 1
+        cursor = row
+        inow += iread
+    return norm
+
+
+def _flatten_modes(norm: list[list[list[float]]]) -> list[float]:
+    return [component for mode in norm for atom in mode for component in atom]
+
+
+# ---------------------------------------------------------------------------
+# Gaussian output (also used for the xTB companion g98.out)
+# ---------------------------------------------------------------------------
+
+_GAUSSIAN_TABLE_LABEL = re.compile(r"Atom\s+AN\b")
+
+
+def _gaussian_geometry(lines: list[str], source: str) -> list[AtomSite]:
+    for label in ("Standard orientation:", "Input orientation:"):
+        index = _rindex(lines, label)
+        if index is None:
+            continue
+        atoms = []
+        row = index + 5  # label, dashed line, two column headers, dashed line
+        while row < len(lines) and "----" not in lines[row]:
+            tokens = lines[row].split()
+            if len(tokens) < 6:
+                raise VibrationError(f"Failed to parse the {label} coordinate block in {source}")
+            try:
+                atomic_number = int(tokens[1])
+                x, y, z = (_parse_float(token) for token in tokens[3:6])
+            except ValueError:
+                raise VibrationError(f"Failed to parse the {label} coordinate block in {source}") from None
+            element = ELEMENTS[atomic_number] if 0 <= atomic_number < len(ELEMENTS) else "X"
+            atoms.append(AtomSite(element, atomic_number, x, y, z))
+            row += 1
+        if not atoms:
+            raise VibrationError(f"The {label} coordinate block in {source} is empty")
+        return atoms
+    raise VibrationError(
+        f"Unable to find a Standard or Input orientation coordinate block in {source}"
+    )
+
+
+def _labeled_series(lines: list[str], label: str) -> list[float]:
+    """Concatenate the numeric tails of repeated 'Label -- v1 v2 v3' rows."""
+    values = []
+    for line in lines:
+        if label in line and "--" in line:
+            tail = line.split("--", 1)[1]
+            try:
+                values.extend(_parse_float(token) for token in tail.split())
+            except ValueError:
+                raise VibrationError(f"Failed to parse a '{label.strip()}' line in the output file") from None
+    return values
+
+
+def _mode_count_from_blocks(lines: list[str], label: str, index_offset: int) -> int | None:
+    """Mode count from the index row above the LAST 'Label --' block.
+
+    Mirrors the spectrum module: repeated frequency sections restart their
+    numbering, and the final block decides how many transitions are loaded.
+    """
+    count = None
+    for index, line in enumerate(lines):
+        if label in line and index - index_offset >= 0:
+            numbers = _line_ints(lines[index - index_offset])
+            if numbers:
+                count = max(numbers)
+    return count
+
+
+def _parse_gaussian_family(path, source_program: str, table_label: re.Pattern, table_name: str) -> VibrationData:
+    lines = _read_lines(path)
+    atoms = _gaussian_geometry(lines, str(path))
+
+    frequencies = _labeled_series(lines, "Frequencies -- ")
+    if not frequencies:
+        raise VibrationError(f"No vibrational frequencies ('Frequencies --') were found in {path}")
+    count = _mode_count_from_blocks(lines, "Frequencies -- ", 2)
+    if count is None:
+        count = len(frequencies)
+    if len(frequencies) < count:
+        raise VibrationError("The frequency table is truncated in the output file")
+    frequencies = frequencies[:count]
+
+    intensities = _labeled_series(lines, "IR Inten    --")
+    spectrum_kind = None
+    intensity_unit = None
+    if intensities:
+        if len(intensities) < count:
+            raise VibrationError("The IR intensity table is truncated in the output file")
+        intensities = intensities[:count]
+        spectrum_kind = "ir"
+        intensity_unit = "km/mol"
+    else:
+        intensities = None
+
+    norm = _read_mode_atom_tables(lines, table_label, len(atoms), count, table_name)
+    data = VibrationData(
+        source_program=source_program,
+        spectrum_kind=spectrum_kind,
+        intensity_unit=intensity_unit,
+        atoms=atoms,
+        frequencies=frequencies,
+        intensities=intensities,
+        displacements=_flatten_modes(norm),
+    )
+    return validate_vibration_data(data)
+
+
+def parse_gaussian_output(path) -> VibrationData:
+    return _parse_gaussian_family(path, "gaussian", _GAUSSIAN_TABLE_LABEL, "Atom  AN")
+
+
+# ---------------------------------------------------------------------------
+# ORCA output: full normal-mode matrix, LAST section of repeated runs
+# ---------------------------------------------------------------------------
+
+_ORCA_GEOMETRY_LABEL = "CARTESIAN COORDINATES (ANGSTROEM)"
+_ORCA_FIRST_VIB_LABEL = "The first frequency considered to be a vibration is"
+_ORCA_MATRIX_LABEL = "Thus, these vectors are normalized but"
+_ORCA_FREQ_LINE = re.compile(r"^\s*\d+:\s+[-+0-9.eEdD]+\s+cm\*\*-1")
+_ORCA_MODE_ROW = re.compile(r"^\s*\d+:")
+
+
+def _orca_geometry(lines: list[str]) -> list[AtomSite]:
+    index = _rindex(lines, _ORCA_GEOMETRY_LABEL)
+    if index is None:
+        raise VibrationError(
+            'Unable to find the "CARTESIAN COORDINATES (ANGSTROEM)" block in the ORCA output file'
+        )
+    atoms = []
+    row = index + 2  # label line and dashed line
+    while row < len(lines) and lines[row].strip() != "":
+        tokens = lines[row].split()
+        if len(tokens) < 4:
+            raise VibrationError("Failed to parse the ORCA coordinate block")
+        try:
+            x, y, z = (_parse_float(token) for token in tokens[1:4])
+        except ValueError:
+            raise VibrationError("Failed to parse the ORCA coordinate block") from None
+        element = tokens[0].capitalize()
+        z_number = ELEMENTS.index(element) if element in ELEMENTS else 0
+        atoms.append(AtomSite(element, z_number, x, y, z))
+        row += 1
+    if not atoms:
+        raise VibrationError("The ORCA coordinate block is empty")
+    return atoms
+
+
+def _orca_first_vibration(lines: list[str]) -> int:
+    index = _rindex(lines, _ORCA_FIRST_VIB_LABEL)
+    if index is None:
+        raise MissingDisplacementError(
+            "Unable to find the vibrational frequencies section in the ORCA output file"
+        )
+    line = lines[index]
+    tail = line[52:] if len(line) > 52 else ""
+    numbers = _line_ints(tail) or _line_ints(line.rsplit("is", 1)[-1])
+    if not numbers or numbers[0] < 0:
+        raise VibrationError("Failed to locate the first vibrational mode in the ORCA output file")
+    return numbers[0]
+
+
+def _orca_frequencies(lines: list[str], iskip: int) -> tuple[list[float], list[float] | None]:
+    """Frequencies/intensities from the LAST IR SPECTRUM table, else the raw cm**-1 list."""
+    index = _rindex(lines, "IR SPECTRUM")
+    if index is not None:
+        rows = []
+        for line in lines[index + 1:]:
+            if _ORCA_MODE_ROW.match(line):
+                rows.append(line)
+            elif rows:
+                break
+        frequencies: list[float] = []
+        intensities: list[float] = []
+        for line in rows:
+            tokens = line.rstrip(":").split()
+            tokens[0] = tokens[0].rstrip(":")
+            try:
+                frequencies.append(_parse_float(tokens[1]))
+            except (ValueError, IndexError):
+                raise VibrationError("Failed to parse the ORCA IR spectrum table") from None
+            try:
+                intensities.append(_parse_float(tokens[2]))
+            except (ValueError, IndexError):
+                intensities.append(float("nan"))
+        if frequencies:
+            if any(not math.isfinite(value) for value in intensities):
+                return frequencies, None
+            return frequencies, intensities
+    # Fall back to the plain frequency list of the LAST VIBRATIONAL FREQUENCIES section.
+    section = _rindex(lines, "VIBRATIONAL FREQUENCIES")
+    if section is None:
+        raise VibrationError(
+            "Unable to find the vibrational frequencies in the ORCA output file"
+        )
+    stop = _rindex(lines, _ORCA_MATRIX_LABEL)
+    if stop is None or stop < section:
+        stop = len(lines)
+    frequencies = []
+    for line in lines[section + 1:stop]:
+        if _ORCA_FREQ_LINE.match(line):
+            try:
+                frequencies.append(_parse_float(line.split(":", 1)[1].split()[0]))
+            except (ValueError, IndexError):
+                raise VibrationError("Failed to parse the ORCA vibrational frequencies") from None
+    frequencies = frequencies[iskip:]
+    if not frequencies:
+        raise VibrationError("No vibrational frequencies were found in the ORCA output file")
+    return frequencies, None
+
+
+def _orca_mode_matrix(lines: list[str], natom: int, nmodes: int, iskip: int) -> list[list[list[float]]]:
+    """Full normal-mode matrix of the LAST frequency section, f11.6 fields of 6 columns."""
+    index = _rindex(lines, _ORCA_MATRIX_LABEL)
+    if index is None:
+        raise MissingDisplacementError(
+            "Unable to find the normal-mode matrix in the ORCA output file"
+        )
+    ncols = iskip + nmodes
+    nrows = 3 * natom
+    matrix: list[list[float]] = [[] for _ in range(nrows)]
+    row = index + 2  # marker line and the "NORMAL MODES" title line
+    columns_read = 0
+    while columns_read < ncols:
+        block_cols = min(6, ncols - columns_read)
+        row += 1  # column-number header of this frame
+        for irow in range(nrows):
+            if row >= len(lines):
+                raise VibrationError("Failed to parse the normal-mode matrix in the ORCA output file")
+            body = lines[row][11:]  # inskipcol=11 row label
+            for icol in range(block_cols):
+                field = body[11 * icol:11 * icol + 11].strip()
+                try:
+                    value = _parse_float(field) if field else 0.0
+                except ValueError:
+                    raise VibrationError(
+                        "Failed to parse the normal-mode matrix in the ORCA output file"
+                    ) from None
+                matrix[irow].append(value)
+            row += 1
+        columns_read += block_cols
+    norm = [
+        [[matrix[3 * iatm + idir][iskip + imode] for idir in range(3)] for iatm in range(natom)]
+        for imode in range(nmodes)
+    ]
+    return norm
+
+
+def parse_orca_output(path) -> VibrationData:
+    lines = _read_lines(path)
+    atoms = _orca_geometry(lines)
+    iskip = _orca_first_vibration(lines)
+    frequencies, intensities = _orca_frequencies(lines, iskip)
+    norm = _orca_mode_matrix(lines, len(atoms), len(frequencies), iskip)
+    data = VibrationData(
+        source_program="orca",
+        spectrum_kind="ir" if intensities is not None else None,
+        intensity_unit="km/mol" if intensities is not None else None,
+        atoms=atoms,
+        frequencies=frequencies,
+        intensities=intensities,
+        displacements=_flatten_modes(norm),
+    )
+    return validate_vibration_data(data)
+
+
+# ---------------------------------------------------------------------------
+# CP2K output: "VIB|Frequency (cm^-1)" blocks and "ATOM  EL" tables
+# ---------------------------------------------------------------------------
+
+_CP2K_TABLE_LABEL = re.compile(r"ATOM\s+EL\b")
+_CP2K_FREQ_LABEL = "VIB|Frequency (cm^-1)"
+_CP2K_INTENSITY_PREFIX = re.compile(r"^\s*VIB\|[^0-9+\-.]*")
+_CP2K_QUICKSTEP_ROW = re.compile(r"^\s*\d+\s+\d+\s+([A-Za-z]{1,3})\s+")
+
+
+def _cp2k_geometry(lines: list[str]) -> list[AtomSite]:
+    coord_index = None
+    for index in range(len(lines) - 1, -1, -1):
+        if re.search(r"&COORD\b", lines[index], re.IGNORECASE):
+            coord_index = index
+            break
+    if coord_index is not None:
+        atoms = []
+        for line in lines[coord_index + 1:]:
+            if re.search(r"&END\b", line, re.IGNORECASE):
+                break
+            tokens = line.split()
+            if len(tokens) < 4:
+                continue
+            match = re.match(r"[A-Za-z]+", tokens[0])
+            if match is None:
+                continue
+            try:
+                x, y, z = (_parse_float(token) for token in tokens[1:4])
+            except ValueError:
+                continue
+            element = match.group(0).capitalize()
+            z_number = ELEMENTS.index(element) if element in ELEMENTS else 0
+            atoms.append(AtomSite(element, z_number, x, y, z))
+        if atoms:
+            return atoms
+    # Fall back to the "MODULE QUICKSTEP: ATOMIC COORDINATES IN angstrom" section.
+    quickstep = None
+    for index in range(len(lines) - 1, -1, -1):
+        if "MODULE QUICKSTEP" in lines[index] and "ATOMIC COORDINATES" in lines[index]:
+            quickstep = index
+            break
+    if quickstep is None:
+        raise VibrationError(
+            "Unable to find a &COORD block or MODULE QUICKSTEP coordinate section in the CP2K output file"
+        )
+    atoms = []
+    started = False
+    for line in lines[quickstep + 1:]:
+        match = _CP2K_QUICKSTEP_ROW.match(line)
+        if match is None:
+            if started:
+                break
+            continue
+        tokens = line.split()
+        if len(tokens) < 6:
+            if started:
+                break
+            continue
+        try:
+            x, y, z = (_parse_float(token) for token in tokens[3:6])
+        except ValueError:
+            if started:
+                break
+            continue
+        element = match.group(1).capitalize()
+        z_number = ELEMENTS.index(element) if element in ELEMENTS else 0
+        atoms.append(AtomSite(element, z_number, x, y, z))
+        started = True
+    if not atoms:
+        raise VibrationError("The CP2K coordinate section is empty")
+    return atoms
+
+
+def parse_cp2k_output(path) -> VibrationData:
+    lines = _read_lines(path)
+    atoms = _cp2k_geometry(lines)
+
+    frequencies: list[float] = []
+    intensities: list[float] = []
+    have_intensity = True
+    for index, line in enumerate(lines):
+        if _CP2K_FREQ_LABEL not in line:
+            continue
+        tail = line.split("(cm^-1)", 1)[1]
+        block_freqs = _line_floats(tail)
+        if not block_freqs:
+            raise VibrationError("Failed to parse a CP2K frequency line")
+        frequencies.extend(block_freqs)
+        if index + 1 < len(lines) and "VIB|" in lines[index + 1]:
+            intensity_tail = _CP2K_INTENSITY_PREFIX.sub("", lines[index + 1])
+            block_intensities = _line_floats(intensity_tail)
+        else:
+            block_intensities = []
+        if len(block_intensities) < len(block_freqs):
+            have_intensity = False
+        intensities.extend(block_intensities[:len(block_freqs)])
+    if not frequencies:
+        raise VibrationError(
+            "No vibrational frequencies ('VIB|Frequency (cm^-1)') were found in the CP2K output file"
+        )
+
+    count = None
+    for index, line in enumerate(lines):
+        if _CP2K_FREQ_LABEL in line and index >= 1:
+            numbers = _line_ints(lines[index - 1].replace("VIB|", " "))
+            if numbers:
+                count = max(numbers)
+    if count is None:
+        count = len(frequencies)
+    if len(frequencies) < count:
+        raise VibrationError("The CP2K frequency table is truncated in the output file")
+    frequencies = frequencies[:count]
+    if have_intensity and len(intensities) >= count:
+        intensities = intensities[:count]
+        spectrum_kind = "ir"
+        intensity_unit = "km/mol"
+    else:
+        intensities = None
+        spectrum_kind = None
+        intensity_unit = None
+
+    norm = _read_mode_atom_tables(lines, _CP2K_TABLE_LABEL, len(atoms), count, "ATOM  EL")
+    data = VibrationData(
+        source_program="cp2k",
+        spectrum_kind=spectrum_kind,
+        intensity_unit=intensity_unit,
+        atoms=atoms,
+        frequencies=frequencies,
+        intensities=intensities,
+        displacements=_flatten_modes(norm),
+    )
+    return validate_vibration_data(data)
+
+
+# ---------------------------------------------------------------------------
+# xTB output: frequencies from "$vibrational spectrum", geometry and
+# displacements from the companion g98.out (same atom order)
+# ---------------------------------------------------------------------------
+
+_XTB_G98_TABLE_LABEL = re.compile(r"Atom\s+AN\b")
+
+
+def parse_xtb_output(path, g98_path=None) -> VibrationData:
+    lines = _read_lines(path)
+    section = None
+    for index, line in enumerate(lines[:100]):
+        if "$vibrational spectrum" in line:
+            section = index
+            break
+    if section is None:
+        raise VibrationError(
+            "Unable to recognize the xTB vibrational spectrum section in the output file"
+        )
+    if g98_path is None:
+        raise VibrationError(
+            "xTB output files carry no normal-mode vectors; pass the companion "
+            "g98.out produced by xTB with --g98-out"
+        )
+
+    frequencies: list[float] = []
+    intensities: list[float] = []
+    for line in lines[section + 1:]:
+        if line.strip() == "":
+            break
+        if "#" in line or "$" in line or " - " in line:
+            continue
+        tokens = line.split()
+        if len(tokens) == 4:
+            freq_token, intensity_token = tokens[2], tokens[3]
+        elif len(tokens) == 3:
+            freq_token, intensity_token = tokens[1], tokens[2]
+        else:
+            raise VibrationError("Failed to parse the xTB vibrational spectrum section")
+        try:
+            frequencies.append(_parse_float(freq_token))
+            intensities.append(_parse_float(intensity_token))
+        except ValueError:
+            raise VibrationError("Failed to parse the xTB vibrational spectrum section") from None
+    if not frequencies:
+        raise VibrationError("No vibrational frequencies were found in the xTB output file")
+
+    # Geometry and displacements both come from g98.out, so the atom order of
+    # the structure always matches the displacement tables.
+    g98_lines = _read_lines(g98_path)
+    atoms = _gaussian_geometry(g98_lines, str(g98_path))
+    norm = _read_mode_atom_tables(g98_lines, _XTB_G98_TABLE_LABEL, len(atoms), len(frequencies), "Atom AN")
+    data = VibrationData(
+        source_program="xtb",
+        spectrum_kind="ir",
+        intensity_unit="km/mol",
+        atoms=atoms,
+        frequencies=frequencies,
+        intensities=intensities,
+        displacements=_flatten_modes(norm),
+    )
+    return validate_vibration_data(data)
+
+
+def load_vibration_input(path, g98_out=None) -> VibrationData:
+    program = detect_program(path)
+    if program == "gaussian":
+        return parse_gaussian_output(path)
+    if program == "orca":
+        return parse_orca_output(path)
+    if program == "cp2k":
+        return parse_cp2k_output(path)
+    if program == "xtb":
+        return parse_xtb_output(path, g98_out)
+    raise UnsupportedFormatError(program)  # pragma: no cover - detect_program is exhaustive
+
+
+# ---------------------------------------------------------------------------
+# Session files: manifest.json + structure.json
+# ---------------------------------------------------------------------------
+
+MANIFEST_FORMAT = "multiwfn-matterviz-vibration"
+MANIFEST_VERSION = 1
+GENERATED_BY = "multiwfn_vibration_viewer.py"
+DISPLACEMENT_CONVENTION = "normalized Cartesian (not mass weighted), as printed by the source program"
+DATASET_ID = 1
+
+
+def build_manifest(data: VibrationData, dataset_id: int = DATASET_ID) -> dict:
+    modes = []
+    for index, frequency in enumerate(data.frequencies):
+        intensity = data.intensities[index] if data.intensities is not None else None
+        modes.append({"index": index + 1, "frequency": frequency, "intensity": intensity})
+    return {
+        "format": MANIFEST_FORMAT,
+        "version": MANIFEST_VERSION,
+        "generatedBy": GENERATED_BY,
+        "structure": {"path": "structure.json", "format": "json"},
+        "vibrations": {
+            "sourceProgram": data.source_program,
+            "spectrumKind": data.spectrum_kind,
+            "atomCount": data.natom,
+            "modeCount": data.nmode,
+            "coordinateUnit": "angstrom",
+            "frequencyUnit": "cm^-1",
+            "intensityUnit": data.intensity_unit,
+            "displacementConvention": DISPLACEMENT_CONVENTION,
+            "modes": modes,
+            "displacements": {
+                "datasetId": dataset_id,
+                "format": "mwfn-plot-data-v1",
+                "role": "u",
+                "layout": "mode-major-atom-xyz",
+                "shape": [data.nmode, data.natom, 3],
+            },
+        },
+    }
+
+
+def build_structure(data: VibrationData) -> dict:
+    sites = []
+    for index, site in enumerate(data.atoms):
+        properties = {"multiwfnGhost": True} if site.z == 0 else {}
+        sites.append({
+            "species": [{"element": site.element, "occu": 1, "oxidation_state": 0}],
+            "abc": [0, 0, 0],
+            "xyz": [site.x, site.y, site.z_coord],
+            "label": f"{site.element}{index + 1}",
+            "properties": properties,
+        })
+    # Output files carry no connectivity; an empty bond list is dropped by the
+    # viewer so the renderer auto-detects bonds.
+    return {"sites": sites, "charge": 0, "properties": {"bonds": []}}
+
+
+def write_session(data: VibrationData, session_dir: Path, dataset_id: int = DATASET_ID) -> dict:
+    session_dir = Path(session_dir)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    manifest = build_manifest(data, dataset_id)
+    (session_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    (session_dir / "structure.json").write_text(
+        json.dumps(build_structure(data), indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
+# ---------------------------------------------------------------------------
+# Loopback HTTP service for the session
+# ---------------------------------------------------------------------------
+
+STOP_FLAG_NAME = "gui_stop.flag"
+STARTUP_STATUS_NAME = "gui_startup.status"
+STARTUP_STATUS_ENV = "MULTIWFN_MATTERVIZ_STARTUP_STATUS"
+STARTUP_TOKEN_ENV = "MULTIWFN_MATTERVIZ_STARTUP_TOKEN"
+STOP_FILE_ENV = "MULTIWFN_MATTERVIZ_STOP_FILE"
+STARTUP_TIMEOUT_ENV = "MULTIWFN_MATTERVIZ_STARTUP_TIMEOUT"
+DEFAULT_STARTUP_TIMEOUT = 15.0
+STARTUP_POLL_INTERVAL = 0.02
+SHELL_STOP_GRACE_SECONDS = 2.0
+
+
+def sanitize_save_file_name(filename: str | None) -> str:
+    """Mirror sanitize_save_file_name in frontend/matterviz-viewer/src/vibration.ts."""
+    name = re.split(r"[\\/]", filename or "")[-1].strip()
+    cleaned = "".join(
+        character for character in name if ord(character) >= 0x20 and ord(character) != 0x7F
+    )
+    return cleaned if cleaned not in ("", ".", "..") else "export.bin"
+
+
+class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+    allow_reuse_port = False
+
+    def server_bind(self) -> None:
+        # On Windows SO_REUSEADDR permits multiple live servers to bind the
+        # same address; exclusive use keeps session URLs unambiguous.
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def bind_vibration_server(host: str, preferred_port: int, handler) -> http.server.HTTPServer:
+    """Bind once, falling back to an OS-assigned port when preferred is busy."""
+    try:
+        return ThreadingHTTPServer((host, preferred_port), handler)
+    except OSError:
+        if preferred_port == 0:
+            raise
+        return ThreadingHTTPServer((host, 0), handler)
+
+
+def make_vibration_handler(session_dir: Path, datasets: dict[int, bytes], export_dir: Path):
+    session_dir = Path(session_dir).resolve()
+    export_dir = Path(export_dir)
+
+    def send_json(handler, payload: dict, status: int = 200) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    def send_bytes(handler, body: bytes, content_type: str) -> None:
+        handler.send_response(200)
+        handler.send_header("Content-Type", content_type)
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    def send_session_file(handler, request_path: str) -> None:
+        rel = request_path[len("/session/"):]
+        candidate = (session_dir / rel).resolve()
+        try:
+            candidate.relative_to(session_dir)
+        except ValueError:
+            handler.send_error(403, "Invalid session path")
+            return
+        if not candidate.is_file():
+            handler.send_error(404, "File not found")
+            return
+        content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
+        send_bytes(handler, candidate.read_bytes(), content_type)
+
+    def handle_return(handler) -> None:
+        try:
+            (session_dir / STOP_FLAG_NAME).write_text("return\n", encoding="utf-8")
+        except OSError:
+            pass
+        send_json(handler, {"ok": True})
+        threading.Thread(target=handler.server.shutdown, daemon=True).start()
+
+    class VibrationSessionHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt: str, *args) -> None:
+            sys.stderr.write("[multiwfn-vibration] " + fmt % args + "\n")
+
+        def do_GET(self) -> None:  # noqa: N802 - http.server naming
+            request_path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
+            if request_path.startswith("/session/"):
+                send_session_file(self, request_path)
+                return
+            if request_path.startswith("/api/plot-data/"):
+                raw_id = request_path[len("/api/plot-data/"):]
+                try:
+                    dataset_id = int(raw_id)
+                except ValueError:
+                    self.send_error(404, "Unknown plot dataset")
+                    return
+                frame = datasets.get(dataset_id)
+                if frame is None:
+                    self.send_error(404, "Unknown plot dataset")
+                    return
+                send_bytes(self, frame, PLOT_DATA_MIME)
+                return
+            if request_path == "/api/return":
+                handle_return(self)
+                return
+            if request_path == "/api/ready":
+                send_json(self, {"ok": True})
+                return
+            self.send_error(404, "Not found")
+
+        def do_POST(self) -> None:  # noqa: N802 - http.server naming
+            parsed = urllib.parse.urlparse(self.path)
+            request_path = urllib.parse.unquote(parsed.path)
+            if request_path == "/api/ready":
+                send_json(self, {"ok": True})
+                return
+            if request_path == "/api/return":
+                handle_return(self)
+                return
+            if request_path == "/api/save-file":
+                query = urllib.parse.parse_qs(parsed.query)
+                name = sanitize_save_file_name(query.get("name", [None])[0])
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length > 0 else b""
+                try:
+                    export_dir.mkdir(parents=True, exist_ok=True)
+                    target = export_dir / name
+                    target.write_bytes(body)
+                except OSError as exc:
+                    send_json(self, {"ok": False, "message": str(exc)}, status=500)
+                    return
+                send_json(self, {"ok": True, "path": str(target)})
+                return
+            self.send_error(404, "Not found")
+
+    return VibrationSessionHandler
+
+
+# ---------------------------------------------------------------------------
+# Desktop shell resolution and startup (patterns from multiwfn_matterviz_webview.py)
+# ---------------------------------------------------------------------------
+
+def resolve_desktop() -> Path | None:
+    configured = os.environ.get("MULTIWFN_MATTERVIZ_WEBVIEW")
+    if configured:
+        candidate = Path(configured).expanduser().resolve()
+        return candidate if candidate.is_file() else None
+    suffix = ".exe" if os.name == "nt" else ""
+    here = Path(__file__).resolve()
+    candidates = (
+        here.parent / f"matterviz-desktop{suffix}",
+        here.parents[1] / "frontend" / "matterviz-desktop" / "target" / "release" / f"matterviz-desktop{suffix}",
+        here.parents[1] / "build-matterviz-gui" / "resources" / "tools" / f"matterviz-desktop{suffix}",
+    )
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def startup_timeout() -> float:
+    configured = os.environ.get(STARTUP_TIMEOUT_ENV)
+    timeout = float(configured) if configured is not None else DEFAULT_STARTUP_TIMEOUT
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("startup timeout must be a finite positive number")
+    return timeout
+
+
+def wait_for_desktop_startup(process, status_path: Path, token: str, timeout: float) -> tuple[str, str | None]:
+    """Wait until the desktop shell reports ready/error, exits or times out."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            text = status_path.read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, OSError, UnicodeDecodeError):
+            text = ""
+        if text:
+            state = None
+            message = None
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict):
+                candidate = payload.get("status") or payload.get("state")
+                if isinstance(candidate, str) and payload.get("token") == token:
+                    state = candidate.lower()
+                    detail = payload.get("message")
+                    message = detail if isinstance(detail, str) else None
+            else:
+                fields = text.split(maxsplit=2)
+                if fields and fields[0].rstrip(":").lower() in {"ready", "error", "failed"}:
+                    state = fields[0].rstrip(":").lower()
+                    message = fields[-1] if len(fields) >= 2 else None
+            if state is not None:
+                return state, message
+        returncode = process.poll()
+        if returncode is not None:
+            return "early_exit", str(returncode)
+        if time.monotonic() >= deadline:
+            return "timeout", None
+        time.sleep(STARTUP_POLL_INTERVAL)
+
+
+def serve_vibration_session(
+    data: VibrationData,
+    *,
+    session_dir: Path,
+    export_dir: Path,
+    port: int,
+    launch: bool,
+    desktop: Path | None = None,
+) -> int:
+    """Build the session, serve it and (unless launch=False) open the desktop shell."""
+    session_dir = Path(session_dir).resolve()
+    write_session(data, session_dir)
+    frame = encode_plot_dataset(DATASET_ID, data.displacements)
+    handler = make_vibration_handler(session_dir, {DATASET_ID: frame}, export_dir)
+    try:
+        server = bind_vibration_server("127.0.0.1", port, handler)
+    except OSError as exc:
+        print(f"Could not bind the MatterViz vibration service: {exc}", file=sys.stderr)
+        return 2
+    actual_port = int(server.server_address[1])
+    url = f"http://127.0.0.1:{actual_port}/vibration.html?manifest=/session/manifest.json"
+
+    if not launch:
+        print(f"Vibration session : {session_dir}")
+        print(f"Manifest          : {session_dir / 'manifest.json'}")
+        print(f"Session URL       : {url}")
+        server.server_close()
+        return 0
+
+    if desktop is None:
+        desktop = resolve_desktop()
+    if desktop is None:
+        server.server_close()
+        print(
+            "MatterViz desktop executable not found; set MULTIWFN_MATTERVIZ_WEBVIEW to its path.",
+            file=sys.stderr,
+        )
+        return 2
+
+    status_path = session_dir / STARTUP_STATUS_NAME
+    try:
+        status_path.unlink()
+    except OSError:
+        pass
+    token = secrets.token_hex(16)
+    try:
+        timeout = startup_timeout()
+    except ValueError as exc:
+        server.server_close()
+        print(f"MatterViz desktop startup failed: {exc}", file=sys.stderr)
+        return 2
+
+    service_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    service_thread.start()
+    env = os.environ.copy()
+    env[STARTUP_STATUS_ENV] = str(status_path)
+    env[STARTUP_TOKEN_ENV] = token
+    env[STOP_FILE_ENV] = str(session_dir / STOP_FLAG_NAME)
+    try:
+        process = subprocess.Popen([str(desktop), "--url", url], env=env)
+    except OSError as exc:
+        server.shutdown()
+        server.server_close()
+        print(f"Could not launch MatterViz desktop: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"MatterViz vibration session: {url}")
+    exit_code = 0
+    try:
+        state, detail = wait_for_desktop_startup(process, status_path, token, timeout)
+        if state == "ready":
+            while process.poll() is None:
+                if (session_dir / STOP_FLAG_NAME).is_file():
+                    try:
+                        process.wait(timeout=SHELL_STOP_GRACE_SECONDS)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    break
+                time.sleep(0.05)
+        elif state == "early_exit":
+            print(f"MatterViz desktop exited before startup readiness (status {detail}).", file=sys.stderr)
+            exit_code = 2
+        elif state == "timeout":
+            print(f"MatterViz desktop startup timed out after {timeout:g} seconds.", file=sys.stderr)
+            exit_code = 2
+        else:
+            print(f"MatterViz desktop startup error: {detail or state}", file=sys.stderr)
+            exit_code = 2
+    except KeyboardInterrupt:
+        print("MatterViz vibration session interrupted.", file=sys.stderr)
+        exit_code = 2
+    finally:
+        try:
+            (session_dir / STOP_FLAG_NAME).write_text("return\n", encoding="utf-8")
+        except OSError:
+            pass
+        try:
+            server.shutdown()
+        except (OSError, RuntimeError):
+            pass
+        server.server_close()
+        if process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+    return exit_code
+
+
+# ---------------------------------------------------------------------------
+# External batch engine: drive the existing GUI-enabled Multiwfn via stdin
+# ---------------------------------------------------------------------------
+
+SPECTRUM_CODES = {"ir": "1", "raman": "2"}
+DEFAULT_COMPUTE_MENU = "11,{spectrum},-2,0,q"
+
+
+@dataclass
+class MultiwfnTaskResult:
+    input_file: Path
+    menu_lines: list[str]
+    returncode: int
+    output: str
+
+
+def run_multiwfn_tasks(exe, tasks) -> list[MultiwfnTaskResult]:
+    """Run (input_file, menu_lines) tasks sequentially against `exe`.
+
+    Each task starts `<exe> <input_file>`, feeds the numeric menu lines over
+    stdin and collects the combined stdout/stderr. No Multiwfn behavior is
+    modified; the executable is driven entirely from the outside.
+    """
+    results = []
+    for input_file, menu_lines in tasks:
+        stdin_text = "".join(f"{line}\n" for line in menu_lines)
+        process = subprocess.Popen(
+            [str(exe), str(input_file)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        try:
+            output, _ = process.communicate(stdin_text)
+        except BrokenPipeError:
+            process.wait()
+            output = ""
+        results.append(
+            MultiwfnTaskResult(
+                input_file=Path(input_file),
+                menu_lines=list(menu_lines),
+                returncode=process.returncode or 0,
+                output=output or "",
+            )
+        )
+    return results
 
 
 def resolve_multiwfn(requested: str | None) -> Path:
@@ -45,10 +1289,12 @@ def resolve_multiwfn(requested: str | None) -> Path:
         found = shutil.which(name)
         if found:
             candidates.append(Path(found))
+    here = Path(__file__).resolve()
     candidates.extend(
         (
             Path("Multiwfn_MatterVizGUI"),
             Path("Multiwfn"),
+            here.parents[1] / "build-matterviz-gui" / "Multiwfn_MatterVizGUI",
             Path("build-matterviz-webview/Multiwfn_MatterVizGUI"),
             Path("build-matterviz-gui/Multiwfn_MatterVizGUI"),
         )
@@ -57,54 +1303,154 @@ def resolve_multiwfn(requested: str | None) -> Path:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate.resolve()
     searched = "\n  ".join(str(candidate) for candidate in candidates)
-    sys.exit(f"Error: no executable Multiwfn binary found; searched:\n  {searched}")
+    raise VibrationError(f"No executable Multiwfn binary found; searched:\n  {searched}")
 
 
-def main() -> int:
+def compute_menu_lines(template: str, spectrum: str) -> list[str]:
+    code = SPECTRUM_CODES[spectrum]
+    return [part.strip() for part in template.format(spectrum=code).split(",") if part.strip()]
+
+
+def prepare_vibration_data(
+    input_path: Path,
+    *,
+    g98_out: str | None,
+    compute: bool,
+    multiwfn: str | None,
+    spectrum: str,
+    compute_menu: str,
+    work_root: Path,
+) -> VibrationData:
+    """Parse one input, optionally regenerating the displacement data externally.
+
+    --compute only engages when frequencies parsed but the normal-mode
+    displacement data is missing: the configured Multiwfn executable is run as
+    an external batch engine and its captured output log is parsed again.
+    """
+    try:
+        return load_vibration_input(input_path, g98_out)
+    except MissingDisplacementError as direct_error:
+        if not compute:
+            raise
+        exe = resolve_multiwfn(multiwfn)
+        work_dir = Path(work_root) / "compute"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        menu = compute_menu_lines(compute_menu, spectrum)
+        print(f"Displacement data missing ({direct_error}); running external engine:")
+        print(f"  {exe} {input_path}  < {' '.join(menu)}")
+        result = run_multiwfn_tasks(exe, [(input_path, menu)])[0]
+        log_path = work_dir / f"{Path(input_path).stem}.compute.log"
+        log_path.write_text(result.output, encoding="utf-8")
+        print(f"  engine exit code {result.returncode}; output captured to {log_path}")
+        try:
+            return load_vibration_input(log_path, g98_out)
+        except VibrationError as regenerated_error:
+            raise VibrationError(
+                f"The external engine output did not supply displacement data either: {regenerated_error}"
+            ) from regenerated_error
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("input", help="Frequency output file (Gaussian/ORCA/CP2K output, or xTB output with --g98-out)")
+    parser.add_argument(
+        "inputs",
+        nargs="+",
+        help="Frequency output file(s): Gaussian/ORCA/CP2K output, or xTB output with --g98-out. "
+        "Multiple inputs are shown one session at a time in order.",
+    )
+    parser.add_argument("--g98-out", help="Companion g98.out produced by xTB (required for xTB output)")
+    parser.add_argument("--multiwfn", help="Path to the GUI-enabled Multiwfn executable used by --compute")
+    parser.add_argument(
+        "--compute",
+        action="store_true",
+        help="When displacement data is missing, drive the existing Multiwfn executable "
+        "as an external batch engine and parse its regenerated output",
+    )
+    parser.add_argument(
+        "--compute-menu",
+        default=DEFAULT_COMPUTE_MENU,
+        help="Comma-separated stdin menu lines for --compute; '{spectrum}' expands to the "
+        "spectrum selector (default: %(default)s)",
+    )
     parser.add_argument(
         "--spectrum",
         choices=sorted(SPECTRUM_CODES),
         default="ir",
-        help="Spectrum context for intensities shown in the viewer (default: ir)",
+        help="Spectrum context used in the --compute menu sequence (default: ir)",
     )
-    parser.add_argument("--multiwfn", help="Path to the Multiwfn(_MatterVizGUI) executable")
-    parser.add_argument("--g98-out", help="Companion g98.out produced by xTB (fed when Multiwfn asks for it)")
-    args = parser.parse_args()
-
-    input_file = Path(args.input)
-    if not input_file.is_file():
-        sys.exit(f"Error: cannot find the input file: {input_file}")
-    multiwfn = resolve_multiwfn(args.multiwfn)
-
-    menu_inputs = ["11", SPECTRUM_CODES[args.spectrum], "26"]
-    if args.g98_out:
-        g98 = Path(args.g98_out)
-        if not g98.is_file():
-            sys.exit(f"Error: cannot find the g98.out file: {g98}")
-        menu_inputs.append(str(g98))
-    menu_inputs += ["-3", "q"]
-    stdin_sequence = "\n".join(menu_inputs) + "\n"
-
-    print(f"Multiwfn binary : {multiwfn}")
-    print(f"Input file      : {input_file.resolve()}")
-    print(f"Menu sequence   : {' -> '.join(menu_inputs[:-2])} (then -3, q)")
-    print("Launching the vibrational mode viewer; close it or press Return to exit.")
-
-    process = subprocess.Popen(
-        [str(multiwfn), str(input_file.resolve())],
-        stdin=subprocess.PIPE,
-        text=True,
+    parser.add_argument(
+        "--no-launch",
+        action="store_true",
+        help="Only build the session(s) and print their paths; do not start the desktop shell",
     )
-    try:
-        process.communicate(stdin_sequence)
-    except BrokenPipeError:
-        pass
-    return process.returncode or 0
+    parser.add_argument("--session-dir", help="Directory for the session files (default: temporary directory)")
+    parser.add_argument(
+        "--export-dir",
+        default=".",
+        help="Directory for files exported from the viewer via /api/save-file (default: current directory)",
+    )
+    parser.add_argument("--port", type=int, default=0, help="Preferred HTTP port (default: OS-assigned)")
+    args = parser.parse_args(argv)
+
+    inputs = [Path(item) for item in args.inputs]
+    for input_path in inputs:
+        if not input_path.is_file():
+            print(f"Error: cannot find the input file: {input_path}", file=sys.stderr)
+            return 2
+    if args.g98_out and not Path(args.g98_out).is_file():
+        print(f"Error: cannot find the g98.out file: {args.g98_out}", file=sys.stderr)
+        return 2
+
+    session_root = Path(args.session_dir).resolve() if args.session_dir else None
+    if session_root is not None:
+        session_root.mkdir(parents=True, exist_ok=True)
+
+    for index, input_path in enumerate(inputs):
+        try:
+            with tempfile.TemporaryDirectory(prefix="multiwfn-vibration-") as scratch:
+                work_root = session_root if session_root is not None else Path(scratch)
+                try:
+                    data = prepare_vibration_data(
+                        input_path,
+                        g98_out=args.g98_out,
+                        compute=args.compute,
+                        multiwfn=args.multiwfn,
+                        spectrum=args.spectrum,
+                        compute_menu=args.compute_menu,
+                        work_root=work_root,
+                    )
+                except VibrationError as exc:
+                    hint = "" if args.compute else " (retry with --compute to regenerate it externally)"
+                    print(f"Error: {input_path}: {exc}{hint}", file=sys.stderr)
+                    return 2
+                print(
+                    f"Parsed {data.source_program} output: {data.natom} atoms, "
+                    f"{data.nmode} vibrational modes ({input_path})"
+                )
+                if session_root is not None:
+                    session_dir = session_root if len(inputs) == 1 else session_root / f"{index + 1:02d}-{input_path.stem}"
+                else:
+                    session_dir = Path(scratch) / "session"
+                code = serve_vibration_session(
+                    data,
+                    session_dir=session_dir,
+                    export_dir=Path(args.export_dir),
+                    port=args.port,
+                    launch=not args.no_launch,
+                )
+                if code != 0:
+                    return code
+        except KeyboardInterrupt:
+            print("Interrupted.", file=sys.stderr)
+            return 2
+    return 0
 
 
 if __name__ == "__main__":

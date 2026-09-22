@@ -25,6 +25,7 @@ Multiwfn_noGUI
 *.dylib
 *.so
 *.out
+!tests/fixtures/*.out
 
 # Python caches and local environments
 __pycache__/

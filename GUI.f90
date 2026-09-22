@@ -3448,12 +3448,5 @@ else
 end if
 end subroutine
 
-!Vibrational mode animation is only provided by the MatterViz GUI backend
-subroutine drawvibgui(ispectrum,numdata,freqs,intens)
-integer,intent(in) :: ispectrum,numdata
-real*8,intent(in) :: freqs(numdata),intens(numdata)
-write(*,"(a)") " Vibrational mode animation requires the MatterViz GUI backend (Multiwfn_MatterVizGUI)."
-end subroutine
-
 
 end module

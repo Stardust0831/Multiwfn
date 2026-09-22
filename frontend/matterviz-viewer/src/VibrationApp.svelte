@@ -4,6 +4,7 @@
   import {
     DEFAULT_VIBRATION_AMPLITUDE,
     DEFAULT_VIBRATION_FPS,
+    VIBRATION_AUTO_PLAY,
     api_url,
     frequency_thz,
     is_imaginary_frequency,
@@ -115,7 +116,11 @@
   let trajectory = $derived.by(() => {
     if (!session) return undefined
     const pattern = normalized_mode_pattern(session.displacements, session.shape, mode_idx)
-    return synthesize_vibration_trajectory(session.structure, pattern, { amplitude })
+    // A cleared or invalid number input yields NaN/0; fall back to the default so the
+    // synthesizer's defensive amplitude check never fires while the user is typing.
+    const safe_amplitude =
+      Number.isFinite(amplitude) && amplitude > 0 ? amplitude : DEFAULT_VIBRATION_AMPLITUDE
+    return synthesize_vibration_trajectory(session.structure, pattern, { amplitude: safe_amplitude })
   })
 
   let reset_key = $state(-1)
@@ -223,7 +228,7 @@
         {#if trajectory}
           <Trajectory
             {trajectory}
-            auto_play
+            auto_play={VIBRATION_AUTO_PLAY}
             display_mode="structure"
             bind:current_step_idx
             bind:fps

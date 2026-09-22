@@ -1,8 +1,9 @@
 // Vibrational normal-mode animation for the standalone MatterViz vibration page.
 //
-// The session payload (format "multiwfn-matterviz-vibration", version 1) is emitted by
-// the Multiwfn Fortran adapter (noGUI/GUI_matterviz.f90, entry drawvibgui): mode
-// frequencies/intensities inline in the manifest, displacement vectors as one flat
+// The session payload (format "multiwfn-matterviz-vibration", version 1) is served as a
+// MatterViz session constructed by the standalone launcher
+// tools/multiwfn_vibration_viewer.py (the Fortran drawvibgui entry has been removed):
+// mode frequencies/intensities inline in the manifest, displacement vectors as one flat
 // MWFNP2D binary dataset in mode-major [mode][atom][xyz] order.
 //
 // The animation model follows the upstream MatterViz phonon components
@@ -63,6 +64,10 @@ export const DEFAULT_VIBRATION_AMPLITUDE = 0.3 // Angstrom
 export const DEFAULT_VIBRATION_FRAMES = 48
 export const DEFAULT_VIBRATION_FPS = 24
 export const CM_INV_PER_THZ = 33.3564095198152
+
+// Issue #65: the viewer must open on a static frame; playback starts only when the
+// user clicks Play. VibrationApp passes this to the vendored Trajectory's auto_play.
+export const VIBRATION_AUTO_PLAY: boolean = false
 
 export const vibration_fail = (message: string): never => {
   throw new Error(`Invalid vibration session: ${message}`)

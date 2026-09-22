@@ -23,8 +23,11 @@ on:
       - tests/test_matterviz_mapped_surfaces.py
       - tests/test_matterviz_plot_adapter.py
       - tests/test_matterviz_topology_vendor.py
+      - tests/test_matterviz_vibration_viewer.py
       - tests/test_macos_app_bundle.py
+      - tests/__init__.py
       - tools/macos/**
+      - tools/multiwfn_vibration_viewer.py
       - tests/matterviz_plot_capture_harness.f90
       - tests/matterviz-volume-e2e/**
       - tests/fixtures/**
@@ -34,6 +37,7 @@ on:
       - frontend/matterviz-updater/**
       - docs/matterviz-webview.md
       - docs/matterviz-updater.md
+      - docs/matterviz-vibration-protocol.md
       - docs/macos-app-packaging.md
       - .github/workflows/matterviz-gui.yml
   workflow_dispatch:
@@ -122,7 +126,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_matterviz_vibration_viewer.py tests/test_macos_app_bundle.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |

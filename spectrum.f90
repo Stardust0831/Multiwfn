@@ -10,7 +10,6 @@ use defvar
 use dislin
 use plot
 use util
-use GUI, only: drawvibgui
 implicit real*8 (a-h,o-z)
 real*8,allocatable :: weight(:) !Weight of various system for plotting mixed spectrum
 real*8,allocatable :: dataxall(:,:),dataxall_org(:,:),strall(:,:),FWHMall(:,:) !Transition data loaded from multiple files. The first index corresponds to system index
@@ -380,8 +379,6 @@ do while(.true.)
 		write(*,*) "24 Set partial vibrational spectra (PVS) or vibrational DOS (VDOS)"
     end if
     if (ispectrum==3) write(*,*) "25 Evaluate color based on the spectrum in visible range"
-    if ((ispectrum==1.or.ispectrum==2.or.ispectrum==5.or.ispectrum==6).and.nsystem==1) &
-        write(*,*) "26 Animate vibrational modes in MatterViz GUI"
 	read(*,"(a)") c80tmp
     
     if (index(c80tmp,'s')/=0) then
@@ -2076,16 +2073,6 @@ do while(.true.)
 		write(*,*) "Error: This function is not available when multiple files are involved!"
 		write(*,*) "Press ENTER button to continue"
 		read(*,*)
-		cycle
-	end if
-	if (isel==26) then !Animate vibrational modes in MatterViz GUI
-		if ((ispectrum==1.or.ispectrum==2.or.ispectrum==5.or.ispectrum==6).and.nsystem==1) then
-			call drawvibgui(ispectrum,numdata,dataxall(1,1:numdata),strall(1,1:numdata))
-		else
-			write(*,*) "Error: Vibrational mode animation is only available for IR/Raman/VCD/ROA spectra of a single system"
-			write(*,*) "Press ENTER button to continue"
-			read(*,*)
-		end if
 		cycle
 	end if
 	if (isel==25) then !For predicting color, making range and point spacing in line with CIE1931 tristimulus functions
