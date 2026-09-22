@@ -1,0 +1,2 @@
+This file intentionally contains no quantum chemistry output banner.
+The vibration adapter must reject it as an unsupported input program.

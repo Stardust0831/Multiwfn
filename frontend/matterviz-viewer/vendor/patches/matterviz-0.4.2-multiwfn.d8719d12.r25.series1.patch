@@ -1,0 +1,165 @@
+diff -ruN a/dist/structure/Structure.svelte b/dist/structure/Structure.svelte
+--- a/dist/structure/Structure.svelte	2026-09-21 20:22:18
++++ b/dist/structure/Structure.svelte	2026-09-21 21:00:22
+@@ -118,6 +118,7 @@
+ 
+   let {
+     structure = $bindable(),
++    series_reference = undefined,
+     bonds = $bindable(),
+     added_bonds = $bindable<StructureBond[]>([]),
+     removed_bonds = $bindable<StructureBond[]>([]),
+@@ -215,6 +216,7 @@
+     ...rest
+   }: {
+     structure?: AnyStructure
++    series_reference?: AnyStructure
+     added_bonds?: StructureBond[]
+     removed_bonds?: StructureBond[]
+     bond_order_overrides?: StructureBond[]
+@@ -1076,6 +1078,7 @@
+   // selection bindings, and per-pane chrome differ and stay on each snippet below.
+   let shared_viewport_props = $derived({
+     structure: internal_displayed_structure,
++    series_reference,
+     base_structure: cell_transformed_structure,
+     scene_props,
+     scene_children,
+diff -ruN a/dist/structure/Structure.svelte.d.ts b/dist/structure/Structure.svelte.d.ts
+--- a/dist/structure/Structure.svelte.d.ts	2026-09-21 20:22:18
++++ b/dist/structure/Structure.svelte.d.ts	2026-09-21 21:00:22
+@@ -16,7 +16,8 @@
+ import StructureScene from './StructureScene.svelte';
+ type EventHandler = (data: StructureHandlerData) => void;
+ type $$ComponentProps = {
+-    structure?: AnyStructure;
++    structure?: AnyStructure
++    series_reference?: AnyStructure;
+     added_bonds?: StructureBond[];
+     removed_bonds?: StructureBond[];
+     bond_order_overrides?: StructureBond[];
+diff -ruN a/dist/structure/StructureScene.svelte b/dist/structure/StructureScene.svelte
+--- a/dist/structure/StructureScene.svelte	2026-09-21 20:22:18
++++ b/dist/structure/StructureScene.svelte	2026-09-21 21:00:22
+@@ -162,6 +162,7 @@
+   let {
+     structure = undefined,
+     base_structure = undefined,
++    series_reference = undefined,
+     atom_radius = DEFAULTS.structure.atom_radius,
+     same_size_atoms = false,
+     camera_position = DEFAULTS.structure.camera_position,
+@@ -311,7 +312,8 @@
+     surface_view = false,
+   }: SceneControlProps & {
+     structure?: AnyStructure
+-    base_structure?: AnyStructure // The original structure without image atoms, used for property color calculation
++    base_structure?: AnyStructure
++    series_reference?: AnyStructure // stable reference for camera target/sizing across a frame series // The original structure without image atoms, used for property color calculation
+     atom_radius?: number // scale factor for atomic radii
+     atom_material?: MaterialStyle
+     atom_roughness?: number
+@@ -1214,8 +1216,8 @@
+   let rotation_target = $derived(
+     periodic_lattice
+       ? math.scale(math.add(...periodic_lattice.matrix), 0.5)
+-      : structure
+-        ? get_center_of_mass(structure)
++      : (series_reference ?? structure)
++        ? get_center_of_mass((series_reference ?? structure)!)
+         : ([0, 0, 0] as Vec3),
+   )
+   // Negated target for the inner un-translate group (recomputed only on target change)
+@@ -1225,10 +1227,11 @@
+     if (periodic_lattice) {
+       return (periodic_lattice.a + periodic_lattice.b + periodic_lattice.c) / 2
+     }
+-    if (!structure?.sites?.length) return 10
++    const sizing_structure = series_reference ?? structure
++    if (!sizing_structure?.sites?.length) return 10
+ 
+     const ranges = [0, 1, 2].map((axis_idx) => {
+-      const coords = structure.sites.map((site) => site.xyz[axis_idx])
++      const coords = sizing_structure.sites.map((site) => site.xyz[axis_idx])
+       return Math.max(...coords) - Math.min(...coords)
+     })
+     return Math.max(1, ...ranges)
+diff -ruN a/dist/structure/StructureScene.svelte.d.ts b/dist/structure/StructureScene.svelte.d.ts
+--- a/dist/structure/StructureScene.svelte.d.ts	2026-09-21 20:22:18
++++ b/dist/structure/StructureScene.svelte.d.ts	2026-09-21 21:00:22
+@@ -20,7 +20,8 @@
+ import type { PolyhedraColorMode } from './polyhedra';
+ type $$ComponentProps = SceneControlProps & {
+     structure?: AnyStructure;
+-    base_structure?: AnyStructure;
++    base_structure?: AnyStructure
++    series_reference?: AnyStructure;
+     atom_radius?: number;
+     atom_material?: MaterialStyle;
+     atom_roughness?: number;
+diff -ruN a/dist/structure/StructureViewport.svelte b/dist/structure/StructureViewport.svelte
+--- a/dist/structure/StructureViewport.svelte	2026-09-21 20:22:18
++++ b/dist/structure/StructureViewport.svelte	2026-09-21 21:00:22
+@@ -81,6 +81,7 @@
+     // Shared scene inputs (one-way)
+     structure = undefined,
+     base_structure = undefined,
++    series_reference = undefined,
+     scene_props = {},
+     scene_children,
+     topology_view = false,
+@@ -149,6 +150,7 @@
+     structure?: AnyStructure
+     base_structure?: AnyStructure
+     scene_props?: ComponentProps<typeof StructureScene>
++    series_reference?: ComponentProps<typeof StructureScene>[`structure`]
+     scene_children?: import('svelte').Snippet
+     topology_view?: boolean
+     surface_view?: boolean
+@@ -487,6 +489,7 @@
+     <StructureScene
+       {structure}
+       {base_structure}
++      {series_reference}
+       {...scene_props}
+       {scene_children}
+       {topology_view}
+diff -ruN a/dist/structure/StructureViewport.svelte.d.ts b/dist/structure/StructureViewport.svelte.d.ts
+--- a/dist/structure/StructureViewport.svelte.d.ts	2026-09-21 20:22:18
++++ b/dist/structure/StructureViewport.svelte.d.ts	2026-09-21 21:00:22
+@@ -25,7 +25,8 @@
+     on_camera_reset?: (data: StructureHandlerData) => void;
+     structure?: AnyStructure;
+     base_structure?: AnyStructure;
+-    scene_props?: ComponentProps<typeof StructureScene>;
++    scene_props?: ComponentProps<typeof StructureScene>
++    series_reference?: ComponentProps<typeof StructureScene>[`structure`];
+     gizmo?: boolean | ComponentProps<typeof StructureScene>[`gizmo`];
+     lattice_props?: ComponentProps<typeof StructureScene>[`lattice_props`];
+     volumetric_data?: VolumetricData | VolumetricData[];
+diff -ruN a/dist/trajectory/TrajectoryExportPane.svelte b/dist/trajectory/TrajectoryExportPane.svelte
+--- a/dist/trajectory/TrajectoryExportPane.svelte	2026-09-21 20:22:18
++++ b/dist/trajectory/TrajectoryExportPane.svelte	2026-09-21 21:00:22
+@@ -55,7 +55,10 @@
+   let start_frame = $state(0)
+   let end_frame = $state(0)
+ 
+-  let canvas = $derived(wrapper?.querySelector(`canvas`) as HTMLCanvasElement)
++  // Track canvas presence explicitly: the structure canvas mounts after the wrapper,
++    // and a bare derived would cache undefined forever (export then fails with
++    // "Canvas not ready").
++  let canvas = $derived(has_canvas ? (wrapper?.querySelector(`canvas`) as HTMLCanvasElement) : undefined)
+ 
+   // Estimated file size in MB
+   let file_size_mb = $derived.by(() => {
+diff -ruN a/package.json b/package.json
+--- a/package.json	2026-09-21 20:22:18
++++ b/package.json	2026-09-21 21:00:22
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25.reps2",
++  "version": "0.4.2-multiwfn.d8719d12.r25.series1",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",

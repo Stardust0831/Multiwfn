@@ -60,6 +60,15 @@ release. `matterviz-preview-*` tags continue to publish prereleases. Both paths
 reject Python/3Dmol runtime files and use the same real-orbital and zero-runtime-
 artifact package gates.
 
+Every MatterViz package also ships the standalone vibrational-mode launcher as
+a PyInstaller onefile executable: `resources/tools/multiwfn-vibration`
+(`multiwfn-vibration.exe` on Windows), beside the `matterviz-desktop` host it
+drives. It is frozen per platform during packaging and smoke-tested in
+packaged form (`--help`, a fixture `--no-launch --no-pick` session whose
+`manifest.json` must parse, plus an extracted-package HTTP smoke on Linux).
+Only the frozen binary is shipped — the PyInstaller build intermediates stay
+out of the package tree — so the no-Python package gate continues to hold.
+
 Formal MatterViz releases also include the macOS `.dmg` installer containing
 `Multiwfn.app`, alongside the three platform archives. Its application version
 is read from the official `Multiwfn.f90` banner and verified against `Info.plist`

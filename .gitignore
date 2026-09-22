@@ -25,6 +25,7 @@ Multiwfn_noGUI
 *.dylib
 *.so
 *.out
+!tests/fixtures/*.out
 
 # Python caches and local environments
 __pycache__/
@@ -56,3 +57,6 @@ Thumbs.db
 
 # Generated documentation
 *.pdf
+
+# Tauri build artifacts
+frontend/matterviz-desktop/gen/

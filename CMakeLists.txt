@@ -20,6 +20,10 @@ set(MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE
   "${CMAKE_CURRENT_SOURCE_DIR}/frontend/matterviz-desktop/target/release/matterviz-desktop${CMAKE_EXECUTABLE_SUFFIX}"
   CACHE FILEPATH "Prebuilt Rust MatterViz desktop host"
 )
+set(MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE
+  ""
+  CACHE FILEPATH "Optional PyInstaller-frozen multiwfn-vibration launcher staged beside matterviz-desktop"
+)
 set(MULTIWFN_GNU_OPT_LEVEL "O2" CACHE STRING "GNU Fortran optimization level for Release builds")
 set(MULTIWFN_GNU_HOT_OPT_LEVEL "" CACHE STRING "Optional GNU Fortran optimization level for selected hot sources")
 set(MULTIWFN_GNU_EXTRA_FLAGS "" CACHE STRING "Extra GNU Fortran compile flags, separated by spaces")
@@ -312,6 +316,21 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
   endif()
 
   set(MULTIWFN_MATTERVIZ_BUILD_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/resources")
+  set(MULTIWFN_VIBRATION_LAUNCHER_COPY "")
+  if(MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE)
+    if(EXISTS "${MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE}")
+      set(MULTIWFN_VIBRATION_LAUNCHER_COPY
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE}"
+          "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools/multiwfn-vibration${CMAKE_EXECUTABLE_SUFFIX}"
+      )
+    else()
+      message(FATAL_ERROR
+        "MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE does not exist: "
+        "${MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE}"
+      )
+    endif()
+  endif()
   add_custom_target(multiwfn_matterviz_resources ALL
     COMMAND ${CMAKE_COMMAND} -E rm -rf
       "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools"
@@ -325,6 +344,7 @@ if(MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "${MULTIWFN_MATTERVIZ_DESKTOP_EXECUTABLE}"
       "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/tools"
+    ${MULTIWFN_VIBRATION_LAUNCHER_COPY}
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       "${MULTIWFN_MATTERVIZ_DIST}"
       "${MULTIWFN_MATTERVIZ_BUILD_RESOURCES}/frontend/matterviz-viewer/dist"
@@ -361,6 +381,12 @@ if(MULTIWFN_WITH_OPENMP)
 endif()
 
 if(APPLE AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
+  set(MULTIWFN_MACOS_APP_VIBRATION_ARGS "")
+  if(MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE AND EXISTS "${MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE}")
+    set(MULTIWFN_MACOS_APP_VIBRATION_ARGS
+      --vibration-launcher "${MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE}"
+    )
+  endif()
   add_custom_target(multiwfn_macos_app
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tools/macos/package_macos_app.sh"
       --binary "$<TARGET_FILE:${MULTIWFN_EXECUTABLE_NAME}>"
@@ -368,6 +394,7 @@ if(APPLE AND MULTIWFN_GUI_BACKEND STREQUAL "matterviz")
       --viewer-dist "${MULTIWFN_MATTERVIZ_DIST}"
       --settings "${CMAKE_CURRENT_SOURCE_DIR}/settings.ini"
       --output-dir "${CMAKE_CURRENT_BINARY_DIR}/macos-app"
+      ${MULTIWFN_MACOS_APP_VIBRATION_ARGS}
       --create-dmg
     DEPENDS ${MULTIWFN_EXECUTABLE_NAME} multiwfn_matterviz_resources
     COMMENT "Packaging macOS Multiwfn.app bundle and DMG installer"

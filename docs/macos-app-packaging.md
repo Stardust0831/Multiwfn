@@ -27,6 +27,7 @@ Multiwfn.app/
         ├── settings.ini               # User settings configuration
         ├── tools/
         │   ├── matterviz-desktop      # Tauri / WebKit host
+        │   ├── multiwfn-vibration     # PyInstaller-frozen vibration launcher (if present)
         │   └── multiwfn-matterviz-updater  # Prerelease updater (if present)
         ├── frontend/
         │   └── matterviz-viewer/dist/ # Svelte 5 / Three.js frontend assets
@@ -100,6 +101,14 @@ bash tools/macos/package_macos_app.sh \
   --output-dir build/macos-app \
   --create-dmg
 ```
+
+Pass `--vibration-launcher path/to/multiwfn-vibration` to also bundle the
+PyInstaller-frozen standalone vibrational-mode launcher into
+`Contents/Resources/tools/` (same optional pattern as `--updater`; the
+MatterViz workflow forwards it automatically when the freeze step produced
+the binary, and the CMake `multiwfn_macos_app` target forwards it when
+`MULTIWFN_VIBRATION_LAUNCHER_EXECUTABLE` is set). The frozen launcher is a
+self-contained executable, so the bundle still ships no Python runtime.
 
 If CMake is configured on macOS with `MULTIWFN_GUI_BACKEND=matterviz`, the package target can be invoked via:
 

@@ -13,6 +13,7 @@ BINARY=""
 DESKTOP=""
 VIEWER_DIST=""
 UPDATER=""
+VIBRATION_LAUNCHER=""
 SETTINGS="$ROOT_DIR/settings.ini"
 OUTPUT_DIR="$ROOT_DIR/build/macos-app"
 LIB_DIR=""
@@ -28,6 +29,7 @@ Options:
   --desktop <path>       Path to matterviz-desktop host binary (required)
   --viewer-dist <path>   Path to frontend/matterviz-viewer/dist directory (required)
   --updater <path>       Path to multiwfn-matterviz-updater binary (optional)
+  --vibration-launcher <path>  Path to frozen multiwfn-vibration launcher (optional)
   --settings <path>      Path to settings.ini (default: root settings.ini)
   --lib-dir <path>       Path to existing bundled libraries (optional)
   --output-dir <path>    Output directory for Multiwfn.app (default: build/macos-app)
@@ -49,6 +51,8 @@ while [[ $# -gt 0 ]]; do
       VIEWER_DIST="$2"; shift 2 ;;
     --updater)
       UPDATER="$2"; shift 2 ;;
+    --vibration-launcher)
+      VIBRATION_LAUNCHER="$2"; shift 2 ;;
     --settings)
       SETTINGS="$2"; shift 2 ;;
     --lib-dir)
@@ -124,6 +128,14 @@ chmod +x "$RESOURCES/tools/matterviz-desktop"
 if [[ -n "$UPDATER" && -f "$UPDATER" ]]; then
   cp "$UPDATER" "$RESOURCES/tools/multiwfn-matterviz-updater"
   chmod +x "$RESOURCES/tools/multiwfn-matterviz-updater"
+fi
+if [[ -n "$VIBRATION_LAUNCHER" ]]; then
+  [[ -f "$VIBRATION_LAUNCHER" ]] || {
+    echo "Vibration launcher does not exist: $VIBRATION_LAUNCHER" >&2
+    exit 1
+  }
+  cp "$VIBRATION_LAUNCHER" "$RESOURCES/tools/multiwfn-vibration"
+  chmod +x "$RESOURCES/tools/multiwfn-vibration"
 fi
 
 cp -R "$VIEWER_DIST" "$RESOURCES/frontend/matterviz-viewer/dist"

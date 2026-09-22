@@ -6,10 +6,16 @@ It consumes the Multiwfn session manifest and serialized backend API. Protected
 core sources are unchanged relative to the main-branch baseline. Data capture and
 user-confirmed metadata live entirely in the GUI adapters and frontend.
 
-The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz`.
-Its reviewable patch extends the retained `r25.reps1` archive, preserving the
-reviewed topology, measurement, material, parser and sampling fixes. Reps render
-geometry in the host scene without adding cameras or lights. Their atoms and
+The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.series1.tgz`.
+Its reviewable patch extends the retained `r25.reps2` archive, preserving the
+reviewed topology, measurement, material, parser, sampling and representation
+fixes. On top it adds a `series_reference` structure prop to the structure
+scene: when a trajectory, animation or any per-frame series drives the viewer,
+the camera rotation target and structure sizing are derived from that stable
+reference instead of the displayed frame, so the camera pose survives frame
+swaps (wheel zoom and drag rotate otherwise fight a per-frame re-fit).
+Reps render geometry in the host scene without adding cameras or lights. Their
+atoms and
 bonds share the standard matte/glossy/PBR/unlit material pool, with gradient bond
 colors, opacity, rim shading and local clipping.
 Editable color scales use shared sRGB control points for surface coloring and
@@ -51,8 +57,10 @@ lit finishes retain the renderer's tone mapping and transparency.
 
 The retained lineage is r25 → workbench1 → workbench2 → upstream1 → reps1 → reps2.
 Earlier reviewed archives and patches remain reproducible bases. The current
-reps2 archive SHA-256 is `cef5d1e2c97e6c65041ba3b0a50d94b41acbd7705d85a8d3cd4b7ed7218632ec`;
+series1 archive SHA-256 is `901ef83785a11fe18142dcc5d2633573a02dc05b00c67170cb02abec36c156a9`;
 `package.json` and `pnpm-lock.yaml` pin its path and integrity.
+The retained lineage is r25 → workbench1 → workbench2 → upstream1 → reps1 →
+reps2 → series1.
 
 To reproduce the current package (Node.js 24 and npm):
 
@@ -226,6 +234,43 @@ The quantitative-surface type confirmation is separate and remains available.
 An independent pure-GUI analysis application, including automated CLI input,
 batch plots, multiple views, and shared camera management, is also outside the
 scope of this change.
+
+## Vibrational mode animation
+
+`vibration.html` is a standalone entry document, separate from the workbench
+payload schema. It renders the `multiwfn-matterviz-vibration` version 1 session
+produced by the standalone launcher
+[`../../tools/multiwfn_vibration_viewer.py`](../../tools/multiwfn_vibration_viewer.py),
+shipped in the MatterViz packages as the PyInstaller-frozen
+`multiwfn-vibration` executable in `resources/tools/`: the launcher parses a
+Gaussian, ORCA, CP2K or xTB frequency output file itself (started without
+arguments it collects a batch queue through the desktop shell's native file
+dialog), serves the session — including this entry document and its assets
+from the resolved frontend dist — over a loopback HTTP service and opens the
+desktop shell with `--url .../vibration.html?manifest=/session/manifest.json&cap=<session-capability>`
+(the launcher generates and injects the per-session `cap` required by every
+`/session/*` and `/api/*` request), initially paused. No Multiwfn process or source change is involved; when an
+output file lacks displacement data, the launcher's `--compute` option drives
+an external engine over stdin menus and collects a declared file artifact
+carrying the normal-mode vectors (stock Multiwfn menus write none, so the
+engine must be a wrapper producing a complete QC output).
+Mode frequencies and optional IR intensities arrive inline in the manifest;
+displacement vectors arrive as one flat MWFNP2D dataset in mode-major
+`[mode][atom][xyz]` order, fetched from the `/api/plot-data/<id>` route of the
+session service. The full contract is documented in
+[`../../docs/matterviz-vibration-protocol.md`](../../docs/matterviz-vibration-protocol.md).
+
+The animation model follows the upstream MatterViz phonon components
+(`src/lib/spectral/phonon-modes.ts`): each mode is normalized to a 1 Angstrom
+maximum per-atom excursion, then one phase cycle of frames is synthesized as
+`xyz(t) = xyz0 + amplitude * u * cos(2 pi k / N)` and played with the vendored
+`Trajectory` component (amplitude 0.3 Angstrom, 48 frames, 24 fps by default).
+The instantaneous displacement rides the per-site `force` vector property, so
+the arrow overlay stays in sync with the animation. Multiwfn vibrations are
+molecular Gamma-point modes; no q-points, supercells or lattices are involved.
+Imaginary (negative) frequencies are flagged in the mode list. The page issues
+no backend commands beyond the generic `/api/ready` and `/api/return`
+lifecycle endpoints and the `/api/save-file` export route.
 
 ## Build
 

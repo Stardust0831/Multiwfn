@@ -23,8 +23,12 @@ on:
       - tests/test_matterviz_mapped_surfaces.py
       - tests/test_matterviz_plot_adapter.py
       - tests/test_matterviz_topology_vendor.py
+      - tests/test_matterviz_vibration_viewer.py
+      - tests/test_matterviz_vibration_packaging.py
       - tests/test_macos_app_bundle.py
+      - tests/__init__.py
       - tools/macos/**
+      - tools/multiwfn_vibration_viewer.py
       - tests/matterviz_plot_capture_harness.f90
       - tests/matterviz-volume-e2e/**
       - tests/fixtures/**
@@ -34,6 +38,7 @@ on:
       - frontend/matterviz-updater/**
       - docs/matterviz-webview.md
       - docs/matterviz-updater.md
+      - docs/matterviz-vibration-protocol.md
       - docs/macos-app-packaging.md
       - .github/workflows/matterviz-gui.yml
   workflow_dispatch:
@@ -122,7 +127,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_matterviz_vibration_viewer.py tests/test_matterviz_vibration_packaging.py tests/test_macos_app_bundle.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
@@ -269,6 +274,26 @@ jobs:
             -DMULTIWFN_GNU_HOT_OPT_LEVEL=O3
           cmake --build build-matterviz-package --parallel 2
 
+      - name: Set up Python for the vibration launcher freeze
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Freeze the standalone vibration launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+          python -m PyInstaller \
+            --clean \
+            --noconfirm \
+            --onefile \
+            --name multiwfn-vibration \
+            --distpath vibration-launcher-dist \
+            --workpath vibration-launcher-build \
+            tools/multiwfn_vibration_viewer.py
+
       - name: Prepare package layout
         shell: bash
         run: |
@@ -322,6 +347,8 @@ jobs:
           cp build-matterviz-package/Multiwfn_MatterVizGUI "package/$PKG/Multiwfn_MatterVizGUI"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop \
             "package/$PKG/resources/tools/matterviz-desktop"
+          cp vibration-launcher-dist/multiwfn-vibration \
+            "package/$PKG/resources/tools/multiwfn-vibration"
           if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then
             cp frontend/matterviz-updater/target/release/multiwfn-matterviz-updater \
               "package/$PKG/resources/tools/multiwfn-matterviz-updater"
@@ -329,6 +356,7 @@ jobs:
           for binary in \
             build-matterviz-package/Multiwfn_MatterVizGUI \
             frontend/matterviz-desktop/target/release/matterviz-desktop \
+            package/"$PKG"/resources/tools/multiwfn-vibration \
             package/"$PKG"/resources/tools/multiwfn-matterviz-updater; do
             [ -e "$binary" ] || continue
             if objdump -T "$binary" | grep -Eq 'GLIBC_(2\.(3[6-9]|[4-9][0-9])|[3-9]\.)'; then
@@ -346,7 +374,9 @@ jobs:
                 ;;
             esac
           done
-          chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
+          chmod +x "package/$PKG/Multiwfn_MatterVizGUI" \
+            "package/$PKG/resources/tools/matterviz-desktop" \
+            "package/$PKG/resources/tools/multiwfn-vibration"
           find "package/$PKG" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           find "package/$PKG" -depth -type d -name __pycache__ -empty -delete
           if [[ "$MATTERVIZ_FORMAL" == "1" ]]; then
@@ -471,11 +501,15 @@ jobs:
           cp build-matterviz-package/Multiwfn_MatterVizGUI "package/$PKG/Multiwfn_MatterVizGUI"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop \
             "package/$PKG/resources/tools/matterviz-desktop"
+          cp vibration-launcher-dist/multiwfn-vibration \
+            "package/$PKG/resources/tools/multiwfn-vibration"
           if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then
             cp frontend/matterviz-updater/target/release/multiwfn-matterviz-updater \
               "package/$PKG/resources/tools/multiwfn-matterviz-updater"
           fi
-          chmod +x "package/$PKG/Multiwfn_MatterVizGUI" "package/$PKG/resources/tools/matterviz-desktop"
+          chmod +x "package/$PKG/Multiwfn_MatterVizGUI" \
+            "package/$PKG/resources/tools/matterviz-desktop" \
+            "package/$PKG/resources/tools/multiwfn-vibration"
           otool -l "package/$PKG/Multiwfn_MatterVizGUI" \
             | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' > /tmp/multiwfn-rpaths.txt
           while IFS= read -r rpath; do
@@ -534,6 +568,9 @@ jobs:
           if [[ -e "package/$PKG/resources/tools/multiwfn-matterviz-updater" ]]; then
             app_args+=(--updater "package/$PKG/resources/tools/multiwfn-matterviz-updater")
           fi
+          if [[ -e "package/$PKG/resources/tools/multiwfn-vibration" ]]; then
+            app_args+=(--vibration-launcher "package/$PKG/resources/tools/multiwfn-vibration")
+          fi
           bash tools/macos/package_macos_app.sh "${app_args[@]}"
           expected_version="$(sed -nE 's/.*"Version ([0-9]+\.[0-9]+\.[0-9]+) .*/\1/p' Multiwfn.f90)"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos-dist/Multiwfn.app/Contents/Info.plist)" = "$expected_version"
@@ -581,6 +618,8 @@ jobs:
           cp build-matterviz-package/Multiwfn_MatterVizGUI.exe "package/$PKG/Multiwfn_MatterVizGUI.exe"
           cp frontend/matterviz-desktop/target/release/matterviz-desktop.exe \
             "package/$PKG/resources/tools/matterviz-desktop.exe"
+          cp vibration-launcher-dist/multiwfn-vibration.exe \
+            "package/$PKG/resources/tools/multiwfn-vibration.exe"
           if [[ "$MATTERVIZ_FORMAL" != "1" ]]; then
             cp frontend/matterviz-updater/target/release/multiwfn-matterviz-updater.exe \
               "package/$PKG/resources/tools/multiwfn-matterviz-updater.exe"
@@ -691,6 +730,75 @@ jobs:
           if ($hostProcess.ExitCode -ne 0) { throw "Windows Rust host returned $($hostProcess.ExitCode)" }
           if (-not (Test-Path "$session/gui_stop.flag")) { throw "Windows Rust host stop flag missing" }
 
+      - name: Smoke test the packaged vibration launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          launcher="package/$PKG/resources/tools/multiwfn-vibration"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            launcher="$launcher.exe"
+          fi
+          test -x "$launcher"
+          "$launcher" --help > vibration-launcher-help.txt
+          grep -q "multiwfn-vibration" vibration-launcher-help.txt
+          rm -rf vibration-launcher-smoke
+          "$launcher" tests/fixtures/h2o_freq_gaussian.out \
+            --no-launch --no-pick --session-dir vibration-launcher-smoke/session
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("vibration-launcher-smoke/session/manifest.json").read_text(encoding="utf-8"))
+          assert manifest["format"] == "multiwfn-matterviz-vibration", manifest["format"]
+          assert manifest["version"] == 1
+          vibrations = manifest["vibrations"]
+          assert vibrations["atomCount"] == 3 and vibrations["modeCount"] == 3
+          assert len(vibrations["modes"]) == 3
+          assert vibrations["displacements"]["shape"] == [3, 3, 3]
+          PY
+
+      - name: Serve the packaged vibration session over HTTP on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          launcher="package/$PKG/resources/tools/multiwfn-vibration"
+          mkdir -p vibration-http-smoke
+          cat > vibration-http-smoke/noop-desktop <<'EOF'
+          #!/bin/sh
+          printf '{"status":"ready","token":"%s"}' "$MULTIWFN_MATTERVIZ_STARTUP_TOKEN" \
+            > "$MULTIWFN_MATTERVIZ_STARTUP_STATUS"
+          while [ ! -f "$MULTIWFN_MATTERVIZ_STOP_FILE" ]; do sleep 0.1; done
+          EOF
+          chmod +x vibration-http-smoke/noop-desktop
+          MULTIWFN_MATTERVIZ_WEBVIEW="$PWD/vibration-http-smoke/noop-desktop" \
+            "$launcher" tests/fixtures/h2o_freq_gaussian.out \
+            --no-pick --port 18779 --session-dir vibration-http-smoke/session \
+            > vibration-http-smoke/launcher.out 2>&1 &
+          launcher_pid=$!
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18779/vibration.html >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            kill -0 "$launcher_pid" 2>/dev/null || break
+            sleep 0.5
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat vibration-http-smoke/launcher.out >&2
+            exit 1
+          fi
+          capability="$(sed -n 's/.*[?&]cap=\([-A-Za-z0-9_]\{40,\}\).*/\1/p' vibration-http-smoke/launcher.out | tail -n 1)"
+          test -n "$capability"
+          curl -fsS "http://127.0.0.1:18779/session/manifest.json?cap=$capability" \
+            | python -c 'import json,sys; manifest=json.load(sys.stdin); assert manifest["vibrations"]["modeCount"] == 3'
+          curl -fsS "http://127.0.0.1:18779/api/plot-data/1?cap=$capability" -o vibration-http-smoke/u.bin
+          test "$(stat -c %s vibration-http-smoke/u.bin)" -eq 328
+          curl -fsS "http://127.0.0.1:18779/api/return?cap=$capability"
+          wait "$launcher_pid"
+          test -f vibration-http-smoke/session/gui_stop.flag
+
       - name: Verify package contents
         shell: bash
         run: |
@@ -701,8 +809,10 @@ jobs:
           test -f "package/$PKG/settings.ini"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
             test -f "package/$PKG/resources/tools/matterviz-desktop.exe"
+            test -f "package/$PKG/resources/tools/multiwfn-vibration.exe"
           else
             test -x "package/$PKG/resources/tools/matterviz-desktop"
+            test -x "package/$PKG/resources/tools/multiwfn-vibration"
           fi
           test -f "package/$PKG/resources/frontend/matterviz-viewer/dist/index.html"
           test -n "$(find "package/$PKG/resources/frontend/matterviz-viewer/dist/assets" -type f -print -quit)"

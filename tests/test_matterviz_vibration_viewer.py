@@ -1,0 +1,1012 @@
+"""Standalone MatterViz vibration launcher regression tests.
+
+Pure-stdlib unittest suite for tools/multiwfn_vibration_viewer.py: output
+parsing against the committed fixtures (assertion values mirror
+tests/matterviz_vibration_harness.f90), MWFNP2D framing against the JavaScript
+reference layout in frontend/matterviz-viewer/tests/vibration.test.ts,
+manifest validation equivalent to the viewer's parse_vibration_manifest, the
+loopback HTTP session service, and the external batch engine queue.
+"""
+from __future__ import annotations
+
+import http.client
+import json
+import math
+import os
+from pathlib import Path
+import stat
+import struct
+import sys
+import tempfile
+import threading
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOLS_DIR = ROOT / "tools"
+sys.path.insert(0, str(TOOLS_DIR))
+
+import multiwfn_vibration_viewer as viewer  # noqa: E402
+
+FIXTURES = ROOT / "tests" / "fixtures"
+
+
+def flat(data_values, mode, atom, direction, natom):
+    """1-based (mode, atom, direction) into the mode-major flat displacement list."""
+    return data_values[(mode - 1) * 3 * natom + (atom - 1) * 3 + (direction - 1)]
+
+
+def decode_plot_dataset(frame: bytes):
+    """Decode an MWFNP2D v1 frame mirroring decode_plot_dataset in plot.ts."""
+    assert len(frame) >= 80, "plot dataset is truncated"
+    magic = frame[0:8]
+    major, minor, dtype, flags = struct.unpack_from("<HHHH", frame, 8)
+    header_bytes = struct.unpack_from("<I", frame, 16)[0]
+    assert magic == b"MWFNP2D\x00" and (major, minor, dtype, flags) == (1, 0, 1, 1)
+    assert header_bytes == 80
+    dataset_id = struct.unpack_from("<Q", frame, 20)[0]
+    count = struct.unpack_from("<I", frame, 28)[0]
+    entry_bytes = struct.unpack_from("<I", frame, 32)[0]
+    directory_bytes = struct.unpack_from("<Q", frame, 36)[0]
+    body_bytes = struct.unpack_from("<Q", frame, 44)[0]
+    total_elements = struct.unpack_from("<Q", frame, 52)[0]
+    header_crc = struct.unpack_from("<I", frame, 60)[0]
+    body_crc = struct.unpack_from("<I", frame, 64)[0]
+    reserved = struct.unpack_from("<I", frame, 68)[0]
+    total_bytes = struct.unpack_from("<Q", frame, 72)[0]
+    assert 1 <= count <= 8 and entry_bytes == 32
+    assert directory_bytes == count * entry_bytes
+    assert body_bytes == total_elements * 8
+    assert total_bytes == len(frame) == 80 + directory_bytes + body_bytes
+    assert reserved == 0
+    zeroed = bytearray(frame[:80])
+    struct.pack_into("<I", zeroed, 60, 0)
+    assert viewer.crc32c(bytes(zeroed)) == header_crc, "header CRC mismatch"
+    body_start = 80 + directory_bytes
+    assert viewer.crc32c(frame[body_start:]) == body_crc, "body CRC mismatch"
+    arrays = {}
+    expected_offset = 0
+    for index in range(count):
+        entry = 80 + index * 32
+        role = frame[entry]
+        assert frame[entry + 1:entry + 8] == b"\x00" * 7
+        elements = struct.unpack_from("<Q", frame, entry + 8)[0]
+        offset = struct.unpack_from("<Q", frame, entry + 16)[0]
+        array_bytes = struct.unpack_from("<Q", frame, entry + 24)[0]
+        assert offset == expected_offset and array_bytes == elements * 8
+        values = list(struct.unpack_from(f"<{elements}d", frame, body_start + offset))
+        assert all(math.isfinite(value) for value in values)
+        arrays[role] = values
+        expected_offset += array_bytes
+    assert expected_offset == body_bytes
+    return dataset_id, arrays
+
+
+def validate_manifest_like_viewer(manifest):
+    """Python equivalent of parse_vibration_manifest in src/vibration.ts."""
+    assert manifest["format"] == "multiwfn-matterviz-vibration"
+    assert manifest["version"] == 1
+    vibrations = manifest["vibrations"]
+    assert isinstance(vibrations["atomCount"], int) and vibrations["atomCount"] > 0
+    assert isinstance(vibrations["modeCount"], int) and vibrations["modeCount"] > 0
+    assert vibrations["coordinateUnit"] == "angstrom"
+    assert vibrations["frequencyUnit"] == "cm^-1"
+    modes = vibrations["modes"]
+    assert len(modes) == vibrations["modeCount"]
+    for mode in modes:
+        assert math.isfinite(mode["frequency"])
+        assert mode["intensity"] is None or math.isfinite(mode["intensity"])
+    displacements = vibrations["displacements"]
+    assert isinstance(displacements["datasetId"], int) and displacements["datasetId"] > 0
+    assert displacements["format"] == "mwfn-plot-data-v1"
+    assert displacements["role"] == "u"
+    assert displacements["layout"] == "mode-major-atom-xyz"
+    assert displacements["shape"] == [vibrations["modeCount"], vibrations["atomCount"], 3]
+
+
+def validate_structure_like_viewer(structure, atom_count):
+    """Python equivalent of parse_vibration_structure in src/vibration.ts."""
+    assert isinstance(structure["sites"], list)
+    assert len(structure["sites"]) == atom_count
+    for site in structure["sites"]:
+        assert len(site["xyz"]) == 3 and all(math.isfinite(value) for value in site["xyz"])
+        assert isinstance(site["species"][0]["element"], str) and site["species"][0]["element"]
+
+
+class GaussianFixtureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data = viewer.parse_gaussian_output(FIXTURES / "h2o_freq_gaussian.out")
+
+    def test_frequencies_and_intensities(self):
+        self.assertEqual(self.data.source_program, "gaussian")
+        self.assertEqual(self.data.spectrum_kind, "ir")
+        self.assertEqual(self.data.intensity_unit, "km/mol")
+        self.assertEqual(self.data.natom, 3)
+        self.assertEqual(self.data.nmode, 3)
+        self.assertEqual(self.data.frequencies, [1650.0, 3820.0, 3935.0])
+        self.assertEqual(self.data.intensities, [61.5, 4.2, 0.9])
+
+    def test_geometry_from_standard_orientation(self):
+        atoms = [(site.element, site.x, site.y, site.z_coord) for site in self.data.atoms]
+        self.assertEqual(
+            atoms,
+            [("O", 0.0, 0.0, 0.1173), ("H", 0.0, 0.7572, -0.4692), ("H", 0.0, -0.7572, -0.4692)],
+        )
+
+    def test_displacement_components_match_harness(self):
+        disp, natom = self.data.displacements, self.data.natom
+        self.assertEqual(len(disp), 3 * 3 * 3)
+        self.assertAlmostEqual(flat(disp, 1, 2, 3, natom), -0.56)  # mode 1, atom 2, z
+        self.assertAlmostEqual(flat(disp, 2, 3, 2, natom), -0.43)  # mode 2, atom 3, y
+        self.assertAlmostEqual(flat(disp, 3, 3, 3, natom), -0.47)  # mode 3, atom 3, z
+        self.assertAlmostEqual(flat(disp, 1, 1, 3, natom), 0.07)   # mode 1, atom 1, z
+
+
+class OrcaFixtureTests(unittest.TestCase):
+    """The ORCA fixtures carry no geometry block; the displacement core is
+    exercised with an explicit atom count exactly like the Fortran harness."""
+
+    def _parse_modes(self, name):
+        lines = viewer._read_lines(FIXTURES / name)
+        iskip = viewer._orca_first_vibration(lines)
+        frequencies, intensities = viewer._orca_frequencies(lines, iskip)
+        norm = viewer._orca_mode_matrix(lines, 2, len(frequencies), iskip)
+        return frequencies, intensities, viewer._flatten_modes(norm)
+
+    def test_single_section(self):
+        frequencies, intensities, disp = self._parse_modes("h2_freq_orca.out")
+        self.assertEqual(frequencies, [3650.0, 3820.0])
+        self.assertEqual(intensities, [10.25, 4.2])
+        self.assertAlmostEqual(flat(disp, 1, 1, 1, 2), 0.1)   # mode 1, atom 1, x
+        self.assertAlmostEqual(flat(disp, 1, 1, 3, 2), 0.3)   # mode 1, atom 1, z
+        self.assertAlmostEqual(flat(disp, 1, 2, 1, 2), -0.5)  # mode 1, atom 2, x
+        self.assertAlmostEqual(flat(disp, 2, 2, 2, 2), 1.0)   # mode 2, atom 2, y
+
+    def test_repeated_frequency_run_uses_last_section(self):
+        frequencies, _, disp = self._parse_modes("h2_freq_orca_twice.out")
+        self.assertEqual(frequencies, [3650.0, 3820.0])
+        self.assertAlmostEqual(flat(disp, 1, 1, 2, 2), -0.4)  # mode 1, atom 1, y
+        self.assertAlmostEqual(flat(disp, 1, 2, 2, 2), -1.0)  # mode 1, atom 2, y
+        self.assertAlmostEqual(flat(disp, 2, 2, 3, 2), 0.30)  # mode 2, atom 2, z
+
+    def test_full_parse_with_constructed_geometry(self):
+        sample = (
+            "                                 O   R   C   A\n"
+            "\n"
+            "CARTESIAN COORDINATES (ANGSTROEM)\n"
+            "---------------------------------\n"
+            "  H      0.000000      0.000000      0.000000\n"
+            "  H      0.000000      0.000000      1.400000\n"
+            "\n"
+            + (FIXTURES / "h2_freq_orca.out").read_text(encoding="utf-8").split("O   R   C   A", 1)[1]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "h2_freq_orca_geom.out"
+            path.write_text(sample, encoding="utf-8")
+            data = viewer.load_vibration_input(path)
+        self.assertEqual(data.source_program, "orca")
+        self.assertEqual(data.natom, 2)
+        self.assertEqual([site.element for site in data.atoms], ["H", "H"])
+        self.assertAlmostEqual(data.atoms[1].z_coord, 1.4)
+        self.assertEqual(data.nmode, 2)
+        self.assertEqual(data.spectrum_kind, "ir")
+        self.assertAlmostEqual(flat(data.displacements, 2, 2, 2, 2), 1.0)
+
+
+class UnsupportedInputTests(unittest.TestCase):
+    def test_plain_text_is_rejected(self):
+        with self.assertRaises(viewer.UnsupportedFormatError):
+            viewer.load_vibration_input(FIXTURES / "plain_text.txt")
+
+    def test_missing_displacement_table_raises_compute_trigger(self):
+        sample = (
+            " Entering Gaussian System, Link 0=g16\n"
+            " Standard orientation:\n"
+            " ---------------------------------------------------------------------\n"
+            " Center     Atomic      Atomic             Coordinates (Angstroms)\n"
+            " Number     Number       Type             X           Y           Z\n"
+            " ---------------------------------------------------------------------\n"
+            "      1          8           0        0.000000    0.000000    0.117300\n"
+            " ---------------------------------------------------------------------\n"
+            "                      1\n"
+            "                     A\n"
+            " Frequencies --  1650.0000\n"
+            " IR Inten    --     61.5000\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gaussian_no_modes.out"
+            path.write_text(sample, encoding="utf-8")
+            with self.assertRaises(viewer.MissingDisplacementError):
+                viewer.load_vibration_input(path)
+
+    def test_zero_displacement_mode_is_rejected(self):
+        sample = (
+            " Entering Gaussian System, Link 0=g16\n"
+            " Standard orientation:\n"
+            " ---------------------------------------------------------------------\n"
+            " Center     Atomic      Atomic             Coordinates (Angstroms)\n"
+            " Number     Number       Type             X           Y           Z\n"
+            " ---------------------------------------------------------------------\n"
+            "      1          8           0        0.000000    0.000000    0.117300\n"
+            " ---------------------------------------------------------------------\n"
+            "                      1\n"
+            "                     A\n"
+            " Frequencies --  1650.0000\n"
+            " IR Inten    --     61.5000\n"
+            " Atom  AN      X      Y      Z\n"
+            "    1   8     0.00   0.00   0.00\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gaussian_zero_mode.out"
+            path.write_text(sample, encoding="utf-8")
+            with self.assertRaisesRegex(viewer.VibrationError, "zero displacement vector"):
+                viewer.load_vibration_input(path)
+
+
+XTB_OUTPUT_SAMPLE = """\
+                    x T B
+   (constructed sample for the launcher tests)
+
+$vibrational spectrum
+# mode     symmetry  wave number   IR intensity
+#                          cm-1         km/mol
+ 1                   -0.00        0.00
+ 2                   -0.00        0.00
+ 3         a       3650.00       10.25
+ 4         a       3820.00        4.20
+$end
+"""
+
+XTB_G98_SAMPLE = """\
+ Entering Gaussian System, Link 0=g98 (xtb --g98 companion, constructed)
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          1           0        0.000000    0.000000    0.000000
+      2          1           0        0.000000    0.000000    1.400000
+ ---------------------------------------------------------------------
+                      1                      2                      3
+                     A                      A                      A
+ Frequencies --    -0.0000              -0.0000            3650.0000
+ IR Inten    --      0.0000               0.0000              10.2500
+ Atom AN      X      Y      Z        X      Y      Z        X      Y      Z
+    1   1     0.00   0.00   0.07    0.00   0.00  -0.07    0.10   0.20   0.30
+    2   1     0.00   0.00  -0.07    0.00   0.00   0.07   -0.50   0.00   0.00
+                      4
+                     A
+ Frequencies --  3820.0000
+ IR Inten    --      4.2000
+ Atom AN      X      Y      Z
+    1   1     0.00   0.00   0.00
+    2   1     0.00   1.00   0.00
+"""
+
+
+class XtbFlowTests(unittest.TestCase):
+    def _write_pair(self, directory):
+        output = Path(directory) / "xtb_vib.out"
+        g98 = Path(directory) / "g98.out"
+        output.write_text(XTB_OUTPUT_SAMPLE, encoding="utf-8")
+        g98.write_text(XTB_G98_SAMPLE, encoding="utf-8")
+        return output, g98
+
+    def test_g98_out_is_required_before_any_geometry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, _ = self._write_pair(directory)
+            with self.assertRaisesRegex(viewer.VibrationError, "--g98-out"):
+                viewer.load_vibration_input(output)
+
+    def test_geometry_and_displacements_share_g98_atom_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, g98 = self._write_pair(directory)
+            data = viewer.load_vibration_input(output, g98_out=str(g98))
+        self.assertEqual(data.source_program, "xtb")
+        self.assertEqual(data.natom, 2)
+        self.assertEqual(data.nmode, 4)
+        self.assertEqual(data.frequencies, [-0.0, -0.0, 3650.0, 3820.0])
+        self.assertEqual(data.intensities, [0.0, 0.0, 10.25, 4.2])
+        self.assertEqual([site.element for site in data.atoms], ["H", "H"])
+        self.assertAlmostEqual(data.atoms[1].z_coord, 1.4)
+        # mode 3 (first real vibration): atom 1 = (0.10, 0.20, 0.30), atom 2 x = -0.50
+        self.assertAlmostEqual(flat(data.displacements, 3, 1, 1, 2), 0.10)
+        self.assertAlmostEqual(flat(data.displacements, 3, 2, 1, 2), -0.50)
+        # mode 4 comes from the second single-mode table block
+        self.assertAlmostEqual(flat(data.displacements, 4, 2, 2, 2), 1.00)
+
+
+CP2K_OUTPUT_SAMPLE = """\
+  CP2K| version 2024.1 (constructed sample for the launcher tests)
+
+ &FORCE_EVAL
+   &SUBSYS
+     &COORD
+         O    0.000000    0.000000    0.117300
+         H    0.000000    0.757200   -0.469200
+         H    0.000000   -0.757200   -0.469200
+     &END COORD
+   &END SUBSYS
+ &END FORCE_EVAL
+
+ VIB|                         1                      2
+ VIB|Frequency (cm^-1)       1650.0000             3820.0000
+ VIB|Intensities               61.5000                4.2000
+ VIB|ATOM  EL      X      Y      Z        X      Y      Z
+    1   O     0.00   0.00   0.07    0.00   0.00  -0.06
+    2   H     0.00   0.00  -0.56    0.00   0.43   0.47
+    3   H     0.00   0.00  -0.56    0.00  -0.43   0.47
+"""
+
+
+class Cp2kFlowTests(unittest.TestCase):
+    def test_constructed_cp2k_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "h2o_freq_cp2k.out"
+            path.write_text(CP2K_OUTPUT_SAMPLE, encoding="utf-8")
+            data = viewer.load_vibration_input(path)
+        self.assertEqual(data.source_program, "cp2k")
+        self.assertEqual(data.natom, 3)
+        self.assertEqual(data.nmode, 2)
+        self.assertEqual(data.frequencies, [1650.0, 3820.0])
+        self.assertEqual(data.intensities, [61.5, 4.2])
+        self.assertEqual(data.spectrum_kind, "ir")
+        self.assertEqual([site.element for site in data.atoms], ["O", "H", "H"])
+        self.assertAlmostEqual(flat(data.displacements, 1, 2, 3, 3), -0.56)
+        self.assertAlmostEqual(flat(data.displacements, 2, 3, 2, 3), -0.43)
+
+
+class PlotDataEncodingTests(unittest.TestCase):
+    def test_crc32c_reference_vector(self):
+        self.assertEqual(viewer.crc32c(b"123456789"), 0xE3069283)
+
+    def test_frame_roundtrip_against_js_layout(self):
+        values = [0.0, -0.56, 0.43, 1e-12, -1e12, math.pi]
+        frame = viewer.encode_plot_dataset(7, values)
+        dataset_id, arrays = decode_plot_dataset(frame)
+        self.assertEqual(dataset_id, 7)
+        self.assertEqual(set(arrays), {4})  # role u
+        self.assertEqual(arrays[4], values)
+
+    def test_dataset_id_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            viewer.encode_plot_dataset(0, [1.0])
+
+
+class ManifestAndStructureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data = viewer.parse_gaussian_output(FIXTURES / "h2o_freq_gaussian.out")
+
+    def test_manifest_passes_viewer_equivalent_validation(self):
+        manifest = viewer.build_manifest(self.data, dataset_id=7)
+        validate_manifest_like_viewer(manifest)
+        self.assertNotIn("multiwfnGui", manifest)
+        vibrations = manifest["vibrations"]
+        self.assertEqual(vibrations["sourceProgram"], "gaussian")
+        self.assertEqual(vibrations["spectrumKind"], "ir")
+        self.assertEqual(vibrations["intensityUnit"], "km/mol")
+        self.assertEqual(vibrations["displacements"]["datasetId"], 7)
+        self.assertEqual(vibrations["modes"][0], {"index": 1, "frequency": 1650.0, "intensity": 61.5})
+
+    def test_structure_matches_pymatgen_site_shape(self):
+        structure = viewer.build_structure(self.data)
+        validate_structure_like_viewer(structure, self.data.natom)
+        first = structure["sites"][0]
+        self.assertEqual(first["species"], [{"element": "O", "occu": 1, "oxidation_state": 0}])
+        self.assertEqual(first["abc"], [0, 0, 0])
+        self.assertEqual(first["label"], "O1")
+        self.assertEqual(structure["charge"], 0)
+        self.assertEqual(structure["properties"]["bonds"], [])
+
+    def test_write_session_emits_parseable_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory) / "session"
+            manifest = viewer.write_session(self.data, session)
+            on_disk = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(on_disk, manifest)
+            validate_manifest_like_viewer(on_disk)
+            validate_structure_like_viewer(
+                json.loads((session / "structure.json").read_text(encoding="utf-8")),
+                self.data.natom,
+            )
+
+
+class HttpServiceTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data = viewer.parse_gaussian_output(FIXTURES / "h2o_freq_gaussian.out")
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name).resolve()
+        self.session = root / "session"
+        self.export = root / "export"
+        viewer.write_session(self.data, self.session)
+        self.frame = viewer.encode_plot_dataset(1, self.data.displacements)
+        handler = viewer.make_vibration_handler(self.session, {1: self.frame}, self.export)
+        self.capability = getattr(handler, "capability", "test-capability")
+        handler.log_message = lambda *args: None  # type: ignore[method-assign]
+        self.server = viewer.bind_vibration_server("127.0.0.1", 0, handler)
+        self.port = self.server.server_address[1]
+        self.origin = f"http://127.0.0.1:{self.port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self._stop)
+
+    def _stop(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.directory.cleanup()
+
+    def _request(self, method, path, body=None, headers=None):
+        separator = "&" if "?" in path else "?"
+        if "cap=" not in path:
+            path += f"{separator}cap={self.capability}"
+        headers = dict(headers or {})
+        if method == "POST":
+            headers.setdefault("Origin", self.origin)
+        return self._raw_request(method, path, body, headers)
+
+    def _raw_request(self, method, path, body=None, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        connection.request(method, path, body=body, headers=headers or {})
+        response = connection.getresponse()
+        payload = response.read()
+        connection.close()
+        return response, payload
+
+
+class HttpServiceTests(HttpServiceTestCase):
+    def test_session_files_are_served(self):
+        response, payload = self._request("GET", "/session/manifest.json")
+        self.assertEqual(response.status, 200)
+        validate_manifest_like_viewer(json.loads(payload))
+        response, payload = self._request("GET", "/session/structure.json")
+        self.assertEqual(response.status, 200)
+        validate_structure_like_viewer(json.loads(payload), self.data.natom)
+
+    def test_plot_data_content_type_and_frame(self):
+        response, payload = self._request("GET", "/api/plot-data/1")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            response.getheader("Content-Type"),
+            "application/vnd.multiwfn.matterviz-plot-data-v1",
+        )
+        dataset_id, arrays = decode_plot_dataset(payload)
+        self.assertEqual(dataset_id, 1)
+        self.assertEqual(arrays[4], self.data.displacements)
+
+    def test_plot_data_with_wrong_capability_is_forbidden(self):
+        response, _ = self._raw_request("GET", "/api/plot-data/1?cap=wrong-capability")
+        self.assertEqual(response.status, 403)
+
+    def test_unknown_dataset_is_404(self):
+        response, _ = self._request("GET", "/api/plot-data/999")
+        self.assertEqual(response.status, 404)
+
+    def test_session_path_traversal_is_blocked(self):
+        secret = Path(self.directory.name) / "secret.txt"
+        secret.write_text("top secret", encoding="utf-8")
+        response, _ = self._request("GET", "/session/../secret.txt")
+        self.assertIn(response.status, (403, 404))
+        response, _ = self._request("GET", "/session/%2e%2e/secret.txt")
+        self.assertIn(response.status, (403, 404))
+
+    def test_ready_accepts_post(self):
+        response, payload = self._request("POST", "/api/ready")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(payload), {"ok": True})
+
+    def test_save_file_sanitizes_name(self):
+        response, payload = self._request(
+            "POST", "/api/save-file?name=../../evil.webm", body=b"webm-bytes"
+        )
+        self.assertEqual(response.status, 200)
+        result = json.loads(payload)
+        self.assertTrue(result["ok"])
+        self.assertEqual(Path(result["path"]).parent, self.export)
+        self.assertEqual((self.export / "evil.webm").read_bytes(), b"webm-bytes")
+        self.assertFalse((Path(self.directory.name) / "evil.webm").exists())
+
+    def test_return_stops_the_service(self):
+        response, payload = self._request("GET", "/api/return")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(payload), {"ok": True})
+        self.thread.join(timeout=5)
+        self.assertFalse(self.thread.is_alive())
+        self.assertTrue((self.session / "gui_stop.flag").is_file())
+
+
+def make_fake_engine(directory: Path, payload_file: Path, artifact_name: str = "regenerated.out") -> Path:
+    """Fake engine: records argv/stdin and writes `payload_file` as a real artifact.
+
+    The artifact is written into the engine's current working directory (the
+    per-task directory run_multiwfn_tasks assigns), never to stdout, mirroring
+    the contract that only declared file artifacts carry data back.
+    """
+    script = Path(directory) / "fake_multiwfn.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        'record="$(dirname "$0")/engine_record.txt"\n'
+        'echo "ARG:$1" >> "$record"\n'
+        "cat >> \"$record.stdin\"\n"
+        f'cat "{payload_file}" > "{artifact_name}"\n'
+        'echo "fake engine diagnostics"\n',
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return script
+
+
+GAUSSIAN_NO_MODES_SAMPLE = (
+    " Entering Gaussian System, Link 0=g16\n"
+    " Standard orientation:\n"
+    " ---------------------------------------------------------------------\n"
+    " Center     Atomic      Atomic             Coordinates (Angstroms)\n"
+    " Number     Number       Type             X           Y           Z\n"
+    " ---------------------------------------------------------------------\n"
+    "      1          8           0        0.000000    0.000000    0.117300\n"
+    "      2          1           0        0.000000    0.757200   -0.469200\n"
+    "      3          1           0        0.000000   -0.757200   -0.469200\n"
+    " ---------------------------------------------------------------------\n"
+    "                      1                      2                      3\n"
+    "                     A                      A                      A\n"
+    " Frequencies --  1650.0000            3820.0000            3935.0000\n"
+    " IR Inten    --     61.5000               4.2000               0.9000\n"
+)
+
+
+@unittest.skipIf(os.name == "nt", "the fake engine is a POSIX shell script")
+class ExternalEngineTests(unittest.TestCase):
+    def test_run_multiwfn_tasks_feeds_stdin_collects_artifacts_and_queues_in_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            tasks = [
+                viewer.MultiwfnTask("first.out", ["11", "1", "-2", "0", "q"], ["regenerated.out"]),
+                viewer.MultiwfnTask("second.out", ["11", "2"], ["regenerated.*"]),
+            ]
+            results = viewer.run_multiwfn_tasks(engine, tasks, work_root=Path(directory) / "work")
+            self.assertEqual([result.returncode for result in results], [0, 0])
+            # Input paths are resolved to absolute before the working directory
+            # changes into the per-task directory.
+            self.assertEqual(
+                [result.input_file.name for result in results], ["first.out", "second.out"]
+            )
+            self.assertTrue(all(result.input_file.is_absolute() for result in results))
+            # stdout stays a diagnostic log; the artifact files carry the payload.
+            self.assertIn("fake engine diagnostics", results[0].output)
+            self.assertNotIn("Frequencies --", results[0].output)
+            for result in results:
+                self.assertEqual(len(result.artifacts), 1)
+                artifact = result.artifacts[0]
+                self.assertEqual(artifact.name, "regenerated.out")
+                self.assertEqual(artifact.parent, result.work_dir)
+                self.assertIn("Frequencies --", artifact.read_text(encoding="utf-8"))
+            record = (Path(directory) / "engine_record.txt").read_text(encoding="utf-8")
+            self.assertEqual(
+                [Path(line.removeprefix("ARG:")).name for line in record.splitlines()],
+                ["first.out", "second.out"],
+            )
+            stdin_log = (Path(directory) / "engine_record.txt.stdin").read_text(encoding="utf-8")
+            self.assertEqual(stdin_log, "11\n1\n-2\n0\nq\n11\n2\n")
+
+    def test_run_multiwfn_tasks_resolves_relative_input_before_changing_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            caller_dir = (Path(directory) / "caller").resolve()
+            caller_dir.mkdir()
+            (caller_dir / "relative_input.out").write_text("input", encoding="utf-8")
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            previous_cwd = os.getcwd()
+            os.chdir(caller_dir)
+            try:
+                results = viewer.run_multiwfn_tasks(
+                    engine,
+                    [viewer.MultiwfnTask("relative_input.out", ["q"], ["regenerated.out"])],
+                    work_root=Path(directory) / "work",
+                )
+            finally:
+                os.chdir(previous_cwd)
+            self.assertEqual(results[0].returncode, 0)
+            self.assertEqual(results[0].input_file, caller_dir / "relative_input.out")
+            self.assertEqual(len(results[0].artifacts), 1)
+
+    def test_run_multiwfn_tasks_uses_a_fresh_task_directory_per_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            task = viewer.MultiwfnTask("some_input.out", ["q"], ["regenerated.out"])
+            first = viewer.run_multiwfn_tasks(engine, [task], work_root=Path(directory) / "work")
+            second = viewer.run_multiwfn_tasks(engine, [task], work_root=Path(directory) / "work")
+            self.assertNotEqual(first[0].work_dir, second[0].work_dir)
+            # Repeating into the same work_root cannot inherit stale artifacts:
+            # each run starts from an empty directory.
+            self.assertEqual(
+                sorted(path.name for path in second[0].work_dir.iterdir()),
+                ["regenerated.out"],
+            )
+
+    def test_run_multiwfn_tasks_reports_missing_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            task = viewer.MultiwfnTask("some_input.out", ["11", "1"], ["missing.out"])
+            with self.assertRaises(viewer.MissingArtifactError) as caught:
+                viewer.run_multiwfn_tasks(engine, [task], work_root=Path(directory) / "work")
+            message = str(caught.exception)
+            self.assertIn("some_input.out", message)
+            self.assertIn("missing.out", message)
+            self.assertIn("regenerated.out", message)  # actual directory contents are listed
+
+    def test_run_multiwfn_tasks_rejects_escaping_artifact_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            for pattern in ("../escape.out", "/abs/escape.out"):
+                with self.subTest(pattern=pattern):
+                    task = viewer.MultiwfnTask("some_input.out", ["q"], [pattern])
+                    with self.assertRaisesRegex(viewer.VibrationError, "invalid artifact path"):
+                        viewer.run_multiwfn_tasks(engine, [task], work_root=Path(directory) / "work")
+
+    def test_compute_fallback_collects_verifies_and_parses_the_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gaussian_no_modes.out"
+            path.write_text(GAUSSIAN_NO_MODES_SAMPLE, encoding="utf-8")
+            with self.assertRaises(viewer.MissingDisplacementError):
+                viewer.load_vibration_input(path)
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            data = viewer.prepare_vibration_data(
+                path,
+                g98_out=None,
+                compute=True,
+                multiwfn=str(engine),
+                spectrum="ir",
+                compute_menu=viewer.DEFAULT_COMPUTE_MENU,
+                work_root=Path(directory),
+                compute_artifact="regenerated.out",
+            )
+            self.assertEqual(data.nmode, 3)
+            self.assertAlmostEqual(flat(data.displacements, 1, 2, 3, 3), -0.56)
+            stdin_log = (Path(directory) / "engine_record.txt.stdin").read_text(encoding="utf-8")
+            self.assertEqual(stdin_log, "11\n1\n-2\n0\nq\n")
+            # The collected artifact is the parsed payload; stdout is diagnostics only.
+            artifact = next((Path(directory) / "compute").glob("task-01-gaussian_no_modes-*/regenerated.out"))
+            self.assertIn("Atom  AN", artifact.read_text(encoding="utf-8"))
+            log = Path(directory) / "compute" / "gaussian_no_modes.compute.log"
+            self.assertEqual(log.read_text(encoding="utf-8").strip(), "fake engine diagnostics")
+
+    def test_compute_without_declared_artifact_fails_before_running_the_engine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gaussian_no_modes.out"
+            path.write_text(GAUSSIAN_NO_MODES_SAMPLE, encoding="utf-8")
+            engine = make_fake_engine(Path(directory), FIXTURES / "h2o_freq_gaussian.out")
+            with self.assertRaises(viewer.VibrationError) as caught:
+                viewer.prepare_vibration_data(
+                    path,
+                    g98_out=None,
+                    compute=True,
+                    multiwfn=str(engine),
+                    spectrum="ir",
+                    compute_menu=viewer.DEFAULT_COMPUTE_MENU,
+                    work_root=Path(directory),
+                    compute_artifact=None,
+                )
+            message = str(caught.exception)
+            self.assertIn("gaussian_no_modes.out", message)
+            self.assertIn("--compute-artifact", message)
+            self.assertIn("Stock Multiwfn", message)
+            self.assertFalse((Path(directory) / "engine_record.txt").exists())
+
+    def test_compute_artifact_without_displacement_vectors_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "gaussian_no_modes.out"
+            path.write_text(GAUSSIAN_NO_MODES_SAMPLE, encoding="utf-8")
+            # The engine regenerates a file that still carries no normal-mode
+            # tables (exactly what a stock transinfo.txt-style run would do).
+            payload = Path(directory) / "still_no_modes.out"
+            payload.write_text(GAUSSIAN_NO_MODES_SAMPLE, encoding="utf-8")
+            engine = make_fake_engine(Path(directory), payload)
+            with self.assertRaises(viewer.VibrationError) as caught:
+                viewer.prepare_vibration_data(
+                    path,
+                    g98_out=None,
+                    compute=True,
+                    multiwfn=str(engine),
+                    spectrum="ir",
+                    compute_menu=viewer.DEFAULT_COMPUTE_MENU,
+                    work_root=Path(directory),
+                    compute_artifact="regenerated.out",
+                )
+            message = str(caught.exception)
+            self.assertIn("gaussian_no_modes.out", message)
+            self.assertIn("regenerated.out", message)
+            self.assertIn("Stock Multiwfn", message)
+
+
+class NoLaunchCliTests(unittest.TestCase):
+    def test_no_launch_builds_session_and_prints_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory) / "vib_session"
+            code = viewer.main(
+                [str(FIXTURES / "h2o_freq_gaussian.out"), "--no-launch", "--session-dir", str(session)]
+            )
+            self.assertEqual(code, 0)
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            validate_manifest_like_viewer(manifest)
+            self.assertNotIn("multiwfnGui", manifest)
+            structure = json.loads((session / "structure.json").read_text(encoding="utf-8"))
+            validate_structure_like_viewer(structure, 3)
+
+
+@unittest.skipUnless(
+    os.environ.get("MULTIWFN_VIBRATION_E2E"),
+    "set MULTIWFN_VIBRATION_E2E=1 to run the desktop shell end-to-end launch test",
+)
+class DesktopLaunchE2ETests(unittest.TestCase):
+    def test_desktop_shell_opens_and_returns(self):
+        if viewer.resolve_desktop() is None:
+            self.skipTest("matterviz-desktop executable not found")
+        data = viewer.parse_gaussian_output(FIXTURES / "h2o_freq_gaussian.out")
+        with tempfile.TemporaryDirectory() as directory:
+            code = viewer.serve_vibration_session(
+                data,
+                session_dir=Path(directory) / "session",
+                export_dir=Path(directory),
+                port=0,
+                launch=True,
+            )
+            self.assertEqual(code, 0)
+
+
+class ReviewParserRegressions(unittest.TestCase):
+    """Constructed edge cases, not claims of real-engine end-to-end coverage."""
+
+    def _parse(self, text, parser=viewer.load_vibration_input):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review-output.out"
+            path.write_text(text, encoding="utf-8")
+            return parser(path)
+
+    def _gaussian_pair(self):
+        first = (FIXTURES / "h2o_freq_gaussian.out").read_text(encoding="utf-8")
+        second = (first.replace("1650.0000", "1750.0000")
+                  .replace("61.5000", "71.5000")
+                  .replace("0.117300", "0.217300")
+                  .replace("-0.56", "-0.66"))
+        return first, second
+
+    def test_gaussian_repeated_runs_keep_all_arrays_in_last_section(self):
+        first, second = self._gaussian_pair()
+        expected = self._parse(second)
+        actual = self._parse(first + second)
+        self.assertEqual(actual.frequencies, expected.frequencies)
+        self.assertEqual(actual.intensities, expected.intensities)
+        self.assertEqual(actual.atoms, expected.atoms)
+        self.assertEqual(actual.displacements, expected.displacements)
+
+    def test_gaussian_incomplete_last_run_does_not_borrow_old_vectors(self):
+        first, second = self._gaussian_pair()
+        actual = self._parse(first + second.split(" Atom  AN", 1)[0])
+        expected = self._parse(first)
+        self.assertEqual(actual.atoms, expected.atoms)
+        self.assertEqual(actual.frequencies, expected.frequencies)
+        self.assertEqual(actual.displacements, expected.displacements)
+
+    def test_gaussian_last_run_without_ir_does_not_borrow_old_intensities(self):
+        first, second = self._gaussian_pair()
+        second = "\n".join(line for line in second.splitlines() if "IR Inten" not in line)
+        actual = self._parse(first + second)
+        self.assertIsNone(actual.intensities)
+        self.assertEqual(actual.frequencies[0], 1750.0)
+
+    def test_gaussian_multiple_blocks_in_one_section_are_not_discarded(self):
+        actual = self._parse(XTB_G98_SAMPLE, viewer.parse_gaussian_output)
+        self.assertEqual(actual.frequencies, [-0.0, -0.0, 3650.0, 3820.0])
+        self.assertEqual(flat(actual.displacements, 4, 2, 2, 2), 1.0)
+
+    def test_gaussian_partial_last_atom_table_is_not_a_complete_run(self):
+        first, second = self._gaussian_pair()
+        second = second[:second.index("    2   1     0.00   0.00  -0.66")]
+        actual = self._parse(first + second)
+        self.assertEqual(actual.atoms, self._parse(first).atoms)
+
+    def test_cp2k_repeated_runs_keep_all_arrays_in_last_section(self):
+        second = (CP2K_OUTPUT_SAMPLE.replace("1650.0000", "1750.0000")
+                  .replace("61.5000", "71.5000")
+                  .replace("0.117300", "0.217300")
+                  .replace("-0.56", "-0.66"))
+        expected = self._parse(second)
+        actual = self._parse(CP2K_OUTPUT_SAMPLE + "\n" + second)
+        self.assertEqual(actual.frequencies, expected.frequencies)
+        self.assertEqual(actual.intensities, expected.intensities)
+        self.assertEqual(actual.atoms, expected.atoms)
+        self.assertEqual(actual.displacements, expected.displacements)
+
+    def test_cp2k_incomplete_last_run_does_not_borrow_old_vectors(self):
+        second = CP2K_OUTPUT_SAMPLE.replace("0.117300", "0.217300")
+        actual = self._parse(CP2K_OUTPUT_SAMPLE + "\n" + second.split(" VIB|ATOM", 1)[0])
+        self.assertEqual(actual.atoms, self._parse(CP2K_OUTPUT_SAMPLE).atoms)
+
+    def test_orca_ir_reads_int_not_eps(self):
+        lines = ["IR SPECTRUM", "Mode freq eps Int T**2 TX TY TZ",
+                 "6: 1146.68 0.000341 1.73 0.000093 (0.0 -0.009640 0.0)", ""]
+        frequencies, intensities = viewer._orca_frequencies(lines, 6)
+        self.assertEqual(frequencies, [1146.68])
+        self.assertEqual(intensities, [1.73])
+
+    def test_orca_invalid_int_does_not_substitute_eps(self):
+        lines = ["IR SPECTRUM", "Mode freq eps Int T**2 TX TY TZ",
+                 "6: 1146.68 0.000341 ***** 0.000093 (0.0 -0.009640 0.0)", ""]
+        _, intensities = viewer._orca_frequencies(lines, 6)
+        self.assertIsNone(intensities)
+
+    def test_orca_legacy_ir_without_int_keeps_legacy_column(self):
+        lines = ["IR SPECTRUM", "Mode freq (cm**-1) T**2", "1: 3650.0 10.25", ""]
+        self.assertEqual(viewer._orca_frequencies(lines, 1), ([3650.0], [10.25]))
+
+    def _xtb(self, spectrum, g98=XTB_G98_SAMPLE):
+        with tempfile.TemporaryDirectory() as directory:
+            path, companion = Path(directory) / "vibspectrum", Path(directory) / "g98.out"
+            path.write_text(spectrum, encoding="utf-8")
+            companion.write_text(g98, encoding="utf-8")
+            return viewer.load_vibration_input(path, g98_out=companion)
+
+    def _selection_rule_spectrum(self):
+        return ("$vibrational spectrum\n"
+                "# mode symmetry wave number IR intensity selection rules\n"
+                "# cm**(-1) km/mol IR RAMAN\n"
+                "1 -0.00 0.00 - -\n2 -0.00 0.00 - -\n"
+                "3 a 3650.00 10.25 YES YES\n4 a 3820.00 4.20 YES YES\n$end\n")
+
+    def test_xtb_standalone_selection_rules_preserve_mode_alignment(self):
+        actual = self._xtb(self._selection_rule_spectrum())
+        self.assertEqual(actual.frequencies, [-0.0, -0.0, 3650.0, 3820.0])
+        self.assertEqual(actual.intensities, [0.0, 0.0, 10.25, 4.2])
+        self.assertEqual(flat(actual.displacements, 3, 1, 1, 2), 0.1)
+
+    def test_xtb_late_spectrum_after_banner_is_found(self):
+        actual = self._xtb("x T B\n" + "calculation progress\n" * 600 + self._selection_rule_spectrum())
+        self.assertEqual(actual.nmode, 4)
+
+    def test_xtb_blank_lines_and_comments_inside_section_are_allowed(self):
+        actual = self._xtb("x T B\n" + self._selection_rule_spectrum().replace("3 a", "\n# note\n3 a"))
+        self.assertEqual(actual.nmode, 4)
+
+    def test_xtb_missing_end_marker_is_rejected(self):
+        with self.assertRaises(viewer.VibrationError):
+            self._xtb(XTB_OUTPUT_SAMPLE.replace("$end", ""))
+
+    def test_xtb_duplicate_mode_numbers_are_rejected(self):
+        with self.assertRaises(viewer.VibrationError):
+            self._xtb(XTB_OUTPUT_SAMPLE.replace(" 4         a", " 3         a"))
+
+    def test_xtb_companion_frequency_mismatch_is_rejected(self):
+        with self.assertRaisesRegex(viewer.VibrationError, "g98|companion"):
+            self._xtb(XTB_OUTPUT_SAMPLE, XTB_G98_SAMPLE.replace("3650.0000", "3750.0000"))
+
+    def test_xtb_companion_mode_count_mismatch_is_rejected(self):
+        spectrum = XTB_OUTPUT_SAMPLE.replace(" 4         a       3820.00        4.20\n", "")
+        with self.assertRaisesRegex(viewer.VibrationError, "g98|companion"):
+            self._xtb(spectrum)
+
+    def test_gaussian_uses_the_coordinate_frame_before_selected_frequencies(self):
+        first, second = self._gaussian_pair()
+        second = second.replace("Standard orientation:", "Input orientation:")
+        actual = self._parse(first + second)
+        self.assertAlmostEqual(actual.atoms[0].z_coord, 0.2173)
+
+    def test_xtb_projected_zero_vectors_are_filtered_only_after_alignment(self):
+        g98 = (XTB_G98_SAMPLE
+               .replace("0.00   0.00   0.07    0.00   0.00  -0.07", "0.00   0.00   0.00    0.00   0.00   0.00")
+               .replace("0.00   0.00  -0.07    0.00   0.00   0.07", "0.00   0.00   0.00    0.00   0.00   0.00"))
+        actual = self._xtb(XTB_OUTPUT_SAMPLE, g98)
+        self.assertEqual(actual.frequencies, [3650.0, 3820.0])
+        self.assertEqual(flat(actual.displacements, 1, 1, 1, 2), 0.1)
+        self.assertEqual([item["index"] for item in viewer.build_manifest(actual)["vibrations"]["modes"]], [3, 4])
+
+
+class ReviewFilenameRegressions(unittest.TestCase):
+    def test_export_name_cannot_carry_a_windows_drive_or_stream(self):
+        from pathlib import PureWindowsPath
+        for name in ("C:evil.exe", "D:out.webm", "movie.webm:payload", "C:", "::"):
+            with self.subTest(name=name):
+                cleaned = viewer.sanitize_save_file_name(name)
+                self.assertNotIn(":", cleaned)
+                self.assertEqual(PureWindowsPath("D:/exports") / cleaned,
+                                 PureWindowsPath("D:/exports", cleaned))
+                self.assertEqual((PureWindowsPath("D:/exports") / cleaned).parent,
+                                 PureWindowsPath("D:/exports"))
+
+
+class ReviewTimeoutRegressions(unittest.TestCase):
+    def test_task_timeout_kills_and_reaps_the_real_child(self):
+        import subprocess
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory:
+            child = Path(directory) / "slow_engine.py"
+            completed = Path(directory) / "completed"
+            child.write_text(
+                "import time\nfrom pathlib import Path\n"
+                "time.sleep(0.4)\n"
+                f"Path({str(completed)!r}).write_text('finished')\n", encoding="utf-8")
+            processes = []
+            real_popen = subprocess.Popen
+            def record_process(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                return process
+            try:
+                with mock.patch.object(viewer, "MULTIWFN_TASK_TIMEOUT", 0.05, create=True), \
+                     mock.patch.object(viewer.subprocess, "Popen", side_effect=record_process):
+                    with self.assertRaisesRegex(viewer.VibrationError, "slow_engine.py"):
+                        viewer.run_multiwfn_tasks(sys.executable, [(child, [])])
+                self.assertFalse(completed.exists())
+                self.assertEqual(len(processes), 1)
+                self.assertIsNotNone(processes[0].returncode)
+            finally:
+                for process in processes:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=5)
+
+
+class ReviewHttpRegressions(HttpServiceTestCase):
+    def test_missing_capability_cannot_read_session_files(self):
+        for path in ("/api/plot-data/1", "/session/manifest.json", "/session/structure.json"):
+            with self.subTest(path=path):
+                response, _ = self._raw_request("GET", path)
+                self.assertEqual(response.status, 403)
+
+    def test_wrong_capability_cannot_stop_the_session(self):
+        response, _ = self._raw_request("GET", "/api/return?cap=wrong")
+        self.assertEqual(response.status, 403)
+        self.assertTrue(self.thread.is_alive())
+        self.assertFalse((self.session / "gui_stop.flag").exists())
+
+    def test_cross_origin_save_does_not_write(self):
+        response, _ = self._raw_request(
+            "POST", f"/api/save-file?cap={self.capability}&name=attack.bin", b"payload",
+            {"Origin": "https://untrusted.invalid"})
+        self.assertEqual(response.status, 403)
+        self.assertFalse((self.export / "attack.bin").exists())
+
+    def test_bad_host_is_rejected_even_with_correct_capability(self):
+        response, _ = self._raw_request("GET", f"/api/plot-data/1?cap={self.capability}",
+                                        headers={"Host": "untrusted.invalid"})
+        self.assertEqual(response.status, 403)
+
+    def test_post_requires_origin(self):
+        response, _ = self._raw_request("POST", f"/api/ready?cap={self.capability}")
+        self.assertEqual(response.status, 403)
+
+    def test_duplicate_capability_is_rejected(self):
+        response, _ = self._raw_request("GET", f"/api/plot-data/1?cap={self.capability}&cap=wrong")
+        self.assertEqual(response.status, 403)
+
+    def test_unicode_capability_is_rejected_without_server_error(self):
+        response, _ = self._raw_request("GET", "/api/plot-data/1?cap=%E9%BE%99")
+        self.assertEqual(response.status, 403)
+
+    def test_oversized_save_is_rejected_before_writing(self):
+        from unittest import mock
+        with mock.patch.object(viewer, "MAX_SAVE_FILE_BYTES", 8, create=True):
+            response, _ = self._request("POST", "/api/save-file?name=large.bin", b"123456789")
+        self.assertEqual(response.status, 413)
+        self.assertFalse((self.export / "large.bin").exists())
+
+    def test_negative_content_length_is_rejected(self):
+        response, _ = self._request("POST", "/api/save-file?name=invalid.bin", b"",
+                                    {"Content-Length": "-1"})
+        self.assertEqual(response.status, 400)
+        self.assertFalse((self.export / "invalid.bin").exists())
+
+    def test_handler_generates_distinct_nonempty_capabilities(self):
+        first = viewer.make_vibration_handler(self.session, {1: self.frame}, self.export)
+        second = viewer.make_vibration_handler(self.session, {1: self.frame}, self.export)
+        self.assertIsInstance(getattr(first, "capability", None), str)
+        self.assertGreaterEqual(len(first.capability), 32)
+        self.assertNotEqual(first.capability, second.capability)
+
+
+
+
+if __name__ == "__main__":
+    unittest.main()
