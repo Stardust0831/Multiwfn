@@ -36,7 +36,7 @@ call set_color(C_BRIGHT_MAGENTA)
 write(*,*) "Multiwfn -- A Multifunctional Wavefunction Analyzer"
 call reset_color()
 call set_color(C_GREEN)
-write(*,*) "Version 2026.9.20 (release date is the same as version name)"
+write(*,*) "Version 2026.10.1 (release date is the same as version name)"
 call reset_color()
 write(*,*) "Developer: Tian Lu (Beijing Kein Research Center for Natural Sciences)"
 write(*,*) "Multiwfn official website: http://sobereva.com/multiwfn"
@@ -264,11 +264,11 @@ end if
 
 
 !Special treatment and test new code
-!call dissym_factor
+!call DD_opsh
+
 
 !!!--------------------- Now everything start ---------------------!!!
 do while(.true.) !Main loop
-
 	write(*,*)
 	if (allocated(cubmat)) write(*,*) "Note: A set of grid data is presented in memory"
     write(*,*) """q"": Exit program gracefully          ""r"": Load a new file"

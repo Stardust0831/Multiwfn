@@ -30,7 +30,7 @@ real*8 :: LDOSxpos(num2Dpoints)
 !All ?DOSliney share linexpos(:) as X axis data
 real*8,allocatable :: linexpos(:),TDOSliney(:),TDOSliney_unocc(:),PDOSliney(:,:),OPDOSliney(:),LDOSliney(:),COHPliney(:),COHPliney_unocc(:) !TDOSliney_unocc only records TDOS of unoccupied MOs
 real*8,allocatable :: compfrag(:,:) !i,k element is the composition of fragment k in MO i. compfrag(:,0) is used for recording degeneracy for TDOS
-real*8,allocatable :: OPfrag12(:) !Overlap population between fragment 1 and 2
+real*8,allocatable :: OPfrag12(:) !Overlap population between fragments 1 and 2
 real*8,allocatable :: LDOScomp(:) !Composition at a point of each orbital
 real*8,allocatable :: LDOSptscomp(:,:) !Composition of each MO, ipt in a given line
 real*8,allocatable :: LDOS2Dmap(:,:) !LDOS curve, ipt in a given line

@@ -28,6 +28,7 @@ do while(.true.)
 	write(*,*) "9 Decompose Wiberg bond order in NAO basis as atomic orbital pair contribution"
     write(*,*) "10 Intrinsic bond strength index (IBSI)"
     write(*,*) "11 AV1245 index (approximate multicenter bond order for large rings) and AVmin"
+    write(*,*) "12 Delocalization index (DI) between AIM basins"
     write(*,*) "20 Bond order density (BOD) and natural adaptive orbital (NAdO) analyses"
 	read(*,*) ibondana
     
@@ -165,6 +166,9 @@ do while(.true.)
         call IBSI
     else if (ibondana==11) then
         call AV1245
+    else if (ibondana==12) then
+		call generatebasin_wrapper(2) !Generate AIM basins
+        call LIDIbasin(2) !Calculate DI using mixed grid
     else if (ibondana==20) then
         call BOD
 	end if
@@ -246,10 +250,10 @@ if (allocated(frag1)) then
 	end do
 	write(*,*)
 	if (wfntype==1.or.wfntype==2.or.wfntype==4) then
-		write(*,"(' The bond order between fragment 1 and 2:')")
+		write(*,"(' The bond order between fragments 1 and 2:')")
 		write(*,"(' Alpha:',f10.6,' Beta:',f10.6,' Total:',f10.6,' Mixed Alpha&Beta:',f10.6)") bndordfraga,bndordfragb,bndordfraga+bndordfragb,bndordfragtot
 	else
-		write(*,"(' The bond order between fragment 1 and 2:',f12.6)") bndordfragtot
+		write(*,"(' The bond order between fragments 1 and 2:',f12.6)") bndordfragtot
 	end if
 end if
 
@@ -404,7 +408,7 @@ do i=1,ncenter
 end do
 write(*,*)
 
-!Between fragment
+!Between fragments
 if (allocated(frag1)) then
 	bndordfraga=0
 	bndordfragb=0
@@ -417,10 +421,10 @@ if (allocated(frag1)) then
 		end do
 	end do
 	if (wfntype==1.or.wfntype==2.or.wfntype==4) then
-		write(*,"(' The Mulliken bond order between fragment 1 and 2:')")
+		write(*,"(' The Mulliken bond order between fragments 1 and 2:')")
 		write(*,"(' Alpha:',f12.6,' Beta:',f12.6,' Total:',f12.6)") bndordfraga,bndordfragb,bndordfragtot
 	else if (wfntype==0.or.wfntype==3) then
-		write(*,"(' The Mulliken bond order between fragment 1 and 2:',f12.6)") bndordfragtot
+		write(*,"(' The Mulliken bond order between fragments 1 and 2:',f12.6)") bndordfragtot
 	end if
 	write(*,*)
 end if
@@ -937,7 +941,7 @@ do while(.true.)
 			            IBSIfrag=IBSIfrag+IBSImat(frag1(i),frag2(j))
 		            end do
 	            end do
-	            write(*,"(/,' The total IBSI between fragment 1 and 2:',f10.5)") IBSIfrag
+	            write(*,"(/,' The total IBSI between fragments 1 and 2:',f10.5)") IBSIfrag
             else
                 write(*,"(/,a)") " Note: IBSI between the two defined fragments is not shown because the range &
                 &of the atoms to be taken into account is not all atoms"

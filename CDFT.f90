@@ -44,9 +44,9 @@ do while(.true.)
     statename(2)=c3p
     statename(3)=c3q
     write(*,*)
-    write(*,*) "---- Calculate various quantities in conceptual density functional theory ----"
+    call menutitle("Conceptual density functional theory",10,2)
     if (np==1.and.nq==1) then
-		write(*,*) "-3 Set degree of FMO degeneracy, current: Nondegenerate"
+		write(*,*) "-3 Set degree of FMO degeneracy for options 1, 2 and 3, current: Nondegenerate"
     else
 		write(*,"(a,i2,a,i2,a)") " -3 Set degree of degeneracy for options 1, 2 and 3, current: Degeneracy of HOMO and LUMO are",nq," and",np,", respectively"
     end if
@@ -76,6 +76,8 @@ do while(.true.)
     write(*,*) "8 Calculate nucleophilic and electrophilic superdelocalizabilities"
     write(*,*) "9 Calculate grid data of Fukui potential and dual descriptor potential"
     write(*,*) "10 Calculate bond dual descriptor (BDD)"
+    write(*,*) "11 Calculate dual delocalization descriptor (DDD)"
+    if (wfntype==1) write(*,*) "12 Calculate Fukui function and dual descriptor based on formalism of conceptual spin-polarized DFT"
     read(*,*) isel
     
     if (isel==-3) then
@@ -84,76 +86,7 @@ do while(.true.)
             read(*,*)
             cycle
         end if
-        if (allocated(b)) then
-            call getHOMOidx
-            idxLUMO=idxHOMO+1
-            nshow=min(nmo,idxLUMO+9)-idxLUMO+1
-            write(*,"(/,i3,a)") nshow," lowest unoccupied orbitals:"
-            write(*,*) "E_diff denotes difference of the orbital energy with respect to LUMO"
-            nsugg=0
-            do imo=min(nmo,idxLUMO+9),idxLUMO,-1
-                if (imo==idxLUMO) then
-                    write(*,"(' Orbital',i6,' (LUMO  )   Energy:',f10.3,' eV')") imo,MOene(imo)*au2eV
-                else
-                    write(*,"(' Orbital',i6,' (LUMO+',i1,')   Energy:',f10.3,' eV  E_diff:',f10.3,' eV')") imo,imo-idxLUMO,MOene(imo)*au2eV,(MOene(imo)-MOene(idxLUMO))*au2eV
-                end if
-                if ( (MOene(imo)-MOene(idxLUMO))*au2eV<0.01D0 ) nsugg=nsugg+1
-            end do
-        else
-            write(*,"(a)") " Because the input file does not contain orbital information, energies of lowest unoccupied orbitals are not listed here. &
-            &Please manually check orbital energies to determine degeneracy"
-        end if
-        write(*,*)
-        write(*,*) "Please input degeneracy of LUMO, e.g. 3"
-        write(*,"(a,i2,a)") " If you press ENTER button directly, suggested value (",nsugg,") will be used"
-        read(*,"(a)") c10tmp
-        if (c10tmp==" ") then
-            np=nsugg
-        else
-            read(c10tmp,*) np
-        end if
-        if (np>9.or.np<1) then
-			if (np>9) write(*,*) "Error: The degeneracy must be < 9! Press ENTER button to continue"
-			if (np<1) write(*,*) "Error: The degeneracy must be >=1! Press ENTER button to continue"
-            read(*,*)
-            np=1
-            write(*,*) "NOTE: The degeneracy has be set to 1"
-            cycle
-        end if
-        if (allocated(b)) then
-            nshow=idxHOMO-max(1,idxHOMO-9)+1
-            write(*,"(/,i3,a)") nshow," highest occupied orbitals:"
-            write(*,*) "E_diff denotes difference of the orbital energy with respect to HOMO"
-            nsugg=0
-            do imo=idxHOMO,max(1,idxHOMO-9),-1
-                if (imo==idxHOMO) then
-                    write(*,"(' Orbital',i6,' (HOMO  )   Energy:',f10.3,' eV')") imo,MOene(imo)*au2eV
-                else
-                    write(*,"(' Orbital',i6,' (HOMO',i2,')   Energy:',f10.3,' eV  E_diff:',f10.3,' eV')") imo,imo-idxHOMO,MOene(imo)*au2eV,(MOene(imo)-MOene(idxHOMO))*au2eV
-                end if
-                if ( (MOene(idxHOMO)-MOene(imo))*au2eV<0.01D0 ) nsugg=nsugg+1
-            end do
-        else
-            write(*,"(a)") " Because the input file does not contain orbital information, energies of highest occupied orbitals are not listed here. &
-            &Please manually check orbital energies to determine degeneracy"
-        end if
-        write(*,*)
-        write(*,*) "Please input degeneracy of HOMO, e.g. 3"
-        write(*,"(a,i2,a)") " If you press ENTER button directly, suggested value (",nsugg,") will be used"
-        read(*,"(a)") c10tmp
-        if (c10tmp==" ") then
-            nq=nsugg
-        else
-            read(c10tmp,*) nq
-        end if
-        if (nq>9.or.nq<1) then
-			if (nq>9) write(*,*) "Error: The degeneracy must be < 9! Press ENTER button to continue"
-			if (nq<1) write(*,*) "Error: The degeneracy must be >=1! Press ENTER button to continue"
-            read(*,*)
-            nq=1
-            write(*,*) "NOTE: The degeneracy has be set to 1"
-            cycle
-        end if
+        call setFMOdegen(np,nq)
 		if ((np/=1.or.nq/=1).and.iwcubic==1) iwcubic=0 !w_cubic and epsilon is undefined for (quasi)-degenerate case
     else if (isel==-2) then
         write(*,*) "Select the program for which the input files will be generated by option 1"
@@ -337,11 +270,10 @@ do while(.true.)
                 close(10)
             end do
             write(*,*) "Gaussian input files for all states have been generated in current folder"
-            write(*,*)
             inquire(file=gaupath,exist=alive)
             selectyn='n'
             if (alive) then
-                write(*,"(a)") " Do you want to invoke Gaussian to calculate these .gjf files now to yield .wfn &
+                write(*,"(/,a)") " Do you want to invoke Gaussian to calculate these .gjf files now to yield .wfn &
                 &files, and then automatically delete the .gjf and .out files? (y/n)"
                 write(*,*) "Note: You can manually edit the .gjf files before inputting ""y"""
                 read(*,*) selectyn
@@ -1174,7 +1106,640 @@ do while(.true.)
             write(*,*) "Exporting finished!"
         end if
         deallocate(BDDmat,bndmatNp,bndmatNq,bndmatN,bondarray,idxlist1,idxlist2)
+        
+    else if (isel==11) then !Dual delocalization descriptor (DDD)
+        call dual_delocalization_descriptor
+        
+    else if (isel==12) then !Specific dual descriptor formulation for open-shell case
+        call DD_opsh
     end if
+    
 end do
     
+end subroutine
+
+
+
+    
+!!---------- Calculate dual delocalization descriptor (DDD) of Samir Kenouche
+!Only closed-shell case is supported
+subroutine dual_delocalization_descriptor
+use defvar
+use util
+use basinintmod
+implicit real*8 (a-h,o-z)
+integer maplist(ncenter)
+character c80tmp*80,c200tmp*200
+
+write(*,*)
+call menutitle("Calculate dual delocalization descriptor (DDD)",10,1)
+write(*,*) "Reference: Samir Kenouche, Phys. Chem. Chem. Phys., 28, 19133 (2026)"
+write(*,*)
+if (wfntype==1.or.wfntype==2.or.wfntype==4) then
+    write(*,*) "Error: Only closed-shell case is supported but this is an open-shell system"
+    write(*,*) "Press ENTER button to return"
+    read(*,*)
+end if
+
+write(*,*) "Choose how to generate atomic overlap matrix (AOM)"
+write(*,*) "0 Exit"
+write(*,*) "1 Calculate AOM via AIM partition"
+write(*,*) "2 Calculate AOM via Hirshfeld partition"
+write(*,*) "3 Load AOM from a .txt file that exported by Multiwfn"
+read(*,*) iAOM
+
+if (iAOM==0) then
+    return
+else if (iAOM==1) then
+    call generatebasin_wrapper(2) !Generate AIM basins
+    if (allocated(cubmat)) deallocate(cubmat)
+    write(*,*)
+    write(*,*) "Generating atomic overlap matrix (AOM)..."
+    ispecialold=ispecial
+    ispecial=3 !Make genBOM consider all MOs
+    call genBOM(3)
+    ispecial=ispecialold
+    !Convert BOM to AOM
+    nmatsize=size(BOM,1)
+    allocate(AOM(nmatsize,nmatsize,ncenter))
+    call atmidx2attidx(maplist,1,6)
+    do iatm=1,ncenter
+        AOM(:,:,iatm)=BOM(:,:,maplist(iatm))
+    end do
+    deallocate(BOM)
+else if (iAOM==2) then
+    ispecialold=ispecial
+    ispecial=3 !Make AOM contains all MOs
+    call fuzzyana(3)
+    ispecial=ispecialold
+else
+    write(*,*) "Input actual dimension of the AOM, e.g. 168"
+    write(*,"(a)") " If pressing ENTER button directly, it is assumed that the dimension is equal to total number of orbitals of present wavefunction"
+    read(*,"(a)") c80tmp
+    if (c80tmp==" ") then
+        nmatsize=nmo
+    else
+        read(c80tmp,*) nmatsize
+    end if
+    c200tmp="AOM_aniline.txt"
+    write(*,*) "Input path of the .txt file containing AOM of all atoms in this system"
+    write(*,*) "e.g. D:\Besiktas\AOM.txt"
+    do while(.true.)
+	    read(*,"(a)") c200tmp
+	    inquire(file=c200tmp,exist=alive)
+	    if (alive) exit
+	    write(*,*) "Cannot find the file, input again!"
+    end do
+    allocate(AOM(nmatsize,nmatsize,ncenter))
+    write(*,*) "Loading AOM..."
+    open(10,file=c200tmp,status="old")
+    do iatm=1,ncenter
+        call readmatgau(10,AOM(:,:,iatm),1,"f14.8",6,5)
+        read(10,*)
+    end do
+    close(10)
+    write(*,*) "Loading finished!"
+end if
+
+call getHOMOidx !Get HOMO index "idxHOMO"
+idxLUMO=idxHOMO+1
+write(*,"(/,' HOMO index:',i6,'    LUMO index:',i6)") idxHOMO,idxLUMO
+
+nLUMO=1 !Degeneracy
+nHOMO=1
+if ((MOene(idxHOMO)-MOene(idxHOMO-1))*au2eV<0.01D0 .or. (MOene(idxLUMO+1)-MOene(idxLUMO))*au2eV<0.01D0) then
+    write(*,*)
+    write(*,*) "Frontier molecular orbitals are likely degenerated, please set degeneracy"
+    call setFMOdegen(nLUMO,nHOMO)
+end if
+
+do while(.true.)
+    write(*,*)
+    write(*,*) "Input indices of two atoms in a bond, e.g. 3,5"
+    write(*,*) "Input ""q"" can return"
+    read(*,"(a)") c80tmp
+    if (index(c80tmp,'q')/=0) then
+        deallocate(AOM)
+        return
+    else
+        read(c80tmp,*) iatm,jatm
+    end if
+    
+    f1_neg=0
+    f1_pos=0
+    g_neg=0
+    g_pos=0
+    do iHOMO=idxHOMO,idxHOMO-nHOMO+1,-1 !Loop degenerated HOMO
+        do iorb=1,idxHOMO-nHOMO
+            f1_neg = f1_neg + 4*AOM(iHOMO,iorb,iatm)*AOM(iHOMO,iorb,jatm)
+        end do
+        g_neg = g_neg + 2*AOM(iHOMO,iHOMO,iatm)*AOM(iHOMO,iHOMO,jatm)
+    end do
+    f1_neg=f1_neg/nHOMO
+    g_neg=g_neg/nHOMO
+    do iLUMO=idxLUMO,idxLUMO+nLUMO-1 !Loop degenerated LUMO
+        do iorb=1,idxHOMO
+            f1_pos = f1_pos + 4*AOM(iLUMO,iorb,iatm)*AOM(iLUMO,iorb,jatm)
+        end do
+        g_pos = g_pos + AOM(iLUMO,iLUMO,iatm)*AOM(iLUMO,iLUMO,jatm)
+        !write(*,"(i5,3f12.6)") iLUMO,AOM(iLUMO,iLUMO,iatm)*AOM(iLUMO,iLUMO,jatm),AOM(iLUMO,iLUMO,iatm),AOM(iLUMO,iLUMO,jatm)
+    end do
+    f1_pos=f1_pos/nLUMO
+    g_pos=g_pos/nLUMO
+    
+    delta_neg=f1_neg+1.5D0*g_neg
+    delta_pos=f1_pos+g_pos
+    write(*,"(' Result of',i5,'(',a,')   --',i5,'(',a,')')") iatm,a(iatm)%name,jatm,a(jatm)%name
+    write(*,"(' f-:  ',f12.6)") f1_neg
+    write(*,"(' f+:  ',f12.6)") f1_pos
+    write(*,"(' g-:  ',f12.6)") g_neg
+    write(*,"(' g+:  ',f12.6)") g_pos
+    write(*,"(' f(1):',f12.6)") f1_pos-f1_neg
+    write(*,"(' f(2):',f12.6)") delta_pos-delta_neg
+end do
+end subroutine
+
+
+
+
+!!-------- Interface for setting up degeneracy of LUMO (np) and degeneracy of HOMO (nq)  
+subroutine setFMOdegen(np,nq)
+use defvar
+implicit real*8 (a-h,o-z)
+integer np,nq
+character c10tmp*10
+
+if (allocated(b)) then
+    call getHOMOidx
+    idxLUMO=idxHOMO+1
+    nshow=min(nmo,idxLUMO+9)-idxLUMO+1
+    write(*,"(/,i3,a)") nshow," lowest unoccupied orbitals:"
+    write(*,*) "E_diff denotes difference of the orbital energy with respect to LUMO"
+    nsugg=0
+    do imo=min(nmo,idxLUMO+9),idxLUMO,-1
+        if (imo==idxLUMO) then
+            write(*,"(' Orbital',i6,' (LUMO  )   Energy:',f10.3,' eV')") imo,MOene(imo)*au2eV
+        else
+            write(*,"(' Orbital',i6,' (LUMO+',i1,')   Energy:',f10.3,' eV  E_diff:',f10.3,' eV')") imo,imo-idxLUMO,MOene(imo)*au2eV,(MOene(imo)-MOene(idxLUMO))*au2eV
+        end if
+        if ( (MOene(imo)-MOene(idxLUMO))*au2eV<0.01D0 ) nsugg=nsugg+1
+    end do
+else
+    write(*,"(a)") " Because the input file does not contain orbital information, energies of lowest unoccupied orbitals are not listed here. &
+    &Please manually check orbital energies to determine degeneracy"
+end if
+write(*,*)
+write(*,*) "Please input degeneracy of LUMO, e.g. 3"
+write(*,"(a,i2,a)") " If you press ENTER button directly, suggested value (",nsugg,") will be used"
+read(*,"(a)") c10tmp
+if (c10tmp==" ") then
+    np=nsugg
+else
+    read(c10tmp,*) np
+end if
+if (np>9.or.np<1) then
+	if (np>9) write(*,*) "Error: The degeneracy must be < 9! Press ENTER button to continue"
+	if (np<1) write(*,*) "Error: The degeneracy must be >=1! Press ENTER button to continue"
+    read(*,*)
+    np=1
+    write(*,*) "NOTE: The degeneracy has be set to 1"
+    return
+end if
+if (allocated(b)) then
+    nshow=idxHOMO-max(1,idxHOMO-9)+1
+    write(*,"(/,i3,a)") nshow," highest occupied orbitals:"
+    write(*,*) "E_diff denotes difference of the orbital energy with respect to HOMO"
+    nsugg=0
+    do imo=idxHOMO,max(1,idxHOMO-9),-1
+        if (imo==idxHOMO) then
+            write(*,"(' Orbital',i6,' (HOMO  )   Energy:',f10.3,' eV')") imo,MOene(imo)*au2eV
+        else
+            write(*,"(' Orbital',i6,' (HOMO',i2,')   Energy:',f10.3,' eV  E_diff:',f10.3,' eV')") imo,imo-idxHOMO,MOene(imo)*au2eV,(MOene(imo)-MOene(idxHOMO))*au2eV
+        end if
+        if ( (MOene(idxHOMO)-MOene(imo))*au2eV<0.01D0 ) nsugg=nsugg+1
+    end do
+else
+    write(*,"(a)") " Because the input file does not contain orbital information, energies of highest occupied orbitals are not listed here. &
+    &Please manually check orbital energies to determine degeneracy"
+end if
+write(*,*)
+write(*,*) "Please input degeneracy of HOMO, e.g. 3"
+write(*,"(a,i2,a)") " If you press ENTER button directly, suggested value (",nsugg,") will be used"
+read(*,"(a)") c10tmp
+if (c10tmp==" ") then
+    nq=nsugg
+else
+    read(c10tmp,*) nq
+end if
+if (nq>9.or.nq<1) then
+	if (nq>9) write(*,*) "Error: The degeneracy must be < 9! Press ENTER button to continue"
+	if (nq<1) write(*,*) "Error: The degeneracy must be >=1! Press ENTER button to continue"
+    read(*,*)
+    nq=1
+    write(*,*) "NOTE: The degeneracy has be set to 1"
+    return
+end if
+end subroutine
+
+
+
+
+
+!!----------------------------------------------------------------------------------------------------------------
+!!-------- Calculate Fukui function and dual descriptor (DD) for open-shell case (Martinez Araya's formalism)
+!!----------------------------------------------------------------------------------------------------------------
+subroutine DD_opsh
+use defvar
+implicit real*8 (a-h,o-z)
+character c80tmp*80,c200tmp*200
+
+if (wfntype/=1) then
+    write(*,"(/,a)") " Error: You must load a file containing all orbitals of an unrestricted wavefunction to use this function. Press ENTER button to return"
+    read(*,*)
+    return
+end if
+
+write(*,*)
+write(*,*) "Reference: Jorge Ignacio Mart¨ªnez Araya, Chem. Phys. Lett., 506, 104 (2011)"
+
+npa=1 !np of alpha spin
+npb=1
+nqa=1
+nqb=1
+
+do while(.true.)
+    write(*,*)
+    call menutitle("Fukui function and dual descriptor for open-shell",10,1)
+    write(*,*) "0 Return"
+    if (npa==1.and.npb==1.and.nqa==1.and.nqb==1) then
+        write(*,*) "1 Set degeneracy of frontier molecular orbitals, current: Nondegenerated"
+    else
+        write(*,*) "1 Set degeneracy of frontier molecular orbitals, current: Degenerated"
+    end if
+    write(*,*) "2 Generate .wfn files for various electrons states"
+    write(*,*) "3 Calculate grid data of Fukui function and dual descriptor"
+    read(*,*) isel
+    if (isel==0) then
+        return
+    else if (isel==1) then
+        call setFMOdegen_opsh(npa,npb,nqa,nqb)
+    else if (isel==2) then
+        call gengjf_DD_opsh(npa,npb,nqa,nqb)
+    else if (isel==3) then
+        call grid_DD_opsh(npa,npb,nqa,nqb)
+    end if
+end do
+end subroutine
+
+
+
+!!-------- Interface for setting up degeneracy of LUMO and HOMO for spin-polarized open-shell case (Martinez Araya's formalism)
+!Extended and simplified from subroutine setFMOdegen
+subroutine setFMOdegen_opsh(npa,npb,nqa,nqb)
+use defvar
+implicit real*8 (a-h,o-z)
+integer npa,npb,nqa,nqb
+character c10tmp*10
+
+call getHOMOidx
+idxLUMO=idxHOMO+1 !Alpha HOMO
+idxLUMOb=idxHOMOb+1 !Beta HOMO
+
+!alpha part
+nshow=min(nbasis,idxLUMO+9)-idxLUMO+1
+write(*,*) "*** Now set degeneracy of frontier MOs of alpha spin ***"
+write(*,"(/,i3,a)") nshow," lowest unoccupied alpha orbitals:"
+write(*,*) "E_diff denotes difference of the orbital energy w.r.t. LUMO(alpha)"
+nsugg=0
+do imo=min(nbasis,idxLUMO+9),idxLUMO,-1
+    if (imo==idxLUMO) then
+        write(*,"(' Orbital',i6,' (alpha_LUMO  )   E:',f10.3,' eV')") imo,MOene(imo)*au2eV
+    else
+        write(*,"(' Orbital',i6,' (alpha_LUMO+',i1,')   E:',f10.3,' eV  E_diff:',f10.3,' eV')") imo,imo-idxLUMO,MOene(imo)*au2eV,(MOene(imo)-MOene(idxLUMO))*au2eV
+    end if
+    if ( (MOene(imo)-MOene(idxLUMO))*au2eV<0.01D0 ) nsugg=nsugg+1
+end do
+write(*,*)
+write(*,*) "Please input degeneracy of LUMO(alpha), e.g. 3"
+write(*,"(a,i2,a)") " If you press ENTER button directly, suggested value (",nsugg,") will be used"
+read(*,"(a)") c10tmp
+if (c10tmp==" ") then
+    npa=nsugg
+else
+    read(c10tmp,*) npa
+end if
+
+nshow=idxHOMO-max(1,idxHOMO-9)+1
+write(*,"(/,i3,a)") nshow," highest occupied alpha orbitals:"
+write(*,*) "E_diff denotes difference of the orbital energy w.r.t. HOMO(alpha)"
+nsugg=0
+do imo=idxHOMO,max(1,idxHOMO-9),-1
+    if (imo==idxHOMO) then
+        write(*,"(' Orbital',i6,' (alpha_HOMO  )   E:',f10.3,' eV')") imo,MOene(imo)*au2eV
+    else
+        write(*,"(' Orbital',i6,' (alpha_HOMO',i2,')   E:',f10.3,' eV  E_diff:',f10.3,' eV')") imo,imo-idxHOMO,MOene(imo)*au2eV,(MOene(imo)-MOene(idxHOMO))*au2eV
+    end if
+    if ( (MOene(idxHOMO)-MOene(imo))*au2eV<0.01D0 ) nsugg=nsugg+1
+end do
+write(*,*)
+write(*,*) "Please input degeneracy of HOMO(alpha), e.g. 3"
+write(*,"(a,i2,a)") " If you press ENTER button directly, suggested value (",nsugg,") will be used"
+read(*,"(a)") c10tmp
+if (c10tmp==" ") then
+    nqa=nsugg
+else
+    read(c10tmp,*) nqa
+end if
+
+!beta part
+nshow=min(nmo,idxLUMOb+9)-idxLUMOb+1
+write(*,*)
+write(*,*) "*** Now set degeneracy of frontier MOs of beta spin ***"
+write(*,"(/,i3,a)") nshow," lowest unoccupied beta orbitals:"
+write(*,*) "E_diff denotes difference of the orbital energy w.r.t. LUMO(beta)"
+nsugg=0
+do imo=min(nmo,idxLUMOb+9),idxLUMOb,-1
+    if (imo==idxLUMOb) then
+        write(*,"(' Orbital',i6,' (beta_LUMO  )   E:',f10.3,' eV')") imo,MOene(imo)*au2eV
+    else
+        write(*,"(' Orbital',i6,' (beta_LUMO+',i1,')   E:',f10.3,' eV  E_diff:',f10.3,' eV')") imo,imo-idxLUMOb,MOene(imo)*au2eV,(MOene(imo)-MOene(idxLUMOb))*au2eV
+    end if
+    if ( (MOene(imo)-MOene(idxLUMOb))*au2eV<0.01D0 ) nsugg=nsugg+1
+end do
+write(*,*)
+write(*,*) "Please input degeneracy of LUMO(beta), e.g. 3"
+write(*,"(a,i2,a)") " If you press ENTER button directly, suggested value (",nsugg,") will be used"
+read(*,"(a)") c10tmp
+if (c10tmp==" ") then
+    npb=nsugg
+else
+    read(c10tmp,*) npb
+end if
+
+nshow=idxHOMOb-max(nbasis+1,idxHOMOb-9)+1
+write(*,"(/,i3,a)") nshow," highest occupied beta orbitals:"
+write(*,*) "E_diff denotes difference of the orbital energy w.r.t. HOMO(beta)"
+nsugg=0
+do imo=idxHOMOb,max(nbasis+1,idxHOMOb-9),-1
+    if (imo==idxHOMOb) then
+        write(*,"(' Orbital',i6,' (beta_HOMO  )   E:',f10.3,' eV')") imo,MOene(imo)*au2eV
+    else
+        write(*,"(' Orbital',i6,' (beta_HOMO',i2,')   E:',f10.3,' eV  E_diff:',f10.3,' eV')") imo,imo-idxHOMOb,MOene(imo)*au2eV,(MOene(imo)-MOene(idxHOMOb))*au2eV
+    end if
+    if ( (MOene(idxHOMOb)-MOene(imo))*au2eV<0.01D0 ) nsugg=nsugg+1
+end do
+write(*,*)
+write(*,*) "Please input degeneracy of HOMO(beta), e.g. 3"
+write(*,"(a,i2,a)") " If you press ENTER button directly, suggested value (",nsugg,") will be used"
+read(*,"(a)") c10tmp
+if (c10tmp==" ") then
+    nqb=nsugg
+else
+    read(c10tmp,*) nqb
+end if
+
+write(*,*)
+write(*,*) "Summary:"
+write(*,"(a,i3)") " Degeneracy of LUMO(alpha):",npa
+write(*,"(a,i3)") " Degeneracy of HOMO(alpha):",nqa
+write(*,"(a,i3)") " Degeneracy of LUMO(beta): ",npb
+write(*,"(a,i3)") " Degeneracy of HOMO(beta): ",nqb
+end subroutine
+
+
+
+!!---------- Generate .gjf file for dual descriptor calculation of open-shell case (Martinez Araya's formalism)
+subroutine gengjf_DD_opsh(npa,npb,nqa,nqb)
+use defvar
+implicit real*8 (a-h,o-z)
+integer npa,npb,nqa,nqb
+integer charge(5),spin(5)
+character statename(5)*12,c20tmp*20,keywords*200,inpname*200,c200tmp*200,selectyn
+
+nspin=nint(naelec-nbelec)+1
+charge(1)=0;spin(1)=nspin !N
+charge(2)=-npa;spin(2)=nspin+npa !N+pa
+charge(3)=-npb;spin(3)=nspin-npb  !N+pb
+charge(4)=nqa;spin(4)=nspin-nqa !N-qa
+charge(5)=nqb;spin(5)=nspin+nqb !N-qb
+write(*,*)
+write(*,*) "Summary of states to be calculated:"
+do istate=1,5
+    write(*,"(i3,'   charge:',i4,'    spin multiplicity:',i4)") istate,charge(istate),spin(istate)
+    write(statename(istate),"(i3)") charge(istate)
+    statename(istate)="state"//adjustl(statename(istate))
+    write(c20tmp,"(i3)") spin(istate)
+    statename(istate)=trim(statename(istate))//'_'//adjustl(c20tmp)
+end do
+write(*,*)
+write(*,*) "Input Gaussian keywords used for single point task, e.g. PBE1PBE/def2SVP"
+write(*,*) "You can also meantime add some keywords for facilitating SCF convergence"
+write(*,*) "If press ENTER button directly, B3LYP/6-31G* will be employed"
+read(*,"(a)") keywords
+if (keywords==" ") keywords="B3LYP/6-31G* SCF=conver=7" !=7 is accurate enough, and take less computational time, reduce probability of unconvergence especially when diffuse functions are used
+c200tmp=keywords
+if (index(keywords,"gen")/=0) then
+    inquire(file="basis.txt",exist=alive)
+    if (.not.alive) then
+        write(*,*) "Error: ""gen"" keyword is found, but basis.txt cannot be found in current folder!"
+        write(*,*) "Press ENTER button to exit"
+        read(*,*)
+        return
+    end if
+end if
+keywords="#P "//trim(c200tmp)//" out=wfn"
+
+do istate=1,5
+    inpname=trim(statename(istate))//".gjf"
+    write(*,*) "Generating "//trim(inpname)//"..."
+    open(10,file=inpname)
+    !Under Windows, most users don't know Default.Rou must be placed in current folder to make it take effect. So directly set number of cores
+    if (isys==1)  write(10,"(a,i4)") "%nprocs=",nthreads
+    write(10,"(a)") trim(keywords)
+    write(10,*)
+    write(10,"(a)") "Generated by Multiwfn (http://sobereva.com/multiwfn)"
+    write(10,*)
+    write(10,"(2i3)") charge(istate),spin(istate)
+    do iatm=1,ncenter
+	    write(10,"(a,1x,3f14.8)") a(iatm)%name,a(iatm)%x*b2a,a(iatm)%y*b2a,a(iatm)%z*b2a
+    end do
+    if (index(keywords,"gen")/=0) then
+        open(11,file="basis.txt")
+        write(10,*)
+        do while(.true.)
+            read(11,"(a)",iostat=ierror) c200tmp
+            if (ierror/=0.or.c200tmp==" ") exit
+            write(10,"(a)") trim(c200tmp)
+        end do
+        close(11)
+    end if
+    write(10,*)
+    write(10,"(a)") trim(statename(istate))//".wfn"
+    write(10,*)
+    write(10,*)
+    close(10)
+end do
+write(*,*) "Gaussian input files for all states have been generated in current folder"
+inquire(file=gaupath,exist=alive)
+selectyn='n'
+if (alive) then
+    write(*,"(/,a)") " Do you want to invoke Gaussian to calculate these .gjf files now to yield .wfn &
+    &files, and then automatically delete the .gjf and .out files? (y/n)"
+    write(*,*) "Note: You can manually edit the .gjf files before inputting ""y"""
+    read(*,*) selectyn
+    if (selectyn=='y'.or.selectyn=='Y') then
+        ifailed=0
+        do istate=1,5
+            if (spin(istate)==0) cycle
+            call runGaussian(trim(statename(istate))//".gjf",isuccess)
+            if (isuccess==1) then
+                call delfile(trim(statename(istate))//".gjf "//trim(statename(istate))//".out")
+                write(*,"(a,/)") " Now current folder should contain "//trim(statename(istate))//".wfn"
+            else
+                write(*,"(a,/)") " The task has failed! Please manually check "//trim(statename(istate))//".gjf and "//trim(statename(istate))//".out"
+                ifailed=1
+            end if
+        end do
+        if (ifailed==1) then
+            write(*,"(a)") " Since one or more .wfn files was not successfully generated, the subsequent analysis cannot be conducted"
+        else
+            write(*,"(a)") " All .wfn files have been successfully generated, now you can use option 3 to start the analysis"
+        end if
+    end if
+else
+    write(*,"(a,/)") " Since ""gaupath"" in settings.ini has not been set to actual path of Gaussian executable, &
+    &automatically invoking Gaussian to run the input files is skipped"
+end if
+if ((.not.alive).or.selectyn=='n') then
+	write(*,"(a)") " Now please manually run the input files by Gaussian, and then put the generated .wfn files to current folder, so that &
+    &option 3 can perform analyses based on them"
+end if
+end subroutine
+
+
+
+
+!!---------- Calculate grid data of Fukui function and dual descriptor of open-shell case (Martinez Araya's formalism)
+!5 states will be calculated in turn
+!1: N   2:N+pa   3:N+pb   4:N-qa   5:N-qb
+subroutine grid_DD_opsh(npa,npb,nqa,nqb)
+use defvar
+use util
+use GUI
+implicit real*8 (a-h,o-z)
+integer npa,npb,nqa,nqb,charge(5),spin(5)
+character c10tmp*10,c20tmp*20,c200tmp*200,wfnfile*200
+real*8,allocatable :: rhogrid(:,:,:,:),fpos_gt(:,:,:),fneg_gt(:,:,:),fpos_lt(:,:,:),fneg_lt(:,:,:)
+
+nspin=nint(naelec-nbelec)+1
+charge(1)=0;spin(1)=nspin !N
+charge(2)=-npa;spin(2)=nspin+npa !N+pa
+charge(3)=-npb;spin(3)=nspin-npb  !N+pb
+charge(4)=nqa;spin(4)=nspin-nqa !N-qa
+charge(5)=nqb;spin(5)=nspin+nqb !N-qb
+
+if (allocated(cubmat)) deallocate(cubmat)
+aug3Dold=aug3D
+aug3D=4 !Commonly 4 Bohr extension distance is adequate
+write(*,*)
+call setgrid(1,inouse)
+aug3D=aug3Dold
+allocate(rhogrid(nx,ny,nz,5),cubmat(nx,ny,nz),fpos_gt(nx,ny,nz),fneg_gt(nx,ny,nz),fpos_lt(nx,ny,nz),fneg_lt(nx,ny,nz))
+call dealloall(0)
+
+do istate=1,5
+    write(wfnfile,"(i3)") charge(istate)
+    write(c20tmp,"(i3)") spin(istate)
+    wfnfile="state"//trim(adjustl(wfnfile))//'_'//trim(adjustl(c20tmp))//".wfn"
+    if (istate==1) c200tmp=wfnfile
+    write(*,*) "Loading "//trim(adjustl(wfnfile))
+    call readinfile(wfnfile,1)
+    write(*,"(a,i2,a,i2,a)") " Calculating electron density grid data for (",charge(istate),',',spin(istate),") electrons state..."
+    call savecubmat(1,1,0)
+    rhogrid(:,:,:,istate)=cubmat
+    call dealloall(0)
+end do
+
+!The geometry in the input file may be not identical to the standard orientation of Gaussian calculation, in order to make &
+!isosurface coincide with geometry, we simply use N electrons state to replace present system information
+write(*,"(/,a)") " Reloading N-electrons state wavefunction file..."
+call readinfile(c200tmp,1)
+
+cubfac=1
+sur_value=0.01D0
+do while(.true.)
+    c10tmp=" "
+    if (cubfac/=1D0) c10tmp=" scaled"
+    write(*,*)
+    call menutitle("Post-processing menu",10,1)
+    write(*,"(' -100 Set the scale factor to various grid data, current:',f12.6)") cubfac
+    write(*,*) "0 Return"
+    write(*,*) "1 Visualize isosurface of"//trim(c10tmp)//" f+(deltaN_S<0)"
+    write(*,*) "2 Visualize isosurface of"//trim(c10tmp)//" f+(deltaN_S>0)"
+    write(*,*) "3 Visualize isosurface of"//trim(c10tmp)//" f+(deltaN_S=0)"
+    write(*,*) "4 Visualize isosurface of"//trim(c10tmp)//" f-(deltaN_S<0)"
+    write(*,*) "5 Visualize isosurface of"//trim(c10tmp)//" f-(deltaN_S>0)"
+    write(*,*) "6 Visualize isosurface of"//trim(c10tmp)//" f-(deltaN_S=0)"
+    write(*,*) "7 Visualize isosurface of"//trim(c10tmp)//" DD(deltaN_S<0)"
+    write(*,*) "8 Visualize isosurface of"//trim(c10tmp)//" DD(deltaN_S>0)"
+    write(*,*) "9 Visualize isosurface of"//trim(c10tmp)//" DD(deltaN_S=0)"
+    write(*,*) "10 Visualize isosurface of"//trim(c10tmp)//" DD(alpha)"
+    write(*,*) "11 Visualize isosurface of"//trim(c10tmp)//" DD(beta)"
+    write(*,*) "-1 Export grid data of"//trim(c10tmp)//" f+(deltaN_S<0)"
+    write(*,*) "-2 Export grid data of"//trim(c10tmp)//" f+(deltaN_S>0)"
+    write(*,*) "-3 Export grid data of"//trim(c10tmp)//" f+(deltaN_S=0)"
+    write(*,*) "-4 Export grid data of"//trim(c10tmp)//" f-(deltaN_S<0)"
+    write(*,*) "-5 Export grid data of"//trim(c10tmp)//" f-(deltaN_S>0)"
+    write(*,*) "-6 Export grid data of"//trim(c10tmp)//" f-(deltaN_S=0)"
+    write(*,*) "-7 Export grid data of"//trim(c10tmp)//" DD(deltaN_S<0)"
+    write(*,*) "-8 Export grid data of"//trim(c10tmp)//" DD(deltaN_S>0)"
+    write(*,*) "-9 Export grid data of"//trim(c10tmp)//" DD(deltaN_S=0)"
+    write(*,*) "-10 Export grid data of"//trim(c10tmp)//" DD(alpha)"
+    write(*,*) "-11 Export grid data of"//trim(c10tmp)//" DD(beta)"
+    read(*,*) isel
+    if (isel==-100) then
+        write(*,*) "Input the scale factor, e.g. 0.325"
+        read(*,*) cubfac
+    else if (isel==0) then
+        exit
+    else
+        !1: N   2:N+pa   3:N+pb   4:N-qa   5:N-qb
+        fpos_lt(:,:,:)=(rhogrid(:,:,:,3)-rhogrid(:,:,:,1))/npb !f+(deltaN_S<0)
+        fpos_gt(:,:,:)=(rhogrid(:,:,:,2)-rhogrid(:,:,:,1))/npa !f+(deltaN_S>0)
+        fneg_lt(:,:,:)=(rhogrid(:,:,:,1)-rhogrid(:,:,:,4))/nqa !f-(deltaN_S<0)
+        fneg_gt(:,:,:)=(rhogrid(:,:,:,1)-rhogrid(:,:,:,5))/nqb !f-(deltaN_S>0)
+        if (abs(isel)==1) cubmat(:,:,:)=fpos_lt(:,:,:) !f+(deltaN_S<0)
+        if (abs(isel)==2) cubmat(:,:,:)=fpos_gt(:,:,:) !f+(deltaN_S>0)
+        if (abs(isel)==3) cubmat(:,:,:)=(fpos_lt(:,:,:)+fpos_gt(:,:,:))/2 !f+(deltaN_S=0)
+        if (abs(isel)==4) cubmat(:,:,:)=fneg_lt(:,:,:) !f-(deltaN_S<0)
+        if (abs(isel)==5) cubmat(:,:,:)=fneg_gt(:,:,:) !f-(deltaN_S>0)
+        if (abs(isel)==6) cubmat(:,:,:)=(fneg_lt(:,:,:)+fneg_gt(:,:,:))/2 !f-(deltaN_S=0)
+        if (abs(isel)==7) cubmat(:,:,:)=fpos_lt(:,:,:)-fneg_lt(:,:,:) !DD(deltaN_S<0)
+        if (abs(isel)==8) cubmat(:,:,:)=fpos_gt(:,:,:)-fneg_gt(:,:,:) !DD(deltaN_S>0)
+        if (abs(isel)==9) cubmat(:,:,:)=(fpos_lt(:,:,:)+fpos_gt(:,:,:))/2 - (fneg_lt(:,:,:)+fneg_gt(:,:,:))/2 !DD(deltaN_S=0)
+        if (abs(isel)==10) cubmat(:,:,:)=fpos_gt(:,:,:)-fneg_lt(:,:,:) !DD(alpha)
+        if (abs(isel)==11) cubmat(:,:,:)=fpos_lt(:,:,:)-fneg_gt(:,:,:) !DD(beta)
+        cubmat=cubmat*cubfac
+        if (isel>0) then
+		    call drawisosurgui(1)
+        else
+            if (isel==-1) c200tmp="f+(deltaN_Slt0).cub"
+            if (isel==-2) c200tmp="f+(deltaN_Sgt0).cub"
+            if (isel==-3) c200tmp="f+(deltaN_S=0).cub"
+            if (isel==-4) c200tmp="f-(deltaN_Slt0).cub"
+            if (isel==-5) c200tmp="f-(deltaN_Sgt0).cub"
+            if (isel==-6) c200tmp="f-(deltaN_S=0).cub"
+            if (isel==-7) c200tmp="DD(deltaN_Slt0).cub"
+            if (isel==-8) c200tmp="DD(deltaN_Sgt0).cub"
+            if (isel==-9) c200tmp="DD(deltaN_S=0).cub"
+            if (isel==-10) c200tmp="DD(alpha).cub"
+            if (isel==-11) c200tmp="DD(beta).cub"
+            open(10,file=c200tmp,status="replace")
+            call outcube(cubmat,nx,ny,nz,orgx,orgy,orgz,gridv1,gridv2,gridv3,10)
+            close(10)
+            write(*,"(a)") " Grid data has been exported to "//trim(c200tmp)
+        end if
+    end if
+end do
+
 end subroutine

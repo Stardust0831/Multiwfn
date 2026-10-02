@@ -65,7 +65,7 @@ call setpromol
 write(*,"(' Radial points:',i5,'    Angular points:',i5,'   Total:',i10,' per center')") radpot,sphpot,radpot*sphpot
 write(*,*) "Please wait..."
 write(*,*)
-call walltime(nwalltime1)
+call walltime(iwalltime1)
 call Lebedevgen(sphpot,potx,poty,potz,potw)
 
 ! call valaryyLSB(1D0,1D0,1D0,arrtmp,rho,rhogrdn)
@@ -282,8 +282,8 @@ do ifunc=0,nfunc
 	end do
 end do
 
-call walltime(nwalltime2)
-write(*,"(/,' Calculation took up',i8,' seconds wall clock time')") nwalltime2-nwalltime1
+call walltime(iwalltime2)
+write(*,"(/,' Calculation took up',i8,' seconds wall clock time')") iwalltime2-iwalltime1
 
 end subroutine
 
@@ -531,7 +531,7 @@ real*8 trustrad(numrealatt),grad(3),hess(3,3),k1(3),k2(3),k3(3),k4(3),xarr(nx),y
 real*8,allocatable :: potx(:),poty(:),potz(:),potw(:)
 type(content),allocatable :: gridatt(:) !Record x,y,z,weight of grids in trust radius
 integer att2atm(numrealatt) !The attractor corresponds to which atom. If =0, means this is a NNA
-integer walltime1,walltime2,radpotAIM,sphpotAIM
+integer radpotAIM,sphpotAIM
 integer,parameter :: nfunc=8,nquant=7 !The number of real space function, the number of quantities to be calculated
 real*8 arrtmp(nfunc),arrtmp2(nfunc),gradrho(3)
 character(len=40) functionname(0:nfunc),quantityname(0:nquant)
@@ -566,7 +566,7 @@ invfunc=0
 write(*,*) "If replacing real space functions with their reciprocals?  0=No  1=Yes"
 read(*,*) invfunc 
 
-call walltime(walltime1)
+call walltime(iwalltime1)
 
 numcp=0
 att2atm=0
@@ -1064,8 +1064,8 @@ do ifunc=0,nfunc
 	end do
 end do
 
-call walltime(walltime2)
-write(*,"(' Integrating basins took up wall clock time',i10,' s')") walltime2-walltime1
+call walltime(iwalltime2)
+write(*,"(' Integrating basins took up wall clock time',i10,' s')") iwalltime2-iwalltime1
 
 end subroutine
 

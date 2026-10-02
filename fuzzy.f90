@@ -4,9 +4,10 @@
 !Normally iwork=0
 !iwork=1: Directly choose isel==4 to calculate delocalization index in fuzzy atomic spase (namely fuzzy bond order, see statement in JPCA,110,5108 below Eq.9) and then return
 !iwork=2: Directly choose isel==8 to calculate Laplacian bond order and then return
+!iwork=3: Generate AOM and store it to global variable AOM&AOMb using Hirshfeld
 !iwork=11: Like iwork=1 to calculate fuzzy bond order, but return result to global matrix "bndordmat" rather than print data
 !
-!For periodic system, a special subroutine is used for integrating via even grids. For isolated systems, &
+!For periodic systems, a special subroutine is used for integrating via even grids. For isolated systems, &
 !the integration grid is directly controlled by sphpot and radpot in settings.ini, since integrand may be not proportional to electron density,
 !the grid will not be adjusted automatically as proposed by Becke for more efficient integration of XC functional
 !
@@ -55,7 +56,6 @@ real*8 CLRK(ncenter,ncenter) !Condensed linear response kernel
 real*8 ovlpinttot(ncenter,ncenter),ovlpintpos(ncenter,ncenter),ovlpintneg(ncenter,ncenter),ovlpintpostmp(ncenter,ncenter),ovlpintnegtmp(ncenter,ncenter) !Integration between fuzzy atoms, store positive part and negative part respectively
 real*8 atmmono(ncenter) !Atomic monopole, filled during multipole integration task
 integer :: ifunc=3,ipartition=1,PDIatom(6),FLUatom(ncenter),FLUorb(nmo),PLRatom(6)
-real*8,allocatable :: AOM(:,:,:),AOMb(:,:,:) !Total/Alpha AOM, beta AOM
 real*8,allocatable :: AOMsum(:,:),AOMsumb(:,:) !AOM(i,j,k) means overlap matrix of MO i,j in atom k space
 real*8 :: FLUref(nelesupp,nelesupp)=-1D0
 integer :: iraddefine=-1 !-1= Specific for Laplacian bond order. 0=Custom 1=CSD 2=Pyykko 3=Suresh
@@ -191,6 +191,8 @@ else if (iwork==1.or.iwork==11) then !Calculate fuzzy bond order
     if (ifPBC>0) write(*,*) "Note: The fuzzy bond order will be calculated under Hirshfeld partition"
 else if (iwork==2) then
 	isel=8 !Directly calculate Laplacian bond order
+else if (iwork==3) then
+	isel=3 !Directly calculate AOM
 end if
 
 
@@ -619,9 +621,9 @@ if (ifPBC/=0) then
 		goto 110 !Directly jump to result statistics
     else if (isel==3.or.isel==33.or.isel==4.or.isel==44.or.isel==5.or.isel==6.or.isel==7.or.isel==9.or.isel==10) then
 		if (isel==33.or.isel==44) then !isel==33: Calculate and export FOM using even grids. isel==44: Calculate AOM for atoms only involved in computing fragment LI/DI later for saving cost
-			call AOMFOM_evengrid(ipartition,isel,AOM,AOMb,size(AOM,1),size(AOMb,1),iendalpha,DIfrag1,DIfrag2,nDIfrag1,nDIfrag2)
+			call AOMFOM_evengrid(ipartition,isel,size(AOM,1),size(AOMb,1),iendalpha,DIfrag1,DIfrag2,nDIfrag1,nDIfrag2)
 		else !Calculate full AOM
-			call AOMFOM_evengrid(ipartition,iwork,AOM,AOMb,size(AOM,1),size(AOMb,1),iendalpha,DIfrag1,DIfrag2,nDIfrag1,nDIfrag2)
+			call AOMFOM_evengrid(ipartition,iwork,size(AOM,1),size(AOMb,1),iendalpha,DIfrag1,DIfrag2,nDIfrag1,nDIfrag2)
 		end if
         goto 100 !Jump to the position just after cycling atoms for integration
     end if
@@ -641,7 +643,7 @@ if (iwork/=11) then
 	write(*,*) "Please wait..."
 	write(*,*)
 end if
-call walltime(nwalltime1)
+call walltime(iwalltime1)
 
 call Lebedevgen(sphpot,potx,poty,potz,potw)
 
@@ -1233,8 +1235,8 @@ do iatm=1,ncenter
 	
 end do !End cycling atoms
 
-call walltime(nwalltime2)
-write(*,"(' Calculation took up',i8,' seconds wall clock time')") nwalltime2-nwalltime1
+call walltime(iwalltime2)
+write(*,"(' Calculation took up',i8,' seconds wall clock time')") iwalltime2-iwalltime1
 
 100 continue
 
@@ -1270,7 +1272,7 @@ if (isel==3.or.isel==4.or.isel==5.or.isel==6.or.isel==7.or.isel==9.or.isel==10.o
 			end if
         end if
     end if
-	if (iwarn==1) then
+	if (iwarn==1.and.iwork/=3) then !When iwork=3 to directly generate AOM, make it silent
 		write(*,"(/,a)") " Warning: The integration is not very accurate"
         if (ifPBC==0) then
 			write(*,*) "To improve accuracy, please try one or some of following treatments:"
@@ -1340,7 +1342,7 @@ end if
 		do iatm=1,ncenter
 			do jatm=iatm,ncenter
 				!Alpha
-				do iorb=1,nmatsize !The number of close or alpha orbitals needed to be concerned
+				do iorb=1,nmatsize !The number of closed or alpha orbitals needed to be concerned
 					occi=MOocc(iorb)
 					if (MOtype(iorb)==0) occi=occi/2D0
 					do jorb=1,nmatsize
@@ -1350,7 +1352,7 @@ end if
 					end do
 				end do
 				!Beta
-				do iorb=1,nmoclose !The number of close orbitals needed to be concerned
+				do iorb=1,nmoclose !The number of closed orbitals needed to be concerned
 					do jorb=1,nmoclose
 						DIb(iatm,jatm)=DIb(iatm,jatm)+dsqrt(MOocc(iorb)/2D0*MOocc(jorb)/2D0)*AOM(iorb,jorb,iatm)*AOM(iorb,jorb,jatm)
 					end do
@@ -1643,33 +1645,37 @@ else if (isel==2) then !Multipole moment
     end if
     
 else if (isel==3) then !Output AOM
-    write(*,*) "Exporting AOM.txt in current folder..."
-	open(10,file="AOM.txt",status="replace")
-	if (wfntype==0.or.wfntype==2.or.wfntype==3) then
-		do iatm=1,ncenter
-			write(10,"('Atomic overlap matrix of',i6,'(',a2,')')") iatm,a(iatm)%name
-			call showmatgau(AOM(:,:,iatm),"",1,"f14.8",10)
-			write(10,*)
-		end do
-		write(10,"(a)") "Sum of atomic overlap matrices"
-		call showmatgau(AOMsum,"",1,"f14.8",10)
-	else if (wfntype==1.or.wfntype==4) then
-		do iatm=1,ncenter
-			write(10,"('Alpha part of atomic overlap matrix of',i6,'(',a2,')')") iatm,a(iatm)%name
-			call showmatgau(AOM(:,:,iatm),"",1,"f14.8",10)
-			if (nmatsizeb>0) then
-				write(10,"('Beta part of atomic overlap matrix of',i6,'(',a2,')')") iatm,a(iatm)%name
-				call showmatgau(AOMb(:,:,iatm),"",1,"f14.8",10)
-			end if
-			write(10,*)
-		end do
-		write(10,"(a)") "Sum of alpha part of atomic overlap matrices"
-		call showmatgau(AOMsum,"",1,"f14.8",10)
-		write(10,"(a)") "Sum of beta part of atomic overlap matrices"
-		call showmatgau(AOMsumb,"",1,"f14.8",10)
-	end if
-	close(10)
-	write(*,*) "Done, atomic overlap matrices have been exported to AOM.txt in current folder"
+	if (iwork==3) then !AOM has been stored, exit
+		return
+    else
+		write(*,*) "Exporting AOM.txt in current folder..."
+		open(10,file="AOM.txt",status="replace")
+		if (wfntype==0.or.wfntype==2.or.wfntype==3) then
+			do iatm=1,ncenter
+				write(10,"('Atomic overlap matrix of',i6,'(',a2,')')") iatm,a(iatm)%name
+				call showmatgau(AOM(:,:,iatm),"",1,"f14.8",10)
+				write(10,*)
+			end do
+			write(10,"(a)") "Sum of atomic overlap matrices"
+			call showmatgau(AOMsum,"",1,"f14.8",10)
+		else if (wfntype==1.or.wfntype==4) then
+			do iatm=1,ncenter
+				write(10,"('Alpha part of atomic overlap matrix of',i6,'(',a2,')')") iatm,a(iatm)%name
+				call showmatgau(AOM(:,:,iatm),"",1,"f14.8",10)
+				if (nmatsizeb>0) then
+					write(10,"('Beta part of atomic overlap matrix of',i6,'(',a2,')')") iatm,a(iatm)%name
+					call showmatgau(AOMb(:,:,iatm),"",1,"f14.8",10)
+				end if
+				write(10,*)
+			end do
+			write(10,"(a)") "Sum of alpha part of atomic overlap matrices"
+			call showmatgau(AOMsum,"",1,"f14.8",10)
+			write(10,"(a)") "Sum of beta part of atomic overlap matrices"
+			call showmatgau(AOMsumb,"",1,"f14.8",10)
+		end if
+		close(10)
+		write(*,*) "Done, atomic overlap matrices have been exported to AOM.txt in current folder"
+    end if
     
 else if (isel==33.and.ifPBC==0) then !Construct and output FOM. For PBC case, FOM has been exported earlier in subroutine AOMFOM_evengrid
 	!Generate FOMs
@@ -1842,10 +1848,10 @@ else if (isel==4) then !Show LI and DI or fuzzy bond order
 			end do
 			write(*,*)
 			if (wfntype==1.or.wfntype==2.or.wfntype==4) then
-				write(*,"(' The bond order between fragment 1 and 2:')")
+				write(*,"(' The bond order between fragments 1 and 2:')")
 				write(*,"(' Alpha:',f10.6,' Beta:',f10.6,' Total:',f10.6)") bndordfraga,bndordfragb,bndordfraga+bndordfragb
 			else if (wfntype==0.or.wfntype==3) then
-				write(*,"(' The bond order between fragment 1 and 2:',f12.6)") bndordfragtot
+				write(*,"(' The bond order between fragments 1 and 2:',f12.6)") bndordfragtot
 			end if
 		end if
 		write(*,*)
@@ -2100,7 +2106,7 @@ else if (isel==8) then !Integral in overlap region
 				end do
 			end do
 			write(*,*)
-			write(*,"(' The bond order between fragment 1 and 2:',f12.6)") bndordfragtot
+			write(*,"(' The bond order between fragments 1 and 2:',f12.6)") bndordfragtot
 		end if
 		write(*,*)
 		write(*,*) "If outputting bond order matrix to bndmat.txt in current folder? (y/n)"
@@ -2544,14 +2550,14 @@ end subroutine
 !iendalpha: Index of last alpha orbital
 !DIfrag1,DIfrag2: Atom indices of fragments 1 and 2 used to calculate interfragment DI
 !nDIfrag1,nDIfrag2: Number of actual atoms in DIfrag1 and DIfrag2
-subroutine AOMFOM_evengrid(ipartition,iwork,AOM,AOMb,nmatsize,nmatsizeb,iendalpha,DIfrag1,DIfrag2,nDIfrag1,nDIfrag2)
+subroutine AOMFOM_evengrid(ipartition,iwork,nmatsize,nmatsizeb,iendalpha,DIfrag1,DIfrag2,nDIfrag1,nDIfrag2)
 use defvar
 use util
 use functions
 implicit real*8 (a-h,o-z)
 character c2000tmp*2000
 integer ipartition,nmatsize,nmatsizeb,iendalpha,iwork
-real*8 AOM(nmatsize,nmatsize,ncenter),AOMb(nmatsizeb,nmatsizeb,ncenter) !,tmpmat(nmatsize,nmatsize)
+!real*8 tmpmat(nmatsize,nmatsize)
 integer DIfrag1(ncenter),DIfrag2(ncenter),nDIfrag1,nDIfrag2
 real*8 atmrho(ncenter),tvec(3),orbval(nmo)
 real*8,allocatable :: AOM_tmp(:,:,:),AOMb_tmp(:,:,:)
@@ -2560,6 +2566,10 @@ integer FOM1atm(ncenter),FOM2atm(ncenter),nFOM1atm,nFOM2atm
 real*8 bndmata(ncenter,ncenter),bndmatb(ncenter,ncenter),bndmattot(ncenter,ncenter)
 real*8,allocatable :: FOM1(:,:),FOM1b(:,:),FOM2(:,:),FOM2b(:,:)
 logical atmdolist(ncenter)
+
+if (allocated(AOM)) deallocate(AOM)
+if (allocated(AOMb)) deallocate(AOMb)
+allocate(AOM(nmatsize,nmatsize,ncenter),AOMb(nmatsizeb,nmatsizeb,ncenter))
 
 do iatm=1,ncenter
 	if (a(iatm)%index>4.and.a(iatm)%index==nint(a(iatm)%charge)) then !MOLOPT is all-electron basis set for first <=Be

@@ -2858,6 +2858,8 @@ if (allocated(MOene)) deallocate(MOene)
 if (allocated(MOtype)) deallocate(MOtype)
 if (allocated(connmat)) deallocate(connmat)
 if (allocated(bndordmat)) deallocate(bndordmat)
+if (allocated(AOM)) deallocate(AOM)
+if (allocated(AOMb)) deallocate(AOMb)
 !Related to basis functions
 if (allocated(shtype)) deallocate(shtype,shcen,shcon,primshexp,primshcoeff)
 if (allocated(basshell)) deallocate(basshell,bascen,bastype,basstart,basend,primstart,primend,primconnorm)
@@ -4899,7 +4901,7 @@ radcut=0
 call gen1cintgrid(gridatmorg,iradcut) !Generate integration grid
 
 write(*,"(' Radial points:',i5,'    Angular points:',i5,'   Total:',i10,' per center')") radpot,sphpot,radpot*sphpot
-call walltime(nwalltime1)
+call walltime(iwalltime1)
 
 AOMbas=0
 ifinish=0
@@ -4952,8 +4954,8 @@ do jbas=1,nbasis
 	end do
 end do
 
-call walltime(nwalltime2)
-write(*,"(' Generation of atomic overlap matrix took up',i8,' seconds wall clock time')") nwalltime2-nwalltime1
+call walltime(iwalltime2)
+write(*,"(' Generation of atomic overlap matrix took up',i8,' seconds wall clock time')") iwalltime2-iwalltime1
 
 !Check quality of AOMbas
 devmax=0
@@ -5470,7 +5472,8 @@ end subroutine
 
 
 !!--------- Show menu title with center alignment, e.g.          ------ ltwd ------
-!str is the string of title, nsymbol_in is number - to be shown at each side. If it is 0, then print - as much as possible to fill all blank spaces
+!str: String of the title
+!nsymbol_in: Number of - or = to be shown at each side. If it is 0, then print - as much as possible to fill all blank spaces
 !itype=1: Show -   itype=2: Show =
 !Example: call menutitle("Post-processing menu",10,1)
 subroutine menutitle(str,nsymbol_in,itype)

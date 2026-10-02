@@ -280,6 +280,7 @@ character(len=4),allocatable :: MOsym(:) !The symmetry of orbitals, meaningful w
 real*8,allocatable, target :: CO(:,:) !Coefficient matrix of primitive basis functions, including both normalization and contraction coefficients
 real*8,allocatable :: CO_org(:,:),CO_tmp(:,:)
 real*8,allocatable :: COtr(:,:) !Transposed CO matrix, which is used in some routines for faster calculation than using CO. Must be deallocated after using
+real*8,allocatable :: AOM(:,:,:),AOMb(:,:,:) !Total/Alpha AOM, beta AOM
 !Unique GTFs (the GTFs with identical center, type and exponent are combined together and leave only one). Can be activated after running gen_GTFuniq
 integer :: nprims_uniq=0 !0 means uninitialized
 type(primtype),allocatable,target :: b_uniq(:) !b of unique GTFs

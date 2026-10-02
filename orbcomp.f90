@@ -455,7 +455,7 @@ do imo=1,nmo
 					tmpdenom=tmpmat(ibas,irealmo)**2+tmpmat(jbas,irealmo)**2
 					if (tmpdenom>1D-30) crossext=crossext+tmpmat(ibas,irealmo)**2/tmpdenom*crossij*2
 				end if
-				!Cross term between fragment 1 and 2. We assume there is no intersection set between frag1 and frag2
+				!Cross term between fragments 1 and 2. We assume there is no intersection set between frag1 and frag2
 				!Note: any(frag2==jbas) is a subset of .not.any(frag1==jbas), so ovpfrg12 is part of crossext
 				if (allocated(frag2).and.any(frag2==jbas)) then
 					ovpfrg12(imo)=ovpfrg12(imo)+2*crossij
@@ -477,9 +477,9 @@ do imo=1,nmo
 	if (isel==3) write(*,"(i6,5x,a,f16.5,f11.5,f14.5,' %')") imo,orbtype,MOene(imo),MOocc(imo),floc*100
 end do
 
-if (isel/=3.and.allocated(frag2)) then !Print cross term between fragment 1 and 2
+if (isel/=3.and.allocated(frag2)) then !Print cross term between fragments 1 and 2
 	write(*,*)
-	write(*,*) "Cross term between fragment 1 and 2 and their individual parts:"
+	write(*,*) "Cross term between fragments 1 and 2 and their individual parts:"
 	write(*,"(' Orb#  Type   Ene(a.u.)   Occ       Frag.1 part     Frag.2 part        Total')")
 	do imo=1,nmo
 		if (MOtype(imo)==0) orbtype="AB"

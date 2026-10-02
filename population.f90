@@ -61,6 +61,9 @@ else
 		write(*,*) "18 Restrained ElectroStatic Potential (RESP) atomic charge"
         write(*,*) "19 Gasteiger (PEOE) charge"
         write(*,*) "20 Minimal Basis Iterative Stockholder (MBIS) charge"
+        write(*,*) "21 Constrained MBIS (cMBIS)"
+        write(*,*) "22 Elliptical Minimal Basis Iterative Stockholder (EMBIS)"
+        write(*,*) "23 Asymmetric Elliptical Minimal Basis Iterative Stockholder (AEMBIS)"
 		!write(*,*) "50 Generate input file of uESE code"
 		read(*,*) ipopsel
 		
@@ -196,10 +199,8 @@ else
 		else if (ipopsel==13) then
 			call fitESP(1)
 		else if (ipopsel==14) then !QTAIM
-			write(*,"(a)") " NOTE: AIM charges cannot be calculated in present module but can be calculated in basin analysis module, &
-			&please check the example given in Section 4.17.1 of the manual on how to do this"
-            write(*,*) "Press ENTER button to continue"
-            read(*,*)
+			call generatebasin_wrapper(2) !Generate AIM basins
+			call integratebasinmix(-2)
 		else if (ipopsel==15) then !Hirshfeld-I
             if (ifiletype==7) then !Evenly distributed grids, and utilizing loaded electron density
 				call Hirshfeld_I_evengrid(1,2)
@@ -243,13 +244,37 @@ else
         else if (ipopsel==19) then
             call gasteiger
         else if (ipopsel==20) then !MBIS
-            if (ifiletype==7) then !Evenly distributed grids, and utilizing loaded electron density
-				call MBIS_wrapper(1,2)
-            else if (ifPBC/=0) then !Evenly distributed grids, based on periodic wavefunction representing valence electrons
-				call MBIS_wrapper(1,1)
+			if (ifiletype==7) then !Evenly distributed grids, utilizing loaded electron density
+				call MBIS_wrapper(1,2,-1)
+			else if (ifPBC/=0) then !Evenly distributed grids, based on periodic wavefunction representing valence electrons
+				call MBIS_wrapper(1,1,-1)
 			else !Isolated system
-				call MBIS_wrapper(1,0)
-            end if
+				call MBIS_wrapper(1,0,-1)
+			end if
+        else if (ipopsel==21) then !cMBIS
+			if (ifiletype==7) then !Evenly distributed grids, utilizing loaded electron density
+				call MBIS_wrapper(1,2,0)
+			else if (ifPBC/=0) then !Evenly distributed grids, based on periodic wavefunction representing valence electrons
+				call MBIS_wrapper(1,1,0)
+			else !Isolated system
+				call MBIS_wrapper(1,0,0)
+			end if
+        else if (ipopsel==22) then !EMBIS
+			if (ifiletype==7) then !Evenly distributed grids, utilizing loaded electron density
+				call MBIS_wrapper(1,2,1)
+			else if (ifPBC/=0) then !Evenly distributed grids, based on periodic wavefunction representing valence electrons
+				call MBIS_wrapper(1,1,1)
+			else !Isolated system
+				call MBIS_wrapper(1,0,1)
+			end if
+        else if (ipopsel==23) then !AEMBIS
+			if (ifiletype==7) then !Evenly distributed grids, utilizing loaded electron density
+			    call MBIS_wrapper(1,2,2)
+			else if (ifPBC/=0) then !Evenly distributed grids, based on periodic wavefunction representing valence electrons
+			    call MBIS_wrapper(1,1,2)
+			else !Isolated system
+				call MBIS_wrapper(1,0,2)
+			end if
 		end if
 		if (imodwfnold==1.and.(ipopsel==1.or.ipopsel==2.or.ipopsel==6.or.ipopsel==11)) then !1,2,6,11 are the methods need to reload the initial wavefunction
 			write(*,"(a)") " Note: The wavefunction file has been reloaded, your previous modifications on occupation number will be ignored"
@@ -922,7 +947,7 @@ if (chgtype==1.or.chgtype==2.or.chgtype==6.or.chgtype==7.or.chgtype==-7) then
 	write(*,"(' Radial grids:',i5,'    Angular grids:',i5,'   Total:',i10)") radpot,sphpot,radpot*sphpot
 	write(*,*) "Calculating, please wait..."
 	write(*,*)
-	call walltime(nwalltime1)
+	call walltime(iwalltime1)
 	do iatm=1,ncenter !Cycle each atom to calculate their charges and dipole
 		call delvirorb(0) !For faster calculation, remove high-lying virtual MOs in whole system, do not affect result
         call gen_GTFuniq(1) !Generate unique GTFs, for faster evaluation in orbderv
@@ -1038,7 +1063,7 @@ else if (chgtype==3.or.chgtype==4) then
 	write(*,"(' Radial grids:',i5,'    Angular grids:',i5,'   Total:',i10)") radpot,sphpot,radpot*sphpot
 	write(*,*) "Calculating, please wait..."
 	write(*,*)
-	call walltime(nwalltime1)
+	call walltime(iwalltime1)
 	if (chgtype==4) then !vdW radius From J.Mol.Stru.(Theo.) 538,235-238 is not identical to original definition
 		vdwr(1)=0.68D0/b2a
 		!B,C,N,O,F
@@ -1107,7 +1132,7 @@ else if (chgtype==5) then
 	write(*,"(' Radial grids:',i5,'    Angular grids:',i5,'   Total:',i10)") radpot,sphpot,radpot*sphpot
 	write(*,*) "Calculating, please wait..."
 	write(*,*)
-	call walltime(nwalltime1)
+	call walltime(iwalltime1)
 	do iatm=1,ncenter !Cycle each atom to calculate their charges and dipole
 		gridatm%value=gridatmorg%value !Weight in this grid point
 		gridatm%x=gridatmorg%x+a(iatm)%x !Move quadrature point to actual position in molecule
@@ -1187,8 +1212,8 @@ if (allocated(frag1)) then
     write(*,"(' Fragment population:',f14.8)") sum(a(frag1)%charge) - sum(charge(frag1))
 end if
 
-call walltime(nwalltime2)
-write(*,"(/,' Calculation took up',i8,' seconds wall clock time')")  nwalltime2-nwalltime1
+call walltime(iwalltime2)
+write(*,"(/,' Calculation took up',i8,' seconds wall clock time')")  iwalltime2-iwalltime1
 if (chgtype==7.and.uESEinp==1) call gen_uESE_input(10,charge)
 call outatmchg(10,charge(:))
 end subroutine
@@ -4045,8 +4070,7 @@ if (allocated(frag1)) then
     write(*,"(' Fragment population:',f14.8)") sum(a(frag1)%charge) - sum(charge(frag1))
 end if
 call walltime(iwalltime2)
-write(*,*)
-write(*,"(' Calculation took up wall clock time',i10,' s')") iwalltime2-iwalltime1
+write(*,"(/,' Calculation took up wall clock time',i10,' s')") iwalltime2-iwalltime1
 
 call outatmchg(10,charge(:))
 end subroutine
@@ -4656,24 +4680,71 @@ end subroutine
 !!============================ MBIS ============================!!
 !!============================ MBIS ============================!!
 !!============================ MBIS ============================!!
-!A wrapper of subroutine MBIS to automatically set efficient radpot and sphpot for imode=0
-subroutine MBIS_wrapper(itype,imode)
+!A wrapper of MBIS subroutines to automatically set efficient radpot and sphpot for imode=0 as well as to choose variants of MBIS
+!iroute=-1: MBIS code of Tian Lu
+!iroute=0: MBIS code extended by frj, multipole constraint can be considered to obtain cMBIS
+!iroute=1: EMBIS code by frj, multipole constraint can be considered
+!iroute=2: AEMBIS code by frj
+subroutine MBIS_wrapper(itype,imode,iroute)
 use defvar
 implicit real*8 (a-h,o-z)
-integer itype,imode
+integer itype,imode,iroute
 nradpotold=radpot
 nsphpotold=sphpot
 if (iautointgrid==1) then
-  	radpot=30
-  	sphpot=302 !I carefully tested, difference between 170 and 434 in atomic charge is at most 0.003, 302 is safer
- 	if (any(a%index>18)) radpot=40
+    radpot=30
+    sphpot=302 !I carefully tested, difference between 170 and 434 in atomic charge is at most 0.003, 302 is safer
+end if
+if (iroute==-1) then
+    if (any(a%index>18)) radpot=40
  	if (any(a%index>36)) radpot=50
  	if (any(a%index>54)) radpot=60
+    call MBIS(itype,imode)
+else !frj codes
+	write(*,"(a)") " Please choose integration grid for MBIS calculation:"
+	!write(*,"(a,2i5)") "-3: Test     radial & spheric grid:,5,6
+	!write(*,"(a,2i5)") "-2: Test     radial & spheric grid:",25,170
+	write(*,"(a,2i5)") "-1: Poor quality, radial & spheric grid:     ",20,110
+	write(*,"(a,2i5)") " 0: Standard quality, radial & spheric grid: ",radpot,sphpot
+	write(*,"(a,2i5)") " 1: Fine quality, radial & spheric grid:     ",60,434
+	write(*,"(a,2i5)") " 2: Ultrafine quality, radial & spheric grid:",90,974
+	read(*,*) itmp
+	if (itmp==-3) then
+		radpot=5
+		sphpot=6
+	else if (itmp==-2) then
+		radpot=25
+		sphpot=170
+	else if (itmp==-1) then
+		radpot=20
+		sphpot=110
+	else if (itmp==1) then
+		radpot=60
+		sphpot=434
+	else if (itmp==2) then
+		radpot=90
+		sphpot=974
+	else if (itmp==3) then
+		radpot=25
+		sphpot=170
+	end if
+	if (any(a%index>54)) then
+		radpot=radpot+30
+		write(*,"(a)") " Note: Radial grid is automatically augmented by 30 because there are atom(s) beyond the fifth row of the periodic table"
+	else if (any(a%index>36)) then
+		radpot=radpot+20
+		write(*,"(a)") " Note: Radial grid is automatically augmented by 20 because there are atom(s) beyond the fourth row of the periodic table"
+	else if (any(a%index>18)) then
+		radpot=radpot+10
+		write(*,"(a)") " Note: Radial grid is automatically augmented by 10 because there are atom(s) beyond the third row of the periodic table"
+	end if
+	if (iroute==0) call MBIS_frj(itype,imode)
+	if (iroute==1) call EMBIS(itype,imode)
+	if (iroute==2) call AEMBIS(itype,imode)
 end if
-call MBIS(itype,imode)
 if (iautointgrid==1) then
-	radpot=nradpotold
-	sphpot=nsphpotold
+    radpot=nradpotold
+    sphpot=nsphpotold
 end if
 end subroutine
 
@@ -4721,7 +4792,6 @@ do while(.true.)
     call menutitle("MBIS",15,2)
     if (ignorefar==1) write(*,*) "-4 Toggle if reducing cost by ignoring atoms far from grid, current: Yes"
     if (ignorefar==0) write(*,*) "-4 Toggle if reducing cost by ignoring atoms far from grid, current: No"
-    if (imode==0) write(*,*) "-3 Enter frj implementation of MBIS code"
     if (ioutshell==1) write(*,*) "-2 Toggle if outputting population and width of shells, current: Yes"
     if (ioutshell==0) write(*,*) "-2 Toggle if outputting population and width of shells, current: No"
     if (ioutmedchg==1) write(*,*) "-1 Toggle if outputting atomic charges during iterations, current: Yes"
@@ -4739,8 +4809,6 @@ do while(.true.)
         else
             ignorefar=1
         end if
-    else if (isel==-3) then
-        call mbis_frj
 	else if (isel==-2) then
 		if (ioutshell==1) then
 			ioutshell=0

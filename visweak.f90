@@ -377,7 +377,7 @@ real*8 grad(3),IGM_gradnorm,IGM_gradnorm_inter,gradtmp(3)
 integer iIGMtype
 integer,allocatable :: IGMfrag(:,:),IGMfragsize(:) !Definition of each fragment used in IGM, and the number of atoms in each fragment
 real*8,allocatable :: dg_intra(:,:,:) !delta-g_intra of fragments
-real*8,allocatable :: dg_inter(:,:,:) !delta-g_inter between fragment 1 and 2
+real*8,allocatable :: dg_inter(:,:,:) !delta-g_inter between fragments 1 and 2
 real*8,allocatable :: dg(:,:,:) !delta-g
 real*8,allocatable :: sl2r(:,:,:) !sign(lambda2)rho
 real*8,allocatable :: rhogrid(:,:,:) !real density
