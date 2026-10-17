@@ -32,6 +32,8 @@ pub mod volume_protocol;
 pub mod volume_store;
 #[path = "../../../frontend/matterviz-desktop/src/workbench_args.rs"]
 pub mod workbench_args;
+#[path = "../../../frontend/matterviz-desktop/src/workflow_builder.rs"]
+pub mod workflow_builder;
 #[path = "../../../frontend/matterviz-desktop/src/workflow_results.rs"]
 pub mod workflow_results;
 #[path = "../../../frontend/matterviz-desktop/src/workflows.rs"]
@@ -40,6 +42,9 @@ pub mod workflows;
 // Native selection is covered by desktop-host tests; this headless harness
 // exercises the same service and workflow process manager without a WebView.
 pub mod file_dialog {
+    pub fn save_workflow_script() -> Result<Option<std::path::PathBuf>, String> {
+        Ok(None)
+    }
     pub fn select_workflow_path(_kind: &str) -> Result<Option<std::path::PathBuf>, String> {
         Ok(None)
     }

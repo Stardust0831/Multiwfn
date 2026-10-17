@@ -140,11 +140,12 @@ impl WorkbenchService {
                                     );
                                     return;
                                 }
-                                let expected = if matches!(action, "status" | "preview") {
-                                    "GET"
-                                } else {
-                                    "POST"
-                                };
+                                let expected =
+                                    if matches!(action, "status" | "preview" | "builder-catalog") {
+                                        "GET"
+                                    } else {
+                                        "POST"
+                                    };
                                 if method != expected {
                                     respond(
                                         &mut stream,
@@ -179,6 +180,9 @@ impl WorkbenchService {
                                     if action == "status" {
                                         return Ok(manager.status());
                                     }
+                                    if action == "builder-catalog" {
+                                        return manager.builder_catalog();
+                                    }
                                     if action == "preview" {
                                         return manager.preview(
                                             query
@@ -192,6 +196,17 @@ impl WorkbenchService {
                                         .map_err(|e| e.to_string())?;
                                     match action {
                                         "inspect" => manager.inspect(&value),
+                                        "builder-preview" => manager.builder_preview(&value),
+                                        "builder-save" => {
+                                            manager.builder_preview(&value)?;
+                                            if let Some(path) =
+                                                crate::file_dialog::save_workflow_script()?
+                                            {
+                                                manager.save_built_script(&path, &value)
+                                            } else {
+                                                Ok(json!({"saved": false}))
+                                            }
+                                        }
                                         "open-result" => manager.open_result(&value, &frontend),
                                         "open-path" => manager.open_path(&value),
                                         "parameter-path" => pick_parameter_path(&request.body),

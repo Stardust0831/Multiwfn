@@ -49,6 +49,16 @@ impl WorkflowManager {
             .ok_or("Select a workflow script")?;
         let script = script_path(state.library.as_deref(), id)?;
         read_script(&script)?;
+        drop(state);
+        self.inspect_path(&script, request)
+    }
+    fn inspect_path(&self, script: &Path, request: &Value) -> Result<Value, String> {
+        let wavefunction = self
+            .state
+            .lock()
+            .map_err(|e| e.to_string())?
+            .wavefunction
+            .clone();
         let runner = self
             .runner
             .as_ref()
@@ -82,14 +92,14 @@ impl WorkflowManager {
         let mut command = Command::new(runner);
         command
             .arg("--inspect-json")
-            .arg(runner_path(&script))
+            .arg(runner_path(script))
             .arg("--conf-dir")
             .arg(runner_path(&conf))
             .arg("--parameters-json")
             .arg(runner_path(&path))
             .current_dir(&directory)
             .stdin(Stdio::null());
-        if let Some(wfn) = &state.wavefunction {
+        if let Some(wfn) = &wavefunction {
             command.arg("--wfn").arg(runner_path(wfn));
         }
         if let Some(vars) = request["variables"].as_array() {
@@ -118,6 +128,71 @@ impl WorkflowManager {
                 .to_owned());
         }
         Ok(value)
+    }
+    pub fn builder_catalog(&self) -> Result<Value, String> {
+        crate::workflow_builder::catalog(&self.conf)
+    }
+    pub fn builder_preview(&self, draft: &Value) -> Result<Value, String> {
+        let compiled = crate::workflow_builder::compile(&self.conf, draft)?;
+        let directory = std::env::temp_dir().join(format!(
+            "banewfn-builder-{}-{}",
+            std::process::id(),
+            RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        struct Scratch(PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _scratch = Scratch(directory.clone());
+        let script = directory.join("workflow.bwc");
+        fs::write(&script, &compiled.source).map_err(|e| e.to_string())?;
+        let inspection = self.inspect_path(&script, &json!({}))?;
+        let mut parameters = serde_json::Map::new();
+        for id in &compiled.parameter_ids {
+            let field = inspection["fields"]
+                .as_array()
+                .and_then(|fields| fields.iter().find(|field| field["id"] == *id))
+                .ok_or("Unknown conf parameter")?;
+            parameters.insert(id.clone(), field["value"].clone());
+        }
+        // Validate typed/select overrides using the driver's resolved values.
+        if !parameters.is_empty() {
+            self.inspect_path(&script, &json!({"parameters": parameters}))?;
+        }
+        Ok(json!({"source": compiled.source, "inspection": inspection}))
+    }
+    pub fn save_built_script(&self, path: &Path, draft: &Value) -> Result<Value, String> {
+        if self
+            .state
+            .lock()
+            .map_err(|e| e.to_string())?
+            .job
+            .as_ref()
+            .is_some_and(active)
+        {
+            return Err("A workflow is still running".into());
+        }
+        validate_path(path)?;
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_none_or(|s| !s.eq_ignore_ascii_case("bwc"))
+        {
+            return Err("Save the generated script with a .bwc extension".into());
+        }
+        let preview = self.builder_preview(draft)?;
+        fs::write(
+            path,
+            preview["source"]
+                .as_str()
+                .ok_or("Invalid generated script")?,
+        )
+        .map_err(|e| e.to_string())?;
+        self.select("script", path)?;
+        Ok(json!({"saved": true, "status": self.status()}))
     }
     pub fn standalone(engine: PathBuf, startup_file: Option<&Path>) -> Self {
         let executable = std::env::current_exe().unwrap_or_default();

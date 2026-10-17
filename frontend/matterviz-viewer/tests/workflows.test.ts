@@ -1,12 +1,40 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { create_workflow_client, parse_workflow_status, workflow_active, workflow_variables } from '../src/workflows.ts'
+import { esp_example } from '../src/workflow-builder.ts'
 
 const status = {
   format: 'multiwfn-workflows', version: 1, available: true,
   runner: '/runner', library: '/scripts', results: '/results', wavefunction: null, multiwfn: '/Multiwfn',
   scripts: [{ id: 'density.bw', name: 'density.bw' }], catalogError: null, job: null,
 }
+
+test('builder sends ordered drafts and handles Save dialog cancellation without selecting a script', async () => {
+  const calls: Array<{ url: URL; init?: RequestInit }> = []
+  let saved = false
+  const client = create_workflow_client(new URL('http://localhost:4321/?cap=secret'), async (url, init) => {
+    calls.push({ url, init })
+    return { ok: true, status: 200, json: async () => url.pathname.endsWith('builder-catalog') ? {version:1, modules:[]} : url.pathname.endsWith('builder-save') ? {saved, status} : {source:'BWC', inspection:{}} }
+  })
+  await client.builderCatalog()
+  const draft = esp_example()
+  assert.equal((await client.builderPreview(draft)).source, 'BWC')
+  assert.equal(await client.builderSave(draft), null)
+  saved = true
+  assert.deepEqual(await client.builderSave(draft), status)
+  assert.equal(calls[0].init?.method, undefined)
+  for (const call of calls.slice(1)) {
+    assert.equal(call.url.searchParams.get('cap'), 'secret')
+    assert.equal(call.init?.method, 'POST')
+    assert.deepEqual(JSON.parse(call.init?.body as string), draft)
+  }
+  const analysis = draft.steps[0]
+  assert.equal(analysis.kind, 'analysis')
+  if (analysis.kind === 'analysis') {
+    assert.deepEqual(analysis.processes.map(step => step.section), ['electron', 'esp'])
+    assert.deepEqual(analysis.commands[1], {kind:'rename', source:'totesp.cub', target:'${input}_kcal_esp.cub'})
+  }
+})
 
 test('workflow request keeps capability, variables and script as structured values', async () => {
   const calls: Array<{ url: URL; init?: RequestInit }> = []

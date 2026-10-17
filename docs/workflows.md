@@ -18,6 +18,48 @@ script folder with the adjacent folder button. Opening a script waits for you
 to choose a startup file and click Run.
 The script button beside the library heading also opens a single workflow file.
 
+## Build a script
+
+Click **Generate script / 生成脚本** beside Open workflow script. The modal has
+the installed conf library on the left, ordered steps in the middle and a live
+BWC or Multiwfn-input preview on the right. Select a conf and its process
+sections, then add an analysis block. `main` and `quit` are included automatically.
+Change section order, add repeated sections and set parameters with the same
+bilingual controls used by the workbench. Defaults come from the conf; the
+builder does not choose new scientific settings. Conf notes show the original
+comments, including restrictions such as putting grid ESP last.
+
+Each analysis block can have ordered output renames and custom `%command`
+post-processing. Choose Bash/Git Bash or Windows cmd explicitly. Bash workflows
+on Windows require Git for Windows. For example, the **Density + ESP example**
+uses the bundled grid conf, renames `density.cub` to `${input}_den.cub` and
+`totesp.cub` to `${input}_kcal_esp.cub`, then collects the files. The bundled
+`grid/esp` section already converts ESP to kcal/mol; renaming alone never
+converts units. The final `_esp` suffix stays compatible with vcube.
+
+Insert **Collect outputs** (`collect(...)`), **Switch startup file**
+(`wfn_rebase=...`) or a standalone shell command between analysis blocks.
+An empty rebase value restores the original startup file. A rebase target must
+be produced before the next analysis; collect it after its last consumer,
+because collect moves newly generated files. `${output}` is available in an
+analysis block's post-processing, rather than a standalone command.
+Custom variables accept the existing BaneWfn syntax, for example `state=(1 2)`.
+Use `${input}` and `${state}` in filename templates. Literal parameter paths
+with spaces are carried by generated scalar variables. Expressions containing
+spaces must instead be expressed through a scalar variable; nested placeholder
+expansion follows the existing driver's rules. Reset a field to restore its
+conf default. Custom command text excludes BaneWfn block delimiters and shebangs;
+choose the shell with the dropdown.
+
+Preview and validation use the shared BaneWfn parser and do not run commands or
+Multiwfn. **Save and load** opens the native Save dialog and writes a
+self-contained `.bwc`, embedding the used conf files, their GUI metadata and
+the citation catalog. The workbench selects the saved script without running
+it. Cancelling Save keeps the modal and its draft open. The builder creates new
+scripts; existing scripts still open through the normal script picker.
+
+## Run and inspect workflows
+
 You can supply both files from a terminal:
 
 ```text

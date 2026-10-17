@@ -1,3 +1,4 @@
+import type { BuilderCatalog, BuilderDraft, BuilderPreview } from './workflow-builder'
 export type WorkflowCube = {
   file: string
   kind: 'density' | 'esp' | 'elf' | 'lol' | 'hole' | 'electron' | 'orbital' | 'generic'
@@ -107,6 +108,16 @@ export const create_workflow_client = (
     return response.json()
   }
   return {
+    builderCatalog: async (): Promise<BuilderCatalog> => {
+      const value = await call('builder-catalog') as BuilderCatalog
+      if (value.version !== 1 || !Array.isArray(value.modules)) throw new Error('Invalid conf catalog')
+      return value
+    },
+    builderPreview: async (draft: BuilderDraft): Promise<BuilderPreview> => call('builder-preview', draft) as Promise<BuilderPreview>,
+    builderSave: async (draft: BuilderDraft): Promise<WorkflowStatus | null> => {
+      const value = await call('builder-save', draft) as { saved: boolean; status?: unknown }
+      return value.saved ? parse_workflow_status(value.status) : null
+    },
     openPath: async (directory: string, file?: string): Promise<void> => { await call('open-path', { directory, ...(file === undefined ? {} : { file }) }) },
     openResults: async (directory: string, files: string[], units: Record<string, string>): Promise<void> => { await call('open-result', { directory, files, units }) },
     openResult: async (directory: string, file: string, unit?: string): Promise<void> => { await call('open-result', { directory, file, unit }) },

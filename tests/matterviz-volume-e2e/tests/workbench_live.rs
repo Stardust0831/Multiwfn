@@ -77,6 +77,85 @@ fn independent_workbench_runs_without_session() {
     let status = request(&page, "status", None);
     assert_eq!(status["session"], Value::Null);
     assert!(status["results"].as_str().unwrap().contains("_workflows"));
+    // The builder assembles a portable script and delegates parameter expansion
+    // to the exact packaged driver. These grid steps are inspected, never run.
+    let catalog = request(&page, "builder-catalog", None);
+    assert!(catalog["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|module| module["name"] == "grid"));
+    let draft = json!({"variables":"state=(1 2)","steps":[
+        {"kind":"analysis","module":"grid","parameters":{},"processes":[{"section":"electron","parameters":{"grid":"2"}},{"section":"esp","parameters":{}}],"shell":"bash","commands":[{"kind":"rename","source":"density.cub","target":"${input}_den.cub"},{"kind":"rename","source":"totesp.cub","target":"${input}_kcal_esp.cub"}]},
+        {"kind":"rebase","target":"${input}_NTO${state}.fch"},
+        {"kind":"analysis","module":"hole-ele","parameters":{"logfile":check.join("output with spaces.log").to_str().unwrap()},"processes":[{"section":"cub","parameters":{}}],"commands":[]},
+        {"kind":"rebase","target":""},
+        {"kind":"collect","target":"${input}_ESP"}
+    ]});
+    let built = request(&page, "builder-preview", Some(draft.clone()));
+    assert!(built["source"]
+        .as_str()
+        .unwrap()
+        .contains("${input}_kcal_esp.cub"));
+    let manager = matterviz_volume_e2e::workflows::WorkflowManager::standalone(
+        root.join(format!("Multiwfn_MatterVizGUI{suffix}")),
+        Some(&input),
+    );
+    let generated = check.join("generated portable.bwc");
+    let saved = manager.save_built_script(&generated, &draft).unwrap();
+    assert_eq!(saved["saved"], true);
+    assert!(saved["status"]["selectedScript"]
+        .as_str()
+        .unwrap()
+        .ends_with("generated portable.bwc"));
+    assert_eq!(saved["status"]["job"], Value::Null);
+    assert_eq!(fs::read_to_string(&generated).unwrap(), built["source"]);
+    let empty_conf = check.join("empty-conf");
+    fs::create_dir(&empty_conf).unwrap();
+    let output =
+        std::process::Command::new(resources.join(format!("tools/multiwfn-workflow{suffix}")))
+            .arg("--inspect-json")
+            .arg(&generated)
+            .arg("--conf-dir")
+            .arg(&empty_conf)
+            .arg("--wfn")
+            .arg(&input)
+            .current_dir(&check)
+            .output()
+            .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let portable: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(portable["tasks"], built["inspection"]["tasks"]);
+    let logfile = portable["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|field| field["id"] == "2/main/logfile")
+        .unwrap();
+    assert_eq!(
+        logfile["value"],
+        check.join("output with spaces.log").to_str().unwrap()
+    );
+    assert_eq!(
+        portable["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|field| field["id"] == "0/0/grid")
+            .unwrap()["value"],
+        "2"
+    );
+    let mut invalid = draft.clone();
+    invalid["steps"][0]["processes"][0]["parameters"]["grid"] = json!("99");
+    assert!(
+        manager.builder_preview(&invalid).is_err(),
+        "native select validation must reject unknown choices"
+    );
+    manager.shutdown();
     let parameters = json!({"0/0/grid":"2"});
     let inspected = request(
         &page,

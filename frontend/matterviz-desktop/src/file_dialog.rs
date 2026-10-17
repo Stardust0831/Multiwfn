@@ -36,6 +36,18 @@ pub fn select_workflow_path(kind: &str) -> Result<Option<PathBuf>, String> {
     }
 }
 
+pub fn save_workflow_script() -> Result<Option<PathBuf>, String> {
+    #[cfg(target_os = "linux")]
+    if let Some(result) = packaged_chooser("save-script") {
+        return result.map_err(|e| e.to_string());
+    }
+    Ok(rfd::FileDialog::new()
+        .set_title("Save BaneWfn script")
+        .set_file_name("workflow.bwc")
+        .add_filter("BaneWfn script", &["bwc"])
+        .save_file())
+}
+
 #[cfg(target_os = "linux")]
 fn packaged_chooser(kind: &str) -> Option<io::Result<Option<PathBuf>>> {
     let helper = std::env::current_exe()

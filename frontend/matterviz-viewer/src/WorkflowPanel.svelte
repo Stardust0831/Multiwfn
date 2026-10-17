@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
-  import { FolderOpen, FileCode2, FileText, Play, Square, Check, Terminal, Cpu, SlidersHorizontal } from '@lucide/svelte'
+  import { FolderOpen, FileCode2, FileText, Play, Square, Check, Terminal, Cpu, SlidersHorizontal, FilePlus2 } from '@lucide/svelte'
+  import WorkflowBuilder from './WorkflowBuilder.svelte'
   import banewfnIcon from '../../workflows/icons/banewfn.png'
   import * as Tabs from '$lib/components/ui/tabs'
   import { t, locale, set_locale } from './i18n'
@@ -17,6 +18,8 @@
   let inspectValid = false
   let inspectGeneration = 0
   let nativePreview = false
+  let builderOpen = false
+  const built = async (next: WorkflowStatus): Promise<void> => { builderOpen = false; apply(next); activeTab = 'settings'; await preview(next.selectedScript ?? '') }
   let inspectTimer: ReturnType<typeof setTimeout> | undefined
   const inspect = async (): Promise<void> => {
     const generation = ++inspectGeneration
@@ -151,6 +154,7 @@
   onDestroy(() => { destroyed = true; previewGeneration++; inspectGeneration++; if (timer) clearTimeout(timer); if (inspectTimer) clearTimeout(inspectTimer) })
 </script>
 
+  {#if builderOpen}<WorkflowBuilder onclose={() => { builderOpen = false }} onsaved={next => void built(next)} />{/if}
   <main class="workflow-panel" aria-labelledby="workflow-heading">
     <header class="workflow-header">
       <div class="workflow-title"><img class="workflow-mark" src={banewfnIcon} alt="" /><h2 id="workflow-heading">BaneWfn</h2></div>
@@ -170,6 +174,7 @@
             <h3 id="workflow-library-heading">{$t('Scripts')} <span class="workflow-count">{status?.scripts.length ?? 0}</span></h3>
             <div class="workflow-library-actions">
             <button class="workflow-folder" type="button" aria-label={$t('Open workflow script')} title={$t('Open workflow script')} onclick={() => pick('script')} disabled={busy || running}><FileCode2 size={17} /></button>
+            <button class="workflow-folder" type="button" aria-label={$t('Generate script')} title={$t('Generate script')} onclick={() => { builderOpen = true }} disabled={busy || running || !status?.available}><FilePlus2 size={17} /></button>
             <button class="workflow-folder" type="button" aria-label={$t('Choose script folder')} title={$t('Choose script folder')} onclick={() => pick('library')} disabled={busy || running}><FolderOpen size={17} /></button>
             </div>
           </div>
