@@ -1,0 +1,125 @@
+wfn=*.fchk
+
+[grid]
+%process
+    elf
+%command
+#!/bin/bash
+mkdir -p "${input}_ELF"
+mv ELF.cub "${input}_ELF/${input}_elf.cub"
+cat << EOF > "${input}_ELF/elf.bat"
+vmd -e elf.vmd
+EOF
+cat << EOF2 > "${input}_ELF/elf.vmd"
+vcube ${input}_elf.cub
+EOF2
+
+mv "${output}" "${input}_ELF"
+
+end
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN grid
+# #@gui grid
+# # label.zh = 网格精度
+# # label.en = Grid quality
+# # type = select
+# # options.zh = 1:低精度 | 2:中等精度 | 3:高精度
+# # options.en = 1:Low | 2:Medium | 3:High
+# # help.zh = 控制生成三维网格的精细程度
+# # help.en = Controls the resolution of the generated 3D grid
+# #@end
+# #@gui operator
+# # label.zh = 算符参数
+# # label.en = Operator parameters
+# # type = text
+# # help.zh = wfn2 步骤使用的算符参数
+# # help.en = Operator parameters for the wfn2 step
+# #@end
+## bundled module: grid
+# # 主逻辑
+# [main]
+# 5
+#
+# # define
+# [wfn2]
+# 0
+# 1
+# ${operator}
+#
+# # density.cub
+# [electron]
+# 1
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # spindensity.cub
+# [spin]
+# 5
+# ${grid:-2}
+# 2
+# 0
+# 5
+#
+# # ELF.cub
+# [elf]
+# 9
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # LOL.cub
+# [lol]
+# 10
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # totesp.cub
+# # 注意：由于需要切换cub文件，esp必须作为最后一个处理步骤使用
+# [esp]
+# 12
+# ${grid:-1}
+# 2
+# 0
+# r
+# totesp.cub
+# 13
+# 11
+# 5
+# 627.51
+# 0
+# totesp.cub
+# -1
+# 5
+#
+# # avglocion
+# [alie]
+# 18
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# [leae]
+# -10
+# 1000
+# 2
+# -27
+# 5
+# 100
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # 退出
+# [quit]
+# -10
+# q
+#<<< BANEWFN_INLINE_CONF_END grid

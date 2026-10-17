@@ -1,0 +1,123 @@
+cp=?
+[topo]
+%process
+realspace
+end
+
+%grep
+  cp_info: from CPprop.txt
+    | match /CP\s+[0-9]+,\s+Type\s+\([^)]*\)/
+    | scan "---------------- CP {cp:int}, Type {type:word} ----------------"
+    | expect rows > 0
+    | expect unique cp
+    -> cp_info.tsv
+
+  cp_density: from CPprop.txt
+    | match "Density of all electrons:"
+    | scan "Density of all electrons: {density:num}"
+    | expect rows > 0
+    | expect finite density
+    -> cp_density_only.tsv
+end
+
+%command
+#!/bin/bash
+set -euo pipefail
+
+cleanup() {
+  rm -f cp_info.tsv cp_density_only.tsv "${all_tmp:-}" "${out_tmp:-}"
+}
+trap cleanup EXIT
+
+ncp=$(wc -l < cp_info.tsv)
+nden=$(wc -l < cp_density_only.tsv)
+if [ "$ncp" -ne "$nden" ]; then
+  echo "CP记录数($ncp)与密度记录数($nden)不一致" >&2
+  exit 1
+fi
+
+selected="${cp}"
+
+# 同时接受“1 13 19”和“1,13,19”。
+selected=${selected//,/ }
+read -r -a ids <<< "$selected"
+
+if [ "${#ids[@]}" -eq 0 ]; then
+  echo "没有输入任何CP编号" >&2
+  exit 1
+fi
+
+for id in "${ids[@]}"; do
+  if [[ ! "$id" =~ ^[0-9]+$ ]]; then
+    echo "无效的CP编号：$id（必须是正整数）" >&2
+    exit 1
+  fi
+done
+
+all_tmp=$(mktemp cp_all.XXXXXX)
+out_tmp=$(mktemp cp_selected.XXXXXX)
+paste cp_info.tsv cp_density_only.tsv > "$all_tmp"
+
+# 按用户输入顺序输出；重复编号只计算一次。
+awk -F '\t' -v ids="${ids[*]}" '
+BEGIN {
+  OFS = "\t"
+  n = split(ids, requested, /[[:space:]]+/)
+}
+{
+  cp_type[$1] = $2
+  density[$1] = $3
+}
+END {
+  print "CP", "Type", "Density of all electrons", "E"
+
+  missing = 0
+  for (i = 1; i <= n; i++) {
+    cp = requested[i]
+    if (used[cp]++)
+      continue
+
+    if (!(cp in density)) {
+      printf "错误：CP %s 在CPprop.txt中不存在\n", cp > "/dev/stderr"
+      missing = 1
+      continue
+    }
+
+    rho = density[cp] + 0
+    energy = -223.08 * rho + 0.7423
+    printf "%s\t%s\t%s\t%.10f\n", cp, cp_type[cp], density[cp], energy
+  }
+
+  if (missing)
+    exit 2
+}
+' "$all_tmp" > "$out_tmp"
+
+mv "$out_tmp" cp_density_selected_energy.tsv
+printf '结果已写入 cp_density_selected_energy.tsv\n' >&2
+end
+
+
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN topo
+## bundled module: topo
+# # 主逻辑
+# [main]
+# 2
+# 2
+# 3
+#
+# [view]
+# 0
+#
+# [realspace]
+# 7
+# 0
+#
+# # 退出
+# [quit]
+# -10
+# q
+#<<< BANEWFN_INLINE_CONF_END topo

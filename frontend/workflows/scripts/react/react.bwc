@@ -1,0 +1,688 @@
+wfn=*.fchk
+core=12
+
+########
+# ALIE #
+########
+
+[grid]
+%process
+    electron
+    alie
+%command
+#!/bin/bash
+    mkdir -p "${input}_ALIE"
+    mv density.cub "${input}_ALIE/${input}_den.cub"
+    mv avglocion.cub "${input}_ALIE/${input}_alie.cub"
+    mv "${output}" "${input}_ALIE"
+end
+
+[surface]
+%process
+    alieext
+%command
+#!/bin/bash
+
+    unit=$(grep "REMARK.*Unit of B-factor field" surfanalysis.pdb | awk '{print $NF}')
+    if [ -z "$unit" ]; then unit="unknown"; fi
+
+    printf "%5s %6s %4s %15s\n" "index" "serial" "type" "Unit($unit)" > index.txt
+    index=0
+    while IFS= read -r line; do
+        if [[ $line =~ ^HETATM ]]; then
+            serial=$(echo "$line" | awk '{print $2}')
+            type=$(echo "$line" | awk '{print $3}')
+            value=$(echo "$line" | cut -c61-66 | awk '{print $1}')
+            printf "%5d %6d %4s %8s\n" "$index" "$serial" "$type" "$value" >> index.txt
+            ((index++))
+        fi
+    done < surfanalysis.pdb
+
+    # 从 surface 输出中提取极值（单位 eV），并换算为 Hartree
+    extrema_line=$(grep -m1 "Minimal value:.*Maximal value:" "${output}" | tr -d '\r')
+    scale_cmd=""
+
+    if [ -n "$extrema_line" ]; then
+        min_ev=$(printf '%s\n' "$extrema_line" | sed -E 's/.*Minimal value:[[:space:]]*([-+0-9.]+)[[:space:]]*eV.*/\1/')
+        max_ev=$(printf '%s\n' "$extrema_line" | sed -E 's/.*Maximal value:[[:space:]]*([-+0-9.]+)[[:space:]]*eV.*/\1/')
+
+        if [ -n "$min_ev" ] && [ -n "$max_ev" ]; then
+            read min_au max_au < <(
+                awk -v min="$min_ev" -v max="$max_ev" 'BEGIN{printf "%.6f %.6f\n", min/27.211, max/27.211}'
+            )
+            scale_cmd="mol scaleminmax 0 1 $min_au $max_au"
+        fi
+    fi
+
+    # 如果没解析到，就留一行注释，避免脚本报错
+    if [ -z "$scale_cmd" ]; then
+        scale_cmd="# mol scaleminmax 0 1 <min> <max>   ;# failed to parse from ${output}"
+    fi
+
+    cat << EOF > "${input}_ALIE/alie.bat"
+vmd -e alie.vmd
+EOF
+
+    cat << EOF2 > "${input}_ALIE/alie.vmd"
+vcube *_den.cub map *_alie.cub
+$scale_cmd
+mol new surfanalysis.pdb
+mol modstyle 0 top VDW 0.07 20
+mol modselect 0 top name C
+mol modcolor 0 top ColorID 32
+mol addrep top
+mol modstyle 1 top VDW 0.07 20
+mol modselect 1 top name O
+mol modcolor 1 top ColorID 21
+EOF2
+
+    mv index.txt "${output}" surfanalysis.pdb "${input}_ALIE"
+end
+
+########
+# LEAE #
+########
+[grid]
+%process
+    electron
+    leae
+%command
+#!/bin/bash
+    mkdir -p "${input}_LEAE"
+    mv density.cub "${input}_LEAE/${input}_den.cub"
+    mv userfunc.cub "${input}_LEAE/${input}_leae.cub"
+    mv "${output}" "${input}_LEAE"
+end
+
+[surface]
+%process
+    leaeext
+%command
+#!/bin/bash
+
+    unit=$(grep "REMARK.*Unit of B-factor field" surfanalysis.pdb | awk '{print $NF}')
+    if [ -z "$unit" ]; then unit="unknown"; fi
+
+    printf "%5s %6s %4s %15s\n" "index" "serial" "type" "Unit($unit)" > index.txt
+    index=0
+    while IFS= read -r line; do
+        if [[ $line =~ ^HETATM ]]; then
+            serial=$(echo "$line" | awk '{print $2}')
+            type=$(echo "$line" | awk '{print $3}')
+            value=$(echo "$line" | cut -c61-66 | awk '{print $1}')
+            printf "%5d %6d %4s %8s\n" "$index" "$serial" "$type" "$value" >> index.txt
+            ((index++))
+        fi
+    done < surfanalysis.pdb
+
+    cat << EOF > "${input}_LEAE/leae.bat"
+vmd -e leae.vmd
+EOF
+
+    cat << EOF2 > "${input}_LEAE/leae.vmd"
+vcube *_den.cub map *_leae.cub
+
+set colorlow -0.8
+set colorhigh -0.3
+mol scaleminmax 0 1 -0.04 0
+mol modstyle 1 0 Isosurface 0.0100 0 0 0 1 1
+
+mol new surfanalysis.pdb
+mol modstyle 0 top VDW 0.07 20
+mol modselect 0 top name C
+mol modcolor 0 top ColorID 32
+mol addrep top
+mol modstyle 1 top VDW 0.07 20
+mol modselect 1 top name O
+mol modcolor 1 top ColorID 21
+EOF2
+
+    mv index.txt "${output}" surfanalysis.pdb "${input}_LEAE"
+end
+
+########
+# ESP  #
+########
+
+
+[grid]
+%process
+    electron
+    esp
+%command
+#!/bin/bash
+    mkdir -p "${input}_ESP"
+    mv density.cub "${input}_ESP/${input}_den.cub"
+    mv totesp.cub "${input}_ESP/${input}_kcal_esp.cub"
+    mv "${output}" "${input}_ESP"
+end
+
+[surface]
+%process
+    espext
+%command
+#!/bin/bash
+    mv vtx.pdb "${input}_ESP/vtx1.pdb"
+    mv mol.pdb "${input}_ESP/mol1.pdb"
+
+    unit=$(grep "REMARK.*Unit of B-factor field" surfanalysis.pdb | awk '{print $NF}')
+    if [ -z "$unit" ]; then unit="unknown"; fi
+    printf "%5s %6s %4s %15s\n" "index" "serial" "type" "Unit($unit)" > index.txt
+    index=0; while IFS= read -r line; do
+        if [[ $line =~ ^HETATM ]]; then
+            serial=$(echo "$line" | awk '{print $2}')      # 第2列：原子编号
+            type=$(echo "$line" | awk '{print $3}')        # 第3列：原子类型
+            value=$(echo "$line" | cut -c61-66 | awk '{print $1}')  # 第11列：B-factor值（固定位置61-66）
+            printf "%5d %6d %4s %8s\n" "$index" "$serial" "$type" "$value" >> index.txt
+            ((index++))
+        fi
+    done < surfanalysis.pdb
+
+    mv index.txt *.out surfanalysis.pdb "${input}_ESP"
+
+    cat << EOF > "${input}_ESP/esp.bat"
+    vmd -e esp.vmd
+EOF
+
+    cat << EOF2 > "${input}_ESP/esp.vmd"
+    vcube *_den.cub map *_esp.cub
+    set colorlow -20
+    set colorhigh 20
+    mol scaleminmax 0 1 -20 20
+    puts "unit: kcal/mol"
+
+    mol new surfanalysis.pdb
+    mol modstyle 0 top VDW 0.07 20
+    mol modselect 0 top name C
+    mol modcolor 0 top ColorID 32
+    mol addrep top
+    mol modstyle 1 top VDW 0.07 20
+    mol modselect 1 top name O
+    mol modcolor 1 top ColorID 21
+EOF2
+end
+
+########
+# chg  #
+########
+[charge]
+%process
+hirshfeld
+%command
+#!/bin/bash
+mkdir -p "${input}_chg"
+mv "${input}.chg" "${input}_chg/${input}_hirshfeld.chg"
+mv "${output}" "${input}_chg"
+end
+
+[charge]
+%process
+adch
+%command
+#!/bin/bash
+mkdir -p "${input}_chg"
+mv "${input}.chg" "${input}_chg/${input}_adch.chg"
+mv "${output}" "${input}_chg"
+end
+
+########
+# ELF  #
+########
+[grid]
+%process
+    elf
+%command
+#!/bin/bash
+mkdir -p "${input}_ELF"
+mv ELF.cub "${input}_ELF/${input}_elf.cub"
+cat << EOF > "${input}_ELF/elf.bat"
+vmd -e elf.vmd
+EOF
+cat << EOF2 > "${input}_ELF/elf.vmd"
+vcube ${input}_elf.cub
+EOF2
+
+mv "${output}" "${input}_ELF"
+
+end
+
+########
+# FMO  #
+########
+[fmo]
+%process
+    orb index h-1
+    orb index h
+    orb index l
+    orb index l+1
+%command
+#!/bin/bash
+mkdir -p "${input}_FMO"
+mv h-1.cub "${input}_FMO/${input}_oH1.cub"
+mv h.cub "${input}_FMO/${input}_oH.cub"
+mv l.cub "${input}_FMO/${input}_oL.cub"
+mv l+1.cub "${input}_FMO/${input}_oL1.cub"
+echo "vmd -e orb.vmd" > "${input}_FMO/orb.bat"
+echo "vcube *.cub" > "${input}_FMO/orb.vmd"
+rm "${output}"
+end
+
+[modwfn]
+%process
+  orblist
+%command
+#!/bin/bash
+set -euo pipefail
+
+out1="${input}_FMO/OrbList.txt"
+
+awk -v out1="$out1" '
+BEGIN{
+    # 状态
+    in_block=0
+
+    # 闭壳层
+    rhf_homo_found=0
+    rhf_lumo_found=0
+
+    # 开壳层 alpha
+    a_homo_found=0
+    a_lumo_found=0
+
+    # 开壳层 beta
+    b_homo_found=0
+    b_lumo_found=0
+
+    # 先清空输出文件
+    print "" > out1
+    close(out1)
+}
+
+# 进入轨道信息区
+/Basic information of all orbitals:/ {
+    in_block=1
+    next
+}
+
+# 离开轨道信息区
+/=========== Modify & Check wavefunction ===========/ {
+    in_block=0
+    next
+}
+
+{
+    if (!in_block) next
+
+    line = $0
+
+    # --------------------------
+    # 闭壳层格式:
+    # Orb:     1 Ene(au/eV):   -20.234490    -550.6085 Occ: 2.000000 Type:A+B
+    # --------------------------
+    if (line ~ /Orb:/ && line ~ /Occ:/ && line ~ /Type:A\+B/) {
+        if (match(line, /Orb:[[:space:]]*([0-9]+)/, m1) &&
+            match(line, /Ene\(au\/eV\):[[:space:]]*([-0-9.]+)[[:space:]]+([-0-9.]+)/, m2) &&
+            match(line, /Occ:[[:space:]]*([-0-9.]+)/, m3)) {
+
+            idx = m1[1]
+            e_au = m2[1]
+            e_ev = m2[2]
+            occ = m3[1]
+
+            printf("RHF Orb %-6s %14s au %14s eV Occ=%s\n", idx, e_au, e_ev, occ) >> out1
+
+            if (occ > 0) {
+                rhf_homo_idx = idx
+                rhf_homo_au  = e_au
+                rhf_homo_ev  = e_ev
+                rhf_homo_found = 1
+            } else if (occ == 0 && !rhf_lumo_found) {
+                rhf_lumo_idx = idx
+                rhf_lumo_au  = e_au
+                rhf_lumo_ev  = e_ev
+                rhf_lumo_found = 1
+            }
+        }
+        next
+    }
+
+    # --------------------------
+    # 开壳层格式:
+    #     1          E(au/eV):   -10.22193    -278.1527 Occ: 1.000000 Typ: A
+    #    20 (     1) E(au/eV):   -10.19364    -277.3831 Occ: 1.000000 Typ: B
+    # --------------------------
+    if (line ~ /E\(au\/eV\):/ && line ~ /Occ:/ && line ~ /Typ:[[:space:]]*[AB]/) {
+        if (match(line, /^[[:space:]]*([0-9]+)/, m1) &&
+            match(line, /E\(au\/eV\):[[:space:]]*([-0-9.]+)[[:space:]]+([-0-9.]+)/, m2) &&
+            match(line, /Occ:[[:space:]]*([-0-9.]+)/, m3) &&
+            match(line, /Typ:[[:space:]]*([AB])/, m4)) {
+
+            idx = m1[1]
+            e_au = m2[1]
+            e_ev = m2[2]
+            occ = m3[1]
+            typ = m4[1]
+
+            printf("UHF-%s Orb %-6s %14s au %14s eV Occ=%s\n", typ, idx, e_au, e_ev, occ) >> out1
+
+            if (typ == "A") {
+                if (occ > 0) {
+                    a_homo_idx = idx
+                    a_homo_au  = e_au
+                    a_homo_ev  = e_ev
+                    a_homo_found = 1
+                } else if (occ == 0 && !a_lumo_found) {
+                    a_lumo_idx = idx
+                    a_lumo_au  = e_au
+                    a_lumo_ev  = e_ev
+                    a_lumo_found = 1
+                }
+            } else if (typ == "B") {
+                if (occ > 0) {
+                    b_homo_idx = idx
+                    b_homo_au  = e_au
+                    b_homo_ev  = e_ev
+                    b_homo_found = 1
+                } else if (occ == 0 && !b_lumo_found) {
+                    b_lumo_idx = idx
+                    b_lumo_au  = e_au
+                    b_lumo_ev  = e_ev
+                    b_lumo_found = 1
+                }
+            }
+        }
+        next
+    }
+}
+
+END{
+    print "" >> out1
+    print "================ Summary ================" >> out1
+
+    if (rhf_homo_found || rhf_lumo_found) {
+        print "=== Closed-shell (RHF/RKS) ===" >> out1
+        if (rhf_homo_found) {
+            printf("HOMO: Orb %s   %s au   %s eV\n", rhf_homo_idx, rhf_homo_au, rhf_homo_ev) >> out1
+        } else {
+            print "HOMO: not found" >> out1
+        }
+        if (rhf_lumo_found) {
+            printf("LUMO: Orb %s   %s au   %s eV\n", rhf_lumo_idx, rhf_lumo_au, rhf_lumo_ev) >> out1
+        } else {
+            print "LUMO: not found" >> out1
+        }
+        if (rhf_homo_found && rhf_lumo_found) {
+            gap_au = rhf_lumo_au - rhf_homo_au
+            gap_ev = rhf_lumo_ev - rhf_homo_ev
+            printf("H-L gap: %s au   %s eV\n", gap_au, gap_ev) >> out1
+        }
+        print "" >> out1
+    }
+
+    if (a_homo_found || a_lumo_found || b_homo_found || b_lumo_found) {
+        print "=== Open-shell (UHF/UKS) ===" >> out1
+
+        print "[Alpha]" >> out1
+        if (a_homo_found) {
+            printf("HOMO: Orb %s   %s au   %s eV\n", a_homo_idx, a_homo_au, a_homo_ev) >> out1
+        } else {
+            print "HOMO: not found" >> out1
+        }
+        if (a_lumo_found) {
+            printf("LUMO: Orb %s   %s au   %s eV\n", a_lumo_idx, a_lumo_au, a_lumo_ev) >> out1
+        } else {
+            print "LUMO: not found" >> out1
+        }
+        if (a_homo_found && a_lumo_found) {
+            gap_au = a_lumo_au - a_homo_au
+            gap_ev = a_lumo_ev - a_homo_ev
+            printf("H-L gap: %s au   %s eV\n", gap_au, gap_ev) >> out1
+        }
+        print "" >> out1
+
+        print "[Beta]" >> out1
+        if (b_homo_found) {
+            printf("HOMO: Orb %s   %s au   %s eV\n", b_homo_idx, b_homo_au, b_homo_ev) >> out1
+        } else {
+            print "HOMO: not found" >> out1
+        }
+        if (b_lumo_found) {
+            printf("LUMO: Orb %s   %s au   %s eV\n", b_lumo_idx, b_lumo_au, b_lumo_ev) >> out1
+        } else {
+            print "LUMO: not found" >> out1
+        }
+        if (b_homo_found && b_lumo_found) {
+            gap_au = b_lumo_au - b_homo_au
+            gap_ev = b_lumo_ev - b_homo_ev
+            printf("H-L gap: %s au   %s eV\n", gap_au, gap_ev) >> out1
+        }
+    }
+}
+' "${output}"
+rm "${output}"
+end
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN charge
+## bundled module: charge
+# # 主逻辑
+# [main]
+# 7
+#
+# [hirshfeld]
+# 1
+# 1
+# y
+#
+# [mulliken]
+# 5
+# 1
+# y
+# 0
+#
+# [aim]
+# 6
+# ${pop:-}
+# y
+#
+# [adch]
+# 11
+# 1
+# y
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END charge
+
+#>>> BANEWFN_INLINE_CONF_BEGIN fmo
+## bundled module: fmo
+# # 主逻辑
+# [main]
+# 200
+#
+# [orb]
+# 3
+# ${index:-h}
+# ${grid:-2}
+#
+# # output: orb0000xx.cub
+# [orb_num]
+# 3
+# ${index:-}
+# ${grid:-2}
+# 1
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END fmo
+
+#>>> BANEWFN_INLINE_CONF_BEGIN grid
+# #@gui grid
+# # label.zh = 网格精度
+# # label.en = Grid quality
+# # type = select
+# # options.zh = 1:低精度 | 2:中等精度 | 3:高精度
+# # options.en = 1:Low | 2:Medium | 3:High
+# # help.zh = 控制生成三维网格的精细程度
+# # help.en = Controls the resolution of the generated 3D grid
+# #@end
+# #@gui operator
+# # label.zh = 算符参数
+# # label.en = Operator parameters
+# # type = text
+# # help.zh = wfn2 步骤使用的算符参数
+# # help.en = Operator parameters for the wfn2 step
+# #@end
+## bundled module: grid
+# # 主逻辑
+# [main]
+# 5
+#
+# # define
+# [wfn2]
+# 0
+# 1
+# ${operator}
+#
+# # density.cub
+# [electron]
+# 1
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # spindensity.cub
+# [spin]
+# 5
+# ${grid:-2}
+# 2
+# 0
+# 5
+#
+# # ELF.cub
+# [elf]
+# 9
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # LOL.cub
+# [lol]
+# 10
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # totesp.cub
+# # 注意：由于需要切换cub文件，esp必须作为最后一个处理步骤使用
+# [esp]
+# 12
+# ${grid:-1}
+# 2
+# 0
+# r
+# totesp.cub
+# 13
+# 11
+# 5
+# 627.51
+# 0
+# totesp.cub
+# -1
+# 5
+#
+# # avglocion
+# [alie]
+# 18
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# [leae]
+# -10
+# 1000
+# 2
+# -27
+# 5
+# 100
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # 退出
+# [quit]
+# -10
+# q
+#<<< BANEWFN_INLINE_CONF_END grid
+
+#>>> BANEWFN_INLINE_CONF_BEGIN modwfn
+## bundled module: modwfn
+# # 主逻辑
+# [main]
+# 6
+#
+# [orblist]
+# 3
+#
+# # 退出
+# [quit]
+# -1
+# q
+#<<< BANEWFN_INLINE_CONF_END modwfn
+
+#>>> BANEWFN_INLINE_CONF_BEGIN surface
+## bundled module: surface
+# [main]
+# 12
+#
+# [espext]
+# 3
+# 0.15
+# 0
+# 5
+# mol.pdb
+# 6
+# 2
+# -1
+# -1
+# 12
+#
+# # surfanalysis.pdb
+# [alieext]
+# 1               # Select the way to define surface
+# 1               #  Isosurface of electron density
+# ${iso:-0.0005}
+# 2               # Select mapped function
+# 2               # Average local ionization energy (ALIE)
+# 0
+# 2
+# -1
+# -1
+# 12
+#
+# [leaeext]
+# 1               # Select the way to define surface
+# 1               #  Isosurface of electron density
+# ${iso:-0.004}
+# 2               # Select mapped function
+# -4               # Local electron attachment energy (LEAE)
+# 0
+# 2
+# -1
+# -1
+# 12
+#
+# [quit]
+# -1
+# q
+#<<< BANEWFN_INLINE_CONF_END surface

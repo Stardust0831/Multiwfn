@@ -11,6 +11,31 @@ TOOLS_MACOS = ROOT / "tools" / "macos"
 
 
 class MacOSAppBundleTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "exec launcher is a Unix shell script")
+    def test_workflow_desktop_entry_receives_exact_file_argument(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "Multiwfn with spaces.app" / "Contents"
+            macos = root / "MacOS"
+            tools = root / "Resources" / "tools"
+            macos.mkdir(parents=True)
+            tools.mkdir(parents=True)
+            launcher = macos / "multiwfn_macos_launcher.sh"
+            launcher.write_bytes((TOOLS_MACOS / launcher.name).read_bytes())
+            for name, content in [
+                (macos / "Multiwfn_MatterVizGUI", "#!/bin/sh\nexit 77\n"),
+                (tools / "multiwfn-workflow", "#!/bin/sh\nexit 0\n"),
+                (tools / "matterviz-desktop", '#!/bin/sh\nprintf "%s\\n" "$@"\n'),
+            ]:
+                name.write_text(content)
+                name.chmod(0o755)
+            startup = Path(directory) / "启动 文件.xyz"
+            startup.write_text("fixture")
+            env = dict(os.environ, MULTIWFN_DIRECT_GUI="1")
+            for args, expected in [([], ["--launch"]), ([str(startup)], ["--launch", str(startup)])]:
+                result = subprocess.run(["bash", str(launcher), *args], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), expected)
+
     def test_workflow_arguments_with_and_without_preview_updater(self):
         workflow = (ROOT / ".github/workflows/matterviz-gui.yml").read_text()
         macos = workflow.split("      - name: Package macOS preview\n", 1)[1]
@@ -88,7 +113,8 @@ class MacOSAppBundleTests(unittest.TestCase):
 
         content = launcher.read_text(encoding="utf-8")
         self.assertIn("set -euo pipefail", content)
-        self.assertIn('printf "0\\n"', content, "Launcher must pipe option 0 for direct GUI entry")
+        self.assertIn('matterviz-desktop" --launch "$INPUT_FILE"', content,
+                      "Workflow GUI must own its persistent engine")
         self.assertIn("${MULTIWFN_DIRECT_GUI:-0}", content, "Must respect MULTIWFN_DIRECT_GUI flag")
         self.assertIn("MULTIWFN_MATTERVIZ_HOME", content)
         self.assertIn("DYLD_LIBRARY_PATH", content)

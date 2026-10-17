@@ -43,6 +43,7 @@ dist/
 
 # Rust build output
 target/
+frontend/matterviz-desktop/gen/
 
 # Generated GUI session data
 multiwfn_3dmol_session/
@@ -56,3 +57,9 @@ Thumbs.db
 
 # Generated documentation
 *.pdf
+# Local Windows cross-build and trial package
+/build-win/
+
+# Local handoff notes and Vite caches
+/EDIT_STATUS.md
+.vite/

@@ -1,0 +1,254 @@
+wfn=*.fchk
+[fmo]
+%process
+    orb index ha
+    orb index hb
+    orb index la
+    orb index lb
+%command
+#!/bin/bash
+mkdir -p "${input}"
+mv ha.cub "${input}/${input}_A_oH.cub"
+mv hb.cub "${input}/${input}_B_oH.cub"
+mv la.cub "${input}/${input}_A_oL.cub"
+mv lb.cub "${input}/${input}_B_oL.cub"
+echo "vmd -e orb.vmd" > "${input}/orb.bat"
+echo "vcube *.cub" > "${input}/orb.vmd"
+rm "${output}"
+end
+
+[modwfn]
+%process
+  orblist
+%command
+#!/bin/bash
+set -euo pipefail
+
+out1="${input}/OrbList.txt"
+
+awk -v out1="$out1" '
+BEGIN{
+    # 状态
+    in_block=0
+
+    # 闭壳层
+    rhf_homo_found=0
+    rhf_lumo_found=0
+
+    # 开壳层 alpha
+    a_homo_found=0
+    a_lumo_found=0
+
+    # 开壳层 beta
+    b_homo_found=0
+    b_lumo_found=0
+
+    # 先清空输出文件
+    print "" > out1
+    close(out1)
+}
+
+# 进入轨道信息区
+/Basic information of all orbitals:/ {
+    in_block=1
+    next
+}
+
+# 离开轨道信息区
+/=========== Modify & Check wavefunction ===========/ {
+    in_block=0
+    next
+}
+
+{
+    if (!in_block) next
+
+    line = $0
+
+    # --------------------------
+    # 闭壳层格式:
+    # Orb:     1 Ene(au/eV):   -20.234490    -550.6085 Occ: 2.000000 Type:A+B
+    # --------------------------
+    if (line ~ /Orb:/ && line ~ /Occ:/ && line ~ /Type:A\+B/) {
+        if (match(line, /Orb:[[:space:]]*([0-9]+)/, m1) &&
+            match(line, /Ene\(au\/eV\):[[:space:]]*([-0-9.]+)[[:space:]]+([-0-9.]+)/, m2) &&
+            match(line, /Occ:[[:space:]]*([-0-9.]+)/, m3)) {
+
+            idx = m1[1]
+            e_au = m2[1]
+            e_ev = m2[2]
+            occ = m3[1]
+
+            printf("RHF Orb %-6s %14s au %14s eV Occ=%s\n", idx, e_au, e_ev, occ) >> out1
+
+            if (occ > 0) {
+                rhf_homo_idx = idx
+                rhf_homo_au  = e_au
+                rhf_homo_ev  = e_ev
+                rhf_homo_found = 1
+            } else if (occ == 0 && !rhf_lumo_found) {
+                rhf_lumo_idx = idx
+                rhf_lumo_au  = e_au
+                rhf_lumo_ev  = e_ev
+                rhf_lumo_found = 1
+            }
+        }
+        next
+    }
+
+    # --------------------------
+    # 开壳层格式:
+    #     1          E(au/eV):   -10.22193    -278.1527 Occ: 1.000000 Typ: A
+    #    20 (     1) E(au/eV):   -10.19364    -277.3831 Occ: 1.000000 Typ: B
+    # --------------------------
+    if (line ~ /E\(au\/eV\):/ && line ~ /Occ:/ && line ~ /Typ:[[:space:]]*[AB]/) {
+        if (match(line, /^[[:space:]]*([0-9]+)/, m1) &&
+            match(line, /E\(au\/eV\):[[:space:]]*([-0-9.]+)[[:space:]]+([-0-9.]+)/, m2) &&
+            match(line, /Occ:[[:space:]]*([-0-9.]+)/, m3) &&
+            match(line, /Typ:[[:space:]]*([AB])/, m4)) {
+
+            idx = m1[1]
+            e_au = m2[1]
+            e_ev = m2[2]
+            occ = m3[1]
+            typ = m4[1]
+
+            printf("UHF-%s Orb %-6s %14s au %14s eV Occ=%s\n", typ, idx, e_au, e_ev, occ) >> out1
+
+            if (typ == "A") {
+                if (occ > 0) {
+                    a_homo_idx = idx
+                    a_homo_au  = e_au
+                    a_homo_ev  = e_ev
+                    a_homo_found = 1
+                } else if (occ == 0 && !a_lumo_found) {
+                    a_lumo_idx = idx
+                    a_lumo_au  = e_au
+                    a_lumo_ev  = e_ev
+                    a_lumo_found = 1
+                }
+            } else if (typ == "B") {
+                if (occ > 0) {
+                    b_homo_idx = idx
+                    b_homo_au  = e_au
+                    b_homo_ev  = e_ev
+                    b_homo_found = 1
+                } else if (occ == 0 && !b_lumo_found) {
+                    b_lumo_idx = idx
+                    b_lumo_au  = e_au
+                    b_lumo_ev  = e_ev
+                    b_lumo_found = 1
+                }
+            }
+        }
+        next
+    }
+}
+
+END{
+    print "" >> out1
+    print "================ Summary ================" >> out1
+
+    if (rhf_homo_found || rhf_lumo_found) {
+        print "=== Closed-shell (RHF/RKS) ===" >> out1
+        if (rhf_homo_found) {
+            printf("HOMO: Orb %s   %s au   %s eV\n", rhf_homo_idx, rhf_homo_au, rhf_homo_ev) >> out1
+        } else {
+            print "HOMO: not found" >> out1
+        }
+        if (rhf_lumo_found) {
+            printf("LUMO: Orb %s   %s au   %s eV\n", rhf_lumo_idx, rhf_lumo_au, rhf_lumo_ev) >> out1
+        } else {
+            print "LUMO: not found" >> out1
+        }
+        if (rhf_homo_found && rhf_lumo_found) {
+            gap_au = rhf_lumo_au - rhf_homo_au
+            gap_ev = rhf_lumo_ev - rhf_homo_ev
+            printf("H-L gap: %s au   %s eV\n", gap_au, gap_ev) >> out1
+        }
+        print "" >> out1
+    }
+
+    if (a_homo_found || a_lumo_found || b_homo_found || b_lumo_found) {
+        print "=== Open-shell (UHF/UKS) ===" >> out1
+
+        print "[Alpha]" >> out1
+        if (a_homo_found) {
+            printf("HOMO: Orb %s   %s au   %s eV\n", a_homo_idx, a_homo_au, a_homo_ev) >> out1
+        } else {
+            print "HOMO: not found" >> out1
+        }
+        if (a_lumo_found) {
+            printf("LUMO: Orb %s   %s au   %s eV\n", a_lumo_idx, a_lumo_au, a_lumo_ev) >> out1
+        } else {
+            print "LUMO: not found" >> out1
+        }
+        if (a_homo_found && a_lumo_found) {
+            gap_au = a_lumo_au - a_homo_au
+            gap_ev = a_lumo_ev - a_homo_ev
+            printf("H-L gap: %s au   %s eV\n", gap_au, gap_ev) >> out1
+        }
+        print "" >> out1
+
+        print "[Beta]" >> out1
+        if (b_homo_found) {
+            printf("HOMO: Orb %s   %s au   %s eV\n", b_homo_idx, b_homo_au, b_homo_ev) >> out1
+        } else {
+            print "HOMO: not found" >> out1
+        }
+        if (b_lumo_found) {
+            printf("LUMO: Orb %s   %s au   %s eV\n", b_lumo_idx, b_lumo_au, b_lumo_ev) >> out1
+        } else {
+            print "LUMO: not found" >> out1
+        }
+        if (b_homo_found && b_lumo_found) {
+            gap_au = b_lumo_au - b_homo_au
+            gap_ev = b_lumo_ev - b_homo_ev
+            printf("H-L gap: %s au   %s eV\n", gap_au, gap_ev) >> out1
+        }
+    }
+}
+' "${output}"
+rm "${output}"
+end
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN fmo
+## bundled module: fmo
+# # 主逻辑
+# [main]
+# 200
+#
+# [orb]
+# 3
+# ${index:-h}
+# ${grid:-2}
+#
+# # output: orb0000xx.cub
+# [orb_num]
+# 3
+# ${index:-}
+# ${grid:-2}
+# 1
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END fmo
+
+#>>> BANEWFN_INLINE_CONF_BEGIN modwfn
+## bundled module: modwfn
+# # 主逻辑
+# [main]
+# 6
+#
+# [orblist]
+# 3
+#
+# # 退出
+# [quit]
+# -1
+# q
+#<<< BANEWFN_INLINE_CONF_END modwfn

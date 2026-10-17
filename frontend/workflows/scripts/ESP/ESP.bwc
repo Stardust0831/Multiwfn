@@ -1,0 +1,245 @@
+wfn=*.fchk
+core=12
+
+[grid]
+%process
+    electron
+    esp
+%command
+#!/bin/bash
+    mkdir -p "${input}_ESP"
+    mv density.cub "${input}_ESP/${input}_den.cub"
+    mv totesp.cub "${input}_ESP/${input}_kcal_esp.cub"
+    mv "${output}" "${input}_ESP"
+end
+
+[surface]
+%process
+    espext
+%command
+#!/bin/bash
+    mv vtx.pdb "${input}_ESP/vtx1.pdb"
+    mv mol.pdb "${input}_ESP/mol1.pdb"
+
+    unit=$(grep "REMARK.*Unit of B-factor field" surfanalysis.pdb | awk '{print $NF}')
+    if [ -z "$unit" ]; then unit="unknown"; fi
+    printf "%5s %6s %4s %15s\n" "index" "serial" "type" "Unit($unit)" > index.txt
+    index=0; while IFS= read -r line; do
+        if [[ $line =~ ^HETATM ]]; then
+            serial=$(echo "$line" | awk '{print $2}')      # 第2列：原子编号
+            type=$(echo "$line" | awk '{print $3}')        # 第3列：原子类型
+            value=$(echo "$line" | cut -c61-66 | awk '{print $1}')  # 第11列：B-factor值（固定位置61-66）
+            printf "%5d %6d %4s %8s\n" "$index" "$serial" "$type" "$value" >> index.txt
+            ((index++))
+        fi
+    done < surfanalysis.pdb
+
+    mv index.txt *.out surfanalysis.pdb "${input}_ESP"
+
+    cat << EOF > "${input}_ESP/esp.bat"
+    vmd -e esp.vmd
+EOF
+
+    cat << EOF2 > "${input}_ESP/esp.vmd"
+    vcube *_den.cub map *_esp.cub
+    set colorlow -20
+    set colorhigh 20
+    mol scaleminmax 0 1 -20 20
+    puts "unit: kcal/mol"
+
+    mol new surfanalysis.pdb
+    mol modstyle 0 top VDW 0.07 20
+    mol modselect 0 top name C
+    mol modcolor 0 top ColorID 32
+    mol addrep top
+    mol modstyle 1 top VDW 0.07 20
+    mol modselect 1 top name O
+    mol modcolor 1 top ColorID 21
+EOF2
+
+end
+
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CITATIONS_BEGIN
+## bundled citation catalog
+# [zhang_esp_2021]
+# authors = "Jun Zhang; Tian Lu"
+# title = "Efficient evaluation of electrostatic potential with computerized optimized code"
+# journal = "Physical Chemistry Chemical Physics"
+# year = "2021"
+# volume = "23"
+# issue = "36"
+# pages = "20323-20328"
+# doi = "10.1039/d1cp02805g"
+# url = "https://pubs.rsc.org/en/content/articlelanding/2021/cp/d1cp02805g"
+#
+# [lu_espext_2012]
+# authors = "Tian Lu; Feiwu Chen"
+# title = "Quantitative analysis of molecular surface based on improved marching tetrahedra algorithm"
+# journal = "Journal of Molecular Graphics & Modelling"
+# year = "2012"
+# volume = "38"
+# pages = "314-323"
+# doi = "10.1016/j.jmgm.2012.07.004"
+# url = "https://www.sciencedirect.com/science/article/pii/S1093326312000903"
+#
+#<<< BANEWFN_INLINE_CITATIONS_END
+
+#>>> BANEWFN_INLINE_CONF_BEGIN grid
+# #@gui grid
+# # label.zh = 网格精度
+# # label.en = Grid quality
+# # type = select
+# # options.zh = 1:低精度 | 2:中等精度 | 3:高精度
+# # options.en = 1:Low | 2:Medium | 3:High
+# # help.zh = 控制生成三维网格的精细程度
+# # help.en = Controls the resolution of the generated 3D grid
+# #@end
+# #@gui operator
+# # label.zh = 算符参数
+# # label.en = Operator parameters
+# # type = text
+# # help.zh = wfn2 步骤使用的算符参数
+# # help.en = Operator parameters for the wfn2 step
+# #@end
+## bundled module: grid
+# # 主逻辑
+# [main]
+# 5
+#
+# # define
+# [wfn2]
+# 0
+# 1
+# ${operator}
+#
+# # density.cub
+# [electron]
+# 1
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # spindensity.cub
+# [spin]
+# 5
+# ${grid:-2}
+# 2
+# 0
+# 5
+#
+# # ELF.cub
+# [elf]
+# 9
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # LOL.cub
+# [lol]
+# 10
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # totesp.cub
+# # 注意：由于需要切换cub文件，esp必须作为最后一个处理步骤使用
+# [esp]
+# 12
+# ${grid:-1}
+# 2
+# 0
+# r
+# totesp.cub
+# 13
+# 11
+# 5
+# 627.51
+# 0
+# totesp.cub
+# -1
+# 5
+#
+# # avglocion
+# [alie]
+# 18
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# [leae]
+# -10
+# 1000
+# 2
+# -27
+# 5
+# 100
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # 退出
+# [quit]
+# -10
+# q
+#
+# [citations]
+# zhang_esp_2021 @esp
+#<<< BANEWFN_INLINE_CONF_END grid
+
+#>>> BANEWFN_INLINE_CONF_BEGIN surface
+## bundled module: surface
+# [main]
+# 12
+#
+# [espext]
+# 3
+# 0.15
+# 0
+# 5
+# mol.pdb
+# 6
+# 2
+# -1
+# -1
+# 12
+#
+# # surfanalysis.pdb
+# [alieext]
+# 1               # Select the way to define surface
+# 1               #  Isosurface of electron density
+# ${iso:-0.0005}
+# 2               # Select mapped function
+# 2               # Average local ionization energy (ALIE)
+# 0
+# 2
+# -1
+# -1
+# 12
+#
+# [leaeext]
+# 1               # Select the way to define surface
+# 1               #  Isosurface of electron density
+# ${iso:-0.004}
+# 2               # Select mapped function
+# -4               # Local electron attachment energy (LEAE)
+# 0
+# 2
+# -1
+# -1
+# 12
+#
+# [quit]
+# -1
+# q
+#
+# [citations]
+# lu_espext_2012 @espext
+#<<< BANEWFN_INLINE_CONF_END surface
