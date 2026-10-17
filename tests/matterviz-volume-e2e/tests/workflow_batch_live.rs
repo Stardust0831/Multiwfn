@@ -42,7 +42,7 @@ fn batch_keeps_inputs_attempts_bindings_and_native_array_sweeps_separate() {
         .join("allow-retry")
         .to_string_lossy()
         .replace('\\', "/");
-    let original=format!("state=(1 2)\n[io]\nlogfile ?\n%command\n#!/bin/bash\nmv -- \"export.xyz\" \"${{input}}_${{state}}.xyz\"\nif [ \"${{input}}\" = fail ] && [ ! -f \"{allow}\" ]; then exit 1; fi\nsleep 0.2\nend\n");
+    let original=format!("state=(1 2)\n[io]\nlogfile ?\n%command\n#!/bin/bash\nmv -- \"export.xyz\" \"${{input}}_${{state}}.xyz\"\nif [ \"${{input}}\" = fail ] && [ ! -f \"{allow}\" ]; then exit 1; fi\nsleep 0.2\nend\ncollect(collected_${{state}});\n");
     fs::write(library.join("run.bw"), &original).unwrap();
     fs::write(
         library.join("io.conf"),
@@ -103,8 +103,25 @@ fn batch_keeps_inputs_attempts_bindings_and_native_array_sweeps_separate() {
     let first = batch.detail(&json!({"batch":id,"item":"0001"})).unwrap();
     assert_eq!(first["job"]["state"], "completed");
     let directory = PathBuf::from(first["job"]["directory"].as_str().unwrap());
+    let graph = batch
+        .trace(&json!({"batch":id,"item":"0001","directory":directory}))
+        .unwrap();
+    assert_eq!(graph["groups"].as_array().unwrap().len(), 2);
+    assert_eq!(graph["groups"][0]["nodes"][0]["state"], "completed");
+    let log = batch.trace(&json!({"batch":id,"item":"0001","directory":directory,"group":"1-1","step":0,"source":"driver"})).unwrap();
+    assert!(log["text"]
+        .as_str()
+        .unwrap()
+        .contains("Processing Multiwfn task"));
+    let native = batch.trace(&json!({"batch":id,"item":"0001","directory":directory,"group":"1-1","step":0,"source":"multiwfn"})).unwrap();
+    assert!(!native["text"].as_str().unwrap().is_empty());
+    assert!(batch
+        .trace(&json!({"batch":id,"item":"0001","directory":"stale"}))
+        .is_err());
     for state in [1, 2] {
-        assert!(directory.join(format!("相同 sample_{state}.xyz")).is_file());
+        assert!(directory
+            .join(format!("collected_{state}/相同 sample_{state}.xyz"))
+            .is_file());
     }
     let params: Value =
         serde_json::from_slice(&fs::read(directory.join("parameters.json")).unwrap()).unwrap();
@@ -132,6 +149,14 @@ fn batch_keeps_inputs_attempts_bindings_and_native_array_sweeps_separate() {
     let failed = batch
         .detail(&json!({"batch":id,"item":"0003","attempt":1}))
         .unwrap();
+    let failed_graph = batch
+        .trace(&json!({"batch":id,"item":"0003","directory":failed["job"]["directory"]}))
+        .unwrap();
+    assert_eq!(failed_graph["groups"][0]["nodes"][0]["state"], "failed");
+    assert_eq!(
+        failed_graph["groups"][0]["nodes"][0]["failedPhase"],
+        "command"
+    );
     fs::write(check.join("allow-retry"), "allow\n").unwrap();
     batch
         .control(&json!({"batch":id,"action":"retry"}))

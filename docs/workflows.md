@@ -171,6 +171,27 @@ become interrupted and do not resume automatically. Retrying still needs the
 original startup and companion files. History stores paths, rather than copies
 of those source files.
 
+## Step DAG and logs
+
+Open an input's **Results → Log** to see its step DAG. Nodes show analysis
+modules and conf sections, shell commands, output collection and startup-file
+changes in execution order. Running steps are blue, completed steps green and
+failed steps red. A failure records its phase, such as Multiwfn, text extraction
+or Shell command. Later steps retain their own execution status. Array workflows
+have a variable-combination selector; batch inputs and retry attempts each keep
+their own graph.
+
+Click a node or **Locate failed step** to show that step's log range. The source
+selector switches between the workflow log and its Multiwfn output. **All logs**
+returns to the combined log view. Native `collect(...)` moves retain log links.
+The graph can be collapsed to give the log more space. Long step logs display
+their last 256 KiB; the complete file remains available from Result files.
+
+Node states reflect the driver's execution result. Conf sections in one
+Multiwfn invocation share that invocation's return status. Runs without a step
+record show their ordinary logs. Large histories display recent execution
+groups; the event file retains the full record.
+
 ## Rendering Cube results
 
 In **Results → Result files**, **Open** beside any file uses its system default

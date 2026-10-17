@@ -386,6 +386,10 @@ impl WorkflowManager {
     pub fn start(&self, request: &Value) -> Result<(), String> {
         self.start_at(request, None)
     }
+    pub fn trace(&self, request: &Value) -> Result<Value, String> {
+        let job = self.job_snapshot().ok_or("No workflow results")?;
+        crate::workflow_trace::read(&job, request)
+    }
     pub(crate) fn start_at(&self, request: &Value, output: Option<&Path>) -> Result<(), String> {
         if request.get("parameters").is_some() {
             let inspection = self.inspect(request)?;
@@ -527,6 +531,8 @@ impl WorkflowManager {
             command
                 .arg(script.file_name().ok_or("Invalid script name")?)
                 .arg("--batch")
+                .arg("--events-jsonl")
+                .arg(".banewfn-events.jsonl")
                 .arg("--cores")
                 .arg(cores.to_string());
             if let Some(wfn) = &state.wavefunction {

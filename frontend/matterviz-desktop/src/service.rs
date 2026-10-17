@@ -225,6 +225,13 @@ impl WorkbenchService {
                                         "batch-start" => batches.start(&value),
                                         "batch-control" => batches.control(&value),
                                         "batch-detail" => batches.detail(&value),
+                                        "trace" => {
+                                            if value.get("batch").is_some() {
+                                                batches.trace(&value)
+                                            } else {
+                                                manager.trace(&value)
+                                            }
+                                        }
                                         "batch-pick" => {
                                             let paths = match value["kind"].as_str() {
                                                 Some("files") => {

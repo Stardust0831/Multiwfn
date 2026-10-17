@@ -23,6 +23,10 @@ export type WorkflowJob = {
   cubes?: WorkflowCube[]
 }
 export type WorkflowScope = { batch: string; item: string; attempt?: number }
+export type WorkflowTraceNode = { index: number; state: string; phase: string; failedPhase: string; start: number | null; end: number | null; started: number | null; finished: number | null; output: {file:string;start:number;end:number|null} | null }
+export type WorkflowTraceGroup = { id: string; file: string; combination: number; combinations: number; variables: Record<string,string>; nodes: WorkflowTraceNode[] }
+export type WorkflowTrace = { available: boolean; steps: Array<{label:string;kind:string;sections:string[];origin:string;command?:string}>; groups: WorkflowTraceGroup[]; truncated: boolean }
+export type WorkflowStepLog = { file:string; text:string; truncated:boolean; start:number; end:number; step:number; group:string; source:'driver'|'multiwfn' }
 export type BatchRoot = { path: string; patterns: string[]; recursive: boolean }
 export type BatchInputSet = { files: string[]; roots: BatchRoot[]; explicitFiles?: string[]; excluded?: string[] }
 export type BatchPlan = { version: number; combinations: number; inputs: Array<{ path: string; name: string; bindings: Record<string,string>; errors: string[] }> }
@@ -125,6 +129,8 @@ export const create_workflow_client = (
     batchControl: async (batch: string, action: string, item?: string): Promise<WorkflowStatus> => parse_workflow_status(await call('batch-control',{batch,action,...(item?{item}:{})})),
     batchLoad: async (): Promise<WorkflowStatus> => parse_workflow_status(await call('batch-load',{})),
     batchDetail: async (scope: WorkflowScope): Promise<BatchDetail> => call('batch-detail',scope) as Promise<BatchDetail>,
+    trace: async (directory: string, scope?: WorkflowScope): Promise<WorkflowTrace> => call('trace',{directory,...scope}) as Promise<WorkflowTrace>,
+    stepLog: async (directory:string, group:string, step:number, source:'driver'|'multiwfn', scope?:WorkflowScope):Promise<WorkflowStepLog> => call('trace',{directory,group,step,source,...scope}) as Promise<WorkflowStepLog>,
     builderCatalog: async (): Promise<BuilderCatalog> => {
       const value = await call('builder-catalog') as BuilderCatalog
       if (value.version !== 1 || !Array.isArray(value.modules)) throw new Error('Invalid conf catalog')

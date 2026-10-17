@@ -16,6 +16,7 @@ await page.route('**/api/workflows/**',async route=>{
  const request=route.request(),url=new URL(request.url()),action=url.pathname.split('/').at(-1)
  assert.equal(url.searchParams.get('cap'),'batch-cap')
  let value=status
+ if(action==='trace')value={available:false,steps:[],groups:[],truncated:false}
  if(action==='preview')value={id:'analysis.bwc',source:'state=(1 2)\n[excit]\nlogfile ?\n%process\nnto\nend\n'}
  if(action==='inspect'){
   inspected=request.postDataJSON()

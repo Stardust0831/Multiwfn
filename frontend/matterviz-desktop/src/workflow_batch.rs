@@ -439,6 +439,10 @@ impl WorkflowBatch {
         let (job, item) = self.job(request)?;
         Ok(json!({"job":job_value(&job),"item":item}))
     }
+    pub fn trace(&self, request: &Value) -> Result<Value, String> {
+        let (job, _) = self.job(request)?;
+        crate::workflow_trace::read(&job, request)
+    }
     pub fn open_result(&self, request: &Value, frontend: &Path) -> Result<Value, String> {
         let (job, _) = self.job(request)?;
         WorkflowManager::open_job_result(&job, request, frontend)

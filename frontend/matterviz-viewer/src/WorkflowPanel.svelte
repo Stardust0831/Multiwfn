@@ -4,6 +4,7 @@
   import WorkflowBuilder from './WorkflowBuilder.svelte'
   import WorkflowInputs from './WorkflowInputs.svelte'
   import WorkflowBatch from './WorkflowBatch.svelte'
+  import WorkflowTrace from './WorkflowTrace.svelte'
   import { batch_active, type WorkflowScope, type BatchDetail } from './workflows'
   import banewfnIcon from '../../workflows/icons/banewfn.png'
   import * as Tabs from '$lib/components/ui/tabs'
@@ -334,7 +335,7 @@
                 {#if job.message}<p class="workflow-error workflow-job-message" role="alert">{$t(job.message)}</p>{/if}
                 {#if job.exitCode !== null && job.exitCode !== 0}<p class="workflow-error workflow-job-message">{$t('Exit code')}: {job.exitCode}</p>{/if}
                 {#if outputView === 'log'}
-                  <pre class="workflow-log">{job.log}</pre>
+                  <WorkflowTrace {job} scope={batchScope}/>
                 {:else}
                   <div class="workflow-result-files">
                     <p class="workflow-result-path">{display_path(job.directory)}</p>
@@ -464,7 +465,6 @@
   .workflow-state > span { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .workflow-state.running { color: var(--ui-primary); }
   .workflow-state.failed { color: #b42318; }
-  .workflow-log { flex: 1; min-height: 0; margin: 0; padding: 16px 24px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #526276; font: 12px/1.8 ui-monospace, monospace; }
   .workflow-result-files { flex: 1; min-height: 0; padding: 16px 24px; overflow: auto; font: 12px/1.8 ui-monospace, monospace; }
   .workflow-result-path { margin: 0 0 12px; color: var(--ui-muted-foreground); overflow-wrap: anywhere; }
   ul { padding: 0; margin: 0; list-style: none; }

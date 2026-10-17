@@ -20,6 +20,7 @@ pub mod volume_store;
 mod workbench_args;
 mod workflow_builder;
 mod workflow_batch;
+mod workflow_trace;
 mod workflow_results;
 mod workflows;
 

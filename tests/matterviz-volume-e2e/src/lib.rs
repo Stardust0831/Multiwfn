@@ -36,6 +36,8 @@ pub mod workbench_args;
 pub mod workflow_builder;
 #[path = "../../../frontend/matterviz-desktop/src/workflow_batch.rs"]
 pub mod workflow_batch;
+#[path = "../../../frontend/matterviz-desktop/src/workflow_trace.rs"]
+pub mod workflow_trace;
 #[path = "../../../frontend/matterviz-desktop/src/workflow_results.rs"]
 pub mod workflow_results;
 #[path = "../../../frontend/matterviz-desktop/src/workflows.rs"]

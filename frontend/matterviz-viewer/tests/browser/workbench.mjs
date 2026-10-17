@@ -19,6 +19,7 @@ await page.route('**/api/workflows/**', async route => {
   assert.equal(url.searchParams.get('cap'), 'test-capability')
   const action = url.pathname.split('/').at(-1)
   let value = status
+  if (action === 'trace') value = {available:false,steps:[],groups:[],truncated:false}
   if (action === 'preview') value = {id: url.searchParams.get('script'), source: '[grid]\n%process\nelectron\nspin\nend\n'}
   if (action === 'pick') {
     assert.equal(request.postDataJSON().kind, 'script')
