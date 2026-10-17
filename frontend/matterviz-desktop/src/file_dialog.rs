@@ -48,6 +48,40 @@ pub fn save_workflow_script() -> Result<Option<PathBuf>, String> {
         .save_file())
 }
 
+pub fn select_workflow_inputs() -> Result<Option<Vec<PathBuf>>, String> {
+    #[cfg(target_os = "linux")]
+    if let Some(helper) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.join("matterviz-file-dialog")))
+        .filter(|p| p.is_file())
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let output = std::process::Command::new(helper)
+            .arg("wavefunctions")
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.code() == Some(1) {
+            return Ok(None);
+        }
+        if !output.status.success() {
+            return Err("Native file chooser failed".into());
+        }
+        let paths: Vec<_> = output
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|p| !p.is_empty())
+            .map(|p| PathBuf::from(std::ffi::OsString::from_vec(p.to_vec())))
+            .collect();
+        if paths.is_empty() {
+            return Err("File chooser returned an empty path".into());
+        }
+        return Ok(Some(paths));
+    }
+    Ok(rfd::FileDialog::new()
+        .set_title("Choose workflow input files")
+        .pick_files())
+}
+
 #[cfg(target_os = "linux")]
 fn packaged_chooser(kind: &str) -> Option<io::Result<Option<PathBuf>>> {
     let helper = std::env::current_exe()

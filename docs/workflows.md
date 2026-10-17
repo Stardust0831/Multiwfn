@@ -132,6 +132,45 @@ or Multiwfn. Execution retains the original script, conf snapshot and explicit
 overrides (`parameters.json`) in a separate job directory, alongside the request,
 logs and results. Existing scripts and scientific defaults are not rewritten.
 
+## Batch inputs and results
+
+Choose **Batch files / 批量文件** in the left column. Add individual files or
+folder rules with filename patterns such as `*.fch;*.mwfn`. Enable subfolders
+when needed. Empty patterns use the script's `wfn=` pattern. Click **Refresh
+matches**, review the full paths and uncheck unwanted files. Duplicate paths
+are removed; files with the same name in different folders remain separate.
+**Use selected files** freezes this list. Later additions to a source folder
+are included only after refreshing and applying the selection again.
+
+File parameters can use a fixed file or **Match per input**. For example,
+`${input}.log` matches a calculation output beside each startup file;
+`${input}_fragments.txt` matches a fragment definition. `${input}` is the
+startup filename without its extension, and `${wfn}` is its complete path.
+A companion pattern must match exactly one file. Missing or ambiguous matches
+appear in the input list; **Preview input** shows the resolved parameters and
+native commands for one selected input. Companion bindings do not vary across
+array values.
+
+**Run batch** processes inputs sequentially with the chosen core count. Array
+variables such as `state=(1 2)` still run inside each input. The batch freezes
+the workflow, conf files and settings. Each input and retry has a separate
+directory, so fixed output names and same-named inputs do not overwrite each
+other. A failed input does not stop the remaining queue. **Pause queue** waits
+for the current input to finish; **Cancel batch** stops it and cancels queued
+inputs. **Retry unfinished** retries failed, cancelled, interrupted and waiting
+inputs while retaining successful results and earlier attempts.
+
+The Results tab shows a batch overview with progress, status filtering and
+search. Open an input to inspect its logs, files and run attempts. A completed
+input can be sent to MatterViz while other inputs are still running. Rendering
+stays scoped to that input's selected attempt.
+
+Batch history is saved in `batch.json` under the batch directory. **Open batch**
+reopens that directory after restarting the GUI. Previously running records
+become interrupted and do not resume automatically. Retrying still needs the
+original startup and companion files. History stores paths, rather than copies
+of those source files.
+
 ## Rendering Cube results
 
 In **Results → Result files**, **Open** beside any file uses its system default

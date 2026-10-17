@@ -44,6 +44,7 @@ fn pick_parameter_path(body: &[u8]) -> Result<Value, String> {
 pub struct WorkbenchService {
     pub url: String,
     workflows: Arc<WorkflowManager>,
+    batch: Arc<crate::workflow_batch::WorkflowBatch>,
     stopped: Arc<AtomicBool>,
     thread: Mutex<Option<thread::JoinHandle<()>>>,
 }
@@ -62,6 +63,7 @@ impl WorkbenchService {
         if let Some(script) = script {
             workflows.select("script", script)?;
         }
+        let batch = Arc::new(crate::workflow_batch::WorkflowBatch::new(workflows.clone()));
         let listener = bind("127.0.0.1", 0)?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let authority = listener
@@ -73,6 +75,8 @@ impl WorkbenchService {
         let stopped = Arc::new(AtomicBool::new(false));
         let stop = stopped.clone();
         let manager = workflows.clone();
+        let batches = batch.clone();
+        let execution_gate = Arc::new(Mutex::new(()));
         let handle = thread::spawn(move || {
             let mut requests = Vec::new();
             while !stop.load(Ordering::Acquire) {
@@ -83,6 +87,8 @@ impl WorkbenchService {
                             continue;
                         }
                         let manager = manager.clone();
+                        let batches = batches.clone();
+                        let execution_gate = execution_gate.clone();
                         let authority = authority.clone();
                         let cap = cap.clone();
                         let frontend = frontend.clone();
@@ -178,7 +184,7 @@ impl WorkbenchService {
                                 }
                                 let result = (|| -> Result<Value, String> {
                                     if action == "status" {
-                                        return Ok(manager.status());
+                                        return Ok(batches.status());
                                     }
                                     if action == "builder-catalog" {
                                         return manager.builder_catalog();
@@ -194,7 +200,55 @@ impl WorkbenchService {
                                     }
                                     let value: Value = serde_json::from_slice(&request.body)
                                         .map_err(|e| e.to_string())?;
+                                    let _gate = if matches!(
+                                        action,
+                                        "run"
+                                            | "batch-start"
+                                            | "batch-control"
+                                            | "batch-load"
+                                            | "batch-select"
+                                            | "pick"
+                                            | "builder-save"
+                                    ) {
+                                        Some(execution_gate.lock().map_err(|e| e.to_string())?)
+                                    } else {
+                                        None
+                                    };
+                                    if batches.active()
+                                        && matches!(action, "pick" | "run" | "builder-save")
+                                    {
+                                        return Err("A batch is still active".into());
+                                    }
                                     match action {
+                                        "batch-plan" => manager.plan_inputs(&value),
+                                        "batch-select" => batches.select_inputs(&value),
+                                        "batch-start" => batches.start(&value),
+                                        "batch-control" => batches.control(&value),
+                                        "batch-detail" => batches.detail(&value),
+                                        "batch-pick" => {
+                                            let paths = match value["kind"].as_str() {
+                                                Some("files") => {
+                                                    crate::file_dialog::select_workflow_inputs()?
+                                                }
+                                                Some("folder") => {
+                                                    crate::file_dialog::select_workflow_path(
+                                                        "results",
+                                                    )?
+                                                    .map(|p| vec![p])
+                                                }
+                                                _ => return Err("Invalid batch selection".into()),
+                                            };
+                                            Ok(json!({"paths":paths}))
+                                        }
+                                        "batch-load" => {
+                                            if let Some(path) =
+                                                crate::file_dialog::select_workflow_path("results")?
+                                            {
+                                                batches.load(&path)
+                                            } else {
+                                                Ok(batches.status())
+                                            }
+                                        }
                                         "inspect" => manager.inspect(&value),
                                         "builder-preview" => manager.builder_preview(&value),
                                         "builder-save" => {
@@ -207,8 +261,20 @@ impl WorkbenchService {
                                                 Ok(json!({"saved": false}))
                                             }
                                         }
-                                        "open-result" => manager.open_result(&value, &frontend),
-                                        "open-path" => manager.open_path(&value),
+                                        "open-result" => {
+                                            if value.get("batch").is_some() {
+                                                batches.open_result(&value, &frontend)
+                                            } else {
+                                                manager.open_result(&value, &frontend)
+                                            }
+                                        }
+                                        "open-path" => {
+                                            if value.get("batch").is_some() {
+                                                batches.open_path(&value)
+                                            } else {
+                                                manager.open_path(&value)
+                                            }
+                                        }
                                         "parameter-path" => pick_parameter_path(&request.body),
                                         "pick" => {
                                             let kind = value["kind"]
@@ -222,17 +288,18 @@ impl WorkbenchService {
                                             } else {
                                                 false
                                             };
-                                            let mut status = manager.status();
+                                            let mut status = batches.status();
                                             status["selectionChanged"] = json!(selected);
                                             Ok(status)
                                         }
                                         "run" => {
+                                            batches.clear()?;
                                             manager.start(&value)?;
-                                            Ok(manager.status())
+                                            Ok(batches.status())
                                         }
                                         "cancel" => {
                                             manager.cancel();
-                                            Ok(manager.status())
+                                            Ok(batches.status())
                                         }
                                         _ => Err("Unknown workflow action".into()),
                                     }
@@ -284,12 +351,14 @@ impl WorkbenchService {
         Ok(Self {
             url,
             workflows,
+            batch,
             stopped,
             thread: Mutex::new(Some(handle)),
         })
     }
     pub fn shutdown(&self) {
         self.stopped.store(true, Ordering::Release);
+        self.batch.shutdown();
         self.workflows.shutdown();
         if let Ok(mut thread) = self.thread.lock() {
             if let Some(handle) = thread.take() {

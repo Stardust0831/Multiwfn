@@ -2,6 +2,9 @@
   import { onDestroy, onMount } from 'svelte'
   import { FolderOpen, FileCode2, FileText, Play, Square, Check, Terminal, Cpu, SlidersHorizontal, FilePlus2 } from '@lucide/svelte'
   import WorkflowBuilder from './WorkflowBuilder.svelte'
+  import WorkflowInputs from './WorkflowInputs.svelte'
+  import WorkflowBatch from './WorkflowBatch.svelte'
+  import { batch_active, type WorkflowScope, type BatchDetail } from './workflows'
   import banewfnIcon from '../../workflows/icons/banewfn.png'
   import * as Tabs from '$lib/components/ui/tabs'
   import { t, locale, set_locale } from './i18n'
@@ -9,6 +12,14 @@
 
   const client = create_workflow_client()
   let status: WorkflowStatus | undefined
+  let inputMode: 'single' | 'batch' = 'single'
+  let inputModal = false
+  let bindings: Record<string,string> = {}
+  let previewInput = ''
+  let batchScope: WorkflowScope | undefined
+  let detail: BatchDetail | undefined
+  let detailGeneration = 0
+  $: job = status?.batch ? detail?.job ?? null : status?.job ?? null
   let selected = ''
   let source = ''
   let variables = ''
@@ -27,7 +38,16 @@
     inspectBusy = true
     inspectValid = false
     try {
-      const next = await client.inspect(selected, parameters, workflow_variables(variables))
+      const vars = workflow_variables(variables)
+      let current = { ...parameters }
+      const wfn = inputMode === 'batch' ? previewInput || status?.inputSet?.files[0] : undefined
+      if (wfn && Object.keys(bindings).length) {
+        const planned = await client.batchPlan({script:selected,files:[wfn],parameters,bindings,variables:vars})
+        const first = planned.inputs[0]
+        if (!first || first.errors.length) throw new Error(first?.errors.join('\n') || $t('Choose at least one input file'))
+        current = {...current,...first.bindings}
+      }
+      const next = await client.inspect(selected, current, vars, wfn)
       if (!destroyed && generation === inspectGeneration) { inspection = next; inspectValid = true; error = '' }
     } catch (reason) { if (generation === inspectGeneration) show_error(reason) }
     finally { if (generation === inspectGeneration) inspectBusy = false }
@@ -53,9 +73,9 @@
   let resultUnits: Record<string, string> = {}
   let selectedResults: string[] = []
   const openPath = async (file?: string): Promise<void> => {
-    if (!status?.job || busy) return
+    if (!job || busy) return
     busy = true; error = ''
-    try { await client.openPath(status.job.directory, file) }
+    try { await client.openPath(job.directory, file, batchScope) }
     catch (reason) { show_error(reason) }
     finally { busy = false }
   }
@@ -63,11 +83,11 @@
     selectedResults = checked ? [...selectedResults, file] : selectedResults.filter(value => value !== file)
   }
   const openResults = async (all = false): Promise<void> => {
-    if (!status?.job || busy || workflow_active(status.job)) return
-    if (all) selectedResults = (status.job.cubes ?? []).map(cube => cube.file)
+    if (!job || busy || workflow_active(job)) return
+    if (all) selectedResults = (job.cubes ?? []).map(cube => cube.file)
     if (!selectedResults.length) return
     error = ''
-    const chosen = (status.job.cubes ?? []).filter(cube => selectedResults.includes(cube.file))
+    const chosen = (job.cubes ?? []).filter(cube => selectedResults.includes(cube.file))
     for (const cube of chosen) {
       if (cube.kind !== 'esp') continue
       const message = !cube.density ? 'ESP needs one matching _den Cube in the same folder'
@@ -76,16 +96,16 @@
     }
     busy = true
     try {
-      await client.openResults(status.job.directory, selectedResults, resultUnits)
+      await client.openResults(job.directory, selectedResults, resultUnits, batchScope)
       apply(await client.status())
     } catch (reason) { show_error(reason) }
     finally { busy = false }
   }
   const openResult = async (cube: WorkflowCube): Promise<void> => {
-    if (!status?.job || busy) return
+    if (!job || busy) return
     busy = true; error = ''
     try {
-      await client.openResult(status.job.directory, cube.file, resultUnits[cube.file] || cube.unit || undefined)
+      await client.openResult(job.directory, cube.file, resultUnits[cube.file] || cube.unit || undefined, batchScope)
       apply(await client.status())
     } catch (reason) { show_error(reason) }
     finally { busy = false }
@@ -93,7 +113,7 @@
 
   const show_error = (reason: unknown): void => { if (!destroyed) error = reason instanceof Error ? reason.message : String(reason) }
   const preview = async (id: string): Promise<void> => {
-    selected = id; source = ''; parameters = {}; inspection = undefined; inspectGeneration++
+    selected = id; source = ''; parameters = {}; bindings = {}; inspection = undefined; inspectGeneration++
     if (inspectTimer) clearTimeout(inspectTimer)
     const generation = ++previewGeneration
     if (!id) return
@@ -104,17 +124,53 @@
   }
   const apply = (next: WorkflowStatus): void => {
     if (destroyed) return
-    if (status?.job?.directory !== next.job?.directory) { resultUnits = {}; selectedResults = [] }
-    else selectedResults = selectedResults.filter(file => next.job?.cubes?.some(cube => cube.file === file))
+    if (!status && next.inputSet?.files.length) inputMode = 'batch'
+    if (status?.batch?.id !== next.batch?.id || status?.batch?.directory !== next.batch?.directory) { batchScope = undefined; detail = undefined; detailGeneration++; selectedResults = []; resultUnits = {} }
+    if (!next.batch) {
+      if (status?.job?.directory !== next.job?.directory) { resultUnits = {}; selectedResults = [] }
+      else selectedResults = selectedResults.filter(file => next.job?.cubes?.some(cube => cube.file === file))
+    }
     status = next
-    if (!next.scripts.some((script) => script.id === selected)) void preview(next.selectedScript ?? next.scripts[0]?.id ?? '')
+    if (!next.scripts.some(script => script.id === selected)) void preview(next.selectedScript ?? next.scripts[0]?.id ?? '')
+  }
+  const loadDetail = async (scope: WorkflowScope): Promise<void> => {
+    const generation = ++detailGeneration
+    try {
+      const next = await client.batchDetail(scope)
+      if (destroyed || generation !== detailGeneration) return
+      if (detail?.job.directory !== next.job.directory) { selectedResults = []; resultUnits = {} }
+      else selectedResults = selectedResults.filter(file => next.job.cubes?.some(cube => cube.file === file))
+      detail = next; batchScope = {...scope,attempt:next.item.attempt}
+    } catch(reason) { if (!destroyed && generation === detailGeneration) show_error(reason) }
+  }
+  const viewItem = (item: string, attempt?: number): void => { if(status?.batch) void loadDetail({batch:status.batch.id,item,...(attempt?{attempt}:{})}) }
+  const batchControl = async (action: string, item?: string): Promise<void> => {
+    if(!status?.batch || busy) return
+    busy = true; error = ''
+    try { apply(await client.batchControl(status.batch.id,action,item)) } catch(reason) { show_error(reason) }
+    finally { busy = false; schedule() }
+  }
+  const loadBatch = async (): Promise<void> => {
+    busy = true; error = ''
+    try { apply(await client.batchLoad()); activeTab = 'results' } catch(reason) { show_error(reason) }
+    finally { busy = false; schedule() }
+  }
+  const selectedInputs = async (next: WorkflowStatus): Promise<void> => {
+    inputModal = false; inputMode = 'batch'; previewInput = next.inputSet?.files[0] ?? ''
+    apply(next); await inspect()
+  }
+  const bindingMode = (field: WorkflowField, matched: boolean): void => {
+    const next = {...bindings}
+    if (matched) next[field.id] = field.name === 'logfile' ? '${input}.log' : '${input}_' + field.name
+    else delete next[field.id]
+    bindings = next; void inspect()
   }
   const schedule = (): void => {
     if (timer) clearTimeout(timer)
-    if (!destroyed && workflow_active(status?.job ?? null)) timer = setTimeout(() => void refresh(), 700)
+    if (!destroyed && (workflow_active(status?.job ?? null) || batch_active(status?.batch))) timer = setTimeout(() => void refresh(), 700)
   }
   const refresh = async (): Promise<void> => {
-    try { apply(await client.status()) } catch (reason) { show_error(reason) }
+    try { apply(await client.status()); if(batchScope) await loadDetail(batchScope) } catch (reason) { show_error(reason) }
     schedule()
   }
   const pick = async (kind: WorkflowSelection): Promise<void> => {
@@ -131,10 +187,11 @@
     finally { busy = false; schedule() }
   }
   const run = async (dryRun: boolean): Promise<void> => {
-    if (busy || workflow_active(status?.job ?? null)) return
+    if (busy || workflow_active(job ?? null)) return
     busy = true; error = ''; outputView = 'log'
     try {
-      apply(await client.run({ script: selected, cores, variables: workflow_variables(variables), dryRun, parameters }))
+      const request = { script: selected, cores, variables: workflow_variables(variables), dryRun, parameters, ...(inputMode === 'batch' ? {bindings} : {}) }
+      apply(inputMode === 'batch' ? await client.batchStart(request) : await client.run(request))
       activeTab = 'results'
     }
     catch (reason) { show_error(reason); await refresh() }
@@ -142,11 +199,12 @@
   }
   const cancel = async (): Promise<void> => {
     busy = true; error = ''
-    try { apply(await client.cancel()) } catch (reason) { show_error(reason) }
+    try { if(batch_active(status?.batch)) { apply(await client.batchControl(status!.batch!.id,'cancel')) } else apply(await client.cancel()) } catch (reason) { show_error(reason) }
     finally { busy = false; schedule() }
   }
-  $: running = workflow_active(status?.job ?? null)
-  $: canRun = status?.available && selected && status?.results && status?.multiwfn && inspection?.runnable && inspectValid && !inspectBusy && !running && !busy
+  $: running = workflow_active(status?.job ?? null) || batch_active(status?.batch)
+  $: jobRunning = workflow_active(job)
+  $: canRun = status?.available && selected && status?.results && status?.multiwfn && inspection?.runnable && inspectValid && !inspectBusy && !running && !busy && (inputMode !== 'batch' || !!status?.inputSet?.files.length)
   $: previewText = nativePreview ? (inspection?.tasks ?? []).map(task => `# ${task.task + 1} · ${task.module || 'raw'}\n${task.commands}`).join('\n') : source
   $: sourceLines = previewText ? previewText.split('\n').map((_, index) => index + 1).join('\n') : ''
   $: groups = [...new Set((inspection?.fields ?? []).map(field => field.group))]
@@ -154,6 +212,7 @@
   onDestroy(() => { destroyed = true; previewGeneration++; inspectGeneration++; if (timer) clearTimeout(timer); if (inspectTimer) clearTimeout(inspectTimer) })
 </script>
 
+  {#if inputModal}<WorkflowInputs initial={status?.inputSet ?? {files:[],roots:[]}} script={selected} {parameters} {bindings} variables={variables.split(/\r?\n/).map(s => s.trim()).filter(Boolean)} onclose={() => { inputModal = false }} onselected={next => void selectedInputs(next)} />{/if}
   {#if builderOpen}<WorkflowBuilder onclose={() => { builderOpen = false }} onsaved={next => void built(next)} />{/if}
   <main class="workflow-panel" aria-labelledby="workflow-heading">
     <header class="workflow-header">
@@ -167,7 +226,11 @@
       <section class="workflow-library" aria-labelledby="workflow-library-heading">
         <div class="workflow-field">
           <label for="workflow-startup">{$t('Startup file')}</label>
+          <div class="input-mode" role="group" aria-label={$t('Input mode')}><button type="button" class:chosen={inputMode === 'single'} disabled={busy || running} onclick={() => { inputMode = 'single'; void inspect() }}>{$t('Single file')}</button><button type="button" class:chosen={inputMode === 'batch'} disabled={busy || running} onclick={() => { inputMode = 'batch'; if(!status?.inputSet?.files.length) inputModal = true; else void inspect() }}>{$t('Batch files')}</button></div>
+          {#if inputMode === 'batch'}<button id="workflow-startup" class="workflow-picker" type="button" disabled={busy || running} onclick={() => { inputModal = true }}><span>{$t('{count} input files selected',{count:status?.inputSet?.files.length ?? 0})}</span><FolderOpen size={17}/></button>
+          {:else}
           <button id="workflow-startup" class="workflow-picker" type="button" aria-label={$t('Choose startup file')} title={display_path(status?.wavefunction)} onclick={() => pick('wavefunction')} disabled={busy || running}><span>{display_path(status?.wavefunction) || $t('Choose startup file')}</span><FolderOpen size={17} /></button>
+          {/if}
         </div>
         <div class="workflow-catalog">
           <div class="workflow-section-heading">
@@ -205,6 +268,7 @@
                 <label for="workflow-results">{$t('Results folder')}</label>
                 <button id="workflow-results" class="workflow-picker" class:unselected={!status?.results} type="button" aria-label={$t('Choose results folder')} title={display_path(status?.results)} onclick={() => pick('results')} disabled={busy || running}><span>{display_path(status?.results) || $t('Choose results folder')}</span><FolderOpen size={17} /></button>
               </div>
+              {#if inputMode === 'batch' && status?.inputSet?.files.length}<div class="workflow-field"><label for="batch-preview-input">{$t('Preview input')}</label><select id="batch-preview-input" value={previewInput || status.inputSet.files[0]} disabled={busy || running} onchange={event => { previewInput = event.currentTarget.value; void inspect() }}>{#each status.inputSet.files as path}<option value={path}>{display_path(path)}</option>{/each}</select></div>{/if}
               <div class="workflow-parameters">
                 <div class="workflow-field"><label for="workflow-cores"><Cpu size={14} />{$t('CPU cores')}</label><input id="workflow-cores" type="number" min="1" max="1024" step="1" bind:value={cores} disabled={busy || running} /></div>
               </div>
@@ -215,6 +279,11 @@
                     <div class="parameter-row">
                       <label for={'parameter-' + field.id} title={field.helps?.[$locale] ?? field.help}>{field.labels?.[$locale] ?? field.label}{#if field.unit} ({field.unit}){/if}</label>
                       <div class="parameter-control">
+                        {#if inputMode === 'batch' && (field.type === 'file' || ['logfile','fragdef'].includes(field.name))}
+                          <select class="binding-mode" aria-label={`${$t('File binding')}: ${field.labels?.[$locale] ?? field.label}`} value={field.id in bindings ? 'matched' : 'fixed'} onchange={event => bindingMode(field,event.currentTarget.value === 'matched')}><option value="fixed">{$t('Fixed file')}</option><option value="matched">{$t('Match per input')}</option></select>
+                        {/if}
+                        {#if field.id in bindings}<input id={'parameter-' + field.id} aria-label={`${$t('Companion filename pattern')}: ${field.labels?.[$locale] ?? field.label}`} value={bindings[field.id]} placeholder={'${input}.log'} oninput={event => { bindings = {...bindings,[field.id]:event.currentTarget.value}; if(inspectTimer) clearTimeout(inspectTimer); inspectTimer = setTimeout(() => void inspect(),300) }}/>
+                        {:else}
                         {#if field.type === 'select' || field.type === 'boolean'}
                           <select id={'parameter-' + field.id} value={parameters[field.id] ?? field.value} onchange={event => change(field, event.currentTarget.value)}>
                             {#if !field.options.some(option => option.value === (parameters[field.id] ?? field.value))}<option value={parameters[field.id] ?? field.value}>{parameters[field.id] ?? field.value}</option>{/if}
@@ -223,6 +292,7 @@
                         {:else}
                           <input id={'parameter-' + field.id} type={field.type === 'number' ? 'number' : 'text'} step="any" value={parameters[field.id] ?? field.value} oninput={event => change(field, event.currentTarget.value)} />
                           {#if field.type === 'file' || field.type === 'directory'}<button type="button" aria-label={$t('Choose file')} onclick={() => parameterPath(field)}><FolderOpen size={16} /></button>{/if}
+                        {/if}
                         {/if}
                         {#if field.id in parameters}<button type="button" title={$t('Reset parameter')} aria-label={$t('Reset parameter')} onclick={() => reset(field)}>↺</button>{/if}
                       </div>
@@ -246,37 +316,40 @@
               </section>
             </div>
           </Tabs.Content>
-          <Tabs.Content value="results" class="min-h-0 min-w-0 m-0">
+          <Tabs.Content value="results" class="flex flex-col min-h-0 min-w-0 overflow-hidden m-0">
+            <div class="batch-navigation"><button type="button" disabled={busy || running} onclick={loadBatch}><FolderOpen size={15}/>{$t('Open batch')}</button>{#if status?.batch && batchScope}<button type="button" onclick={() => { batchScope = undefined; detail = undefined; detailGeneration++ }}>{$t('Batch overview')}</button><select aria-label={$t('Result input')} value={batchScope.item} onchange={event => viewItem(event.currentTarget.value)}>{#each status.batch.cases as item}<option value={item.id} disabled={!item.attempts}>{item.name}</option>{/each}</select>{#if detail}<select aria-label={$t('Run attempt')} value={detail.item.attempt} onchange={event => batchScope && viewItem(batchScope.item,Number(event.currentTarget.value))}>{#each Array.from({length:detail.item.attempts},(_,i)=>i+1) as attempt}<option value={attempt}>{$t('Attempt {number}',{number:attempt})}</option>{/each}</select>{/if}{/if}</div>
+            {#if status?.batch && !batchScope}<WorkflowBatch batch={status.batch} {busy} onview={viewItem} oncontrol={batchControl} onfolder={() => { if(status?.batch) void client.openPath(status.batch.directory,undefined,{batch:status.batch.id}).catch(show_error) }}/>
+            {:else}
             <section class="workflow-output" aria-label={$t('Workflow output')}>
               <div class="workflow-output-heading">
                 <div class="workflow-output-switch" role="group" aria-label={$t('Workflow output')}>
                   <button type="button" class:active={outputView === 'log'} aria-pressed={outputView === 'log'} onclick={() => outputView = 'log'}><Terminal size={15} />{$t('Log')}</button>
                   <button type="button" class:active={outputView === 'files'} aria-pressed={outputView === 'files'} onclick={() => outputView = 'files'}><FileText size={15} />{$t('Result files')}</button>
                 </div>
-                {#if outputView === 'files' && status?.job}
+                {#if outputView === 'files' && job}
                   <button type="button" disabled={busy} onclick={() => openPath()} title={$t('Open results folder')}><FolderOpen size={15} />{$t('Open folder')}</button>
                 {/if}
               </div>
-              {#if status?.job}
-                {#if status.job.message}<p class="workflow-error workflow-job-message" role="alert">{$t(status.job.message)}</p>{/if}
-                {#if status.job.exitCode !== null && status.job.exitCode !== 0}<p class="workflow-error workflow-job-message">{$t('Exit code')}: {status.job.exitCode}</p>{/if}
+              {#if job}
+                {#if job.message}<p class="workflow-error workflow-job-message" role="alert">{$t(job.message)}</p>{/if}
+                {#if job.exitCode !== null && job.exitCode !== 0}<p class="workflow-error workflow-job-message">{$t('Exit code')}: {job.exitCode}</p>{/if}
                 {#if outputView === 'log'}
-                  <pre class="workflow-log">{status.job.log}</pre>
+                  <pre class="workflow-log">{job.log}</pre>
                 {:else}
                   <div class="workflow-result-files">
-                    <p class="workflow-result-path">{display_path(status.job.directory)}</p>
-                    {#if status.job.cubes?.length}
+                    <p class="workflow-result-path">{display_path(job.directory)}</p>
+                    {#if job.cubes?.length}
                       <div class="workflow-result-toolbar">
-                        <label><input type="checkbox" aria-label={$t('Select all Cube files')} checked={selectedResults.length === status.job.cubes.length} indeterminate={selectedResults.length > 0 && selectedResults.length < status.job.cubes.length} disabled={busy || running || status.job.state === 'prepared'} onchange={(event) => selectedResults = event.currentTarget.checked ? (status?.job?.cubes ?? []).map(cube => cube.file) : []} />{$t('Select all')}</label>
-                        <span class="workflow-selected-count">{selectedResults.length} / {status.job.cubes.length}</span>
-                        <button type="button" disabled={busy || running || status.job.state === 'prepared' || !selectedResults.length} onclick={() => openResults()}>{$t('Render selected')}</button>
-                        <button type="button" class="workflow-primary" disabled={busy || running || status.job.state === 'prepared'} onclick={() => openResults(true)}><Play size={15} />{$t('One-click render')}</button>
+                        <label><input type="checkbox" aria-label={$t('Select all Cube files')} checked={selectedResults.length === job.cubes.length} indeterminate={selectedResults.length > 0 && selectedResults.length < job.cubes.length} disabled={busy || jobRunning || job.state === 'prepared'} onchange={(event) => selectedResults = event.currentTarget.checked ? (job?.cubes ?? []).map(cube => cube.file) : []} />{$t('Select all')}</label>
+                        <span class="workflow-selected-count">{selectedResults.length} / {job.cubes.length}</span>
+                        <button type="button" disabled={busy || jobRunning || job.state === 'prepared' || !selectedResults.length} onclick={() => openResults()}>{$t('Render selected')}</button>
+                        <button type="button" class="workflow-primary" disabled={busy || jobRunning || job.state === 'prepared'} onclick={() => openResults(true)}><Play size={15} />{$t('One-click render')}</button>
                       </div>
                     {/if}
-                    <ul>{#each status.job.files as file}
-                      {@const cube = status.job.cubes?.find(cube => cube.file === file)}
+                    <ul>{#each job.files as file}
+                      {@const cube = job.cubes?.find(cube => cube.file === file)}
                       <li>
-                        {#if cube}<input type="checkbox" aria-label={`${$t('Select result')}: ${file}`} checked={selectedResults.includes(file)} disabled={busy || running || status.job.state === 'prepared'} onchange={(event) => selectResult(file, event.currentTarget.checked)} />{/if}
+                        {#if cube}<input type="checkbox" aria-label={`${$t('Select result')}: ${file}`} checked={selectedResults.includes(file)} disabled={busy || jobRunning || job.state === 'prepared'} onchange={(event) => selectResult(file, event.currentTarget.checked)} />{/if}
                         <FileText size={16} /><div class="workflow-result-name"><span>{file}</span>{#if cube}<span class="workflow-result-kind">{$t(workflow_cube_label(cube))}{#if cube.unit} · {cube.unit}{/if}</span>{/if}</div>
                         {#if cube}
                           {#if cube.kind === 'esp' && !cube.unitDeclared}
@@ -284,7 +357,7 @@
                               <option value="" disabled>{$t('Choose unit')}</option><option value="au">a.u.</option><option value="kcal/mol">kcal/mol</option>
                             </select>
                           {/if}
-                          <button type="button" onclick={() => openResult(cube)} disabled={busy || running || status.job.state === 'prepared' || (cube.kind === 'esp' && (!cube.density || (!cube.unit && !resultUnits[file])))} title={cube.kind === 'esp' && !cube.density ? $t('ESP needs one matching _den Cube in the same folder') : $t('Open in Multiwfn viewer')}>{$t('Render')}</button>
+                          <button type="button" onclick={() => openResult(cube)} disabled={busy || jobRunning || job.state === 'prepared' || (cube.kind === 'esp' && (!cube.density || (!cube.unit && !resultUnits[file])))} title={cube.kind === 'esp' && !cube.density ? $t('ESP needs one matching _den Cube in the same folder') : $t('Open in Multiwfn viewer')}>{$t('Render')}</button>
                         {/if}
                         <button type="button" onclick={() => openPath(file)} disabled={busy} aria-label={$t('Open file: {file}', { file })} title={$t('Open with the default application')}>{$t('Open')}</button>
                       </li>
@@ -295,16 +368,17 @@
                 <div class="workflow-output-empty"><Terminal size={24} /><p>{$t('No runs yet')}</p></div>
               {/if}
             </section>
+            {/if}
           </Tabs.Content>
         </Tabs.Root>
         <div class="workflow-footer">
-          <div class="workflow-status">{#if status?.job}<span class="workflow-state" class:running class:failed={status.job.state === 'failed'} role="status"><span></span>{$t(status.job.state)}</span>{/if}</div>
+          <div class="workflow-status">{#if status?.batch}<span class="workflow-state" class:running class:failed={['failed','partial'].includes(status.batch.state)} role="status"><span></span>{$t(status.batch.state)}</span>{:else if job}<span class="workflow-state" class:running class:failed={job.state === 'failed'} role="status"><span></span>{$t(job.state)}</span>{/if}</div>
           <div class="workflow-actions">
             <button type="button" disabled={!canRun} onclick={() => run(true)}><Check size={16} />{$t('Preflight')}</button>
             {#if running}
               <button type="button" class="workflow-stop" disabled={busy} onclick={cancel}><Square size={15} />{$t('Cancel workflow')}</button>
             {:else}
-              <button type="button" class="workflow-primary" disabled={!canRun} onclick={() => run(false)}><Play size={16} />{$t('Run workflow')}</button>
+              <button type="button" class="workflow-primary" disabled={!canRun} onclick={() => run(false)}><Play size={16} />{$t(inputMode === 'batch' ? 'Run batch' : 'Run workflow')}</button>
             {/if}
           </div>
         </div>
@@ -313,6 +387,9 @@
   </main>
 
 <style>
+  .input-mode { display:flex; gap:5px; margin-bottom:8px; } .input-mode button {flex:1; min-height:30px; font-size:12px; padding:4px;} .input-mode button.chosen {background:#e8f1f8; border-color:#9fbfd5; color:#245f84;}
+  .batch-navigation {display:flex; gap:8px; align-items:center; padding:10px 20px; border-bottom:1px solid var(--ui-border); flex-shrink:0; min-width:0;} .batch-navigation button {font-size:12px;min-height:31px;padding:5px 8px;flex-shrink:0;} .batch-navigation select {min-width:0;max-width:250px;height:33px;padding:4px 7px;} .binding-mode {max-width:135px;}
+
   .parameter-group { padding: 18px 0; margin: 12px 0; border: 0; border-top: 1px solid var(--ui-border); }
   .parameter-group legend { padding-right: 12px; font-weight: 600; }
   .parameter-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr); gap: 18px; align-items: center; margin-bottom: 14px; }
@@ -378,7 +455,7 @@
   .workflow-primary, .workflow-primary:hover:not(:disabled) { background: var(--ui-primary); color: var(--ui-primary-foreground); border-color: var(--ui-primary); }
   .workflow-primary:hover:not(:disabled) { background: #125b72; }
   .workflow-stop, .workflow-stop:hover:not(:disabled) { background: #fff2f0; color: #b42318; border-color: #f0c4be; }
-  .workflow-output { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #fafbfc; }
+  .workflow-output { display: flex; flex-direction: column; flex: 1; min-height: 0; background: #fafbfc; }
   .workflow-output-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--ui-border); }
   .workflow-output-switch { display: flex; gap: 4px; }
   .workflow-output-switch button { min-height: 30px; padding: 5px 8px; border-color: transparent; background: transparent; color: var(--ui-muted-foreground); white-space: nowrap; }

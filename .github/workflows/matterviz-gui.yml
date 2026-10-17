@@ -789,10 +789,12 @@ jobs:
             test -x "$BANEWFN_TEST_PACKAGE/banewfn_gui"
           fi
           cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test workbench_live -- --ignored --nocapture
+          BANEWFN_TEST_OUTPUT="${BANEWFN_TEST_OUTPUT}-batch" cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test workflow_batch_live -- --ignored --nocapture
           if [ "$RUNNER_OS" = macOS ]; then
             export BANEWFN_TEST_PACKAGE="$PWD/macos-dist/BaneWfn GUI.app/Contents/MacOS"
             export BANEWFN_TEST_OUTPUT="${BANEWFN_TEST_OUTPUT}-app"
             cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test workbench_live -- --ignored --nocapture
+            BANEWFN_TEST_OUTPUT="${BANEWFN_TEST_OUTPUT}-batch" cargo test --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --test workflow_batch_live -- --ignored --nocapture
           fi
 
       - name: Verify package contents

@@ -15,12 +15,12 @@ const MAX_LOG: u64 = 64 * 1024;
 static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
-struct Job {
-    directory: PathBuf,
-    state: &'static str,
-    code: Option<i32>,
-    message: String,
-    cancel: Arc<AtomicBool>,
+pub(crate) struct Job {
+    pub(crate) directory: PathBuf,
+    pub(crate) state: &'static str,
+    pub(crate) code: Option<i32>,
+    pub(crate) message: String,
+    pub(crate) cancel: Arc<AtomicBool>,
 }
 
 struct State {
@@ -53,12 +53,19 @@ impl WorkflowManager {
         self.inspect_path(&script, request)
     }
     fn inspect_path(&self, script: &Path, request: &Value) -> Result<Value, String> {
-        let wavefunction = self
+        let default_wavefunction = self
             .state
             .lock()
             .map_err(|e| e.to_string())?
             .wavefunction
             .clone();
+        let wavefunction = request["wavefunction"]
+            .as_str()
+            .map(PathBuf::from)
+            .or(default_wavefunction);
+        if let Some(path) = &wavefunction {
+            validate_path(path)?;
+        }
         let runner = self
             .runner
             .as_ref()
@@ -224,7 +231,7 @@ impl WorkflowManager {
         manager
     }
 
-    fn with_paths(
+    pub(crate) fn with_paths(
         runner: Option<PathBuf>,
         conf: PathBuf,
         library: Option<PathBuf>,
@@ -303,33 +310,7 @@ impl WorkflowManager {
             }
         }
         scripts.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-        let job = state.job.as_ref().map(|job| {
-            let mut log = read_log_tail(&job.directory.join("workflow.log"));
-            if let Some(output) = fs::read_dir(&job.directory)
-                .into_iter()
-                .flatten()
-                .filter_map(Result::ok)
-                .filter(|entry| entry.path().extension().is_some_and(|s| s == "out"))
-                .max_by_key(|entry| entry.metadata().ok().and_then(|m| m.modified().ok()))
-            {
-                log.push_str(&format!(
-                    "\n--- {} ---\n{}",
-                    output.file_name().to_string_lossy(),
-                    read_log_tail(&output.path())
-                ));
-                if log.len() > MAX_LOG as usize {
-                    let mut start = log.len() - MAX_LOG as usize;
-                    while !log.is_char_boundary(start) {
-                        start += 1;
-                    }
-                    log = log[start..].to_owned();
-                }
-            }
-            let files = crate::workflow_results::files(&job.directory);
-            let cubes = crate::workflow_results::cubes(&job.directory, &files);
-            json!({"directory":job.directory, "state":job.state, "exitCode":job.code,
-                "message":job.message, "log":log, "files":files, "cubes":cubes})
-        });
+        let job = state.job.as_ref().map(job_value);
         json!({"format":"multiwfn-workflows", "version":1, "available":self.runner.is_some(),
             "runner":self.runner, "library":state.library, "results":state.results,
             "wavefunction":state.wavefunction, "multiwfn":self.multiwfn,
@@ -339,6 +320,14 @@ impl WorkflowManager {
     pub fn open_result(&self, request: &Value, frontend: &Path) -> Result<Value, String> {
         let state = self.state.lock().map_err(|e| e.to_string())?;
         let job = state.job.as_ref().ok_or("No workflow results")?;
+        Self::open_job_result(job, request, frontend)
+    }
+
+    pub(crate) fn open_job_result(
+        job: &Job,
+        request: &Value,
+        frontend: &Path,
+    ) -> Result<Value, String> {
         if request["directory"] != json!(job.directory) {
             return Err("The displayed workflow has changed; refresh its results".into());
         }
@@ -354,6 +343,9 @@ impl WorkflowManager {
     fn result_path(&self, request: &Value) -> Result<PathBuf, String> {
         let state = self.state.lock().map_err(|e| e.to_string())?;
         let job = state.job.as_ref().ok_or("No workflow results")?;
+        Self::job_result_path(job, request)
+    }
+    pub(crate) fn job_result_path(job: &Job, request: &Value) -> Result<PathBuf, String> {
         if request["directory"] != json!(job.directory) {
             return Err("The displayed workflow has changed; refresh its results".into());
         }
@@ -392,6 +384,9 @@ impl WorkflowManager {
     }
 
     pub fn start(&self, request: &Value) -> Result<(), String> {
+        self.start_at(request, None)
+    }
+    pub(crate) fn start_at(&self, request: &Value, output: Option<&Path>) -> Result<(), String> {
         if request.get("parameters").is_some() {
             let inspection = self.inspect(request)?;
             if inspection["runnable"] != true {
@@ -476,7 +471,12 @@ impl WorkflowManager {
             .map_err(|e| e.to_string())?
             .as_millis();
         let sequence = RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let directory = results.join(format!("workflow-{stamp}-{sequence}"));
+        let directory = output
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| results.join(format!("workflow-{stamp}-{sequence}")));
+        if directory.parent() != Some(results.as_path()) {
+            return Err("Invalid attempt directory".into());
+        }
         fs::create_dir(&directory).map_err(|e| e.to_string())?;
         let cancel = Arc::new(AtomicBool::new(false));
         let prepared = (|| -> Result<(Child, ProcessTree), String> {
@@ -641,6 +641,210 @@ impl WorkflowManager {
         }
     }
 
+    pub(crate) fn job_snapshot(&self) -> Option<Job> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .job
+            .clone()
+    }
+    pub(crate) fn batch_inputs(&self, files: &[String]) -> Result<(), String> {
+        let first = files.first().ok_or("Choose at least one input file")?;
+        self.select("wavefunction", Path::new(first))?;
+        let mut state = self.state.lock().map_err(|e| e.to_string())?;
+        if !state.results_selected {
+            state.results = Some(
+                Path::new(first)
+                    .parent()
+                    .ok_or("Invalid input folder")?
+                    .join("BaneWfn_results"),
+            );
+        }
+        Ok(())
+    }
+    pub(crate) fn plan_inputs(&self, request: &Value) -> Result<Value, String> {
+        let runner = self
+            .runner
+            .as_ref()
+            .ok_or("Workflow runner is not installed")?;
+        let state = self.state.lock().map_err(|e| e.to_string())?;
+        let script = request["script"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(|id| script_path(state.library.as_deref(), id))
+            .transpose()?;
+        let exclude = state.results.clone();
+        drop(state);
+        let directory = std::env::temp_dir().join(format!(
+            "banewfn-plan-{}-{}",
+            std::process::id(),
+            RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        struct Scratch(PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _scratch = Scratch(directory.clone());
+        let files = request["files"].as_array().cloned().unwrap_or_default();
+        if files.len() > 1024 {
+            return Err("Select at most 1024 input files".into());
+        }
+        let files: serde_json::Map<_, _> = files
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (i.to_string(), v))
+            .collect();
+        for (name, value) in [
+            ("files", Value::Object(files)),
+            (
+                "bindings",
+                request.get("bindings").cloned().unwrap_or(json!({})),
+            ),
+            (
+                "parameters",
+                request.get("parameters").cloned().unwrap_or(json!({})),
+            ),
+        ] {
+            fs::write(
+                directory.join(format!("{name}.json")),
+                serde_json::to_vec(&value).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        let mut roots = request["roots"].as_array().cloned().unwrap_or_default();
+        if roots.len() > 16 {
+            return Err("Choose at most 16 input folders".into());
+        }
+        if roots.is_empty() {
+            roots.push(Value::Null);
+        }
+        let mut inputs = std::collections::BTreeMap::new();
+        let mut combinations = 1;
+        for (index, root) in roots.iter().enumerate() {
+            let mut command = Command::new(runner);
+            command
+                .arg("--plan-json")
+                .current_dir(&directory)
+                .stdin(Stdio::null());
+            if let Some(script) = &script {
+                command.arg(runner_path(script));
+            }
+            for name in ["bindings", "parameters"] {
+                command
+                    .arg(format!("--{name}-json"))
+                    .arg(runner_path(&directory.join(format!("{name}.json"))));
+            }
+            if index == 0 {
+                command
+                    .arg("--files-json")
+                    .arg(runner_path(&directory.join("files.json")));
+            }
+            if !root.is_null() {
+                let path = Path::new(root["path"].as_str().ok_or("Choose an input folder")?);
+                validate_path(path)?;
+                command.arg("--root").arg(runner_path(path));
+                if root["recursive"] == true {
+                    command.arg("--recursive");
+                }
+                let patterns = root["patterns"]
+                    .as_array()
+                    .ok_or("Enter a filename pattern")?;
+                if patterns.len() > 16 {
+                    return Err("Too many filename patterns".into());
+                }
+                for pattern in patterns {
+                    command
+                        .arg("--pattern")
+                        .arg(pattern.as_str().ok_or("Invalid filename pattern")?);
+                }
+            }
+            if let Some(path) = &exclude {
+                command.arg("--exclude-dir").arg(runner_path(path));
+            }
+            if let Some(vars) = request["variables"].as_array() {
+                for variable in vars {
+                    command
+                        .arg("--var")
+                        .arg(variable.as_str().ok_or("Invalid variable")?);
+                }
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                command.creation_flags(0x08000000);
+            }
+            let output = command.output().map_err(|e| e.to_string())?;
+            let value: Value = serde_json::from_slice(&output.stdout)
+                .map_err(|e| format!("Cannot plan inputs: {e}"))?;
+            if !output.status.success() {
+                return Err(value["error"]
+                    .as_str()
+                    .unwrap_or("Cannot plan inputs")
+                    .into());
+            }
+            combinations = value["combinations"].as_u64().ok_or("Invalid batch plan")?;
+            for item in value["inputs"].as_array().ok_or("Invalid batch plan")? {
+                let path = Path::new(item["path"].as_str().ok_or("Invalid input file")?)
+                    .canonicalize()
+                    .map_err(|e| e.to_string())?;
+                validate_path(&path)?;
+                let mut item = item.clone();
+                item["path"] = json!(runner_path(&path));
+                item["name"] = json!(path.file_name().unwrap_or_default().to_string_lossy());
+                inputs.insert(path, item);
+            }
+        }
+        if inputs.len() > 1024 {
+            return Err("Select at most 1024 input files".into());
+        }
+        Ok(
+            json!({"version":1,"combinations":combinations,"inputs":inputs.into_values().collect::<Vec<_>>()}),
+        )
+    }
+    pub(crate) fn freeze_batch(
+        &self,
+        root: &Path,
+        request: &Value,
+    ) -> Result<(PathBuf, String), String> {
+        let state = self.state.lock().map_err(|e| e.to_string())?;
+        let script = script_path(
+            state.library.as_deref(),
+            request["script"]
+                .as_str()
+                .ok_or("Select a workflow script")?,
+        )?;
+        let source = script.parent().ok_or("Invalid script folder")?;
+        let snapshot = root.join("workflow");
+        fs::create_dir(&snapshot).map_err(|e| e.to_string())?;
+        let name = script
+            .file_name()
+            .ok_or("Invalid script name")?
+            .to_string_lossy()
+            .to_string();
+        if state.selected_script.is_some() {
+            fs::copy(&script, snapshot.join(&name)).map_err(|e| e.to_string())?;
+        } else {
+            copy_inputs(source, &snapshot, root, 0, &mut CopyBudget::default())?;
+        }
+        let conf = snapshot.join(".workflow-conf");
+        fs::create_dir(&conf).map_err(|e| e.to_string())?;
+        copy_conf(&self.conf, &conf)?;
+        copy_conf(source, &conf)?;
+        copy_conf(&source.join("conf"), &conf)?;
+        Ok((snapshot, name))
+    }
+    pub(crate) fn batch_child(&self, snapshot: &Path) -> WorkflowManager {
+        Self::with_paths(
+            self.runner.clone(),
+            snapshot.join(".workflow-conf"),
+            Some(snapshot.to_owned()),
+            self.multiwfn.clone(),
+        )
+    }
+
     pub fn shutdown(&self) {
         // Serialize with launch so closing cannot race with a newly spawned child.
         let mut worker = self.worker.lock().unwrap_or_else(|e| e.into_inner());
@@ -660,6 +864,32 @@ impl Drop for WorkflowManager {
 fn active(job: &Job) -> bool {
     matches!(job.state, "running" | "cancelling")
 }
+pub(crate) fn job_value(job: &Job) -> Value {
+    let mut log = read_log_tail(&job.directory.join("workflow.log"));
+    if let Some(output) = fs::read_dir(&job.directory)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|s| s == "out"))
+        .max_by_key(|entry| entry.metadata().ok().and_then(|m| m.modified().ok()))
+    {
+        log.push_str(&format!(
+            "\n--- {} ---\n{}",
+            output.file_name().to_string_lossy(),
+            read_log_tail(&output.path())
+        ));
+        if log.len() > MAX_LOG as usize {
+            let mut start = log.len() - MAX_LOG as usize;
+            while !log.is_char_boundary(start) {
+                start += 1;
+            }
+            log = log[start..].to_owned();
+        }
+    }
+    let files = crate::workflow_results::files(&job.directory);
+    let cubes = crate::workflow_results::cubes(&job.directory, &files);
+    json!({"directory":job.directory,"state":job.state,"exitCode":job.code,"message":job.message,"log":log,"files":files,"cubes":cubes})
+}
 fn executable_name(name: &str) -> String {
     format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
@@ -667,7 +897,7 @@ fn existing_file(path: PathBuf) -> Option<PathBuf> {
     path.canonicalize().ok().filter(|p| p.is_file())
 }
 
-fn open_in_default_app(path: &Path) -> Result<(), String> {
+pub(crate) fn open_in_default_app(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;

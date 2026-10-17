@@ -15,13 +15,21 @@ export const workflow_cube_label = (cube: WorkflowCube): string => ({
 
 export type WorkflowJob = {
   directory: string
-  state: 'running' | 'cancelling' | 'cancelled' | 'prepared' | 'completed' | 'failed'
+  state: 'running' | 'cancelling' | 'cancelled' | 'prepared' | 'completed' | 'failed' | 'interrupted'
   exitCode: number | null
   message: string
   log: string
   files: string[]
   cubes?: WorkflowCube[]
 }
+export type WorkflowScope = { batch: string; item: string; attempt?: number }
+export type BatchRoot = { path: string; patterns: string[]; recursive: boolean }
+export type BatchInputSet = { files: string[]; roots: BatchRoot[]; explicitFiles?: string[]; excluded?: string[] }
+export type BatchPlan = { version: number; combinations: number; inputs: Array<{ path: string; name: string; bindings: Record<string,string>; errors: string[] }> }
+export type BatchCase = { id: string; name: string; path: string; state: string; attempts: number; started: number | null; finished: number | null; message: string | null }
+export type BatchStatus = { id: string; directory: string; state: string; script: string; combinations: number; created: number; message: string; counts: Record<string,number>; cases: BatchCase[] }
+export type BatchDetail = { job: WorkflowJob; item: { id: string; name: string; path: string; attempt: number; attempts: number } }
+export const batch_active = (batch: BatchStatus | null | undefined): boolean => !!batch && ['running','pausing','paused','cancelling'].includes(batch.state)
 export type WorkflowStatus = {
   available: boolean
   runner: string | null
@@ -34,9 +42,11 @@ export type WorkflowStatus = {
   selectionChanged?: boolean
   catalogError: string | null
   job: WorkflowJob | null
+  batch?: BatchStatus | null
+  inputSet?: BatchInputSet
 }
 export type WorkflowSelection = 'library' | 'results' | 'wavefunction' | 'script'
-export type WorkflowRequest = { script: string; cores: number; variables: string[]; dryRun: boolean; parameters?: Record<string, string> }
+export type WorkflowRequest = { script: string; cores: number; variables: string[]; dryRun: boolean; parameters?: Record<string, string>; bindings?: Record<string, string> }
 type WorkflowTranslations = Partial<Record<'zh' | 'en', string>>
 export type WorkflowField = { id: string; name: string; group: string; label: string; labels?: WorkflowTranslations; type: string; value: string; expression?: string; source: string; help?: string; helps?: WorkflowTranslations; unit?: string; options: Array<{ value: string; label: string; labels?: WorkflowTranslations }> }
 export type WorkflowInspection = { version: number; runnable: boolean; fields: WorkflowField[]; tasks: Array<{ task: number; module: string; commands: string }>; diagnostics: string[] }
@@ -47,7 +57,7 @@ export const display_path = (path: string | null | undefined): string => {
   return path
 }
 type WorkflowFetch = (url: URL, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>
-const JOB_STATES = ['running', 'cancelling', 'cancelled', 'prepared', 'completed', 'failed']
+const JOB_STATES = ['running', 'cancelling', 'cancelled', 'prepared', 'completed', 'failed', 'interrupted']
 
 export const workflow_active = (job: WorkflowJob | null): boolean =>
   job?.state === 'running' || job?.state === 'cancelling'
@@ -108,6 +118,13 @@ export const create_workflow_client = (
     return response.json()
   }
   return {
+    batchPlan: async (body: unknown): Promise<BatchPlan> => call('batch-plan',body) as Promise<BatchPlan>,
+    batchPick: async (kind: 'files'|'folder'): Promise<string[]|null> => (await call('batch-pick',{kind}) as {paths:string[]|null}).paths,
+    batchSelect: async (set: BatchInputSet): Promise<WorkflowStatus> => parse_workflow_status(await call('batch-select',set)),
+    batchStart: async (body: WorkflowRequest): Promise<WorkflowStatus> => parse_workflow_status(await call('batch-start',body)),
+    batchControl: async (batch: string, action: string, item?: string): Promise<WorkflowStatus> => parse_workflow_status(await call('batch-control',{batch,action,...(item?{item}:{})})),
+    batchLoad: async (): Promise<WorkflowStatus> => parse_workflow_status(await call('batch-load',{})),
+    batchDetail: async (scope: WorkflowScope): Promise<BatchDetail> => call('batch-detail',scope) as Promise<BatchDetail>,
     builderCatalog: async (): Promise<BuilderCatalog> => {
       const value = await call('builder-catalog') as BuilderCatalog
       if (value.version !== 1 || !Array.isArray(value.modules)) throw new Error('Invalid conf catalog')
@@ -118,15 +135,15 @@ export const create_workflow_client = (
       const value = await call('builder-save', draft) as { saved: boolean; status?: unknown }
       return value.saved ? parse_workflow_status(value.status) : null
     },
-    openPath: async (directory: string, file?: string): Promise<void> => { await call('open-path', { directory, ...(file === undefined ? {} : { file }) }) },
-    openResults: async (directory: string, files: string[], units: Record<string, string>): Promise<void> => { await call('open-result', { directory, files, units }) },
-    openResult: async (directory: string, file: string, unit?: string): Promise<void> => { await call('open-result', { directory, file, unit }) },
+    openPath: async (directory: string, file?: string, scope?: Partial<WorkflowScope>): Promise<void> => { await call('open-path', { directory, ...(file === undefined ? {} : { file }), ...scope }) },
+    openResults: async (directory: string, files: string[], units: Record<string, string>, scope?: WorkflowScope): Promise<void> => { await call('open-result', { directory, files, units, ...scope }) },
+    openResult: async (directory: string, file: string, unit?: string, scope?: WorkflowScope): Promise<void> => { await call('open-result', { directory, file, unit, ...scope }) },
     status: async () => parse_workflow_status(await call('status')),
     pick: async (kind: WorkflowSelection) => parse_workflow_status(await call('pick', { kind })),
     cancel: async () => parse_workflow_status(await call('cancel', {})),
     run: async (body: WorkflowRequest) => parse_workflow_status(await call('run', body)),
-    inspect: async (script: string, parameters: Record<string, string>, variables: string[] = []): Promise<WorkflowInspection> => {
-      const value = await call('inspect', { script, parameters, variables }) as WorkflowInspection
+    inspect: async (script: string, parameters: Record<string, string>, variables: string[] = [], wavefunction?: string): Promise<WorkflowInspection> => {
+      const value = await call('inspect', { script, parameters, variables, ...(wavefunction?{wavefunction}:{}) }) as WorkflowInspection
       if (value.version !== 1 || !Array.isArray(value.fields) || !Array.isArray(value.tasks) || !Array.isArray(value.diagnostics)) throw new Error('Invalid parameter description')
       return value
     },
