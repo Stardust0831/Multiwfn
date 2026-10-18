@@ -293,9 +293,10 @@ Linux builds also generate `build/BaneWfn.desktop`. Run
 menu. In a downloaded Linux package, run `./install-desktop-entry.sh` from the
 unpacked package instead. This registers the current absolute location for the
 current user; rerun it after moving the package. No root privileges are needed.
-The application icon opens the workbench. The compiled `banewfn_gui` entry
-locates its own directory even through a symbolic link, then starts the existing
-runtime wrapper and desktop host. File managers may require marking a
+The application icon opens the workbench. The workbench and its result windows
+use the `BaneWfn` desktop identity for taskbar grouping. The compiled
+`banewfn_gui` entry locates its own directory even through a symbolic link,
+then starts the existing runtime wrapper and desktop host. File managers may require marking a
 `.desktop` file as trusted before launching it outside the application menu.
 
 For `banewfn_gui`, omit the startup argument to choose a file in the workbench. The launcher's engine,

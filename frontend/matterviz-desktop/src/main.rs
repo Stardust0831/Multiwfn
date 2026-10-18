@@ -39,11 +39,34 @@ use cli::{Cli, FileDialogDestination, Mode};
 use lifecycle::StartupStatus;
 use service::HttpService;
 
+#[cfg(target_os = "linux")]
+fn set_workflow_desktop_identity() {
+    use std::ffi::c_char;
+
+    #[link(name = "glib-2.0")]
+    extern "C" {
+        fn g_set_prgname(name: *const c_char);
+        fn g_set_application_name(name: *const c_char);
+    }
+
+    // GTK derives the X11 class and default Wayland app ID from the program
+    // name. Set it before GTK or the service threads start, matching the
+    // BaneWfn.desktop entry while retaining the shared host executable.
+    unsafe {
+        g_set_prgname(c"BaneWfn".as_ptr());
+        g_set_application_name(c"BaneWfn GUI".as_ptr());
+    }
+}
+
 fn main() -> ExitCode {
     if env::args().nth(1).as_deref() == Some("--workflow-result") {
+        #[cfg(target_os = "linux")]
+        set_workflow_desktop_identity();
         return launch_workflow_result();
     }
     if env::args().nth(1).as_deref() == Some("--workbench") {
+        #[cfg(target_os = "linux")]
+        set_workflow_desktop_identity();
         return launch_workbench();
     }
     let cli = match Cli::parse(env::args().skip(1)) {

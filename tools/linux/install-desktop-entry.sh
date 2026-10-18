@@ -45,6 +45,7 @@ Terminal=false
 Categories=Education;Science;Chemistry;
 Keywords=Multiwfn;BaneWfn;MatterViz;
 StartupNotify=false
+StartupWMClass=BaneWfn
 MimeType=text/x-banewfn;
 EOF
 chmod 755 "$entry"
