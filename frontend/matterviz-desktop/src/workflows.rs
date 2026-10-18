@@ -137,18 +137,33 @@ impl WorkflowManager {
         Ok(value)
     }
     pub fn builder_catalog(&self) -> Result<Value, String> {
-        let runner = self.runner.as_ref().ok_or("Workflow runner is not installed")?;
+        let runner = self
+            .runner
+            .as_ref()
+            .ok_or("Workflow runner is not installed")?;
         let mut command = Command::new(runner);
-        command.arg("--catalog-json").arg("--conf-dir").arg(runner_path(&self.conf)).stdin(Stdio::null());
+        command
+            .arg("--catalog-json")
+            .arg("--conf-dir")
+            .arg(runner_path(&self.conf))
+            .stdin(Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
         let output = command.output().map_err(|e| e.to_string())?;
-        let value: Value = serde_json::from_slice(&output.stdout).map_err(|e| format!("Cannot read conf catalog: {e}: {}", String::from_utf8_lossy(&output.stderr)))?;
+        let value: Value = serde_json::from_slice(&output.stdout).map_err(|e| {
+            format!(
+                "Cannot read conf catalog: {e}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        })?;
         if !output.status.success() || value.get("error").is_some() {
-            return Err(value["error"].as_str().unwrap_or("Cannot read conf catalog").to_owned());
+            return Err(value["error"]
+                .as_str()
+                .unwrap_or("Cannot read conf catalog")
+                .to_owned());
         }
         Ok(value)
     }
