@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { create_workflow_client, parse_workflow_status, workflow_active, workflow_variables } from '../src/workflows.ts'
-import { esp_example } from '../src/workflow-builder.ts'
+import { documentation_text, esp_example } from '../src/workflow-builder.ts'
+
+test('documentation selects the interface language and exposes the fallback language', () => {
+  const text = { en: 'English', zh: '中文' }
+  assert.deepEqual(documentation_text(text, 'zh'), { text: '中文', language: 'zh' })
+  assert.deepEqual(documentation_text(text, 'en'), { text: 'English', language: 'en' })
+  assert.deepEqual(documentation_text({ zh: '中文' }, 'en'), { text: '中文', language: 'zh' })
+  assert.deepEqual(documentation_text({ und: 'Raw comments', zh: '中文' }, 'en'), { text: 'Raw comments', language: 'und' })
+  assert.equal(documentation_text(undefined, 'zh').text, '')
+})
 
 const status = {
   format: 'multiwfn-workflows', version: 1, available: true,
@@ -14,7 +23,7 @@ test('builder sends ordered drafts and handles Save dialog cancellation without 
   let saved = false
   const client = create_workflow_client(new URL('http://localhost:4321/?cap=secret'), async (url, init) => {
     calls.push({ url, init })
-    return { ok: true, status: 200, json: async () => url.pathname.endsWith('builder-catalog') ? {version:1, modules:[]} : url.pathname.endsWith('builder-save') ? {saved, status} : {source:'BWC', inspection:{}} }
+    return { ok: true, status: 200, json: async () => url.pathname.endsWith('builder-catalog') ? {version:2, modules:[]} : url.pathname.endsWith('builder-save') ? {saved, status} : {source:'BWC', inspection:{}} }
   })
   await client.builderCatalog()
   const draft = esp_example()

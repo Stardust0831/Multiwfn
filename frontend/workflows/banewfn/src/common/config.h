@@ -37,6 +37,10 @@ struct ModuleConfig {
     std::string origin;
     std::map<std::string, std::map<std::string, std::map<std::string, std::string>>> gui;
     std::vector<std::string> guiErrors;
+    // Read-only documentation; an empty scope describes the module.
+    std::map<std::string, std::map<std::string, std::string>> documentation;
+    std::vector<std::string> documentationSections;
+    std::vector<std::string> documentationWarnings;
 };
 
 // Global configuration structure

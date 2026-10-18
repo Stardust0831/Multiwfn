@@ -4,6 +4,7 @@ set(BANEWFN_COMMON_SOURCES
     common/citation.cpp
     common/config.cpp
     common/gui.cpp
+    common/documentation.cpp
     common/plan.cpp
     common/execution_trace.cpp
     common/grep_dsl.cpp

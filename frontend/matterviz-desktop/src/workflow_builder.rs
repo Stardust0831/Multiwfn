@@ -52,13 +52,11 @@ fn conf_path(root: &Path, module: &str) -> Result<PathBuf, String> {
 }
 fn sections(source: &str) -> Vec<Value> {
     let mut result = Vec::new();
-    let mut notes: Vec<&str> = Vec::new();
     let mut metadata = false;
     for raw in source.lines() {
         let raw = raw.trim();
-        if raw.starts_with("#@gui") {
+        if raw.starts_with("#@gui") || raw.starts_with("#@doc") {
             metadata = true;
-            notes.clear();
             continue;
         }
         if raw.starts_with("#@end") {
@@ -68,53 +66,16 @@ fn sections(source: &str) -> Vec<Value> {
         if metadata {
             continue;
         }
-        if let Some(note) = raw.strip_prefix('#') {
-            notes.push(note.trim());
-            continue;
-        }
         let header = raw.split('#').next().unwrap_or("").trim();
         if let Some(name) = header.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
             let name = name.trim();
-            if identifier(name) && !matches!(name, "quit" | "citations") {
-                result.push(json!({"name": name, "notes": notes.join("\n")}));
+            if identifier(&name.replace('+', "_")) && !matches!(name, "quit" | "citations") {
+                result.push(json!({"name": name}));
             }
-        }
-        if !raw.is_empty() {
-            notes.clear();
         }
     }
     result
 }
-pub fn catalog(root: &Path) -> Result<Value, String> {
-    let mut modules = Vec::new();
-    for entry in fs::read_dir(root).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        if path.extension().and_then(|v| v.to_str()) != Some("conf") {
-            continue;
-        }
-        let Some(name) = path.file_stem().and_then(|v| v.to_str()) else {
-            continue;
-        };
-        if !identifier(name)
-            || name == "citations"
-            || entry.file_type().map_err(|e| e.to_string())?.is_symlink()
-        {
-            continue;
-        }
-        let source = fs::read_to_string(conf_path(root, name)?).map_err(|e| e.to_string())?;
-        let entries = sections(&source);
-        if entries.iter().any(|v| v["name"] == "main") {
-            modules.push(json!({"name": name, "sections": entries}));
-        }
-        if modules.len() > 256 {
-            return Err("Too many conf modules".into());
-        }
-    }
-    modules.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
-    Ok(json!({"version": 1, "modules": modules}))
-}
-
 pub struct Compiled {
     pub source: String,
     pub parameter_ids: BTreeSet<String>,
@@ -422,23 +383,16 @@ mod tests {
         json!({"kind":"analysis","module":"grid","parameters":{},"processes":[{"section":"electron","parameters":{}},{"section":"esp","parameters":{"grid":"2"}}],"shell":"bash","commands":[{"kind":"rename","source":"totesp.cub","target":"${input}_kcal_esp.cub"}]})
     }
     #[test]
-    fn catalog_excludes_reserved_sections_and_retains_order_and_comments() {
+    fn section_validation_excludes_reserved_sections_and_retains_order() {
         let fixture = Fixture::new();
-        let value = catalog(&fixture.0).unwrap();
-        assert_eq!(value["modules"].as_array().unwrap().len(), 1);
+        let value = sections(&fs::read_to_string(fixture.0.join("grid.conf")).unwrap());
         assert_eq!(
-            value["modules"][0]["sections"]
-                .as_array()
-                .unwrap()
+            value
                 .iter()
                 .map(|s| s["name"].as_str().unwrap())
                 .collect::<Vec<_>>(),
             ["main", "electron", "esp"]
         );
-        assert!(value["modules"][0]["sections"][2]["notes"]
-            .as_str()
-            .unwrap()
-            .contains("must be last"));
     }
     #[test]
     fn generated_bwc_keeps_glue_order_conf_metadata_citations_and_vcube_suffix() {

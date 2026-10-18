@@ -80,6 +80,15 @@ fn independent_workbench_runs_without_session() {
     // The builder assembles a portable script and delegates parameter expansion
     // to the exact packaged driver. These grid steps are inspected, never run.
     let catalog = request(&page, "builder-catalog", None);
+    assert_eq!(catalog["version"], 2);
+    let grid = catalog["modules"].as_array().unwrap().iter().find(|module| module["name"] == "grid").unwrap();
+    assert!(grid["documentation"]["summary"]["en"].as_str().unwrap().contains("wavefunction"));
+    assert!(grid["warnings"].as_array().unwrap().is_empty());
+    let esp = grid["sections"].as_array().unwrap().iter().find(|section| section["name"] == "esp").unwrap();
+    assert!(esp["documentation"]["outputs"]["en"].as_str().unwrap().contains("kcal/mol"));
+    let skeleton = catalog["modules"].as_array().unwrap().iter().find(|module| module["name"] == "edaff").unwrap();
+    assert_eq!(skeleton["sections"].as_array().unwrap().len(), 1);
+    assert!(skeleton["documentation"]["summary"]["zh"].as_str().unwrap().contains("能量分解"));
     assert!(catalog["modules"]
         .as_array()
         .unwrap()
@@ -93,6 +102,7 @@ fn independent_workbench_runs_without_session() {
         {"kind":"collect","target":"${input}_ESP"}
     ]});
     let built = request(&page, "builder-preview", Some(draft.clone()));
+    assert_eq!(built["inspection"]["tasks"][0]["documentation"]["sections"]["esp"], esp["documentation"]);
     assert!(built["source"]
         .as_str()
         .unwrap()

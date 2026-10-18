@@ -133,7 +133,7 @@ export const create_workflow_client = (
     stepLog: async (directory:string, group:string, step:number, source:'driver'|'multiwfn', scope?:WorkflowScope):Promise<WorkflowStepLog> => call('trace',{directory,group,step,source,...scope}) as Promise<WorkflowStepLog>,
     builderCatalog: async (): Promise<BuilderCatalog> => {
       const value = await call('builder-catalog') as BuilderCatalog
-      if (value.version !== 1 || !Array.isArray(value.modules)) throw new Error('Invalid conf catalog')
+      if (value.version !== 2 || !Array.isArray(value.modules)) throw new Error('Invalid conf catalog')
       return value
     },
     builderPreview: async (draft: BuilderDraft): Promise<BuilderPreview> => call('builder-preview', draft) as Promise<BuilderPreview>,

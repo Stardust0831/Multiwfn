@@ -21,13 +21,29 @@ The script button beside the library heading also opens a single workflow file.
 ## Build a script
 
 Click **Generate script / 生成脚本** beside Open workflow script. The modal has
-the installed conf library on the left, ordered steps in the middle and a live
-BWC or Multiwfn-input preview on the right. Select a conf and its process
+the installed conf library on the left, ordered steps in the middle and
+**Documentation / 说明** and **Preview / 预览** views on the right. Select a conf and its process
 sections, then add an analysis block. `main` and `quit` are included automatically.
 Change section order, add repeated sections and set parameters with the same
 bilingual controls used by the workbench. Defaults come from the conf; the
-builder does not choose new scientific settings. Conf notes show the original
-comments, including restrictions such as putting grid ESP last.
+builder does not choose new scientific settings.
+
+Select a conf to read its overview before adding a block. The book button beside
+a section opens its description; the documentation selector also includes the
+automatic `main` section. Modules containing only `main` have the same overview
+entry. Descriptions cover purpose, required inputs, output filenames/units and
+execution conditions, including putting grid ESP last. The modal's language
+selector changes names, descriptions and parameter labels without clearing the
+draft. Missing translations display available text with a language notice.
+Unannotated conf comments are displayed as original text with no assumed language.
+
+Descriptions live beside their commands in BaneWfn's conf files, using
+`#@doc module` and `#@doc section NAME` blocks. Properties `title`, `summary`,
+`inputs`, `outputs` and `notes` accept `.zh`/`.en` translations. Parameter controls
+retain their separate `#@gui` annotations. Both the catalog and script inspection
+use the shared BaneWfn parser; documentation warnings do not disable execution.
+Saved `.bwc` files embed these annotations. Existing `.bwc` files retain their own
+inline conf and descriptions when the external library changes.
 
 Each analysis block can have ordered output renames and custom `%command`
 post-processing. Choose Bash/Git Bash or Windows cmd explicitly. Bash workflows

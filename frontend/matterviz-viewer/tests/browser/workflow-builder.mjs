@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
 const page = await browser.newPage({ viewport: {width: 1440, height: 950}, locale: 'zh-CN' })
@@ -10,6 +10,10 @@ const errors = []
 page.on('pageerror', error => errors.push(error.message))
 const status = {format:'multiwfn-workflows', version:1, available:true, runner:'runner', library:'scripts', results:null, wavefunction:null, multiwfn:'engine', scripts:[], selectedScript:null, catalogError:null, job:null}
 let lastDraft, saves = 0, runs = 0
+const catalog = process.env.CONF_CATALOG_FILE ? JSON.parse(await readFile(process.env.CONF_CATALOG_FILE, 'utf8')) : {version:2,modules:[
+  {name:'grid',documentation:{title:{zh:'三维网格',en:'Real-space grids'},summary:{zh:'从波函数生成网格。',en:'Generate grids from a wavefunction.'}},warnings:[],sections:['main','wfn2','electron','esp'].map(name => ({name,documentation:{title:{zh:name === 'esp' ? '静电势' : name,en:name === 'esp' ? 'Electrostatic potential' : name},summary:{zh:'步骤说明',en:'Step description'},...(name === 'esp' ? {outputs:{zh:'totesp.cub；单位 kcal/mol。',en:'totesp.cub; values in kcal/mol.'},notes:{zh:'ESP 必须最后执行',en:'ESP must run last'}} : {})}}))},
+  {name:'edaff',documentation:{title:{zh:'力场能量分解',en:'Force-field energy decomposition'},summary:{zh:'设置菜单骨架。',en:'Settings menu skeleton.'}},warnings:[],sections:[{name:'main',documentation:{summary:{zh:'进入设置菜单。',en:'Enter the settings menu.'}}}]},
+]}
 const field = (id, group, value) => ({id, name:'grid', group, label:'Grid quality', labels:{zh:'网格精度', en:'Grid quality'}, type:'select', value, expression:value, source:'placeholder', options:['1','2','3'].map((value, index) => ({value,label:['Low','Medium','High'][index],labels:{zh:['低精度','中等精度','高精度'][index],en:['Low','Medium','High'][index]}}))})
 const inspection = draft => ({version:1, runnable:true, diagnostics:[], tasks: draft.steps.flatMap((step, index) => step.kind === 'analysis' ? [{task:index, module:step.module, commands:'5\n1\n3\n12\n1\nq\n'}] : []), fields:draft.steps.flatMap((step, index) => step.kind === 'analysis' ? step.processes.map((process, position) => field(`${index}/${position}/grid`,`${index+1} · ${step.module} / ${process.section} [${position}]`, process.parameters.grid ?? (process.section === 'esp' ? '1':'3'))) : [])})
 const source = draft => draft.steps.map(step => step.kind === 'analysis' ? `[${step.module}]\n%process\n${step.processes.map(p => p.section + (p.parameters.grid ? ` grid ${p.parameters.grid}` : '')).join('\n')}\n` + (step.commands.length ? '%command\n#!/bin/bash\n' + step.commands.map(c => c.kind === 'rename' ? `mv -- "${c.source}" "${c.target}"` : c.text).join('\n') + '\n' : '') + 'end\n' : step.kind === 'collect' ? `collect(${step.target});\n` : step.kind === 'rebase' ? `wfn_rebase=${step.target}\n` : `%command\n${step.text}\nend\n`).join('\n')
@@ -17,7 +21,7 @@ await page.route('**/api/workflows/**', async route => {
   const request = route.request(), url = new URL(request.url()), action = url.pathname.split('/').at(-1)
   assert.equal(url.searchParams.get('cap'),'builder-cap')
   let value = status
-  if (action === 'builder-catalog') value = {version:1,modules:[{name:'grid',sections:['main','wfn2','electron','esp'].map(name => ({name, notes:name === 'esp' ? 'ESP 必须最后执行' : ''}))},{name:'edaff',sections:[{name:'main',notes:''}]}]}
+  if (action === 'builder-catalog') value = catalog
   if (action === 'builder-preview') {
     lastDraft = request.postDataJSON()
     value = {source:source(lastDraft),inspection:inspection(lastDraft)}
@@ -39,12 +43,28 @@ try {
   await entry.click()
   let modal = page.getByRole('dialog',{name:'脚本构造',exact:true})
   await modal.getByRole('combobox',{name:'分析模块'}).selectOption('grid')
+  await modal.locator('.documentation article').getByText(/波函数/).first().waitFor()
+  await modal.getByRole('combobox',{name:'分析模块'}).selectOption('edaff')
+  await modal.locator('.documentation article').getByText(/力场/).first().waitFor()
+  await modal.getByRole('combobox',{name:'说明范围'}).selectOption('main')
+  await modal.locator('.documentation article').getByText(/菜单/).first().waitFor()
+  await modal.getByRole('combobox',{name:'分析模块'}).selectOption('grid')
   await modal.getByRole('checkbox',{name:/^electron ·/}).check()
   await modal.getByRole('checkbox',{name:/^esp ·/}).check()
   await modal.getByRole('button',{name:'添加分析块',exact:true}).click()
   await modal.getByLabel('网格精度',{exact:true}).first().waitFor()
   assert.deepEqual(lastDraft.steps[0].processes.map(p => p.section),['electron','esp'])
   await modal.getByLabel('网格精度',{exact:true}).first().selectOption('2')
+  await modal.getByRole('button',{name:'说明: esp',exact:true}).last().click()
+  await modal.locator('.documentation article').getByText(/kcal\/mol/).first().waitFor()
+  await modal.getByRole('combobox',{name:'界面语言'}).selectOption('en')
+  modal = page.getByRole('dialog',{name:'Script builder',exact:true})
+  await modal.locator('.documentation article h3').getByText('Electrostatic potential',{exact:true}).waitFor()
+  await modal.getByLabel('Grid quality',{exact:true}).first().waitFor()
+  assert.equal(await modal.getByLabel('Grid quality',{exact:true}).first().inputValue(),'2')
+  await modal.getByRole('combobox',{name:'Interface language'}).selectOption('zh')
+  modal = page.getByRole('dialog',{name:'脚本构造',exact:true})
+  await modal.getByRole('button',{name:'预览',exact:true}).click()
   await page.waitForFunction(() => document.querySelector('dialog pre')?.textContent.includes('electron grid 2'))
   await modal.getByRole('button',{name:'重命名产物',exact:true}).click()
   await modal.getByLabel('原文件名',{exact:true}).fill('totesp.cub')
@@ -60,12 +80,13 @@ try {
   assert.deepEqual(lastDraft.steps.map(s => s.kind),['analysis','collect','rebase'])
   await modal.getByRole('button',{name:'下移步骤',exact:true}).nth(1).click()
   await modal.getByRole('button',{name:/^1\s*grid$/}).click()
+  await modal.getByRole('button',{name:'预览',exact:true}).click()
   await modal.getByRole('button',{name:'上移处理段',exact:true}).nth(1).click()
   await page.waitForFunction(() => document.querySelector('dialog pre')?.textContent.includes('esp\nelectron grid 2'))
   assert.equal(lastDraft.steps[0].processes[1].parameters.grid,'2')
   await modal.getByRole('button',{name:'下移处理段',exact:true}).first().click()
-  await modal.getByRole('button',{name:'Conf 说明',exact:true}).click()
-  await modal.getByText('ESP 必须最后执行',{exact:true}).waitFor()
+  await modal.getByRole('button',{name:'说明: esp',exact:true}).last().click()
+  await modal.locator('.documentation article').getByText(/最后/).first().waitFor()
   await modal.getByText('BaneWfn 解析通过',{exact:true}).waitFor()
   await page.screenshot({path:`${artifacts}/builder-zh.png`})
   for (const width of [900,1200,1440]) {
@@ -81,6 +102,7 @@ try {
   await modal.getByRole('button',{name:'Density + ESP example',exact:true}).click()
   await modal.getByLabel('Grid quality',{exact:true}).first().waitFor()
   assert.equal(await modal.getByLabel('Grid quality',{exact:true}).first().locator('option:checked').innerText(),'High')
+  await modal.getByRole('button',{name:'Preview',exact:true}).click()
   await modal.getByRole('combobox',{name:'Builder preview content'}).selectOption({label:'Multiwfn input'})
   await modal.locator('pre').getByText('5',{exact:false}).waitFor()
   await page.screenshot({path:`${artifacts}/builder-en.png`})

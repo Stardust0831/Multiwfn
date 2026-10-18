@@ -140,7 +140,7 @@ static void validateOptions(const Values& meta) {
 }
 
 void parseMetadata(const std::string& text, ModuleConfig& config) {
-    std::istringstream in(text); std::string line, scope, name; Values metadata;
+    std::istringstream in(parseDocumentation(text, config)); std::string line, scope, name; Values metadata;
     size_t number = 0, start = 0;
     auto error = [&](const std::string& message) {
         config.guiErrors.push_back(config.origin + ":" + std::to_string(number) + " [" + name + "]: " + message);
@@ -374,7 +374,14 @@ int inspect(int argc,char* argv[]) {
             lines.insert(lines.end(),task.rawCommands.begin(),task.rawCommands.end());
             if(mod && !lines.empty()) lines.insert(lines.end(),mod->quitCommands.begin(),mod->quitCommands.end());
             std::string native; for(const auto& line:lines) native+=line+"\n";
-            groups.push_back("{\"task\":"+std::to_string(i)+",\"module\":"+quote(task.moduleName)+",\"commands\":"+quote(native)+"}");
+            std::string docs="{\"module\":"+(mod?documentationJson(*mod, ""):"{}")+",\"sections\":{";
+            if(mod) for(const auto& name:mod->documentationSections) {
+                if(docs.back()!='{') docs+=",";
+                docs+=quote(name)+":"+documentationJson(*mod,name);
+            }
+            docs+="}}";
+            if(mod) for(const auto& warning:mod->documentationWarnings) diagnostics.push_back(warning);
+            groups.push_back("{\"task\":"+std::to_string(i)+",\"module\":"+quote(task.moduleName)+",\"commands\":"+quote(native)+",\"documentation\":"+docs+"}");
         }
         auto join=[](const std::vector<std::string>& values){std::string s;for(const auto& v:values){if(!s.empty())s+=",";s+=v;}return s;};
         for(auto& d:diagnostics)d=quote(d);

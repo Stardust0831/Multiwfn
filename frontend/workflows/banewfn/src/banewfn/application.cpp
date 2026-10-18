@@ -2723,6 +2723,7 @@ void printUsage(const char* progName) {
     std::cout << "  -v, --var <key=val> Set custom variable for placeholder replacement (can be used multiple times)\n";
     std::cout << "  --batch            Noninteractive execution; reject terminal-dependent workflows\n";
     std::cout << "  --inspect-json     Describe parameters and native input without executing commands\n";
+    std::cout << "  --catalog-json     Describe conf modules and documentation without executing commands\n";
     std::cout << "  --plan-json        List input matches, file bindings and variable combination count\n";
     std::cout << "  --conf-dir <path>  Module directory for --inspect-json\n";
     std::cout << "  --parameters-json <file> Apply scoped GUI parameter values from a JSON object\n";
@@ -2756,6 +2757,8 @@ void printUsage(const char* progName) {
 }
 
 int BaneWfn::run(int argc, char* argv[]) try {
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--catalog-json") return Gui::catalog(argc, argv);
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]) == "--plan-json") return Gui::plan(argc, argv);
     for (int i = 1; i < argc; ++i)
