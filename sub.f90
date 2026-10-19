@@ -1002,8 +1002,24 @@ do while(.true.)
 	write(*,*) "Select the orbitals for which the occupation numbers are needed to be changed"
 	write(*,*) "e.g. 2,4,13-16,20 means selecting orbitals 2,4,13,14,15,16,20"
 	write(*,*) "Input 0 can select all orbitals, input q or 00 can return"
+    if (wfntype==1.or.wfntype==4) write(*,*) "Input ""noa"" and ""nob"" can &
+    &remove occupancy of all orbitals of alpha and beta spins, respectively"
 	read(*,"(a)") c1000tmp
 	if (c1000tmp(1:1)=='q'.or.c1000tmp(1:2)=='00') exit
+    if (index(c1000tmp,"noa")/=0) then
+		do iorb=1,nmo
+			if (MOtype(iorb)==1) MOocc(iorb)=0
+        end do
+		write(*,*) "Done, occupancy of all alpha orbitals has been set to zero"
+        exit
+    end if
+    if (index(c1000tmp,"nob")/=0) then
+		do iorb=1,nmo
+			if (MOtype(iorb)==2) MOocc(iorb)=0
+        end do
+		write(*,*) "Done, occupancy of all beta orbitals has been set to zero"
+        exit
+    end if
 	if (c1000tmp(1:1)=='0') then
 		numorbsel=nmo
 		do i=1,nmo

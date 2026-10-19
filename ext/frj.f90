@@ -1895,7 +1895,7 @@ subroutine MBIS_frj(itype,imode)
    close(80)
 
    write(*,*)'dumping density plot on fort.81'
-   open(81,status="replace")
+   open(81,file="fort.81",status="replace")
    do i=1,nplotcenter
       iatm = mplotcenter(i)
       write(81,*)'plotcenter =',iatm

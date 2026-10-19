@@ -296,6 +296,7 @@ do while(.true.)
 			if (ifPBC>0) write(*,"(a)") " -6 Export paths (including images at cell boundary if any) as paths.pdb file in current folder"
 			write(*,*) "7 Calculate and plot specific real space function along a path"
 			write(*,"(a)") " 8 Only retain bond paths (and corresponding CPs) connecting two specific molecular fragments while remove all other bond paths and BCPs"
+            write(*,*) "9 Export detailed information of all bond paths and CPs to bpcp.txt"
 			read(*,*) isel2
 			
 			if (isel2==0) then
@@ -448,6 +449,9 @@ do while(.true.)
 				
 			else if (isel2==8) then
 				call retainpath
+				
+			else if (isel2==9) then
+				call export_all_BP_CP
 			end if
 		end do
 		
@@ -2769,6 +2773,128 @@ else
 	write(*,*) "No CP has been found"
 end if
 end subroutine
+
+
+
+
+!!---------- Export all CP information and bond paths at once (as per Steven Kirk's request)
+!Some codes are borrowed from showtoposummary and plotpathprop
+subroutine export_all_BP_CP
+use defvar
+use topo
+use util
+implicit real*8 (a-h,o-z)
+integer CP2atm(numcp)
+
+if (ifunctopo/=1) then
+	write(*,*)
+	write(*,*) "Warning: This function is only meaningful when topology analysis was &
+    &performed for electron density. The current data exported may be fully meaningless!"
+end if
+
+if (ifPBC/=0) then
+	write(*,*)
+	write(*,*) "Warning: This function is not fully compatible with PBC cases"
+end if
+
+open(10,file="bpcp.txt",status="replace")
+
+!Export all CP information
+write(10,*) "-----------------------------------"
+write(10,*) "----- Information of all CPs  -----"
+write(10,*) "-----------------------------------"
+write(10,*) " Index            XYZ Coordinate (Bohr)            Type"
+do icp=1,numcp
+	icptype=CPtype(icp)
+	if (ifunctopo==1.and.icptype==1) then !NCP of AIM
+		call NCP2atmidx(icp,iatm)
+        CP2atm(icp)=iatm
+		if (iatm==0) then
+			write(10,"(i6,3f14.8,3x,a,'   Nucleus: Unknown')") icp,CPpos(:,icp),CPtyp2lab(icptype)
+		else
+			write(10,"(i6,3f14.8,3x,a,'   Nucleus:',i5,'(',a')')") icp,CPpos(:,icp),CPtyp2lab(icptype),iatm,a(iatm)%name
+		end if
+	else if (ifunctopo==1.and.icptype==2) then !BCP of AIM
+		call BCP2atmidx(icp,iatm,jatm)
+		if (iatm==0.or.jatm==0) then
+			write(10,"(i6,3f14.8,3x,a)") icp,CPpos(:,icp),CPtyp2lab(icptype)
+		else
+			write(10,"(i6,3f14.8,3x,a,i5,'(',a')',' --',i5,'(',a')')") icp,CPpos(:,icp),CPtyp2lab(icptype),iatm,a(iatm)%name,jatm,a(jatm)%name
+		end if
+	else
+		write(10,"(i6,3f14.8,3x,a)") icp,CPpos(:,icp),CPtyp2lab(icptype)
+	end if
+end do
+
+write(10,*)
+write(10,*)
+write(10,*) "-------------------------------------"
+write(10,*) "----- Information of bond paths -----"
+write(10,*) "-------------------------------------"
+
+!Cycle BCPs and export all relevant paths (bond paths)
+nbcp=0
+do icp=1,numcp
+	if (CPtype(iCP)/=2) cycle
+    nbcp=nbcp+1
+    write(10,"(/,' ***** Information of bond path corresponding to CP',i5,' (BCP',i5,'):')") icp,nbcp
+	!Find two paths connecting this BCP as ipath and jpath
+	ipath=0;jpath=0
+	do kpath=1,numpath
+		call path_cp(kpath,icp1,icp2,ipathtype)
+		if (ipathtype==1) then
+			if (icp1==iCP.or.icp2==iCP) then
+				if (ipath==0) then
+					ipath=kpath
+				else
+					jpath=kpath
+					exit
+				end if
+			end if
+		end if
+	end do
+	if (kpath==numpath+1) then
+		write(10,"(i5,a)") " Warning: Unable to find two paths emitted from CP",icp,", this BCP is ignored"
+		cycle
+	else
+		write(10,"(' Indices of the two paths constituting the bond path:',2i6)") ipath,jpath
+	end if
+    call path_cp(ipath,inouse,icp1,ipathtype)
+    call path_cp(kpath,inouse,icp2,ipathtype)
+    if (CP2atm(icp1)==0) then
+		write(10,"(' Starting from (3,-3) CP  ',i5,', corresponding to NNA')") icp1
+    else
+		write(10,"(' Starting from (3,-3) CP  ',i5,', corresponding to atom',i5)") icp1,CP2atm(icp1)
+    end if
+    write(10,"(' Passing through (3,-1) CP',i5)") icp
+    if (CP2atm(icp2)==0) then
+		write(10,"(' Ending at (3,-3) CP      ',i5,', corresponding to NNA')") icp2
+    else
+	    write(10,"(' Ending at (3,-3) CP      ',i5,', corresponding to atom',i5)") icp2,CP2atm(icp2)
+    end if
+    write(10,*) "Points on the bond path:"
+	ipttmp=0
+    distpt=0
+	write(10,*) " Index              X/Y/Z Coordinate (Bohr)              Dist."
+	do ipt=pathnumpt(ipath),1,-1
+		ipttmp=ipttmp+1
+        if (ipt/=pathnumpt(ipath)) distpt=distpt + dsqrt(sum( (topopath(:,ipt,ipath)-topopath(:,ipt+1,ipath))**2) )
+		write(10,"(i6,3f16.10,f10.5)") ipttmp,topopath(:,ipt,ipath),distpt
+	end do
+	ibcptmp=ipttmp
+	do jpt=2,pathnumpt(jpath) !The first point of jpath is (3,-1), which has been included in ipath above
+		ipttmp=ipttmp+1
+        distpt=distpt + dsqrt(sum( (topopath(:,jpt,jpath)-topopath(:,jpt-1,jpath))**2) )
+		write(10,"(i6,3f16.10,f10.5)") ipttmp,topopath(:,jpt,jpath),distpt
+	end do
+	write(10,"(' Note: Point',i5,' corresponds to BCP')") ibcptmp
+end do
+
+close(10)
+
+write(*,*) "Done! All critical points and bond paths have been exported to bpcp.txt in current folder"
+end subroutine
+
 
 
 
