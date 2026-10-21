@@ -26,6 +26,7 @@ on:
       - tools/build_workflows_gui.sh
       - tests/test_linux_desktop_entry.py
       - tests/test_workflow_package.py
+      - tests/test_workflow_resources.py
       - frontend/matterviz-desktop/**
       - frontend/workflows/**
       - tests/test_workflow_runner.py
@@ -163,6 +164,7 @@ jobs:
           test -f build-matterviz-gui/resources/frontend/matterviz-viewer/dist/index.html
           test -x build-matterviz-gui/resources/tools/matterviz-file-dialog
           test -x build-matterviz-gui/run-workflows-gui
+          python3 tests/test_workflow_resources.py build-matterviz-gui
 
 
   package:

@@ -453,6 +453,9 @@ if(MULTIWFN_WITH_WORKFLOWS)
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/resources/tools"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "$<TARGET_FILE:multiwfn-workflow>" "${CMAKE_CURRENT_BINARY_DIR}/resources/tools"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+      "${CMAKE_CURRENT_BINARY_DIR}/resources/workflows/conf"
+      "${CMAKE_CURRENT_BINARY_DIR}/resources/workflows/scripts"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       "${CMAKE_CURRENT_SOURCE_DIR}/frontend/workflows/banewfn/conf"
       "${CMAKE_CURRENT_BINARY_DIR}/resources/workflows/conf"
