@@ -3,6 +3,24 @@ import type { ManifestEntry } from './manifest'
 
 /** Hartree to kcal/mol for one electron. */
 export const KCAL_PER_HARTREE = 627.5094740631
+
+/** Normalize an explicitly labelled ESP import for the viewer's a.u. controls.
+ * Only the display dataset is converted; the Cube and parsed input stay intact. */
+export const normalize_esp_volume = (volume: VolumetricData, entry: ManifestEntry): VolumetricData => {
+  if (entry.analysisKind !== 'esp-potential' || entry.valueUnit !== 'kcal/mol') return volume
+  const scale = (value: number): number => value / KCAL_PER_HARTREE
+  return {
+    ...volume,
+    grid: Array.isArray(volume.grid)
+      ? volume.grid.map(plane => plane.map(row => row.map(scale)))
+      : { ...volume.grid, data: volume.grid.data.map(scale) },
+    data_range: {
+      min: scale(volume.data_range.min), max: scale(volume.data_range.max),
+      abs_max: scale(volume.data_range.abs_max), mean: scale(volume.data_range.mean),
+    },
+  }
+}
+
 export const DEFAULT_ESP_LIMIT = 0.05
 export const MINIMUM_ESP_LIMIT = 0.005
 

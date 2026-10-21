@@ -11,6 +11,7 @@ export type ManifestEntry = {
   datasetSlot?: number
   visible?: boolean
   analysisKind?: string
+  valueUnit?: 'au' | 'kcal/mol'
   colorMapping?: {
     path: string
     range: [number, number]
