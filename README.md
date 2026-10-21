@@ -90,6 +90,26 @@ cmake --build build-matterviz-webview --parallel
 MatterViz builds produce `Multiwfn_MatterVizGUI` and stage only MatterViz
 frontend/launcher resources; legacy 3Dmol and Qt resources are not staged.
 
+## BaneWfn Workflows
+
+The optional [BaneWfn](https://github.com/bane-dysta/banewfn) workbench provides
+a separate `banewfn_gui` entry (`banewfn_gui.exe` on Windows, `BaneWfn GUI.app`
+on macOS). Select a startup file and a `.bw` or `.bwc` workflow, configure its
+parameters through bilingual forms, or build a script from the bundled conf
+library. Wildcard input sets run through a sequential batch queue, with separate
+results, retries, step diagrams and logs for each input. Selected Cube results
+can be opened together in the MatterViz viewer.
+
+Workflows drive the bundled Multiwfn engine through stdin in isolated working
+directories. Scientific calculations stay in Multiwfn; the BaneWfn command-line
+project remains the source of the workflow parser, executor and recipes.
+
+Release packages with workflow support include the launcher and script library.
+For source builds, enable `-DMULTIWFN_WITH_WORKFLOWS=ON` alongside the MatterViz
+build options above; it defaults to `OFF` and requires a C++17 compiler. Bash
+steps on Windows require Git for Windows. See [the workflow guide](docs/workflows.md)
+for startup, script building, batch inputs and Cube filename/unit conventions.
+
 ## Build
 
 The default CMake build currently targets `Multiwfn_noGUI`:
