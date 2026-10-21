@@ -26,6 +26,7 @@ on:
       - tools/build_workflows_gui.sh
       - tests/test_linux_desktop_entry.py
       - tests/test_workflow_package.py
+      - tests/test_workflow_science.py
       - tests/test_workflow_resources.py
       - frontend/matterviz-desktop/**
       - frontend/workflows/**

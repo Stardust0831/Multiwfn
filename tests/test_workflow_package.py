@@ -1,6 +1,6 @@
 """Run the extracted native sidecar, module library and engine on every OS.
 
-Only XYZ I/O is executed; density and Mayer recipes are rendered in dry-run mode.
+Also executes real density, Mayer and ESP comparisons with direct engine stdin.
 """
 import os
 import json
@@ -10,6 +10,7 @@ import sys
 import tempfile
 from test_workbench_cli import check as check_workbench
 from test_workflow_shell import check as check_shell
+from test_workflow_science import check as check_science
 
 
 def check(root):
@@ -78,6 +79,7 @@ def check(root):
         output = (work / "exported.xyz").read_text()
         assert output.splitlines()[0].strip() == "1", output
         assert "He" in output, output
+    check_science(root)
     print(f"Workflow package passed: {root}")
 
 
