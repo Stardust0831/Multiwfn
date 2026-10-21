@@ -478,26 +478,7 @@ impl WorkflowManager {
             .multiwfn
             .as_ref()
             .ok_or("The bundled Multiwfn executable could not be located.")?;
-        fs::create_dir_all(results).map_err(|e| e.to_string())?;
-        let results = results.canonicalize().map_err(|e| e.to_string())?;
-        validate_path(&results)?;
-        if results == source_dir {
-            return Err("The results folder must differ from the script folder".into());
-        }
-        let marker = results.join(".workflow-results.json");
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(marker)
-        {
-            Ok(mut file) => {
-                use std::io::Write;
-                file.write_all(b"{\"format\":\"multiwfn-workflow-results\",\"version\":1}\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.to_string()),
-        }
+        let results = prepare_results(results, source_dir)?;
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| e.to_string())?
@@ -838,9 +819,23 @@ impl WorkflowManager {
             json!({"version":1,"combinations":combinations,"inputs":inputs.into_values().collect::<Vec<_>>()}),
         )
     }
+    pub(crate) fn batch_results(&self, request: &Value) -> Result<PathBuf, String> {
+        let state = self.state.lock().map_err(|e| e.to_string())?;
+        let script = script_path(
+            state.library.as_deref(),
+            request["script"]
+                .as_str()
+                .ok_or("Select a workflow script")?,
+        )?;
+        prepare_results(
+            state.results.as_deref().ok_or("Choose a results folder")?,
+            script.parent().ok_or("Invalid script folder")?,
+        )
+    }
     pub(crate) fn freeze_batch(
         &self,
         root: &Path,
+        results: &Path,
         request: &Value,
     ) -> Result<(PathBuf, String), String> {
         let state = self.state.lock().map_err(|e| e.to_string())?;
@@ -861,7 +856,7 @@ impl WorkflowManager {
         if state.selected_script.is_some() {
             fs::copy(&script, snapshot.join(&name)).map_err(|e| e.to_string())?;
         } else {
-            copy_inputs(source, &snapshot, root, 0, &mut CopyBudget::default())?;
+            copy_inputs(source, &snapshot, results, 0, &mut CopyBudget::default())?;
         }
         let conf = snapshot.join(".workflow-conf");
         fs::create_dir(&conf).map_err(|e| e.to_string())?;
@@ -1036,6 +1031,34 @@ fn is_results_dir(path: &Path) -> bool {
     path.join(".workflow-results.json")
         .symlink_metadata()
         .is_ok_and(|metadata| metadata.file_type().is_file())
+}
+/// Single runs and batches reserve the same results boundary before copying inputs.
+fn prepare_results(results: &Path, source: &Path) -> Result<PathBuf, String> {
+    fs::create_dir_all(results).map_err(|e| e.to_string())?;
+    let results = results.canonicalize().map_err(|e| e.to_string())?;
+    validate_path(&results)?;
+    if source.starts_with(&results) {
+        return Err("The results folder must not contain the script folder".into());
+    }
+    let marker = results.join(".workflow-results.json");
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&marker)
+    {
+        Ok(mut file) => {
+            use std::io::Write;
+            file.write_all(b"{\"format\":\"multiwfn-workflow-results\",\"version\":1}\n")
+                .map_err(|e| e.to_string())?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if !is_results_dir(&results) {
+                return Err("Invalid results folder marker".into());
+            }
+        }
+        Err(error) => return Err(error.to_string()),
+    }
+    Ok(results)
 }
 fn validate_path(path: &Path) -> Result<(), String> {
     let value = path.to_str().ok_or("Workflow paths must be UTF-8")?;
@@ -1548,6 +1571,22 @@ mod tests {
         assert!(!second_job.join("second_workflows").exists());
         assert!(first_job.join("workflow-status.json").is_file());
         assert_eq!(second_status["scripts"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn results_boundary_cannot_hide_the_script_library() {
+        let f = Fixture::new("exit 0");
+        let source = f.root.join("scripts");
+        for results in [&source, &f.root] {
+            assert!(prepare_results(results, &source)
+                .unwrap_err()
+                .contains("script folder"));
+            assert!(!results.join(".workflow-results.json").exists());
+        }
+        let results = source.join("results");
+        assert_eq!(prepare_results(&results, &source).unwrap(), results);
+        assert!(is_results_dir(&results));
+        assert_eq!(prepare_results(&results, &source).unwrap(), results);
     }
 
     #[test]

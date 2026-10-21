@@ -225,6 +225,55 @@ fn batch_keeps_inputs_attempts_bindings_and_native_array_sweeps_separate() {
     let cancelled = wait(&batch, |b| b["state"] == "cancelled");
     assert_eq!(cancelled["counts"]["cancelled"], 3);
     assert_eq!(cancelled["cases"][1]["attempts"], 0);
+
+    // Select a whole script folder, with results inside that folder. An older
+    // unmarked batch must be excluded too, not just this run's new directory.
+    fs::write(library.join("simple.bw"), "%raw\nxyz\nexport.xyz\nq\nend\n").unwrap();
+    fs::write(library.join("companion.txt"), "keep this input").unwrap();
+    let nested_results = library.join("results");
+    let legacy = nested_results.join("batch-legacy/workflow");
+    fs::create_dir_all(&legacy).unwrap();
+    fs::write(legacy.join("obsolete.bw"), "old snapshot").unwrap();
+    manager.select("library", &library).unwrap();
+    manager.select("results", &nested_results).unwrap();
+    let folder_request =
+        json!({"script":"simple.bw","cores":1,"variables":[],"parameters":{},"dryRun":true});
+    for _ in 0..3 {
+        batch.start(&folder_request).unwrap();
+        let ended = wait(&batch, |b| {
+            !matches!(b["state"].as_str(), Some("running" | "paused"))
+        });
+        assert_eq!(ended["state"], "prepared", "{ended}");
+        let snapshot = PathBuf::from(ended["directory"].as_str().unwrap()).join("workflow");
+        assert!(!snapshot.join("results").exists());
+        assert_eq!(
+            fs::read_to_string(snapshot.join("companion.txt")).unwrap(),
+            "keep this input"
+        );
+        let catalog = manager.status()["scripts"].as_array().unwrap().clone();
+        assert_eq!(catalog.len(), 2, "{catalog:?}");
+        assert!(catalog
+            .iter()
+            .all(|entry| !entry["id"].as_str().unwrap().contains("results/")));
+    }
+    assert!(nested_results.join(".workflow-results.json").is_file());
+    assert_eq!(
+        fs::read_to_string(legacy.join("obsolete.bw")).unwrap(),
+        "old snapshot"
+    );
+    // Switching back to a single run obeys the same exclusion boundary.
+    manager.start(&folder_request).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let status = manager.status();
+        if status["job"]["state"] == "prepared" {
+            let directory = PathBuf::from(status["job"]["directory"].as_str().unwrap());
+            assert!(!directory.join("results").exists());
+            break;
+        }
+        assert!(Instant::now() < deadline, "{status}");
+        thread::sleep(Duration::from_millis(30));
+    }
     batch.shutdown();
     assert!(batch.start(&request).unwrap_err().contains("closing"));
     println!("Batch native acceptance passed: {}", root.display());

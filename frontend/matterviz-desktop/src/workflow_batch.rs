@@ -169,13 +169,7 @@ impl WorkflowBatch {
         plan_request["files"] = json!(files);
         plan_request["roots"] = json!([]);
         let plan = self.manager.plan_inputs(&plan_request)?;
-        let status = self.manager.status();
-        let results = Path::new(
-            status["results"]
-                .as_str()
-                .ok_or("Choose a results folder")?,
-        );
-        fs::create_dir_all(results).map_err(|e| e.to_string())?;
+        let results = self.manager.batch_results(request)?;
         let root = results.join(format!(
             "batch-{}-{}",
             now(),
@@ -183,7 +177,7 @@ impl WorkflowBatch {
         ));
         fs::create_dir(&root).map_err(|e| e.to_string())?;
         let root = root.canonicalize().map_err(|e| e.to_string())?;
-        let (_, script) = self.manager.freeze_batch(&root, request)?;
+        let (_, script) = self.manager.freeze_batch(&root, &results, request)?;
         let cases:Vec<_>=plan["inputs"].as_array().ok_or("Invalid batch plan")?.iter().enumerate().map(|(index,input)|{
             let id=format!("{:04}",index+1);
             let stem=Path::new(input["path"].as_str().unwrap()).file_stem().unwrap_or_default().to_string_lossy().chars().map(|c|if c.is_alphanumeric()||matches!(c,'_'|'-'){c}else{'_'}).take(80).collect::<String>();
