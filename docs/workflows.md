@@ -249,9 +249,10 @@ For example, `benzene_au_esp.cub` or `benzene_kcal_esp.cub` pairs with
 `au` means atomic units and `kcal` means kcal/mol. Select the suffix according
 to the actual values written by the script: BaneWfn recipes that multiply ESP
 by 627.51 already produce kcal/mol values. The handoff records the declared
-unit in the viewer manifest. Display-unit normalization belongs to the separate
-Cube/ESP viewer fix. With the unmodified upstream viewer, use ESP data in atomic
-units; a filename suffix does not convert the stored values. Original files are
+unit in the viewer manifest. The viewer normalizes explicitly declared kcal/mol
+ESP to atomic units in memory before applying its color range, legend and extrema
+display. ESP already in atomic units keeps its existing behavior. A filename
+suffix does not convert the stored values. Original files are
 never converted or renamed by the GUI.
 
 For a legacy `benzene_esp.cub`, select the data unit in the result row. This
