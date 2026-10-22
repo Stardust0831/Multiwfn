@@ -1,0 +1,213 @@
+wfn=*.fchk
+
+[grid]
+%process
+    electron
+    leae
+%command
+#!/bin/bash
+    mkdir -p "${input}_LEAE"
+    mv density.cub "${input}_LEAE/${input}_den.cub"
+    mv userfunc.cub "${input}_LEAE/${input}_leae.cub"
+    mv "${output}" "${input}_LEAE"
+end
+
+[surface]
+%process
+    leaeext
+%command
+#!/bin/bash
+
+    unit=$(grep "REMARK.*Unit of B-factor field" surfanalysis.pdb | awk '{print $NF}')
+    if [ -z "$unit" ]; then unit="unknown"; fi
+
+    printf "%5s %6s %4s %15s\n" "index" "serial" "type" "Unit($unit)" > index.txt
+    index=0
+    while IFS= read -r line; do
+        if [[ $line =~ ^HETATM ]]; then
+            serial=$(echo "$line" | awk '{print $2}')
+            type=$(echo "$line" | awk '{print $3}')
+            value=$(echo "$line" | cut -c61-66 | awk '{print $1}')
+            printf "%5d %6d %4s %8s\n" "$index" "$serial" "$type" "$value" >> index.txt
+            ((index++))
+        fi
+    done < surfanalysis.pdb
+
+    cat << EOF > "${input}_LEAE/leae.bat"
+vmd -e leae.vmd
+EOF
+
+    cat << EOF2 > "${input}_LEAE/leae.vmd"
+vcube *_den.cub map *_leae.cub
+
+set colorlow -0.8
+set colorhigh -0.3
+mol scaleminmax 0 1 -0.04 0
+mol modstyle 1 0 Isosurface 0.0100 0 0 0 1 1
+
+mol new surfanalysis.pdb
+mol modstyle 0 top VDW 0.07 20
+mol modselect 0 top name C
+mol modcolor 0 top ColorID 32
+mol addrep top
+mol modstyle 1 top VDW 0.07 20
+mol modselect 1 top name O
+mol modcolor 1 top ColorID 21
+EOF2
+
+    mv index.txt "${output}" surfanalysis.pdb "${input}_LEAE"
+end
+
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN grid
+# #@gui grid
+# # label.zh = 网格精度
+# # label.en = Grid quality
+# # type = select
+# # options.zh = 1:低精度 | 2:中等精度 | 3:高精度
+# # options.en = 1:Low | 2:Medium | 3:High
+# # help.zh = 控制生成三维网格的精细程度
+# # help.en = Controls the resolution of the generated 3D grid
+# #@end
+# #@gui operator
+# # label.zh = 算符参数
+# # label.en = Operator parameters
+# # type = text
+# # help.zh = wfn2 步骤使用的算符参数
+# # help.en = Operator parameters for the wfn2 step
+# #@end
+## bundled module: grid
+# # 主逻辑
+# [main]
+# 5
+#
+# # define
+# [wfn2]
+# 0
+# 1
+# ${operator}
+#
+# # density.cub
+# [electron]
+# 1
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # spindensity.cub
+# [spin]
+# 5
+# ${grid:-2}
+# 2
+# 0
+# 5
+#
+# # ELF.cub
+# [elf]
+# 9
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # LOL.cub
+# [lol]
+# 10
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # totesp.cub
+# # 注意：由于需要切换cub文件，esp必须作为最后一个处理步骤使用
+# [esp]
+# 12
+# ${grid:-1}
+# 2
+# 0
+# r
+# totesp.cub
+# 13
+# 11
+# 5
+# 627.51
+# 0
+# totesp.cub
+# -1
+# 5
+#
+# # avglocion
+# [alie]
+# 18
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# [leae]
+# -10
+# 1000
+# 2
+# -27
+# 5
+# 100
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # 退出
+# [quit]
+# -10
+# q
+#<<< BANEWFN_INLINE_CONF_END grid
+
+#>>> BANEWFN_INLINE_CONF_BEGIN surface
+## bundled module: surface
+# [main]
+# 12
+#
+# [espext]
+# 3
+# 0.15
+# 0
+# 5
+# mol.pdb
+# 6
+# 2
+# -1
+# -1
+# 12
+#
+# # surfanalysis.pdb
+# [alieext]
+# 1               # Select the way to define surface
+# 1               #  Isosurface of electron density
+# ${iso:-0.0005}
+# 2               # Select mapped function
+# 2               # Average local ionization energy (ALIE)
+# 0
+# 2
+# -1
+# -1
+# 12
+#
+# [leaeext]
+# 1               # Select the way to define surface
+# 1               #  Isosurface of electron density
+# ${iso:-0.004}
+# 2               # Select mapped function
+# -4               # Local electron attachment energy (${input}_LEAE)
+# 0
+# 2
+# -1
+# -1
+# 12
+#
+# [quit]
+# -1
+# q
+#<<< BANEWFN_INLINE_CONF_END surface

@@ -55,6 +55,7 @@
     extract_esp_extrema_async,
     find_declared_esp_pair,
     find_mapped_esp_pair,
+    normalize_esp_volume,
     resolve_esp_legend_visibility,
     surface_colormap,
     type EspExtremaResult,
@@ -695,7 +696,7 @@
     const parsed = parse_volumetric_file(text, entry.path)
     if (!parsed) throw new Error(`MatterViz could not parse ${entry.path}`)
     const volumes = parsed.volumes.map((volume, idx) => ({
-      ...volume,
+      ...normalize_esp_volume(volume, entry),
       ...(manifest.structure?.path ? { origin_mode: 'absolute' as const } : {}),
       label: entry.name || `${entry.role || 'Volume'} ${idx + 1}`,
       source: entry.path,

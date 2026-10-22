@@ -1,0 +1,230 @@
+wfn=*.fchk
+state=?
+
+[excit]
+%process
+no state ${state}
+end
+
+wfn_rebase=${input}.fchk
+[no]
+%process
+SCF
+%command
+#!/bin/bash
+mv new.mwfn SCF.mwfn
+end
+
+wfn_rebase=NO_000${state}.mwfn
+
+[grid]
+%process
+wfn2 operator -,SCF.mwfn
+electron
+%command
+#!/bin/bash
+mv density.cub dendiff_${state}.cub
+end
+
+%command
+#!/bin/bash
+mkdir -p "${input}_dendiff_CI"
+mv dendiff_${state}.cub SCF.mwfn "${input}_dendiff_CI"
+end
+
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN excit
+# #@gui logfile
+# # label.zh = 计算输出文件
+# # label.en = Calculation output file
+# # type = file
+# #@end
+# #@gui state
+# # label.zh = 激发态编号
+# # label.en = Excited state index
+# # type = number
+# #@end
+# #@gui charge
+# # label.zh = 布居方法
+# # label.en = Population method
+# # type = select
+# # options = 1:Mulliken | 2:Hirshfeld
+# #@end
+# #@gui fragfile
+# # label.zh = 片段定义文件
+# # label.en = Fragment definition file
+# # type = file
+# #@end
+# #@gui path
+# # label.zh = NTO 输出目录
+# # label.en = NTO output directory
+# # type = directory
+# #@end
+# #@gui fragdef
+# # label.zh = 片段定义
+# # label.en = Fragment definition
+# # type = text
+# #@end
+## bundled module: excit
+# # 主逻辑
+# [main]
+# 18
+#
+# [holeheatmap]
+# 1
+# ${logfile:-}
+# ${state:-1}
+# 3
+# ${charge:-1}             # 1=mulliken 2=hirshfeld
+# -1
+# 0
+# ${fragfile:-fragdef.txt}
+# 2                        # Export data
+# 3                        # Save picture
+# 0
+# 0
+#
+# [nto]
+# 6
+# ${logfile:-}
+# ${state:-1}
+# 2
+# ${path:-.}/ex_${state:-1}.fchk
+#
+# [no]
+# 13
+# ${state:-1}
+#
+# [ifctdata]
+# 8
+# ${charge:-1}             # 1=mulliken 2=hirshfeld
+# ${logfile:-}
+# ${state:-1}
+# 0
+# ${fragdef:-}
+# 0
+#
+# # IFCT完成后再进行激发态分析会出问题，应当放在最后进行
+# [ifct]
+# 8
+# ${charge:-1}             # 1=mulliken 2=hirshfeld
+# ${logfile:-}
+# ${state:-1}
+# -1
+# 2
+# atmCTmat.txt
+# -1
+# 0
+# ${fragdef:- }
+# 2
+# 3
+# 0
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END excit
+
+#>>> BANEWFN_INLINE_CONF_BEGIN grid
+# #@gui grid
+# # label.zh = 网格精度
+# # label.en = Grid quality
+# # type = select
+# # options.zh = 1:低精度 | 2:中等精度 | 3:高精度
+# # options.en = 1:Low | 2:Medium | 3:High
+# # help.zh = 控制生成三维网格的精细程度
+# # help.en = Controls the resolution of the generated 3D grid
+# #@end
+# #@gui operator
+# # label.zh = 算符参数
+# # label.en = Operator parameters
+# # type = text
+# # help.zh = wfn2 步骤使用的算符参数
+# # help.en = Operator parameters for the wfn2 step
+# #@end
+## bundled module: grid
+# # 主逻辑
+# [main]
+# 5
+#
+# # define
+# [wfn2]
+# 0
+# 1
+# ${operator}
+#
+# # density.cub
+# [electron]
+# 1
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # ELF.cub
+# [elf]
+# 9
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # LOL.cub
+# [lol]
+# 10
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # totesp.cub
+# # 注意：由于需要切换cub文件，esp必须作为最后一个处理步骤使用
+# [esp]
+# 12
+# ${grid:-1}
+# 2
+# 0
+# r
+# totesp.cub
+# 13
+# 11
+# 5
+# 627.51
+# 0
+# totesp.cub
+# -1
+# 5
+#
+# # 退出
+# [quit]
+# -10
+# q
+#<<< BANEWFN_INLINE_CONF_END grid
+
+#>>> BANEWFN_INLINE_CONF_BEGIN no
+## bundled module: no
+# # 主逻辑
+# [main]
+# 200
+# 16
+#
+# [SCF]
+# SCF
+# y
+#
+# [CI]
+# CI
+# y
+#
+# [RHO]
+# CI Rho(1)
+# y
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END no

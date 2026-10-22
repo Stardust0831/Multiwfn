@@ -1,0 +1,72 @@
+wfn=*.fchk
+state=(1 2)
+[hole-ele]
+state ${state}
+%process
+cub
+%command
+#!/bin/bash
+mkdir -p "${input}_hole"
+mv hole.cub "${input}_hole/${input}_s${state}_hole.cub"
+mv electron.cub "${input}_hole/${input}_s${state}_ele.cub"
+sed -n '/Integral of hole/,/Excitation energy of this state/p' "${output}" > "${input}_hole/hole${state}data_${input}.txt"
+cat << EOF > "${input}_hole/hole.bat"
+vmd -e hole.vmd
+EOF
+cat << EOF2 > "${input}_hole/hole.vmd"
+vcube *.cub
+EOF2
+mv "${output}" "${input}_hole"
+end
+
+# Bundled by bwpack (banewfn inline conf)
+
+#>>> BANEWFN_INLINE_CONF_BEGIN hole-ele
+## bundled module: hole-ele
+# # 主逻辑
+# [main]
+# 18
+# 1
+# ${logfile:-}        # 输出文件
+# ${state:-1}
+# 1
+# ${grid:-2}
+#
+# # 空穴-电子分析
+# [cub]
+# 10
+# ${choice:-1}         # 1=total 2=local 3=cross
+# 11
+# ${choice:-1}
+#
+# [overlap]
+# 12
+# ${func:2}           # 1=Sm 2=Sr
+#
+# # 跃迁密度-transdens.cub
+# [transdens]
+# 13
+#
+# # transition dipole moment density-transdipdens.cub
+# [tdm]
+# 14
+# ${component:-1}   # 1=x, 2=y, 3=z, 4=Norm, sqrt(x^2+y^2+z^2)
+#
+# # charge density difference-CDD.cub
+# [cdd]
+# 15
+#
+# # 高斯平滑-Cele.cub,Chole.cub
+# [Cele]
+# 16
+#
+# # 激子结合能
+# 18
+#
+# # 退出
+# [quit]
+# 0
+# 0
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END hole-ele

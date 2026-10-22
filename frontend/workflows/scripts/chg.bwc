@@ -1,0 +1,56 @@
+wfn=*.fchk
+[charge]
+%process
+hirshfeld
+%command
+#!/bin/bash
+mkdir -p "${input}_chg"
+mv "${input}.chg" "${input}_chg/${input}_hirshfeld.chg"
+mv "${output}" "${input}_chg"
+end
+
+[charge]
+%process
+adch
+%command
+#!/bin/bash
+mkdir -p "${input}_chg"
+mv "${input}.chg" "${input}_chg/${input}_adch.chg"
+mv "${output}" "${input}_chg"
+end
+
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN charge
+## bundled module: charge
+# # 主逻辑
+# [main]
+# 7
+#
+# [hirshfeld]
+# 1
+# 1
+# y
+#
+# [mulliken]
+# 5
+# 1
+# y
+# 0
+#
+# [aim]
+# 6
+# ${pop:-}
+# y
+#
+# [adch]
+# 11
+# 1
+# y
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END charge

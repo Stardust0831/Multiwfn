@@ -1,0 +1,6 @@
+# Export an electron-density cube through Multiwfn's native grid workflow.
+# Choose a startup file in the Workflows panel. Optional variable: grid=1.
+[grid]
+%process
+electron grid ${grid:-1}
+end

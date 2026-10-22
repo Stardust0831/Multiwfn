@@ -13,6 +13,8 @@ BINARY=""
 DESKTOP=""
 VIEWER_DIST=""
 UPDATER=""
+WORKFLOW_RUNNER=""
+WORKFLOW_RESOURCES=""
 SETTINGS="$ROOT_DIR/settings.ini"
 OUTPUT_DIR="$ROOT_DIR/build/macos-app"
 LIB_DIR=""
@@ -28,6 +30,8 @@ Options:
   --desktop <path>       Path to matterviz-desktop host binary (required)
   --viewer-dist <path>   Path to frontend/matterviz-viewer/dist directory (required)
   --updater <path>       Path to multiwfn-matterviz-updater binary (optional)
+  --workflow-runner <path>     Optional BaneWfn runner (requires resources)
+  --workflow-resources <path>  BaneWfn conf/scripts directory (requires runner)
   --settings <path>      Path to settings.ini (default: root settings.ini)
   --lib-dir <path>       Path to existing bundled libraries (optional)
   --output-dir <path>    Output directory for Multiwfn.app (default: build/macos-app)
@@ -49,6 +53,10 @@ while [[ $# -gt 0 ]]; do
       VIEWER_DIST="$2"; shift 2 ;;
     --updater)
       UPDATER="$2"; shift 2 ;;
+    --workflow-runner)
+      WORKFLOW_RUNNER="$2"; shift 2 ;;
+    --workflow-resources)
+      WORKFLOW_RESOURCES="$2"; shift 2 ;;
     --settings)
       SETTINGS="$2"; shift 2 ;;
     --lib-dir)
@@ -91,6 +99,12 @@ if [[ -z "$VIEWER_DIST" || ! -d "$VIEWER_DIST" ]]; then
 fi
 
 APP_BUNDLE="$OUTPUT_DIR/Multiwfn.app"
+if [[ -n "$WORKFLOW_RUNNER" || -n "$WORKFLOW_RESOURCES" ]]; then
+  if [[ ! -f "$WORKFLOW_RUNNER" || ! -d "$WORKFLOW_RESOURCES/conf" || ! -d "$WORKFLOW_RESOURCES/scripts" ]]; then
+    echo "Error: workflow runner and conf/scripts resources must be supplied together" >&2
+    exit 1
+  fi
+fi
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
@@ -127,6 +141,11 @@ if [[ -n "$UPDATER" && -f "$UPDATER" ]]; then
 fi
 
 cp -R "$VIEWER_DIST" "$RESOURCES/frontend/matterviz-viewer/dist"
+if [[ -n "$WORKFLOW_RUNNER" ]]; then
+  cp "$WORKFLOW_RUNNER" "$RESOURCES/tools/multiwfn-workflow"
+  chmod +x "$RESOURCES/tools/multiwfn-workflow"
+  cp -R "$WORKFLOW_RESOURCES" "$RESOURCES/workflows"
+fi
 cp "$ROOT_DIR/LICENSE.txt" "$ROOT_DIR/ATTRIBUTION.txt" "$RESOURCES/"
 if [[ -f "$SETTINGS" ]]; then
   cp "$SETTINGS" "$RESOURCES/settings.ini"
@@ -203,6 +222,44 @@ fi
 
 echo "==> Successfully created Multiwfn.app at: $APP_BUNDLE"
 
+# A self-contained workflow application can be moved independently of Multiwfn.app.
+if [[ -n "$WORKFLOW_RUNNER" ]]; then
+  WORKBENCH_BUNDLE="$OUTPUT_DIR/BaneWfn GUI.app"
+  rm -rf "$WORKBENCH_BUNDLE"
+  cp -R "$APP_BUNDLE" "$WORKBENCH_BUNDLE"
+  touch "$WORKBENCH_BUNDLE/Contents/Resources/banewfn-workbench"
+  bash "$SCRIPT_DIR/build_macos_icon.sh" \
+    "$ROOT_DIR/frontend/workflows/icons/banewfn.png" \
+    "$WORKBENCH_BUNDLE/Contents/Resources/BaneWfn.icns"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile BaneWfn' "$WORKBENCH_BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleName BaneWfn GUI' "$WORKBENCH_BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName BaneWfn GUI' "$WORKBENCH_BUNDLE/Contents/Info.plist" || \
+    /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string BaneWfn GUI' "$WORKBENCH_BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier org.banewfn.workbench' "$WORKBENCH_BUNDLE/Contents/Info.plist"
+  python3 - "$WORKBENCH_BUNDLE/Contents/Info.plist" <<'PY'
+import plistlib
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+with path.open('rb') as stream:
+    info = plistlib.load(stream)
+info['CFBundleDocumentTypes'].append({
+    'CFBundleTypeName': 'BaneWfn workflow script', 'CFBundleTypeRole': 'Viewer',
+    'LSHandlerRank': 'Alternate', 'CFBundleTypeExtensions': ['bw', 'bwc'],
+    'LSItemContentTypes': ['org.banewfn.workflow'],
+})
+info['UTExportedTypeDeclarations'] = [{
+    'UTTypeIdentifier': 'org.banewfn.workflow', 'UTTypeConformsTo': ['public.plain-text'],
+    'UTTypeDescription': 'BaneWfn workflow script',
+    'UTTypeTagSpecification': {'public.filename-extension': ['bw', 'bwc']},
+}]
+with path.open('wb') as stream:
+    plistlib.dump(info, stream)
+PY
+  codesign --force --deep -s - "$WORKBENCH_BUNDLE"
+  codesign -vvv --deep "$WORKBENCH_BUNDLE"
+fi
+
 # 7. Optionally create DMG
 if [[ "$CREATE_DMG" -eq 1 ]]; then
   if [[ -z "$DMG_NAME" ]]; then
@@ -218,6 +275,7 @@ if [[ "$CREATE_DMG" -eq 1 ]]; then
   trap cleanup_dmg EXIT
 
   cp -R "$APP_BUNDLE" "$DMG_STAGING/Multiwfn.app"
+  if [[ -n "$WORKFLOW_RUNNER" ]]; then cp -R "$WORKBENCH_BUNDLE" "$DMG_STAGING/BaneWfn GUI.app"; fi
   cp "$ROOT_DIR/LICENSE.txt" "$ROOT_DIR/ATTRIBUTION.txt" "$DMG_STAGING/"
   ln -s /Applications "$DMG_STAGING/Applications"
   cp "$SCRIPT_DIR/Install_Multiwfn.command" "$DMG_STAGING/Install_Multiwfn.command"

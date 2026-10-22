@@ -1,0 +1,141 @@
+wfn=*.fchk
+plane=?
+
+[grid]
+%process
+    lol
+%command
+#!/bin/bash
+mkdir -p "${input}_LOL"
+mv LOL.cub "${input}_LOL/${input}_lol.cub"
+cat << EOF > "${input}_LOL/lol.bat"
+vmd -e lol.vmd
+EOF
+cat << EOF2 > "${input}_LOL/lol.vmd"
+vcube ${input}_lol.cub
+EOF2
+mv "${output}" "${input}_LOL"
+end
+
+wfn_rebase=${input}_LOL/${input}_lol.cub
+[plane_fromcub]
+%process
+    autoplot plane ${plane}
+%command
+#!/bin/bash
+mv dislin.png plane.txt "${output}" "${input}_LOL"
+end
+
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN grid
+# #@gui grid
+# # label.zh = 网格精度
+# # label.en = Grid quality
+# # type = select
+# # options.zh = 1:低精度 | 2:中等精度 | 3:高精度
+# # options.en = 1:Low | 2:Medium | 3:High
+# # help.zh = 控制生成三维网格的精细程度
+# # help.en = Controls the resolution of the generated 3D grid
+# #@end
+# #@gui operator
+# # label.zh = 算符参数
+# # label.en = Operator parameters
+# # type = text
+# # help.zh = wfn2 步骤使用的算符参数
+# # help.en = Operator parameters for the wfn2 step
+# #@end
+## bundled module: grid
+# # 主逻辑
+# [main]
+# 5
+#
+# # density.cub
+# [electron]
+# 1
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # ELF.cub
+# [elf]
+# 9
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # LOL.cub
+# [lol]
+# 10
+# ${grid:-3}
+# 2
+# 0
+# 5
+#
+# # totesp.cub
+# # 注意：由于需要切换cub文件，esp必须作为最后一个处理步骤使用
+# [esp]
+# 12
+# ${grid:-1}
+# 2
+# 0
+# r
+# totesp.cub
+# 13
+# 11
+# 5
+# 627.51
+# 0
+# totesp.cub
+# -1
+# 5
+#
+# # 退出
+# [quit]
+# -10
+# q
+#<<< BANEWFN_INLINE_CONF_END grid
+
+#>>> BANEWFN_INLINE_CONF_BEGIN plane_fromcub
+## bundled module: plane_fromcub
+# # 主逻辑
+# [main]
+# 1000
+# 2
+# -1
+# 4
+#
+# [autoplot]
+# 100
+# 1    # Color-filled map
+# ${grid:-200,200}
+# 4    # Define by three atoms
+# ${plane}
+# 4    # ATOM
+# 5
+# 8    # BOND
+# 14
+# 0
+# -6   # plane.txt
+# -5
+# 4
+#
+# [drawplot]
+# 100
+# 1    # Color-filled map
+# ${grid:-200,200}
+# 4    # Define by three atoms
+# ${plane}
+# 4    # ATOM
+# 5
+# 8    # BOND
+# 14
+# 0
+#
+# [quit]
+# -10
+# q
+#<<< BANEWFN_INLINE_CONF_END plane_fromcub

@@ -17,6 +17,12 @@ mod transport;
 mod updater;
 pub mod volume_protocol;
 pub mod volume_store;
+mod workbench_args;
+mod workflow_batch;
+mod workflow_builder;
+mod workflow_results;
+mod workflow_trace;
+mod workflows;
 
 use std::env;
 use std::path::Path;
@@ -33,7 +39,36 @@ use cli::{Cli, FileDialogDestination, Mode};
 use lifecycle::StartupStatus;
 use service::HttpService;
 
+#[cfg(target_os = "linux")]
+fn set_workflow_desktop_identity() {
+    use std::ffi::c_char;
+
+    #[link(name = "glib-2.0")]
+    extern "C" {
+        fn g_set_prgname(name: *const c_char);
+        fn g_set_application_name(name: *const c_char);
+    }
+
+    // GTK derives the X11 class and default Wayland app ID from the program
+    // name. Set it before GTK or the service threads start, matching the
+    // BaneWfn.desktop entry while retaining the shared host executable.
+    unsafe {
+        g_set_prgname(c"BaneWfn".as_ptr());
+        g_set_application_name(c"BaneWfn GUI".as_ptr());
+    }
+}
+
 fn main() -> ExitCode {
+    if env::args().nth(1).as_deref() == Some("--workflow-result") {
+        #[cfg(target_os = "linux")]
+        set_workflow_desktop_identity();
+        return launch_workflow_result();
+    }
+    if env::args().nth(1).as_deref() == Some("--workbench") {
+        #[cfg(target_os = "linux")]
+        set_workflow_desktop_identity();
+        return launch_workbench();
+    }
     let cli = match Cli::parse(env::args().skip(1)) {
         Ok(value) => value,
         Err(error) => {
@@ -94,6 +129,134 @@ fn main() -> ExitCode {
                     ExitCode::from(2)
                 }
             }
+        }
+    }
+}
+
+#[cfg(any(unix, windows))]
+fn desktop_context() -> tauri::Context<tauri::Wry> {
+    // macOS embeds a named Info.plist symbol: expand this macro only once.
+    tauri::generate_context!()
+}
+
+#[cfg(any(unix, windows))]
+fn launch_workbench() -> ExitCode {
+    let result = (|| -> Result<(), String> {
+        let executable = env::current_exe().map_err(|e| e.to_string())?;
+        let resources = executable
+            .parent()
+            .and_then(Path::parent)
+            .ok_or("Invalid installation")?;
+        let root = resources.parent().ok_or("Missing installation directory")?;
+        let engine = if resources.file_name().is_some_and(|n| n == "Resources") {
+            root.join("MacOS/Multiwfn_MatterVizGUI")
+        } else {
+            root.join(if cfg!(windows) {
+                "Multiwfn_MatterVizGUI.exe"
+            } else {
+                "Multiwfn_MatterVizGUI"
+            })
+        };
+        let args = workbench_args::WorkbenchArgs::parse(env::args_os().skip(2))?;
+        let service = service::WorkbenchService::start(
+            resources.join("frontend/matterviz-viewer/dist"),
+            engine,
+            args.startup.as_deref(),
+            args.script.as_deref(),
+        )?;
+        let page = Url::parse(&service.url).map_err(|e| e.to_string())?;
+        eprintln!("BaneWfn workbench started");
+        let mut context = desktop_context();
+        context.set_default_window_icon(Some(tauri::include_image!(
+            "../workflows/icons/banewfn.png"
+        )));
+        let result = tauri::Builder::default()
+            .setup(move |app| {
+                let _window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(page))
+                    .title("BaneWfn")
+                    .inner_size(1200.0, 820.0)
+                    .min_inner_size(900.0, 600.0)
+                    .build()?;
+                #[cfg(windows)]
+                {
+                    // Tao sets the title-bar icon; Windows uses ICON_BIG for
+                    // the taskbar and Alt+Tab. Both borrow the window-owned icon.
+                    use windows_sys::Win32::UI::WindowsAndMessaging::{
+                        SendMessageW, ICON_BIG, ICON_SMALL, WM_GETICON, WM_SETICON,
+                    };
+                    let hwnd = _window.hwnd()?.0 as _;
+                    unsafe {
+                        let icon = SendMessageW(hwnd, WM_GETICON, ICON_SMALL as usize, 0);
+                        if icon != 0 {
+                            SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icon);
+                        }
+                    }
+                }
+                Ok(())
+            })
+            .build(context)
+            .map(|app| {
+                app.run_return(|_, _| {});
+            });
+        service.shutdown();
+        result.map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("BaneWfn: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn launch_workflow_result() -> ExitCode {
+    use std::io::Read;
+    let result = (|| -> Result<ExitCode, String> {
+        let frontend = env::args_os().nth(2).ok_or("Missing viewer frontend")?;
+        let mut input = String::new();
+        std::io::stdin()
+            .take(128 * 1024)
+            .read_to_string(&mut input)
+            .map_err(|e| e.to_string())?;
+        let plan = serde_json::from_str(&input).map_err(|e| e.to_string())?;
+        let session = workflow_results::ViewSession::create(&plan)?;
+        let service = HttpService::start_with_control(
+            service::AppConfig {
+                frontend: frontend.into(),
+                session: session.0.clone(),
+                manifest: None,
+                state: None,
+                host: if cfg!(target_os = "macos") {
+                    "localhost"
+                } else {
+                    "127.0.0.1"
+                }
+                .into(),
+                port: 0,
+                transport: None,
+                multiwfn_pid: None,
+            },
+            None,
+        )?;
+        eprintln!("BaneWfn result viewer started");
+        // The guard lives through the WebView event loop, even if the workbench exits.
+        Ok(run_tauri(
+            service.url().to_owned(),
+            Some(Arc::new(service)),
+            Duration::from_secs(120),
+        ))
+    })();
+    match result {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("BaneWfn result viewer: {error}");
+            rfd::MessageDialog::new()
+                .set_title("BaneWfn")
+                .set_description(&error)
+                .set_level(rfd::MessageLevel::Error)
+                .show();
+            ExitCode::from(2)
         }
     }
 }
@@ -227,7 +390,9 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
                 }
             }
         })
-        .run(tauri::generate_context!());
+        // Builder::run exits the process directly, bypassing cleanup guards.
+        .build(desktop_context())
+        .map(|app| app.run_return(|_, _| {}));
 
     if let Err(error) = result {
         let message = format!("error while running MatterViz Desktop: {error}");
@@ -251,5 +416,5 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
             return ExitCode::from(2);
         }
     }
-    ExitCode::SUCCESS
+    ExitCode::from(result.unwrap_or(2) as u8)
 }

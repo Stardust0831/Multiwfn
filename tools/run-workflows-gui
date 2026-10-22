@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+launcher_root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+runtime="$launcher_root/gui-sysroot"
+if [[ -d "$runtime/usr/lib/x86_64-linux-gnu" ]]; then
+  export LD_LIBRARY_PATH="$runtime/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export XDG_DATA_DIRS="$runtime/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+  export WEBKIT_INJECTED_BUNDLE_PATH="$runtime/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/injected-bundle"
+  # Ubuntu's release WebKit uses an absolute libexec path. Expose our local
+  # helpers there in a private mount namespace, without installing system files.
+  if [[ ! -x /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitNetworkProcess ]]; then
+    command -v bwrap >/dev/null || { echo 'Local WebKit runtime requires bubblewrap (bwrap).' >&2; exit 1; }
+    mount_root="$(mktemp -d "${TMPDIR:-/tmp}/multiwfn-webkit.XXXXXXXX")"
+    trap 'rm -rf -- "$mount_root"' EXIT
+    mkdir "$mount_root/system" "$mount_root/merged"
+    for library in /usr/lib/x86_64-linux-gnu/*; do
+      ln -s "$mount_root/system/$(basename "$library")" "$mount_root/merged/$(basename "$library")"
+    done
+    ln -sfn "$runtime/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1" "$mount_root/merged/webkit2gtk-4.1"
+    bwrap --dev-bind / / \
+      --ro-bind /usr/lib/x86_64-linux-gnu "$mount_root/system" \
+      --ro-bind "$mount_root/merged" /usr/lib/x86_64-linux-gnu \
+      "$launcher_root/resources/tools/matterviz-desktop" --workbench "$@"
+    exit "$?"
+  fi
+fi
+exec "$launcher_root/resources/tools/matterviz-desktop" --workbench "$@"

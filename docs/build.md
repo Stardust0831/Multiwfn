@@ -37,6 +37,12 @@ legacy 3Dmol frontend, Qt shell, or Python adapters. The executable can be run
 directly from the build directory when its native WebView dependencies are
 available; the package runtime does not require Python.
 
+An optional C++17 BaneWfn runner can be enabled with
+`-DMULTIWFN_WITH_WORKFLOWS=ON`. The existing workbench then offers a workflow
+script panel with independent batch jobs. See [workflows.md](workflows.md) for
+runtime resources, installation and usage. The default build leaves the runner
+disabled.
+
 The Fortran GUI/session adapter launches the Host with inherited `MWFNCTL` and
 `MWFNVOL` pipes. Manifest, structure, control messages and scalar volumes are
 transferred from memory; the stable `/session/*` and `/api/*` frontend URLs are

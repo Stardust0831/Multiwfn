@@ -1,5 +1,13 @@
 # MatterViz test fixtures
 
+`workflow-h2.fch` is the two-atom `examples/H2.fch` RHF/def2-TZVP wavefunction
+from the official Multiwfn 2026-09-20 Windows distribution. Only CRLF line endings
+and trailing padding on its two title lines were normalized. It compares density,
+Mayer bond orders and kcal/mol
+ESP from the packaged BaneWfn recipes with direct stdin of the same engine;
+it is not a benchmark of the electronic structure method. It is test-only and
+is not included in release packages. The original Multiwfn license applies.
+
 `matterviz-real-orbital-Co5Cr.fch.gz` is a deterministic gzip copy of the
 `(CO)5Cr.fch` wavefunction distributed with the earlier Multiwfn 3Dmol GUI demo
 prerelease. It contains 11 atoms, 223 basis functions and a closed-shell

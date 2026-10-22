@@ -1,0 +1,16 @@
+# Export Mayer bond orders through Multiwfn's native bond-order workflow.
+[bond_order]
+%process
+mayer
+end
+
+#>>> BANEWFN_INLINE_CONF_BEGIN bond_order
+# [main]
+# 9
+# [mayer]
+# 1
+# y
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END bond_order

@@ -1,0 +1,98 @@
+wfn=*.fchk
+[weak]
+%process
+    nci
+%command
+#!/bin/bash
+# NCI
+cat > nci.vmd <<'EOF'
+mol new func1.cub
+mol addfile func2.cub
+mol delrep 0 top
+mol representation CPK 1.0 0.3 18.0 16.0
+mol addrep top
+mol representation Isosurface 0.50000 1 0 0 1 1
+mol color Volume 0
+mol addrep top
+mol scaleminmax top 1 -0.05 0.05
+color scale method BGR
+color Display Background white
+axes location Off
+display depthcue off
+display rendermode GLSL
+light 3 on
+material change specular Opaque 0.300000
+EOF
+
+echo vmd -e nci.vmd > nci.bat
+
+mkdir -p "${input}_nci"
+mv -f "${output}" "${input}_nci"
+mv -f nci.bat nci.vmd "${input}_nci"
+mv -f func1.cub func2.cub "${input}_nci"
+mv -f dislin.png "${input}_nci"
+mv -f output.txt "${input}_nci"
+end
+
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN weak
+## bundled module: weak
+# # 主逻辑
+# [main]
+# 20
+#
+# [nci]
+# 1
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# [iri]
+# 4
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# [igm]
+# 10
+# 1
+# a
+# ${denstiy:-2}        # 1=hirshfeld 2=promolecular
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# [igmh]
+# 10
+# 1
+# a
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# [igmh_f2]
+# 10
+# 2
+# ${frag1:-}
+# ${frag2:-}
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END weak

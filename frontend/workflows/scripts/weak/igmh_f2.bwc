@@ -1,0 +1,149 @@
+wfn=*.fchk
+frag1=?
+frag2=?
+[weak]
+%process
+    igmh_f2 frag1 ${frag1} frag2 ${frag2} grid 3
+%command
+#!/bin/bash
+# inter
+cat > igmh_inter.vmd <<'EOF'
+mol new sl2r.cub
+mol addfile dg_inter.cub
+mol delrep 0 top
+mol representation CPK 1.0 0.3 18.0 16.0
+mol addrep top
+mol representation Isosurface 0.00400 1 0 0 1 1
+mol color Volume 0
+mol addrep top
+mol scaleminmax top 1 -0.05 0.05
+color scale method BGR
+color Display Background white
+axes location Off
+display depthcue off
+display rendermode GLSL
+light 3 on
+material change specular Opaque 0.300000
+EOF
+
+echo vmd -e igmh_inter.vmd > igmh_inter.bat
+
+# intra
+cat > igmh_intra.vmd <<'EOF'
+mol new sl2r.cub
+mol addfile dg_intra.cub
+mol delrep 0 top
+mol representation CPK 1.0 0.3 18.0 16.0
+mol addrep top
+mol representation Isosurface 0.2000 1 0 0 1 1
+mol color Volume 0
+mol addrep top
+mol scaleminmax top 1 -0.05 0.05
+color scale method BGR
+color Display Background white
+axes location Off
+display depthcue off
+display rendermode GLSL
+light 3 on
+material change specular Opaque 0.300000
+EOF
+
+echo vmd -e igmh_intra.vmd > igmh_intra.bat
+
+# IRIscatter
+cat > igmh.plt <<'EOF'
+set terminal postscript landscape enhanced color 'Helvetica' 20
+set encoding iso_8859_1
+set output 'IGMHscatter.ps'
+set key
+set ylabel 'IGMH (a.u.)' font "Helvetica, 20"
+set xlabel 'sign({/Symbol-Oblique l}_2){/Symbol-Oblique r} (a.u.)' font "Helvetica, 20"
+set pm3d map
+set palette defined (-0.04 "blue",0 "green", 0.02 "red")
+set format y "%.1f"
+set format x "%.2f"
+set format cb "%.2f"
+set border lw 2
+set xrange [-0.05:0.05]
+set xtic  -0.05,0.01,0.05 nomirror rotate font "Helvetica"
+# set yrange [0.0:5.0]
+set ytics   autofreq nomirror font "Helvetica"
+set cbtic  -0.04,0.01,0.02 nomirror font "Helvetica"
+set cbrange [-0.04:0.02]
+plot 'output.txt' u 4:3:4 with points pointtype 31 pointsize 0.3 palette t ''
+EOF
+
+mkdir -p "${input}_igmh"
+mv -f "${output}" "${input}_igmh" 2>/dev/null
+mv -f igmh_*.vmd "${input}_igmh" 2>/dev/null
+mv -f igmh_*.bat "${input}_igmh" 2>/dev/null
+mv -f dg_inter.cub "${input}_igmh"
+mv -f dg_intra.cub "${input}_igmh"
+mv -f dg.cub "${input}_igmh"
+mv -f sl2r.cub "${input}_igmh"
+mv -f igmh.plt "${input}_igmh"
+mv -f dislin.png "${input}_igmh"
+mv -f output.txt "${input}_igmh"
+end
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN weak
+## bundled module: weak
+# # 主逻辑
+# [main]
+# 20
+#
+# [nci]
+# 1
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# [iri]
+# 4
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# [igm]
+# 10
+# 1
+# a
+# ${denstiy:-2}        # 1=hirshfeld 2=promolecular
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# [igmh]
+# 10
+# 1
+# a
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# [igmh_f2]
+# 10
+# 2
+# ${frag1:-}
+# ${frag2:-}
+# ${grid:-2}
+# 1
+# 2
+# 3
+# 0
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END weak

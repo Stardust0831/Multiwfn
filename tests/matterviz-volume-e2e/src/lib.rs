@@ -30,6 +30,32 @@ pub mod updater;
 pub mod volume_protocol;
 #[path = "../../../frontend/matterviz-desktop/src/volume_store.rs"]
 pub mod volume_store;
+#[path = "../../../frontend/matterviz-desktop/src/workbench_args.rs"]
+pub mod workbench_args;
+#[path = "../../../frontend/matterviz-desktop/src/workflow_batch.rs"]
+pub mod workflow_batch;
+#[path = "../../../frontend/matterviz-desktop/src/workflow_builder.rs"]
+pub mod workflow_builder;
+#[path = "../../../frontend/matterviz-desktop/src/workflow_results.rs"]
+pub mod workflow_results;
+#[path = "../../../frontend/matterviz-desktop/src/workflow_trace.rs"]
+pub mod workflow_trace;
+#[path = "../../../frontend/matterviz-desktop/src/workflows.rs"]
+pub mod workflows;
+
+// Native selection is covered by desktop-host tests; this headless harness
+// exercises the same service and workflow process manager without a WebView.
+pub mod file_dialog {
+    pub fn select_workflow_inputs() -> Result<Option<Vec<std::path::PathBuf>>, String> {
+        Ok(None)
+    }
+    pub fn save_workflow_script() -> Result<Option<std::path::PathBuf>, String> {
+        Ok(None)
+    }
+    pub fn select_workflow_path(_kind: &str) -> Result<Option<std::path::PathBuf>, String> {
+        Ok(None)
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,136 @@
+wfn=*.fchk
+state=(1 2)
+[excit]
+%process
+    nto state ${state}
+%command
+#!/bin/bash
+mv ex_${state}.fchk "${input}_NTO${state}.fch"
+mkdir -p NTOs
+mv "${output}" NTOs
+end
+
+wfn_rebase=${input}_NTO${state}.fch
+[fmo]
+%process
+    orb index h
+    orb index l
+%command
+#!/bin/bash
+mkdir -p NTOs
+mv "${input}_NTO${state}.fch" "${output}" NTOs
+mv h.cub "NTOs/${input}_NTO${state}_oH.cub"
+mv l.cub "NTOs/${input}_NTO${state}_oL.cub"
+end
+
+# Bundled by bane dysta
+
+#>>> BANEWFN_INLINE_CONF_BEGIN excit
+# #@gui logfile
+# # label.zh = 计算输出文件
+# # label.en = Calculation output file
+# # type = file
+# #@end
+# #@gui state
+# # label.zh = 激发态编号
+# # label.en = Excited state index
+# # type = number
+# #@end
+# #@gui charge
+# # label.zh = 布居方法
+# # label.en = Population method
+# # type = select
+# # options = 1:Mulliken | 2:Hirshfeld
+# #@end
+# #@gui fragfile
+# # label.zh = 片段定义文件
+# # label.en = Fragment definition file
+# # type = file
+# #@end
+# #@gui path
+# # label.zh = NTO 输出目录
+# # label.en = NTO output directory
+# # type = directory
+# #@end
+# #@gui fragdef
+# # label.zh = 片段定义
+# # label.en = Fragment definition
+# # type = text
+# #@end
+## bundled module: excit
+# # 主逻辑
+# [main]
+# 18
+#
+# [holeheatmap]
+# 1
+# ${logfile:-}
+# ${state:-1}
+# 3
+# ${charge:-1}             # 1=mulliken 2=hirshfeld
+# -1
+# 0
+# ${fragfile:-fragdef.txt}
+# 2                        # Export data
+# 3                        # Save picture
+# 0
+# 0
+#
+# [nto]
+# 6
+# ${logfile:-}
+# ${state:-1}
+# 2
+# ${path:-.}/ex_${state:-1}.fchk
+#
+# [no]
+# 13
+# ${state:-1}
+#
+# [ifctdata]
+# 8
+# ${charge:-1}             # 1=mulliken 2=hirshfeld
+# ${logfile:-}
+# ${state:-1}
+# 0
+# ${fragdef:-}
+# 0
+#
+# # IFCT完成后再进行激发态分析会出问题，应当放在最后进行
+# [ifct]
+# 8
+# ${charge:-1}             # 1=mulliken 2=hirshfeld
+# ${logfile:-}
+# ${state:-1}
+# -1
+# 2
+# atmCTmat.txt
+# -1
+# 0
+# ${fragdef:- }
+# 2
+# 3
+# 0
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END excit
+
+#>>> BANEWFN_INLINE_CONF_BEGIN fmo
+## bundled module: fmo
+# # 主逻辑
+# [main]
+# 200
+#
+# [orb]
+# 3
+# ${index:-h}
+# ${grid:-2}
+#
+# # 退出
+# [quit]
+# 0
+# q
+#<<< BANEWFN_INLINE_CONF_END fmo

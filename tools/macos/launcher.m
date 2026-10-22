@@ -34,6 +34,12 @@
 }
 
 - (void)promptOpenFileAndLaunch {
+    NSString *marker = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"banewfn-workbench"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:marker]) {
+        self.fileOpened = YES;
+        [self launchWithFile:nil];
+        return;
+    }
     NSOpenPanel *panel = [NSOpenPanel openPanel];
     [panel setTitle:@"Multiwfn - Select Input File"];
     [panel setMessage:@"Select a quantum chemistry file for Multiwfn:"];

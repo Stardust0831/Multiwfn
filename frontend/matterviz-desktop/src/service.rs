@@ -22,6 +22,7 @@ use crate::updater::UpdateManager;
 #[cfg(test)]
 use crate::volume_store::InsertError;
 use crate::volume_store::VolumeStore;
+use crate::workflows::WorkflowManager;
 use serde_json::{json, Value};
 use socket2::{Domain, Protocol, Socket, Type};
 
@@ -29,6 +30,350 @@ use socket2::{Domain, Protocol, Socket, Type};
 const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(300);
 const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
 const MAX_PLOT_EXPORT_BYTES: usize = 64 * 1024 * 1024;
+fn pick_parameter_path(body: &[u8]) -> Result<Value, String> {
+    let value: Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
+    let kind = match value["type"].as_str() {
+        Some("file") => "wavefunction",
+        Some("directory") => "results",
+        _ => return Err("Invalid parameter path type".into()),
+    };
+    Ok(json!({"path": crate::file_dialog::select_workflow_path(kind)?}))
+}
+
+/// Workflow-only host. No molecule, control transport or volume store is created.
+pub struct WorkbenchService {
+    pub url: String,
+    workflows: Arc<WorkflowManager>,
+    batch: Arc<crate::workflow_batch::WorkflowBatch>,
+    stopped: Arc<AtomicBool>,
+    thread: Mutex<Option<thread::JoinHandle<()>>>,
+}
+impl WorkbenchService {
+    pub fn start(
+        frontend: PathBuf,
+        engine: PathBuf,
+        startup: Option<&Path>,
+        script: Option<&Path>,
+    ) -> Result<Self, String> {
+        let frontend = frontend.canonicalize().map_err(|e| e.to_string())?;
+        if !frontend.join("index.html").is_file() {
+            return Err("BaneWfn frontend is missing".into());
+        }
+        let workflows = Arc::new(WorkflowManager::standalone(engine, startup));
+        if let Some(script) = script {
+            workflows.select("script", script)?;
+        }
+        let batch = Arc::new(crate::workflow_batch::WorkflowBatch::new(workflows.clone()));
+        let listener = bind("127.0.0.1", 0)?;
+        listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+        let authority = listener
+            .local_addr()
+            .map_err(|e| e.to_string())?
+            .to_string();
+        let cap = new_capability()?;
+        let url = format!("http://{authority}/index.html?workbench=1&cap={cap}");
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stop = stopped.clone();
+        let manager = workflows.clone();
+        let batches = batch.clone();
+        let execution_gate = Arc::new(Mutex::new(()));
+        let handle = thread::spawn(move || {
+            let mut requests = Vec::new();
+            while !stop.load(Ordering::Acquire) {
+                requests.retain(|h: &thread::JoinHandle<()>| !h.is_finished());
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        if requests.len() >= 16 {
+                            continue;
+                        }
+                        let manager = manager.clone();
+                        let batches = batches.clone();
+                        let execution_gate = execution_gate.clone();
+                        let authority = authority.clone();
+                        let cap = cap.clone();
+                        let frontend = frontend.clone();
+                        requests.push(thread::spawn(move || {
+                            let _ = stream.set_nonblocking(false);
+                            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                            let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
+                            let request =
+                                match read_http_request_with_limit(&mut stream, 256 * 1024) {
+                                    Ok(r) => r,
+                                    Err(HttpRequestError::TooLarge) => {
+                                        respond(
+                                            &mut stream,
+                                            413,
+                                            "text/plain",
+                                            b"Payload Too Large",
+                                            false,
+                                        );
+                                        return;
+                                    }
+                                    Err(_) => {
+                                        respond(
+                                            &mut stream,
+                                            400,
+                                            "text/plain",
+                                            b"Bad Request",
+                                            false,
+                                        );
+                                        return;
+                                    }
+                                };
+                            if request.host != authority {
+                                respond(&mut stream, 403, "text/plain", b"Invalid Host", false);
+                                return;
+                            }
+                            let mut parts = request.first.split_whitespace();
+                            let method = parts.next().unwrap_or("");
+                            let target = parts.next().unwrap_or("/");
+                            let (raw, query) = target.split_once('?').unwrap_or((target, ""));
+                            let path = match decode_path(raw) {
+                                Ok(p) => p,
+                                Err(_) => return,
+                            };
+                            let query: Vec<_> = url::form_urlencoded::parse(query.as_bytes())
+                                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                                .collect();
+                            if let Some(action) = path.strip_prefix("/api/workflows/") {
+                                if !has_capability(&query, &cap) {
+                                    respond(
+                                        &mut stream,
+                                        403,
+                                        "text/plain",
+                                        b"Invalid capability",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                let expected =
+                                    if matches!(action, "status" | "preview" | "builder-catalog") {
+                                        "GET"
+                                    } else {
+                                        "POST"
+                                    };
+                                if method != expected {
+                                    respond(
+                                        &mut stream,
+                                        405,
+                                        "text/plain",
+                                        b"Method Not Allowed",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                if !same_origin(&request.headers, &authority, method == "POST") {
+                                    respond(
+                                        &mut stream,
+                                        403,
+                                        "text/plain",
+                                        b"Invalid Origin",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                if request.body.len() > 256 * 1024 {
+                                    respond(
+                                        &mut stream,
+                                        413,
+                                        "text/plain",
+                                        b"Payload Too Large",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                let result = (|| -> Result<Value, String> {
+                                    if action == "status" {
+                                        return Ok(batches.status());
+                                    }
+                                    if action == "builder-catalog" {
+                                        return manager.builder_catalog();
+                                    }
+                                    if action == "preview" {
+                                        return manager.preview(
+                                            query
+                                                .iter()
+                                                .find(|(k, _)| k == "script")
+                                                .map(|(_, v)| v.as_str())
+                                                .unwrap_or(""),
+                                        );
+                                    }
+                                    let value: Value = serde_json::from_slice(&request.body)
+                                        .map_err(|e| e.to_string())?;
+                                    let _gate = if matches!(
+                                        action,
+                                        "run"
+                                            | "batch-start"
+                                            | "batch-control"
+                                            | "batch-load"
+                                            | "batch-select"
+                                            | "pick"
+                                            | "builder-save"
+                                    ) {
+                                        Some(execution_gate.lock().map_err(|e| e.to_string())?)
+                                    } else {
+                                        None
+                                    };
+                                    if batches.active()
+                                        && matches!(action, "pick" | "run" | "builder-save")
+                                    {
+                                        return Err("A batch is still active".into());
+                                    }
+                                    match action {
+                                        "batch-plan" => manager.plan_inputs(&value),
+                                        "batch-select" => batches.select_inputs(&value),
+                                        "batch-start" => batches.start(&value),
+                                        "batch-control" => batches.control(&value),
+                                        "batch-detail" => batches.detail(&value),
+                                        "trace" => {
+                                            if value.get("batch").is_some() {
+                                                batches.trace(&value)
+                                            } else {
+                                                manager.trace(&value)
+                                            }
+                                        }
+                                        "batch-pick" => {
+                                            let paths = match value["kind"].as_str() {
+                                                Some("files") => {
+                                                    crate::file_dialog::select_workflow_inputs()?
+                                                }
+                                                Some("folder") => {
+                                                    crate::file_dialog::select_workflow_path(
+                                                        "results",
+                                                    )?
+                                                    .map(|p| vec![p])
+                                                }
+                                                _ => return Err("Invalid batch selection".into()),
+                                            };
+                                            Ok(json!({"paths":paths}))
+                                        }
+                                        "batch-load" => {
+                                            if let Some(path) =
+                                                crate::file_dialog::select_workflow_path("results")?
+                                            {
+                                                batches.load(&path)
+                                            } else {
+                                                Ok(batches.status())
+                                            }
+                                        }
+                                        "inspect" => manager.inspect(&value),
+                                        "builder-preview" => manager.builder_preview(&value),
+                                        "builder-save" => {
+                                            manager.builder_preview(&value)?;
+                                            if let Some(path) =
+                                                crate::file_dialog::save_workflow_script()?
+                                            {
+                                                manager.save_built_script(&path, &value)
+                                            } else {
+                                                Ok(json!({"saved": false}))
+                                            }
+                                        }
+                                        "open-result" => {
+                                            if value.get("batch").is_some() {
+                                                batches.open_result(&value, &frontend)
+                                            } else {
+                                                manager.open_result(&value, &frontend)
+                                            }
+                                        }
+                                        "open-path" => {
+                                            if value.get("batch").is_some() {
+                                                batches.open_path(&value)
+                                            } else {
+                                                manager.open_path(&value)
+                                            }
+                                        }
+                                        "parameter-path" => pick_parameter_path(&request.body),
+                                        "pick" => {
+                                            let kind = value["kind"]
+                                                .as_str()
+                                                .ok_or("Invalid selection")?;
+                                            let selected = if let Some(path) =
+                                                crate::file_dialog::select_workflow_path(kind)?
+                                            {
+                                                manager.select(kind, &path)?;
+                                                true
+                                            } else {
+                                                false
+                                            };
+                                            let mut status = batches.status();
+                                            status["selectionChanged"] = json!(selected);
+                                            Ok(status)
+                                        }
+                                        "run" => {
+                                            batches.clear()?;
+                                            manager.start(&value)?;
+                                            Ok(batches.status())
+                                        }
+                                        "cancel" => {
+                                            manager.cancel();
+                                            Ok(batches.status())
+                                        }
+                                        _ => Err("Unknown workflow action".into()),
+                                    }
+                                })();
+                                match result {
+                                    Ok(value) => respond_json(&mut stream, &value, 200, false),
+                                    Err(error) => respond_json(
+                                        &mut stream,
+                                        &json!({"message":error}),
+                                        400,
+                                        false,
+                                    ),
+                                }
+                            } else if matches!(method, "GET" | "HEAD") {
+                                let relative = if path == "/" {
+                                    "index.html"
+                                } else {
+                                    path.trim_start_matches('/')
+                                };
+                                match safe_join(&frontend, relative) {
+                                    Ok(file) if file.is_file() => {
+                                        serve_file(&mut stream, &file, method == "HEAD")
+                                    }
+                                    _ => {
+                                        respond(&mut stream, 404, "text/plain", b"Not Found", false)
+                                    }
+                                }
+                            } else {
+                                respond(
+                                    &mut stream,
+                                    405,
+                                    "text/plain",
+                                    b"Method Not Allowed",
+                                    false,
+                                );
+                            }
+                        }));
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(20))
+                    }
+                    Err(_) => break,
+                }
+            }
+            for request in requests {
+                let _ = request.join();
+            }
+        });
+        Ok(Self {
+            url,
+            workflows,
+            batch,
+            stopped,
+            thread: Mutex::new(Some(handle)),
+        })
+    }
+    pub fn shutdown(&self) {
+        self.stopped.store(true, Ordering::Release);
+        self.batch.shutdown();
+        self.workflows.shutdown();
+        if let Ok(mut thread) = self.thread.lock() {
+            if let Some(handle) = thread.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+}
 static PLOT_EXPORT_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn session_bootstrap_wait_timeout(stage_timeout: Duration) -> Duration {
@@ -943,6 +1288,10 @@ impl ServiceRunner {
             respond_json(&mut stream, &value, status, method == "HEAD");
             return;
         }
+        if path.starts_with("/api/") {
+            respond(&mut stream, 404, "text/plain", b"Not Found", false);
+            return;
+        }
         if path == "/session/manifest.json" {
             if let Some(data) = &self.session_data {
                 let topology = self.plot_store.topology_metadata();
@@ -1496,6 +1845,13 @@ enum HttpRequestError {
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRequestError> {
+    read_http_request_with_limit(stream, MAX_PLOT_EXPORT_BYTES)
+}
+
+fn read_http_request_with_limit(
+    stream: &mut TcpStream,
+    max_body_bytes: usize,
+) -> Result<HttpRequest, HttpRequestError> {
     const MAX_HEADERS: usize = 64 * 1024;
     const MAX_REQUEST_LINE: usize = 8 * 1024;
     let mut request = Vec::with_capacity(1024);
@@ -1565,7 +1921,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRequestE
         })
         .transpose()?
         .unwrap_or(0);
-    if body_length > MAX_PLOT_EXPORT_BYTES {
+    if body_length > max_body_bytes {
         return Err(HttpRequestError::TooLarge);
     }
     if headers.iter().any(|(name, value)| {
@@ -1718,6 +2074,16 @@ fn new_capability() -> Result<String, String> {
 fn has_capability(query: &[(String, String)], expected: &str) -> bool {
     let mut values = query.iter().filter(|(name, _)| name == "cap");
     matches!(values.next(), Some((_, value)) if value == expected) && values.next().is_none()
+}
+
+fn same_origin(headers: &[(String, String)], authority: &str, required: bool) -> bool {
+    let mut origins = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("origin"));
+    match origins.next() {
+        Some((_, origin)) => origin == &format!("http://{authority}") && origins.next().is_none(),
+        None => !required,
+    }
 }
 
 #[cfg(windows)]
@@ -3522,6 +3888,77 @@ mod tests {
             host => host.to_string(),
         };
         format!("{host}:{}", url.port().unwrap())
+    }
+
+    #[test]
+    fn standalone_workbench_needs_no_molecule_and_requires_capability() {
+        let root = fixture("standalone-workbench");
+        let frontend = root.join("frontend");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "BaneWfn").unwrap();
+        let service =
+            super::WorkbenchService::start(frontend, root.join("engine"), None, None).unwrap();
+        let page = url::Url::parse(&service.url).unwrap();
+        let cap = page
+            .query_pairs()
+            .find(|(k, _)| k == "cap")
+            .unwrap()
+            .1
+            .into_owned();
+        assert!(request(&service.url, "GET", "/index.html").contains("BaneWfn"));
+        assert!(request(&service.url, "GET", "/api/workflows/status").starts_with("HTTP/1.1 403"));
+        let response = request(
+            &service.url,
+            "GET",
+            &format!("/api/workflows/status?cap={cap}"),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.contains("\"wavefunction\":null"));
+        assert!(!response.contains("\"session\":"));
+        assert!(!root.join("session").exists());
+        let authority = authority(&page);
+        let post = |headers: &str, length: usize, body: &str| {
+            let mut stream = TcpStream::connect(&authority).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            write!(stream, "POST /api/workflows/cancel?cap={cap} HTTP/1.1\r\nHost: {authority}\r\n{headers}Content-Length: {length}\r\nConnection: close\r\n\r\n{body}").unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            response
+        };
+        // Even a valid capability must not authorize a cross-origin mutation.
+        for headers in [
+            String::new(),
+            "Origin: https://attacker.example\r\n".into(),
+            "Origin: null\r\n".into(),
+            format!("Origin: http://{authority}\r\nOrigin: http://{authority}\r\n"),
+        ] {
+            assert!(post(&headers, 2, "{}").starts_with("HTTP/1.1 403"));
+        }
+        let origin = format!("Origin: http://{authority}\r\n");
+        assert!(post(&origin, 2, "{}").starts_with("HTTP/1.1 200"));
+        // Reject from Content-Length alone, before waiting for an oversized body.
+        assert!(post(&origin, 256 * 1024 + 1, "").starts_with("HTTP/1.1 413"));
+        assert!(request_with_host(
+            &service.url,
+            "GET",
+            "/api/workflows/status",
+            "attacker.example"
+        )
+        .starts_with("HTTP/1.1 403"));
+        assert!(
+            request(&service.url, "GET", "/api/workflows/status?cap=wrong")
+                .starts_with("HTTP/1.1 403")
+        );
+        assert!(request(
+            &service.url,
+            "GET",
+            &format!("/api/workflows/status?cap={cap}&cap={cap}")
+        )
+        .starts_with("HTTP/1.1 403"));
+        service.shutdown();
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn fixture(name: &str) -> PathBuf {

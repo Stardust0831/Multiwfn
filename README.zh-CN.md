@@ -79,6 +79,25 @@ cmake --build build-matterviz-webview --parallel
 MatterViz 构建产物为 `Multiwfn_MatterVizGUI`，只会 stage MatterViz 前端和
 launcher 资源；不会 stage 旧版 3Dmol 或 Qt 资源。
 
+## BaneWfn 工作流
+
+可选的 [BaneWfn](https://github.com/bane-dysta/banewfn) 工作台提供独立入口
+`banewfn_gui`（Windows 为 `banewfn_gui.exe`，macOS 为 `BaneWfn GUI.app`）。
+选择启动文件与 `.bw` / `.bwc` 脚本后，可通过中英双语表单设置参数，也可从
+内置 conf 库构造脚本。通配符匹配的多个输入文件可加入顺序执行的批量队列，
+每个输入分别保留结果、重试记录、步骤图和日志。选中的 Cube 产物可一起
+送入 MatterViz 渲染界面。
+
+工作流在独立工作目录中，通过 stdin 驱动随包提供的 Multiwfn 引擎，科学计算
+仍由 Multiwfn 完成。工作流解析器、执行器和配方以独立的 BaneWfn 命令行项目
+为维护源。
+
+启用工作流支持的发布包包含入口和脚本库。从源码构建时，在上述 MatterViz
+构建选项之外加入 `-DMULTIWFN_WITH_WORKFLOWS=ON`；此选项默认关闭，启用时
+需要 C++17 编译器。Windows 执行 Bash 步骤需要 Git for Windows。
+启动方式、脚本构造、批量输入及 Cube 文件名和单位约定见
+[工作流使用文档](docs/workflows.md)。
+
 ## 普通构建
 
 当前 CMake 默认构建 `Multiwfn_noGUI`：
