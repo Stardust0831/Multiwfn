@@ -97,7 +97,7 @@ impl WorkbenchService {
                             let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                             let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
                             let request =
-                                match read_http_request_with_limit(&mut stream, 256 * 1024) {
+                                match read_workbench_http_request(&mut stream, &authority, &cap) {
                                     Ok(r) => r,
                                     Err(HttpRequestError::TooLarge) => {
                                         respond(
@@ -107,6 +107,14 @@ impl WorkbenchService {
                                             b"Payload Too Large",
                                             false,
                                         );
+                                        return;
+                                    }
+                                    Err(HttpRequestError::Forbidden) => {
+                                        respond(&mut stream, 403, "text/plain", b"Invalid export authorization", false);
+                                        return;
+                                    }
+                                    Err(HttpRequestError::MethodNotAllowed) => {
+                                        respond(&mut stream, 405, "text/plain", b"Method Not Allowed", false);
                                         return;
                                     }
                                     Err(_) => {
@@ -135,6 +143,47 @@ impl WorkbenchService {
                             let query: Vec<_> = url::form_urlencoded::parse(query.as_bytes())
                                 .map(|(k, v)| (k.into_owned(), v.into_owned()))
                                 .collect();
+                            if path == "/api/viewer-export" {
+                                if !has_capability(&query, &cap) {
+                                    respond_json(&mut stream, &json!({"message":"Invalid capability"}), 403, false);
+                                    return;
+                                }
+                                if method != "POST" {
+                                    respond(&mut stream, 405, "text/plain", b"Method Not Allowed", method == "HEAD");
+                                    return;
+                                }
+                                if !same_origin(&request.headers, &authority, true) {
+                                    respond_json(&mut stream, &json!({"message":"Invalid Origin"}), 403, false);
+                                    return;
+                                }
+                                let filenames: Vec<_> = query.iter().filter(|(key, _)| key == "filename").map(|(_, value)| value.as_str()).collect();
+                                let types: Vec<_> = request.headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("content-type")).map(|(_, value)| value.as_str()).collect();
+                                if filenames.len() != 1 || types.len() != 1 || query.iter().any(|(key, _)| key != "cap" && key != "filename") {
+                                    respond_json(&mut stream, &json!({"message":"Export requires one filename and Content-Type; destination paths are not accepted"}), 400, false);
+                                    return;
+                                }
+                                if let Err(message) = crate::viewer_export::validate_export(filenames[0], types[0], &request.body) {
+                                    respond_json(&mut stream, &json!({"message":message}), 400, false);
+                                    return;
+                                }
+                                // Serialize native dialogs with other workbench dialogs. No request
+                                // can write anywhere except the path returned by this chooser.
+                                let _gate = match execution_gate.lock() {
+                                    Ok(gate) => gate,
+                                    Err(_) => { respond_json(&mut stream, &json!({"message":"Native save is unavailable"}), 500, false); return; }
+                                };
+                                let result = crate::viewer_export::save_with(
+                                    filenames[0], types[0], &request.body,
+                                    crate::file_dialog::save_viewer_export,
+                                    |path, bytes| fs::write(path, bytes).map_err(|error| format!("Unable to write export: {error}")),
+                                );
+                                match result {
+                                    Ok(crate::viewer_export::SaveOutcome::Saved) => respond_json(&mut stream, &json!({"status":"saved"}), 200, false),
+                                    Ok(crate::viewer_export::SaveOutcome::Cancelled) => respond_json(&mut stream, &json!({"status":"cancelled"}), 200, false),
+                                    Err(message) => respond_json(&mut stream, &json!({"message":message}), 500, false),
+                                }
+                                return;
+                            }
                             if let Some(action) = path.strip_prefix("/api/workflows/") {
                                 if !has_capability(&query, &cap) {
                                     respond(
@@ -895,7 +944,7 @@ impl ServiceRunner {
                 respond(&mut stream, 413, "text/plain", b"Payload Too Large", false);
                 return;
             }
-            Err(HttpRequestError::BadRequest) => {
+            Err(_) => {
                 respond(&mut stream, 400, "text/plain", b"Bad Request", false);
                 return;
             }
@@ -1842,6 +1891,8 @@ impl HttpRequest {
 enum HttpRequestError {
     BadRequest,
     TooLarge,
+    Forbidden,
+    MethodNotAllowed,
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRequestError> {
@@ -1851,6 +1902,64 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRequestE
 fn read_http_request_with_limit(
     stream: &mut TcpStream,
     max_body_bytes: usize,
+) -> Result<HttpRequest, HttpRequestError> {
+    read_http_request_checked(stream, |_| Ok(max_body_bytes))
+}
+
+fn read_workbench_http_request(
+    stream: &mut TcpStream,
+    authority: &str,
+    capability: &str,
+) -> Result<HttpRequest, HttpRequestError> {
+    read_http_request_checked(stream, |head| {
+        if head.host != authority {
+            return Err(HttpRequestError::Forbidden);
+        }
+        let mut parts = head.first.split_whitespace();
+        let method = parts.next().unwrap_or("");
+        let target = parts.next().unwrap_or("/");
+        let (raw, query) = target.split_once('?').unwrap_or((target, ""));
+        let path = decode_path(raw).map_err(|_| HttpRequestError::BadRequest)?;
+        if path != "/api/viewer-export" {
+            return Ok(256 * 1024);
+        }
+        if method != "POST" {
+            return Err(HttpRequestError::MethodNotAllowed);
+        }
+        let query: Vec<_> = url::form_urlencoded::parse(query.as_bytes())
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+        if !has_capability(&query, capability) || !same_origin(&head.headers, authority, true) {
+            return Err(HttpRequestError::Forbidden);
+        }
+        let names: Vec<_> = query
+            .iter()
+            .filter(|(key, _)| key == "filename")
+            .map(|(_, value)| value.as_str())
+            .collect();
+        let types: Vec<_> = head
+            .headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, value)| value.as_str())
+            .collect();
+        if names.len() != 1
+            || types.len() != 1
+            || query
+                .iter()
+                .any(|(key, _)| key != "cap" && key != "filename")
+        {
+            return Err(HttpRequestError::BadRequest);
+        }
+        let (_, limit) = crate::viewer_export::export_metadata(names[0], types[0])
+            .map_err(|_| HttpRequestError::BadRequest)?;
+        Ok(limit)
+    })
+}
+
+fn read_http_request_checked(
+    stream: &mut TcpStream,
+    check_headers: impl FnOnce(&HttpRequest) -> Result<usize, HttpRequestError>,
 ) -> Result<HttpRequest, HttpRequestError> {
     const MAX_HEADERS: usize = 64 * 1024;
     const MAX_REQUEST_LINE: usize = 8 * 1024;
@@ -1921,9 +2030,6 @@ fn read_http_request_with_limit(
         })
         .transpose()?
         .unwrap_or(0);
-    if body_length > max_body_bytes {
-        return Err(HttpRequestError::TooLarge);
-    }
     if headers.iter().any(|(name, value)| {
         name.eq_ignore_ascii_case("transfer-encoding") && !value.eq_ignore_ascii_case("identity")
     }) {
@@ -1931,6 +2037,18 @@ fn read_http_request_with_limit(
     }
     if initial_body.len() > body_length {
         return Err(HttpRequestError::BadRequest);
+    }
+    let mut parsed = HttpRequest {
+        first: first.to_owned(),
+        host: (*host).to_owned(),
+        headers,
+        body: Vec::new(),
+    };
+    // Header reads can include at most one 1 KiB chunk of initial body. Never
+    // allocate/read the advertised body until this trusted route budget is granted.
+    let body_limit = check_headers(&parsed)?;
+    if body_length > body_limit {
+        return Err(HttpRequestError::TooLarge);
     }
     let mut body = initial_body;
     while body.len() < body_length {
@@ -1944,12 +2062,8 @@ fn read_http_request_with_limit(
         }
         body.extend_from_slice(&chunk[..length]);
     }
-    Ok(HttpRequest {
-        first: first.to_owned(),
-        host: (*host).to_owned(),
-        headers,
-        body,
-    })
+    parsed.body = body;
+    Ok(parsed)
 }
 
 fn plot_export_magic_matches(format: &PlotExportFormat, body: &[u8]) -> bool {
@@ -3957,6 +4071,284 @@ mod tests {
             &format!("/api/workflows/status?cap={cap}&cap={cap}")
         )
         .starts_with("HTTP/1.1 403"));
+        service.shutdown();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn viewer_export_route_requires_capability_origin_plain_filename_and_bounded_body() {
+        let root = fixture("viewer-export-route");
+        let frontend = root.join("frontend");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "BaneWfn").unwrap();
+        let service =
+            super::WorkbenchService::start(frontend, root.join("engine"), None, None).unwrap();
+        let page = Url::parse(&service.url).unwrap();
+        let cap = page
+            .query_pairs()
+            .find(|(k, _)| k == "cap")
+            .unwrap()
+            .1
+            .into_owned();
+        let authority = authority(&page);
+        let post = |method: &str,
+                    target: &str,
+                    host: &str,
+                    origin: &str,
+                    mime: &str,
+                    length: usize,
+                    body: &[u8]| {
+            let mut stream = TcpStream::connect(&authority).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            write!(stream, "{method} {target} HTTP/1.1\r\nHost: {host}\r\n{origin}Content-Type: {mime}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n").unwrap();
+            stream.write_all(body).unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            response
+        };
+        let endpoint = format!("/api/viewer-export?cap={cap}&filename=water.png");
+        let origin = format!("Origin: http://{authority}\r\n");
+        let png = crate::viewer_export::tests::PNG;
+        for target in [
+            "/api/viewer-export?filename=water.png".to_owned(),
+            format!("{endpoint}&cap={cap}"),
+            endpoint.replace(&cap, "wrong"),
+        ] {
+            assert!(post(
+                "POST",
+                &target,
+                &authority,
+                &origin,
+                "image/png",
+                png.len(),
+                png
+            )
+            .starts_with("HTTP/1.1 403"));
+        }
+        for bad_origin in [
+            "".to_owned(),
+            "Origin: null\r\n".to_owned(),
+            "Origin: https://attacker.example\r\n".to_owned(),
+            format!("{origin}{origin}"),
+        ] {
+            assert!(post(
+                "POST",
+                &endpoint,
+                &authority,
+                &bad_origin,
+                "image/png",
+                png.len(),
+                png
+            )
+            .starts_with("HTTP/1.1 403"));
+        }
+        assert!(post(
+            "POST",
+            &endpoint,
+            "attacker.example",
+            &origin,
+            "image/png",
+            png.len(),
+            png
+        )
+        .starts_with("HTTP/1.1 403"));
+        assert!(
+            post("GET", &endpoint, &authority, &origin, "image/png", 0, b"")
+                .starts_with("HTTP/1.1 405")
+        );
+        for target in [
+            endpoint.replace("water.png", "..%2Fwater.png"),
+            format!("{endpoint}&path=%2Ftmp%2Fx"),
+            format!("{endpoint}&filename=x.png"),
+        ] {
+            assert!(post(
+                "POST",
+                &target,
+                &authority,
+                &origin,
+                "image/png",
+                png.len(),
+                png
+            )
+            .starts_with("HTTP/1.1 400"));
+        }
+        assert!(post(
+            "POST",
+            &endpoint,
+            &authority,
+            &origin,
+            "text/plain",
+            png.len(),
+            png
+        )
+        .starts_with("HTTP/1.1 400"));
+        // The headless chooser returns None: cancellation is not a saved result.
+        let cancelled = post(
+            "POST",
+            &endpoint,
+            &authority,
+            &origin,
+            "image/png",
+            png.len(),
+            png,
+        );
+        assert!(cancelled.starts_with("HTTP/1.1 200"), "{cancelled}");
+        assert!(cancelled.contains("\"status\":\"cancelled\""));
+        assert!(!cancelled.contains("\"status\":\"saved\""));
+        let larger = vec![b'x'; 300 * 1024];
+        assert!(post(
+            "POST",
+            &endpoint.replace("water.png", "water.xyz"),
+            &authority,
+            &origin,
+            "text/plain",
+            larger.len(),
+            &larger
+        )
+        .starts_with("HTTP/1.1 200"));
+        assert!(post(
+            "POST",
+            &endpoint,
+            &authority,
+            &origin,
+            "image/png",
+            crate::viewer_export::MAX_EXPORT_BYTES + 1,
+            b""
+        )
+        .starts_with("HTTP/1.1 413"));
+        let workflow = format!("/api/workflows/cancel?cap={cap}");
+        assert!(post(
+            "POST",
+            &workflow,
+            &authority,
+            &origin,
+            "application/json",
+            256 * 1024 + 1,
+            b""
+        )
+        .starts_with("HTTP/1.1 413"));
+        service.shutdown();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn viewer_export_rejects_untrusted_headers_before_waiting_for_a_large_body() {
+        let root = fixture("viewer-export-header-budget");
+        let frontend = root.join("frontend");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "BaneWfn").unwrap();
+        let service =
+            super::WorkbenchService::start(frontend, root.join("engine"), None, None).unwrap();
+        let page = Url::parse(&service.url).unwrap();
+        let cap = page
+            .query_pairs()
+            .find(|(k, _)| k == "cap")
+            .unwrap()
+            .1
+            .into_owned();
+        let authority = authority(&page);
+        let endpoint = format!("/api/viewer-export?cap={cap}&filename=water.png");
+        let origin = format!("Origin: http://{authority}\r\n");
+        let headers_only = |method: &str,
+                            target: &str,
+                            host: &str,
+                            origin: &str,
+                            mime: &str,
+                            size: usize| {
+            let mut stream = TcpStream::connect(&authority).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(500)))
+                .unwrap();
+            write!(stream, "{method} {target} HTTP/1.1\r\nHost: {host}\r\n{origin}Content-Type: {mime}\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n").unwrap();
+            // Deliberately send no body, and do not close the write side. A server
+            // that reads advertised bytes before auth will time out instead of reject.
+            let mut response = [0; 4096];
+            let count = stream
+                .read(&mut response)
+                .expect("reject headers immediately without awaiting the advertised body");
+            String::from_utf8_lossy(&response[..count]).into_owned()
+        };
+        let size = 1024 * 1024;
+        for target in [
+            endpoint.replace(&cap, "wrong"),
+            "/api/viewer-export?filename=water.png".into(),
+            format!("{endpoint}&cap={cap}"),
+        ] {
+            assert!(
+                headers_only("POST", &target, &authority, &origin, "image/png", size)
+                    .starts_with("HTTP/1.1 403")
+            );
+        }
+        assert!(headers_only(
+            "POST",
+            &endpoint,
+            "attacker.example",
+            &origin,
+            "image/png",
+            size
+        )
+        .starts_with("HTTP/1.1 403"));
+        for bad_origin in [
+            "".to_owned(),
+            "Origin: null\r\n".into(),
+            "Origin: https://attacker.example\r\n".into(),
+            format!("{origin}{origin}"),
+        ] {
+            assert!(headers_only(
+                "POST",
+                &endpoint,
+                &authority,
+                &bad_origin,
+                "image/png",
+                size
+            )
+            .starts_with("HTTP/1.1 403"));
+        }
+        assert!(
+            headers_only("GET", &endpoint, &authority, &origin, "image/png", size)
+                .starts_with("HTTP/1.1 405")
+        );
+        for target in [
+            endpoint.replace("water.png", "..%2Fwater.png"),
+            format!("{endpoint}&path=/tmp/out"),
+            format!("{endpoint}&filename=other.png"),
+        ] {
+            assert!(
+                headers_only("POST", &target, &authority, &origin, "image/png", size)
+                    .starts_with("HTTP/1.1 400")
+            );
+        }
+        assert!(
+            headers_only("POST", &endpoint, &authority, &origin, "text/plain", size)
+                .starts_with("HTTP/1.1 400")
+        );
+        for (suffix, mime, limit) in [
+            ("png", "image/png", 32 * 1024 * 1024),
+            ("xyz", "text/plain", 16 * 1024 * 1024),
+            ("glb", "model/gltf-binary", 64 * 1024 * 1024),
+            ("webm", "video/webm", 64 * 1024 * 1024),
+        ] {
+            assert!(headers_only(
+                "POST",
+                &endpoint.replace("water.png", &format!("water.{suffix}")),
+                &authority,
+                &origin,
+                mime,
+                limit + 1
+            )
+            .starts_with("HTTP/1.1 413"));
+        }
+        assert!(headers_only(
+            "POST",
+            &format!("/api/workflows/cancel?cap={cap}"),
+            &authority,
+            &origin,
+            "application/json",
+            256 * 1024 + 1
+        )
+        .starts_with("HTTP/1.1 413"));
         service.shutdown();
         fs::remove_dir_all(root).unwrap();
     }

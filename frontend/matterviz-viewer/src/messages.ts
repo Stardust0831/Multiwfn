@@ -1,5 +1,10 @@
 /** Application-owned UI text. Keep scientific data, identifiers and user labels unchanged. */
 export const zh = {
+  'Previous frequency file': '上一个频率文件',
+  'Next frequency file': '下一个频率文件',
+  'Frequency files': '频率文件列表',
+  'Showing': '当前显示',
+  'Displacement arrows': '位移箭头',
   'Vibrational modes': '振动模式',
   'Loading…': '正在载入…',
   'Close vibration viewer': '关闭振动查看器',
