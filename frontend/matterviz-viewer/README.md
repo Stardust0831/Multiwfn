@@ -6,8 +6,15 @@ It consumes the Multiwfn session manifest and serialized backend API. Protected
 core sources are unchanged relative to the main-branch baseline. Data capture and
 user-confirmed metadata live entirely in the GUI adapters and frontend.
 
-The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz`.
-Its reviewable patch extends the retained `r25.reps1` archive, preserving the
+The standalone BaneWfn GUI also offers **Vibrational modes** for molecular
+frequency results exported as cclib CJSON. It uses MatterViz's native trajectory
+renderer and starts paused. See [frequency viewing](../../docs/frequency-viewer.md)
+for conversion, supported inputs and displacement conventions.
+
+The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq1.tgz`.
+The [frequency camera patch](../../docs/frequency-viewer.md#camera-compatibility-patch)
+extends `r25.reps2` with the upstream series-identity contract. Reps2's
+reviewable color patch extends the retained `r25.reps1` archive, preserving the
 reviewed topology, measurement, material, parser and sampling fixes. Reps render
 geometry in the host scene without adding cameras or lights. Their atoms and
 bonds share the standard matte/glossy/PBR/unlit material pool, with gradient bond

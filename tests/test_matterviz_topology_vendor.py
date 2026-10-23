@@ -11,6 +11,28 @@ VERSION = "matterviz-0.4.2-multiwfn.d8719d12.r25"
 
 
 class TopologyVendor(unittest.TestCase):
+    def test_frequency_camera_series_patch_replays_without_other_renderer_changes(self):
+        with tempfile.TemporaryDirectory(prefix="frequency-vendor-replay-") as directory:
+            base, target = Path(directory) / "base", Path(directory) / "target"
+            base.mkdir()
+            target.mkdir()
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".reps2.tgz")), "-C", str(base)], check=True)
+            subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + ".freq1.tgz")), "-C", str(target)], check=True)
+            before = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            with (VENDOR / "patches" / (VERSION + ".freq1.patch")).open("rb") as patch:
+                subprocess.run(["patch", "-p1", "-d", str(base / "package")], stdin=patch, check=True, capture_output=True)
+            after = {path.relative_to(base): path.read_bytes() for path in base.rglob("*") if path.is_file()}
+            packaged = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+            self.assertEqual(after, packaged)
+            self.assertEqual(set(before), set(after))
+            self.assertEqual({str(path) for path in before if before[path] != after[path]}, {
+                "package/package.json",
+                "package/dist/structure/Structure.svelte",
+                "package/dist/structure/Structure.svelte.d.ts",
+                "package/dist/structure/StructureViewport.svelte",
+                "package/dist/structure/StructureViewport.svelte.d.ts",
+            })
+
     def test_editable_color_scales_replay_from_reps1_to_exact_package(self):
         with tempfile.TemporaryDirectory(prefix="color-scale-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"

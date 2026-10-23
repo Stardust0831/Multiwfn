@@ -1,0 +1,113 @@
+--- a/dist/structure/Structure.svelte
++++ b/dist/structure/Structure.svelte
+@@ -118,6 +118,7 @@
+
+   let {
+     structure = $bindable(),
++    structure_series_key = undefined,
+     bonds = $bindable(),
+     added_bonds = $bindable<StructureBond[]>([]),
+     removed_bonds = $bindable<StructureBond[]>([]),
+@@ -215,6 +216,8 @@
+     ...rest
+   }: {
+     structure?: AnyStructure
++    // Stable identity for coordinate-only frames; change it when topology changes.
++    structure_series_key?: unknown
+     added_bonds?: StructureBond[]
+     removed_bonds?: StructureBond[]
+     bond_order_overrides?: StructureBond[]
+@@ -1007,7 +1010,8 @@
+   // change site indices (skip first run to preserve parent-provided selections)
+   let first_run = true
+   $effect(() => {
+-    void [supercell_scaling, show_image_atoms, structure, cell_type] // track reactively
++    // Coordinate-only frames share their camera and selection (upstream series-key contract).
++    void [supercell_scaling, show_image_atoms, structure_series_key ?? structure, cell_type]
+     if (first_run) {
+       first_run = false
+       return
+@@ -1076,6 +1080,7 @@
+   // selection bindings, and per-pane chrome differ and stay on each snippet below.
+   let shared_viewport_props = $derived({
+     structure: internal_displayed_structure,
++    series_key: structure_series_key,
+     base_structure: cell_transformed_structure,
+     scene_props,
+     scene_children,
+@@ -1125,7 +1130,8 @@
+   $effect(() => {
+     // untrack: clearing must not add moved_panes as a dependency, else a pane move
+     // (which adds to moved_panes) would immediately re-run this and clear it again.
+-    if (structure) untrack(() => moved_panes.clear())
++    const series = structure_series_key ?? structure
++    if (series !== undefined) untrack(() => moved_panes.clear())
+   })
+
+   // Clear stale camera target and position so StructureScene uses the new
+--- a/dist/structure/Structure.svelte.d.ts
++++ b/dist/structure/Structure.svelte.d.ts
+@@ -17,6 +17,7 @@
+ type EventHandler = (data: StructureHandlerData) => void;
+ type $$ComponentProps = {
+     structure?: AnyStructure;
++    structure_series_key?: unknown;
+     added_bonds?: StructureBond[];
+     removed_bonds?: StructureBond[];
+     bond_order_overrides?: StructureBond[];
+--- a/dist/structure/StructureViewport.svelte
++++ b/dist/structure/StructureViewport.svelte
+@@ -80,6 +80,7 @@
+
+     // Shared scene inputs (one-way)
+     structure = undefined,
++    series_key = undefined,
+     base_structure = undefined,
+     scene_props = {},
+     scene_children,
+@@ -147,6 +148,7 @@
+     on_camera_move?: (data: StructureHandlerData) => void
+     on_camera_reset?: (data: StructureHandlerData) => void
+     structure?: AnyStructure
++    series_key?: unknown
+     base_structure?: AnyStructure
+     scene_props?: ComponentProps<typeof StructureScene>
+     scene_children?: import('svelte').Snippet
+@@ -226,7 +228,7 @@
+   let initial_camera_target = $state<Vec3 | undefined>(undefined)
+   // Periodic image generation passes a raw object. Preserve its identity so the
+   // camera snapshot effect does not compare a deep proxy against the raw input.
+-  let snapshot_structure = $state.raw<AnyStructure | undefined>(undefined)
++  let snapshot_structure = $state.raw<unknown>(undefined)
+   let snapshot_structure_initialized = false
+   let camera_is_moving = $state(false)
+   let suppress_camera_change = false
+@@ -282,7 +284,7 @@
+   // outside StructureScene's keyed camera subtree so X/Y orbit followed by a declarative
+   // Z roll still resets to the original position, target, up, and zoom.
+   $effect(() => {
+-    const current_structure = structure
++    const current_structure = series_key ?? structure
+     // Establish these dependencies even on the structure-initialization pass below.
+     // Otherwise the early return prevents the effect from rerunning when the camera mounts.
+     const current_camera = camera
+--- a/dist/structure/StructureViewport.svelte.d.ts
++++ b/dist/structure/StructureViewport.svelte.d.ts
+@@ -24,6 +24,7 @@
+     on_camera_move?: (data: StructureHandlerData) => void;
+     on_camera_reset?: (data: StructureHandlerData) => void;
+     structure?: AnyStructure;
++    series_key?: unknown;
+     base_structure?: AnyStructure;
+     scene_props?: ComponentProps<typeof StructureScene>;
+     gizmo?: boolean | ComponentProps<typeof StructureScene>[`gizmo`];
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "matterviz",
+-  "version": "0.4.2-multiwfn.d8719d12.r25.reps2",
++  "version": "0.4.2-multiwfn.d8719d12.r25.freq1",
+   "description": "Interactive visualizations for materials science: periodic tables, 3D structures, MD trajectories, heatmaps, scatter plots.",
+   "keywords": [
+     "chemistry",
