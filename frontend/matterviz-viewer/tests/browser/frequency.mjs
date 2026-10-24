@@ -12,6 +12,7 @@ let browser
 let page
 const errors = []
 const checks = []
+const cameraSettling = []
 const record = message => { checks.push(message); console.log('PASS', message) }
 const fixture = name => fileURLToPath(new URL(`../fixtures/frequency/${name}.cjson`, import.meta.url))
 try {
@@ -76,6 +77,17 @@ try {
     })
     return positions
   })
+  const waitForGeometryChange = async (previous, message) => {
+    const deadline = performance.now() + 10_000
+    let current
+    do {
+      await page.waitForTimeout(100)
+      current = await geometryPositions()
+      if (current.length > 0 && (current.length !== previous.length ||
+          current.some((value, index) => Math.abs(value - previous[index]) > 1e-6))) return
+    } while (performance.now() < deadline)
+    assert.fail(`${message}: ${JSON.stringify({ previous, current })}`)
+  }
   record('Real Gaussian export: three modes, equilibrium frame and initially paused')
 
   const play = dialog.locator('.play-button')
@@ -96,8 +108,9 @@ try {
   record('Native playback, pause and frame scrubbing visibly move the molecule')
 
   const modes = dialog.getByRole('combobox', { name: 'Normal mode', exact: true })
+  const modePositions = await geometryPositions()
   await modes.selectOption('1')
-  await page.waitForTimeout(250)
+  await waitForGeometryChange(modePositions, 'changing modes must update rendered geometry')
   assert.equal(await step.inputValue(), '12', 'changing modes preserves the current visual phase')
   const amplitude = dialog.getByRole('spinbutton', { name: 'Visual amplitude (Å)', exact: true })
   for (const value of ['', '0', '-1', '10']) {
@@ -105,9 +118,11 @@ try {
     await amplitude.press('Tab')
     assert.equal(await amplitude.inputValue(), '0.3')
   }
+  const amplitudePositions = await geometryPositions()
   await amplitude.fill('0.5')
   await amplitude.press('Tab')
   assert.equal(await amplitude.inputValue(), '0.5')
+  await waitForGeometryChange(amplitudePositions, 'changing amplitude must update rendered geometry')
   record('Mode selection and amplitude changes use the same canvas; invalid amplitude recovers')
 
   const bounds = await canvas.boundingBox()
@@ -118,16 +133,27 @@ try {
   await page.mouse.wheel(0, -140)
   await page.mouse.move(5, 5)
   const settledCamera = async () => {
+    // OrbitControls damping decays per rendered frame. Software WebGL on CI
+    // can need more wall time than a local browser; retain the pose assertions
+    // below and wait for tighter convergence rather than loosening them.
+    const started = performance.now()
+    const samples = []
+    cameraSettling.push(samples)
     let previous = await cameraPose()
-    for (let attempt = 0; attempt < 30; attempt++) {
+    let stableSamples = 0
+    do {
       await page.waitForTimeout(200)
       const current = await cameraPose()
-      if (near(current, previous)) return current
+      const delta = Math.max(...current.map((value, index) => Math.abs(value - previous[index])))
+      samples.push({ elapsedMs: Math.round(performance.now() - started), delta, pose: current })
+      stableSamples = delta < 1e-10 ? stableSamples + 1 : 0
+      if (stableSamples >= 3) return current
       previous = current
-    }
-    throw new Error('The native camera did not settle after interaction')
+    } while (performance.now() - started < 30_000)
+    throw new Error(`The native camera did not settle after interaction: ${JSON.stringify(samples.slice(-5))}`)
   }
   const rotated = await settledCamera()
+  assert.ok(!near(rotated, initialCamera), 'native camera interaction must change the pose')
   await canvas.screenshot({ path: `${artifacts}/camera-before.png` })
   await modes.selectOption('2')
   await modes.selectOption('1')
@@ -201,7 +227,7 @@ try {
   if (page) await writeFile(`${artifacts}/failure.txt`, await page.locator('body').ariaSnapshot().catch(() => ''))
   throw error
 } finally {
-  await writeFile(`${artifacts}/verification.json`, JSON.stringify({ checks, errors }, null, 2))
+  await writeFile(`${artifacts}/verification.json`, JSON.stringify({ checks, errors, cameraSettling }, null, 2))
   await browser?.close()
   await new Promise(resolve => server.httpServer.close(resolve))
 }
