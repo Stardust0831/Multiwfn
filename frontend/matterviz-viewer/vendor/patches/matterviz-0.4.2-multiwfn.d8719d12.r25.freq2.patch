@@ -1,0 +1,654 @@
+diff -rN -U 0 a/dist/io/export.d.ts b/dist/io/export.d.ts
+--- a/dist/io/export.d.ts	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/io/export.d.ts	2026-10-23 00:00:00.000000000 +0000
+@@ -1,0 +2,2 @@
++/** A per-instance save sink. Reject with AbortError on cancellation. */
++export type DownloadCallback = (data: Blob | string, filename: string, mime: string) => Promise<void>;
+@@ -10 +12 @@
+-export declare function export_canvas_as_png(canvas: HTMLCanvasElement | null, structure_or_filename: AnyStructure | string | undefined, png_dpi?: number, scene?: Scene | null, camera?: Camera | null): void;
++export declare function export_canvas_as_png(canvas: HTMLCanvasElement | null, structure_or_filename: AnyStructure | string | undefined, png_dpi?: number, scene?: Scene | null, camera?: Camera | null, on_download?: DownloadCallback): Promise<void>;
+@@ -21,0 +24,2 @@
++    on_download?: DownloadCallback;
++    signal?: AbortSignal;
+diff -rN -U 0 a/dist/io/export.js b/dist/io/export.js
+--- a/dist/io/export.js	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/io/export.js	2026-10-23 00:00:00.000000000 +0000
+@@ -68 +68 @@
+-export function export_canvas_as_png(canvas, structure_or_filename, png_dpi = 150, scene = null, camera = null) {
++export async function export_canvas_as_png(canvas, structure_or_filename, png_dpi = 150, scene = null, camera = null, on_download = download) {
+@@ -84,3 +84,2 @@
+-    canvas_to_png_blob(canvas, png_dpi, scene, camera)
+-        .then((blob) => download(blob, filename, `image/png`))
+-        .catch((error) => console.error(`Error exporting PNG:`, error));
++    const blob = await canvas_to_png_blob(canvas, png_dpi, scene, camera);
++    await on_download(blob, filename, `image/png`);
+@@ -293,4 +292,3 @@
+-    const { fps = 30, total_frames = 100, on_progress, on_step, resolution_multiplier = 1, } = options;
+-    if (!canvas ||
+-        typeof MediaRecorder === `undefined` ||
+-        !MediaRecorder.isTypeSupported(`video/webm;codecs=vp9`))
++    const { fps = 30, total_frames = 100, on_progress, on_step,
++        resolution_multiplier = 1, on_download = download, signal } = options;
++    if (!canvas || typeof MediaRecorder === `undefined` || !MediaRecorder.isTypeSupported(`video/webm;codecs=vp9`))
+@@ -297,0 +296,3 @@
++    if (!Number.isFinite(fps) || fps <= 0 || !Number.isInteger(total_frames) || total_frames <= 0)
++        throw new Error(`Invalid recording frame settings`);
++    signal?.throwIfAborted();
+@@ -299,27 +300,14 @@
+-    // Store original renderer settings if changing resolution
+-    let orig_pixel_ratio;
+-    let orig_size;
+-    if (resolution_multiplier !== 1 && renderer) {
+-        orig_pixel_ratio = renderer.getPixelRatio();
+-        orig_size = renderer.getSize(new Vector2());
+-        // Adjust pixel ratio for different resolution export
+-        renderer.setPixelRatio(orig_pixel_ratio * resolution_multiplier);
+-        renderer.setSize(orig_size.width, orig_size.height, false);
+-    }
+-    // Calculate bitrate based on actual video dimensions
+-    // (canvas dimensions include device pixel ratio and any resolution_multiplier)
+-    const bitrate = estimate_video_bitrate(canvas.width * canvas.height, fps);
+-    const stream = canvas.captureStream(0);
+-    const chunks = [];
+-    const recorder = new MediaRecorder(stream, {
+-        mimeType: `video/webm;codecs=vp9`,
+-        videoBitsPerSecond: bitrate,
+-    });
+-    recorder.addEventListener(`dataavailable`, (event) => {
+-        if (event.data.size > 0)
+-            chunks.push(event.data);
+-    });
+-    const track = stream.getVideoTracks()[0];
+-    // Start recording
+-    recorder.start();
+-    const frame_duration = 1000 / fps;
++    const orig_pixel_ratio = renderer?.getPixelRatio();
++    const orig_size = renderer?.getSize(new Vector2());
++    let stream, recorder, timeout;
++    const wait_for = async (work) => {
++        signal?.throwIfAborted();
++        if (!signal) return await work;
++        let abort;
++        try {
++            return await Promise.race([work, new Promise((_, reject) => {
++                abort = () => reject(signal.reason ?? new DOMException(`Export interrupted`, `AbortError`));
++                signal.addEventListener(`abort`, abort, { once: true });
++            })]);
++        } finally { if (abort) signal.removeEventListener(`abort`, abort); }
++    };
+@@ -327 +315,22 @@
+-        // Render each frame sequentially with precise timing
++        if (resolution_multiplier !== 1 && renderer && orig_size) {
++            renderer.setPixelRatio(orig_pixel_ratio * resolution_multiplier);
++            renderer.setSize(orig_size.width, orig_size.height, false);
++        }
++        const bitrate = estimate_video_bitrate(canvas.width * canvas.height, fps);
++        stream = canvas.captureStream(0);
++        const chunks = [];
++        recorder = new MediaRecorder(stream, { mimeType: `video/webm;codecs=vp9`, videoBitsPerSecond: bitrate });
++        // Install completion/error listeners before recording, not after the frame loop.
++        let recording_error;
++        const finished = new Promise((resolve, reject) => {
++            recorder.addEventListener(`dataavailable`, event => { if (event.data.size > 0) chunks.push(event.data); });
++            recorder.addEventListener(`stop`, resolve, { once: true });
++            recorder.addEventListener(`error`, event => {
++                recording_error = new Error(`MediaRecorder error: ${event.error?.message ?? event.type}`);
++                reject(recording_error);
++            }, { once: true });
++        });
++        // Mark early recorder failures as handled while on_step is awaiting a frame.
++        finished.catch(() => {});
++        recorder.start();
++        const track = stream.getVideoTracks()[0];
+@@ -328,0 +338,2 @@
++            signal?.throwIfAborted();
++            if (recording_error) throw recording_error;
+@@ -331,6 +342,7 @@
+-            // Update trajectory step
+-            if (on_step)
+-                await on_step(idx);
+-            // Double RAF ensures Three.js completes rendering before capture
+-            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+-            // Capture frame
++            // Trajectory's callback resolves only after the exact lazy frame has
++            // loaded, Svelte has flushed it and the registered scene is rendered.
++            await wait_for(Promise.resolve(on_step?.(idx)));
++            signal?.throwIfAborted();
++            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
++            const registered = scene_registry.get(canvas);
++            if (renderer && registered) renderer.render(registered.scene, registered.camera);
+@@ -338,52 +350,2 @@
+-            // Wait for remaining frame time to maintain consistent FPS
+-            const elapsed = performance.now() - frame_start;
+-            const remaining = Math.max(0, frame_duration - elapsed);
+-            if (remaining > 0) {
+-                await new Promise((resolve) => setTimeout(resolve, remaining));
+-            }
+-        }
+-    }
+-    finally {
+-        // Restore original renderer settings
+-        if (orig_pixel_ratio !== undefined && orig_size && renderer) {
+-            renderer.setPixelRatio(orig_pixel_ratio);
+-            renderer.setSize(orig_size.width, orig_size.height, false);
+-        }
+-    }
+-    // Finalize recording
+-    return new Promise((resolve, reject) => {
+-        let is_resolved = false;
+-        recorder.addEventListener(`stop`, () => {
+-            if (is_resolved)
+-                return;
+-            is_resolved = true;
+-            try {
+-                const blob = new Blob(chunks, { type: `video/webm` });
+-                const webm_filename = filename.replace(/\.(?:mp4|webm)$/i, `.webm`);
+-                download(blob, webm_filename, `video/webm`);
+-                on_progress?.(100);
+-                resolve();
+-            }
+-            catch (error) {
+-                reject(to_error(error));
+-            }
+-        });
+-        recorder.addEventListener(`error`, (event) => {
+-            if (is_resolved)
+-                return;
+-            is_resolved = true;
+-            const error_msg = event instanceof ErrorEvent && event.error instanceof Error
+-                ? event.error.message
+-                : event.type;
+-            reject(new Error(`MediaRecorder error: ${error_msg}`));
+-        });
+-        // Stop recording with safety timeout
+-        try {
+-            recorder.stop();
+-            // Fallback: force resolution if recorder doesn't stop within 5 seconds
+-            setTimeout(() => {
+-                if (!is_resolved) {
+-                    is_resolved = true;
+-                    reject(new Error(`Recording timeout - recorder did not stop`));
+-                }
+-            }, 5000);
++            const remaining = Math.max(0, 1000 / fps - (performance.now() - frame_start));
++            if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
+@@ -391,4 +353,17 @@
+-        catch (error) {
+-            if (!is_resolved) {
+-                is_resolved = true;
+-                reject(to_error(error));
++        recorder.stop();
++        await Promise.race([finished, new Promise((_, reject) => {
++            timeout = setTimeout(() => reject(new Error(`Recording timeout - recorder did not stop`)), 5000);
++        })]);
++        signal?.throwIfAborted();
++        const blob = new Blob(chunks, { type: `video/webm` });
++        await wait_for(Promise.resolve(on_download(blob, filename.replace(/\.(?:mp4|webm)$/i, `.webm`), `video/webm`)));
++        signal?.throwIfAborted();
++        on_progress?.(100);
++    } finally {
++        clearTimeout(timeout);
++        try { if (recorder && recorder.state !== `inactive`) recorder.stop(); }
++        finally {
++            for (const track of stream?.getTracks() ?? []) track.stop();
++            if (renderer && orig_size && orig_pixel_ratio !== undefined) {
++                renderer.setPixelRatio(orig_pixel_ratio);
++                renderer.setSize(orig_size.width, orig_size.height, false);
+@@ -397 +372 @@
+-    });
++    }
+diff -rN -U 0 a/dist/structure/Structure.svelte b/dist/structure/Structure.svelte
+--- a/dist/structure/Structure.svelte	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/structure/Structure.svelte	2026-10-23 00:00:00.000000000 +0000
+@@ -1,0 +2 @@
++  import type { DownloadCallback } from '../io/export'
+@@ -119,0 +121,4 @@
++    on_download = undefined,
++    before_export = undefined,
++    on_export_start = undefined,
++    on_export_end = undefined,
+@@ -217,0 +223,4 @@
++    on_download?: DownloadCallback
++    before_export?: () => Promise<void>
++    on_export_start?: () => void | (() => void)
++    on_export_end?: () => void | Promise<void>
+@@ -1905,0 +1915,4 @@
++          {on_download}
++          {before_export}
++          {on_export_start}
++          {on_export_end}
+diff -rN -U 0 a/dist/structure/Structure.svelte.d.ts b/dist/structure/Structure.svelte.d.ts
+--- a/dist/structure/Structure.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/structure/Structure.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
+@@ -0,0 +1 @@
++import type { DownloadCallback } from '../io/export';
+@@ -18,0 +20,4 @@
++    on_download?: DownloadCallback;
++    before_export?: () => Promise<void>;
++    on_export_start?: () => void | (() => void);
++    on_export_end?: () => void | Promise<void>;
+diff -rN -U 0 a/dist/structure/StructureExportPane.svelte b/dist/structure/StructureExportPane.svelte
+--- a/dist/structure/StructureExportPane.svelte	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/structure/StructureExportPane.svelte	2026-10-23 00:00:00.000000000 +0000
+@@ -1,0 +2 @@
++  import type { DownloadCallback } from '../io/export'
+@@ -12,0 +14,4 @@
++    on_download = undefined,
++    before_export = undefined,
++    on_export_start = undefined,
++    on_export_end = undefined,
+@@ -23,0 +29,4 @@
++    on_download?: DownloadCallback
++    before_export?: () => Promise<void>
++    on_export_start?: () => void | (() => void)
++    on_export_end?: () => void | Promise<void>
+@@ -65 +74 @@
+-      hint: `Export as OBJ (Wavefront Object) - widely supported 3D format with material references, works in most 3D applications`,
++      hint: `Export as OBJ (Wavefront Object). Save both OBJ and its companion MTL with the suggested MTL name in the same folder. Cancelling either save is not a complete export.`,
+@@ -80,5 +89,8 @@
+-  function handle_3d_export(format: `glb` | `obj`) {
+-    if (!scene) {
+-      console.warn(`No scene available for ${format.toUpperCase()} export`)
+-      return
+-    }
++  let export_error = $state<string | null>(null)
++  let is_exporting = $state(false)
++  async function save_export(action: (sink: DownloadCallback | undefined) => Promise<void>): Promise<void> {
++    if (is_exporting) return
++    is_exporting = true
++    export_error = null
++    const callbacks = { on_download, before_export, on_export_start, on_export_end }
++    let started = false
+@@ -86,4 +98,10 @@
+-      if (format === `glb`) exports.export_structure_as_glb(scene, structure)
+-      else if (format === `obj`) exports.export_structure_as_obj(scene, structure)
+-    } catch (error) {
+-      console.error(`Failed to export ${format.toUpperCase()}:`, error)
++      const guard = callbacks.on_export_start?.()
++      started = true
++      await callbacks.before_export?.()
++      if (typeof guard === `function`) guard()
++      const sink: DownloadCallback | undefined = callbacks.on_download && (async (data, filename, mime) => {
++        if (typeof guard === `function`) guard()
++        await callbacks.on_download!(data, filename, mime)
++        if (typeof guard === `function`) guard()
++      })
++      await action(sink)
+@@ -90,0 +109,11 @@
++    catch (error) { export_error = error instanceof Error ? error.message : String(error) }
++    finally {
++      try { if (started) await callbacks.on_export_end?.() }
++      catch (error) { export_error = error instanceof Error ? error.message : String(error) }
++      is_exporting = false
++    }
++  }
++  async function handle_3d_export(format: `glb` | `obj`, sink: DownloadCallback | undefined) {
++    if (!scene) throw new Error(`No scene available for export`)
++    if (format === `glb`) await exports.export_structure_as_glb(scene, structure, sink)
++    else await exports.export_structure_as_obj(scene, structure, sink)
+@@ -103,2 +132,2 @@
+-        disabled: !structure,
+-        on_download: () => structure && exports.export_structure_as(format, structure),
++        disabled: !structure || is_exporting,
++        on_download: () => save_export(sink => exports.export_structure_as(format, structure, sink)),
+@@ -113 +142 @@
+-          disabled: !has_canvas,
++          disabled: !has_canvas || is_exporting,
+@@ -117 +146 @@
+-            if (canvas) export_canvas_as_png(canvas, structure, png_dpi, scene, camera)
++            if (canvas) return save_export(sink => export_canvas_as_png(canvas, structure, png_dpi, scene, camera, sink))
+@@ -128,2 +157,2 @@
+-        disabled: !scene,
+-        on_download: () => handle_3d_export(format),
++        disabled: !scene || is_exporting,
++        on_download: () => save_export(sink => handle_3d_export(format, sink)),
+@@ -146 +175,4 @@
+-/>
++>
++  {#if export_error}<p role="status">{export_error}</p>{/if}
++  {#if is_exporting}<p role="status">Saving…</p>{/if}
++</ExportPane>
+diff -rN -U 0 a/dist/structure/StructureExportPane.svelte.d.ts b/dist/structure/StructureExportPane.svelte.d.ts
+--- a/dist/structure/StructureExportPane.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/structure/StructureExportPane.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
+@@ -0,0 +1 @@
++import type { DownloadCallback } from '../io/export';
+@@ -5,0 +7,4 @@
++    on_download?: DownloadCallback;
++    before_export?: () => Promise<void>;
++    on_export_start?: () => void | (() => void);
++    on_export_end?: () => void | Promise<void>;
+diff -rN -U 0 a/dist/structure/export.d.ts b/dist/structure/export.d.ts
+--- a/dist/structure/export.d.ts	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/structure/export.d.ts	2026-10-23 00:00:00.000000000 +0000
+@@ -1,0 +2 @@
++import type { DownloadCallback } from '../io/export';
+@@ -39,3 +40,3 @@
+-export declare function export_structure_as(fmt: StructTextFormat, structure?: AnyStructure): void;
+-export declare function export_structure_as_glb(scene: Scene | null, structure: AnyStructure | undefined): void;
+-export declare function export_structure_as_obj(scene: Scene | null, structure: AnyStructure | undefined): void;
++export declare function export_structure_as(fmt: StructTextFormat, structure?: AnyStructure, on_download?: DownloadCallback): Promise<void>;
++export declare function export_structure_as_glb(scene: Scene | null, structure: AnyStructure | undefined, on_download?: DownloadCallback): Promise<void>;
++export declare function export_structure_as_obj(scene: Scene | null, structure: AnyStructure | undefined, on_download?: DownloadCallback): Promise<void>;
+diff -rN -U 0 a/dist/structure/export.js b/dist/structure/export.js
+--- a/dist/structure/export.js	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/structure/export.js	2026-10-23 00:00:00.000000000 +0000
+@@ -611 +611 @@
+-export function export_structure_as(fmt, structure) {
++export async function export_structure_as(fmt, structure, on_download = download) {
+@@ -613,7 +613 @@
+-    try {
+-        const content = to_str(structure);
+-        download(content, create_structure_filename(structure, ext), mime);
+-    }
+-    catch (error) {
+-        console.error(`Failed to export ${fmt.toUpperCase()}:`, error);
+-    }
++    await on_download(to_str(structure), create_structure_filename(structure, ext), mime);
+@@ -621,28 +615,8 @@
+-// Export Three.js scene as GLB (binary GLTF) file
+-// GLB preserves materials and colors, making it ideal for element visualization
+-export function export_structure_as_glb(scene, structure) {
+-    try {
+-        if (!scene) {
+-            console.warn(`No scene available for GLB export`);
+-            return;
+-        }
+-        // Convert instanced meshes to regular meshes for export
+-        const export_scene = convert_instanced_meshes_to_regular(scene);
+-        const exporter = new GLTFExporter();
+-        const filename = create_structure_filename(structure, `glb`);
+-        // Export as binary GLB format
+-        exporter.parse(export_scene, (result) => {
+-            if (result instanceof ArrayBuffer) {
+-                const blob = new Blob([result], { type: `model/gltf-binary` });
+-                download(blob, filename, `model/gltf-binary`);
+-            }
+-            else {
+-                console.error(`GLB export returned unexpected format`);
+-            }
+-        }, (error) => {
+-            console.error(`GLB export failed:`, error);
+-        }, { binary: true });
+-    }
+-    catch (error) {
+-        console.error(`Error exporting GLB:`, error);
+-    }
++// Per-instance sinks are awaited. In particular, OBJ is not successful until its
++// companion material has been saved too; cancelling either save rejects.
++export async function export_structure_as_glb(scene, structure, on_download = download) {
++    if (!scene) throw new Error(`No scene available for GLB export`);
++    const export_scene = convert_instanced_meshes_to_regular(scene);
++    const result = await new GLTFExporter().parseAsync(export_scene, { binary: true });
++    if (!(result instanceof ArrayBuffer)) throw new Error(`GLB export returned unexpected format`);
++    await on_download(new Blob([result], { type: `model/gltf-binary` }), create_structure_filename(structure, `glb`), `model/gltf-binary`);
+@@ -650,28 +624,11 @@
+-// Export Three.js scene as OBJ (Wavefront Object) file with accompanying MTL file for materials
+-// OBJ exports geometry with material references, MTL contains color definitions
+-export function export_structure_as_obj(scene, structure) {
+-    try {
+-        if (!scene) {
+-            console.warn(`No scene available for OBJ export`);
+-            return;
+-        }
+-        // Convert instanced meshes to regular meshes for export
+-        const export_scene = convert_instanced_meshes_to_regular(scene);
+-        const obj_exporter = new OBJExporter();
+-        const base_filename = create_structure_filename(structure, ``).replace(/\.$/, ``);
+-        const obj_filename = `${base_filename}.obj`;
+-        const mtl_filename = `${base_filename}.mtl`;
+-        // Generate OBJ content with material library reference
+-        let obj_content = obj_exporter.parse(export_scene);
+-        // Add material library reference at the beginning of the OBJ file
+-        obj_content = `mtllib ${mtl_filename}\n${obj_content}`;
+-        // Generate MTL content with material color definitions
+-        const mtl_content = generate_mtl_content(export_scene);
+-        // Download both files
+-        const obj_blob = new Blob([obj_content], { type: `text/plain` });
+-        const mtl_blob = new Blob([mtl_content], { type: `text/plain` });
+-        download(obj_blob, obj_filename, `text/plain`);
+-        // Small delay to prevent some browsers from blocking rapid successive downloads as potential abuse.
+-        // A more robust solution might be to zip both files together.
+-        setTimeout(() => download(mtl_blob, mtl_filename, `text/plain`), 100);
+-    }
++export async function export_structure_as_obj(scene, structure, on_download = download) {
++    if (!scene) throw new Error(`No scene available for OBJ export`);
++    const export_scene = convert_instanced_meshes_to_regular(scene);
++    const base = create_structure_filename(structure, ``).replace(/\.$/, ``);
++    const mtl_filename = `${base}.mtl`;
++    const obj = `mtllib ${mtl_filename}\n${new OBJExporter().parse(export_scene)}`;
++    const mtl = generate_mtl_content(export_scene);
++    await on_download(new Blob([obj], { type: `text/plain` }), `${base}.obj`, `text/plain`);
++    // Preserve browser download pacing only for the original default sink.
++    if (on_download === download) await new Promise(resolve => setTimeout(resolve, 100));
++    try { await on_download(new Blob([mtl], { type: `text/plain` }), mtl_filename, `text/plain`); }
+@@ -679 +636,3 @@
+-        console.error(`Error exporting OBJ:`, error);
++        const partial = new Error(`OBJ saved, but companion MTL was not saved: ${error instanceof Error ? error.message : error}`, { cause: error });
++        partial.name = error instanceof Error ? error.name : `Error`;
++        throw partial;
+diff -rN -U 0 a/dist/structure/index.d.ts b/dist/structure/index.d.ts
+--- a/dist/structure/index.d.ts	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/structure/index.d.ts	2026-10-23 00:00:00.000000000 +0000
+@@ -112 +112 @@
+-export declare const VECTOR_KEY_PREFIXES: readonly ["force", "forces", "magmom", "magmoms", "spin", "spins"];
++export declare const VECTOR_KEY_PREFIXES: readonly ["force", "forces", "magmom", "magmoms", "spin", "spins", "displacement"];
+diff -rN -U 0 a/dist/structure/index.js b/dist/structure/index.js
+--- a/dist/structure/index.js	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/structure/index.js	2026-10-23 00:00:00.000000000 +0000
+@@ -110,0 +111 @@
++    `displacement`,
+diff -rN -U 0 a/dist/trajectory/Trajectory.svelte b/dist/trajectory/Trajectory.svelte
+--- a/dist/trajectory/Trajectory.svelte	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/trajectory/Trajectory.svelte	2026-10-23 00:00:00.000000000 +0000
+@@ -1,0 +2 @@
++  import type { DownloadCallback } from '../io/export'
+@@ -23 +24,2 @@
+-  import { onMount, untrack } from 'svelte'
++  import { onMount, onDestroy, tick, untrack } from 'svelte'
++  import { renderer_registry, scene_registry } from '../io/export'
+@@ -82,0 +85 @@
++    on_download = undefined,
+@@ -126 +129,2 @@
+-      trajectory?: TrajectoryType
++      on_download?: DownloadCallback
++    trajectory?: TrajectoryType
+@@ -267,0 +272,4 @@
++  // Track the publication boundary independently of Svelte's proxy identity:
++  // caches hold raw frames, while $state exposes the displayed frame as a proxy.
++  let displayed_frame_owner: TrajectoryType | undefined
++  let displayed_frame_idx = -1
+@@ -286,0 +295,2 @@
++        displayed_frame_owner = trajectory
++        displayed_frame_idx = current_step_idx
+@@ -404,0 +415,2 @@
++      displayed_frame_owner = load_trajectory
++      displayed_frame_idx = frame_idx
+@@ -412,0 +425,2 @@
++      displayed_frame_owner = load_trajectory
++      displayed_frame_idx = frame_idx
+@@ -473,0 +488,2 @@
++      displayed_frame_owner = load_trajectory
++      displayed_frame_idx = frame_idx
+@@ -687,0 +704,63 @@
++  let export_snapshot = $state.raw<{
++    owner: TrajectoryType; index: number; playing: boolean
++    canvas?: HTMLCanvasElement; camera?: import('three').Camera; pose?: import('three').Camera
++  } | undefined>()
++  let disposed = false
++  onDestroy(() => { disposed = true })
++  function begin_export() {
++    if (!trajectory || export_snapshot) throw new Error(`Trajectory export is already active`)
++    const canvas = wrapper?.querySelector(`canvas`) ?? undefined
++    const camera = canvas && scene_registry.get(canvas)?.camera
++    const snapshot = { owner: trajectory, index: current_step_idx, playing: is_playing, canvas, camera, pose: camera?.clone() }
++    export_snapshot = snapshot
++    pause_playback()
++    return () => {
++      if (disposed || trajectory !== snapshot.owner || export_snapshot !== snapshot)
++        throw new DOMException(`Export transaction was interrupted`, `AbortError`)
++    }
++  }
++  // Await the requested data, not a guessed number of animation frames. tick then
++  // flushes Structure's geometry effects before the registered renderer captures it.
++  async function go_to_export_step(idx: number) {
++    const snapshot = export_snapshot
++    const owner = snapshot?.owner ?? trajectory
++    const assert_owner = () => {
++      if (disposed || !owner || trajectory !== owner || export_snapshot !== snapshot)
++        throw new DOMException(`Export interrupted by a changed trajectory`, `AbortError`)
++    }
++    assert_owner()
++    go_to_step(idx)
++    await tick()
++    assert_owner()
++    clear_frame_load_timeout()
++    if (owner?.frame_loader) await load_frame_on_demand(idx)
++    assert_owner()
++    await tick()
++    const ready_frame = current_frame
++    const assert_ready = () => {
++      assert_owner()
++      if (current_step_idx !== idx || !ready_frame || current_frame !== ready_frame ||
++          displayed_frame_owner !== owner || displayed_frame_idx !== idx)
++        throw new DOMException(`Requested export frame is no longer available`, `AbortError`)
++    }
++    assert_ready()
++    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
++    assert_ready()
++    const canvas = wrapper?.querySelector(`canvas`)
++    const registered = canvas && scene_registry.get(canvas)
++    const renderer = canvas && renderer_registry.get(canvas)
++    if (renderer && registered) renderer.render(registered.scene, registered.camera)
++    assert_ready()
++  }
++  async function finish_export() {
++    const snapshot = export_snapshot
++    try {
++      if (!snapshot || disposed || trajectory !== snapshot.owner) return
++      await go_to_export_step(snapshot.index)
++      if (disposed || export_snapshot !== snapshot || trajectory !== snapshot.owner || current_step_idx !== snapshot.index ||
++          !current_frame || displayed_frame_owner !== snapshot.owner || displayed_frame_idx !== snapshot.index) return
++      if (snapshot.camera && snapshot.pose) snapshot.camera.copy(snapshot.pose, false)
++      if (!disposed && export_snapshot === snapshot && trajectory === snapshot.owner && snapshot.playing) start_playback()
++    } finally { if (export_snapshot === snapshot) export_snapshot = undefined }
++  }
++
+@@ -1015,0 +1095 @@
++    if (export_snapshot) return false
+@@ -1187 +1267 @@
+-                disabled={current_step_idx === 0 || is_playing}
++                disabled={!!export_snapshot || current_step_idx === 0 || is_playing}
+@@ -1194 +1274 @@
+-                disabled={total_frames <= 1}
++                disabled={!!export_snapshot || total_frames <= 1}
+@@ -1205 +1285 @@
+-                disabled={current_step_idx === total_frames - 1 || is_playing}
++                disabled={!!export_snapshot || current_step_idx === total_frames - 1 || is_playing}
+@@ -1219,0 +1300 @@
++                disabled={!!export_snapshot}
+@@ -1233 +1314,2 @@
+-                  bind:value={current_step_idx}
++                  disabled={!!export_snapshot}
++                bind:value={current_step_idx}
+@@ -1302 +1384,4 @@
+-                on_step_change={go_to_step}
++                on_download={on_download}
++                on_export_start={begin_export}
++                on_export_end={finish_export}
++                on_step_change={go_to_export_step}
+@@ -1364,0 +1450 @@
++      inert={!!export_snapshot}
+@@ -1374,0 +1461,3 @@
++          before_export={() => go_to_export_step(current_step_idx)}
++          on_export_start={begin_export}
++          on_export_end={finish_export}
+@@ -1377,0 +1467 @@
++            on_download,
+diff -rN -U 0 a/dist/trajectory/Trajectory.svelte.d.ts b/dist/trajectory/Trajectory.svelte.d.ts
+--- a/dist/trajectory/Trajectory.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/trajectory/Trajectory.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
+@@ -0,0 +1 @@
++import type { DownloadCallback } from '../io/export';
+@@ -30,0 +32 @@
++    on_download?: DownloadCallback;
+diff -rN -U 0 a/dist/trajectory/TrajectoryExportPane.svelte b/dist/trajectory/TrajectoryExportPane.svelte
+--- a/dist/trajectory/TrajectoryExportPane.svelte	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/trajectory/TrajectoryExportPane.svelte	2026-10-23 00:00:00.000000000 +0000
+@@ -1,0 +2,2 @@
++  import { onDestroy } from 'svelte'
++  import type { DownloadCallback } from '../io/export'
+@@ -16,0 +19,3 @@
++    on_download = undefined,
++    on_export_start = undefined,
++    on_export_end = undefined,
+@@ -30,0 +36,3 @@
++    on_download?: DownloadCallback
++    on_export_start?: () => void | (() => void)
++    on_export_end?: () => void | Promise<void>
+@@ -45,0 +54,6 @@
++  let export_controller: AbortController | undefined
++  onDestroy(() => export_controller?.abort())
++  $effect(() => {
++    trajectory
++    return () => export_controller?.abort()
++  })
+@@ -89,0 +104 @@
++    if (is_exporting) return
+@@ -105,0 +121,5 @@
++    const first_frame = start_frame
++    const frame_count = export_frame_count
++    export_controller = new AbortController()
++    const callbacks = { on_download, on_step_change, on_export_start, on_export_end }
++    let started = false
+@@ -106,0 +127,2 @@
++      const guard = callbacks.on_export_start?.()
++      started = true
+@@ -107,0 +130,6 @@
++        on_download: callbacks.on_download && (async (data, name, mime) => {
++          if (typeof guard === `function`) guard()
++          await callbacks.on_download!(data, name, mime)
++          if (typeof guard === `function`) guard()
++        }),
++        signal: export_controller.signal,
+@@ -109 +137 @@
+-        total_frames: export_frame_count,
++        total_frames: frame_count,
+@@ -112 +140,5 @@
+-        on_step: async (idx) => await on_step_change(start_frame + idx),
++        on_step: async (idx) => {
++          if (typeof guard === `function`) guard()
++          await callbacks.on_step_change!(first_frame + idx)
++          if (typeof guard === `function`) guard()
++        },
+@@ -127 +158,0 @@
+-      console.error(`Export failed:`, error)
+@@ -130,0 +162,4 @@
++    } finally {
++      try { if (started) await callbacks.on_export_end?.() }
++      catch (error) { export_error = to_error(error).message; is_exporting = false; export_progress = 0 }
++      export_controller = undefined
+@@ -238 +273 @@
+-      {#each [{ label: `WebM`, format: `webm`, hint: `Export as WebM video` }, { label: `MP4`, format: `mp4`, hint: `WebM + ffmpeg command` }] as const as { label, format, hint } (format)}
++      {#each [{ label: `WebM`, format: `webm`, hint: `Export as WebM video` }, { label: `MP4`, format: `mp4`, hint: `WebM + ffmpeg command` }].filter(item => !on_download || item.format === `webm`) as { label, format, hint } (format)}
+@@ -243,2 +278,3 @@
+-            onclick={() => handle_video_export(format)}
+-            disabled={is_exporting || !trajectory || !has_canvas}
++            aria-label={`Download ${label}`}
++            onclick={() => handle_video_export(format as `webm` | `mp4`)}
++            disabled={!is_video_supported || is_exporting || !trajectory || !has_canvas}
+diff -rN -U 0 a/dist/trajectory/TrajectoryExportPane.svelte.d.ts b/dist/trajectory/TrajectoryExportPane.svelte.d.ts
+--- a/dist/trajectory/TrajectoryExportPane.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
++++ b/dist/trajectory/TrajectoryExportPane.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
+@@ -0,0 +1 @@
++import type { DownloadCallback } from '../io/export';
+@@ -4,0 +6,3 @@
++    on_download?: DownloadCallback;
++    on_export_start?: () => void | (() => void);
++    on_export_end?: () => void | Promise<void>;
+diff -rN -U 0 a/package.json b/package.json
+--- a/package.json	2026-10-23 00:00:00.000000000 +0000
++++ b/package.json	2026-10-23 00:00:00.000000000 +0000
+@@ -3 +3 @@
+-  "version": "0.4.2-multiwfn.d8719d12.r25.freq1",
++  "version": "0.4.2-multiwfn.d8719d12.r25.freq2",

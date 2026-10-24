@@ -11,7 +11,9 @@ frequency results exported as cclib CJSON. It uses MatterViz's native trajectory
 renderer and starts paused. See [frequency viewing](../../docs/frequency-viewer.md)
 for conversion, supported inputs and displacement conventions.
 
-The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq1.tgz`.
+The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq2.tgz`.
+The freq2 layer restores ordered files, displacement arrows and per-view native
+export saving on top of freq1. Its patch/archive replay is tested independently.
 The [frequency camera patch](../../docs/frequency-viewer.md#camera-compatibility-patch)
 extends `r25.reps2` with the upstream series-identity contract. Reps2's
 reviewable color patch extends the retained `r25.reps1` archive, preserving the

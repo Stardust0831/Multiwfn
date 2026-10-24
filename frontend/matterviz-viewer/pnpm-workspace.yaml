@@ -2,3 +2,4 @@ allowBuilds:
   core-js: false
   matterviz: true
   matterviz@0.4.2-multiwfn.d8719d12.r25.workbench1: false
+  matterviz@file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq2.tgz: false

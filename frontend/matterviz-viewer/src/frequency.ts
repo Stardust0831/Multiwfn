@@ -107,10 +107,13 @@ export function frequency_trajectory(data: FrequencyData, modeIndex: number, amp
     return {
       structure: {
         ...data.structure,
-        sites: data.structure.sites.map((site, atom) => ({
-          ...site,
-          xyz: site.xyz.map((coordinate, axis) => coordinate + excursion * (mode.displacement[atom][axis] / extent)) as Vec3,
-        })),
+        sites: data.structure.sites.map((site, atom) => {
+          const xyz = site.xyz.map((coordinate, axis) => coordinate + excursion * (mode.displacement[atom][axis] / extent)) as Vec3
+          // Use the exact floating-point shift applied to coordinates, not a force or
+          // mass-weighted proxy. No per-frame recentering changes these vectors.
+          const displacement = xyz.map((coordinate, axis) => coordinate - site.xyz[axis]) as Vec3
+          return { ...site, xyz, properties: { ...site.properties, displacement } }
+        }),
       },
       step: index,
     }
