@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, type Component } from 'svelte'
   import { FolderOpen, FileCode2, FileText, Play, Square, Check, Terminal, Cpu, SlidersHorizontal, FilePlus2 } from '@lucide/svelte'
   import WorkflowBuilder from './WorkflowBuilder.svelte'
   import WorkflowInputs from './WorkflowInputs.svelte'
@@ -31,6 +31,14 @@
   let inspectGeneration = 0
   let nativePreview = false
   let builderOpen = false
+  let frequencyOpen = false
+  let FrequencyViewer: Component<{ onclose: () => void }> | undefined
+  const openFrequencies = async (): Promise<void> => {
+    try {
+      FrequencyViewer ??= (await import('./FrequencyViewer.svelte')).default
+      if (!destroyed) frequencyOpen = true
+    } catch (reason) { show_error(reason) }
+  }
   const built = async (next: WorkflowStatus): Promise<void> => { builderOpen = false; apply(next); activeTab = 'settings'; await preview(next.selectedScript ?? '') }
   let inspectTimer: ReturnType<typeof setTimeout> | undefined
   const inspect = async (): Promise<void> => {
@@ -215,9 +223,11 @@
 
   {#if inputModal}<WorkflowInputs initial={status?.inputSet ?? {files:[],roots:[]}} script={selected} {parameters} {bindings} variables={variables.split(/\r?\n/).map(s => s.trim()).filter(Boolean)} onclose={() => { inputModal = false }} onselected={next => void selectedInputs(next)} />{/if}
   {#if builderOpen}<WorkflowBuilder onclose={() => { builderOpen = false }} onsaved={next => void built(next)} />{/if}
+  {#if frequencyOpen && FrequencyViewer}<svelte:component this={FrequencyViewer} onclose={() => { frequencyOpen = false }}/>{/if}
   <main class="workflow-panel" aria-labelledby="workflow-heading">
     <header class="workflow-header">
       <div class="workflow-title"><img class="workflow-mark" src={banewfnIcon} alt="" /><h2 id="workflow-heading">BaneWfn</h2></div>
+      <button type="button" onclick={openFrequencies}>{$t('Vibrational modes')}</button>
       <button type="button" onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>{$locale === 'zh' ? 'English' : '中文'}</button>
     </header>
     {#if error}<p class="workflow-error workflow-banner" role="alert">{$t(error)}</p>{/if}

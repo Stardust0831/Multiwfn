@@ -95,6 +95,20 @@ jobs:
           pnpm check
           VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build
 
+      - name: Test frequency viewer interactions
+        working-directory: frontend/matterviz-viewer
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm test:frequency
+
+      - name: Upload frequency viewer failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frequency-viewer-browser
+          path: /tmp/multiwfn-frequency-browser
+          if-no-files-found: ignore
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
