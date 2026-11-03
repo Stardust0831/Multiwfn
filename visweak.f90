@@ -545,7 +545,7 @@ do k=1,nz
                 else
                     !Store density and gradient to "rhogrid" and "gradgrid", which will be passed into IGMgrad_Hirsh, thus avoiding recalculate them later
                     !This treatment is not applied to IGM, because it is quite cheap and often employed for quite large system, this strategy will double memory consuming
-                    call signlambda2rho_RDG(tmpx,tmpy,tmpz,sl2r(i,j,k),RDG,rhogrid(i,j,k),gradgrid(:,i,j,k))
+                    call signlambda2rho_IRI_RDG(1,tmpx,tmpy,tmpz,sl2r(i,j,k),RDG,rhogrid(i,j,k),gradgrid(:,i,j,k))
                 end if
 			else !sign(lambda2)rho based on promolecular density
 				sl2r(i,j,k)=signlambda2rho_prodens(tmpx,tmpy,tmpz)

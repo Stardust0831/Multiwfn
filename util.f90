@@ -2488,8 +2488,8 @@ end if
 end subroutine
 
 
-!Determine if the real space function currently to be studied (ifuncsel) involve ESP, and thus should call doinitlibreta first
-!If should do, ifdoESP=.true., else ifdoESP=.false.
+!Determine if the real space function currently to be studied (ifuncsel) involves ESP, and thus should call doinitlibreta first
+!If should do, return .true., else return .false.
 logical function ifdoESP(ifuncsel)
 use defvar
 integer ifuncsel
@@ -2843,6 +2843,23 @@ if (isys==1) then
     call system(""""//cmd//"""")
 else
     call system(cmd)
+end if
+end subroutine
+!--------- Run system command by inputting command string, Fortran 2008 standard, with running status detection
+subroutine runsys(cmdrun)
+character(len=*) cmdrun
+write(*,"(a)") " Running: "//trim(cmdrun)
+if (isys==1) then
+	call execute_command_line(""""//cmdrun//"""",exitstat=iexit_code,cmdstat=icmd_status)
+else
+	call execute_command_line(cmdrun,exitstat=iexit_code,cmdstat=icmd_status)
+end if
+if (iexit_code/=0.or.icmd_status/=0) then
+    write(*,*) "Failed! Press ENTER button to exit program"
+    read(*,*)
+    stop
+!else
+!    write(*,*) "Successed!"
 end if
 end subroutine
 

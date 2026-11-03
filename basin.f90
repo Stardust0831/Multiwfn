@@ -1705,7 +1705,12 @@ else if (igridsel==9) then
 		end if
 	end do
 else if (igridsel==10) then
+	ishowdatarangeold=ishowdatarange !setboxGUI will set ishowdatarange=1
+	iorthoviewold=iorthoview
+	iorthoview=1 !Use orthographic view for more conveniently determining box
 	call setboxGUI
+    iorthoview=iorthoviewold
+    ishowdatarange=ishowdatarangeold
 else if (igridsel==11) then
 	call setgrid_for_PBC(0.1D0,0)
 end if

@@ -3070,13 +3070,14 @@ end subroutine
 !!------- Calculate sign(lambda2)*rho, this is a wrapper used to convert subroutine to function form
 real*8 function signlambda2rho(x,y,z)
 real*8 x,y,z,sl2r,RDG,rho
-call signlambda2rho_RDG(x,y,z,sl2r,RDG)
+call signlambda2rho_IRI_RDG(1,x,y,z,sl2r,RDG)
 signlambda2rho=sl2r
 end function
-!!------- Calculate sign(lambda2)*rho and RDG at the same time. rho and grad can also be returned if present
-subroutine signlambda2rho_RDG(x,y,z,sl2r,RDG,rho,grad)
+!!------- Calculate sign(lambda2)*rho and RDG(itype=1) or IRI(itype=2) at the same time. rho and grad can also be returned if present
+subroutine signlambda2rho_IRI_RDG(itype,x,y,z,sl2r,value,rho,grad)
 use util
-real*8 x,y,z,elerho,sl2r,RDG
+integer itype
+real*8 x,y,z,elerho,sl2r,value
 real*8 eigvecmat(3,3),eigval(3),elehess(3,3),elegrad(3) !Hessian of electron density
 real*8,optional :: rho,grad(3)
 
@@ -3089,13 +3090,23 @@ else
 	sl2r=elerho*eigval(2)/abs(eigval(2))
 end if
 sumgrad2=sum(elegrad(:)**2)
-if (RDG_maxrho/=0D0.and.elerho>=RDG_maxrho) then
-	RDG=100D0
-!This occurs at distant region when exponent cutoff is used, the actual value should be very large. In order to avoid denominator become zero, we set it artifically to a big value
-else if (sumgrad2==0D0.or.elerho==0D0) then
-	RDG=999D0
-else
-	RDG=0.161620459673995D0*dsqrt(sumgrad2)/elerho**(4D0/3D0) !0.161620459673995D0=1/(2*(3*pi**2)**(1/3))
+if (itype==1) then !RDG
+	if (RDG_maxrho/=0D0.and.elerho>=RDG_maxrho) then
+		value=100D0
+	!This occurs at distant region when exponent cutoff is used, the actual value should be very large. In order to avoid denominator becoming zero, we set it artifically to a big value
+	else if (sumgrad2==0D0.or.elerho==0D0) then
+		value=999D0
+	else
+		value=0.161620459673995D0*dsqrt(sumgrad2)/elerho**(4D0/3D0) !0.161620459673995D0=1/(2*(3*pi**2)**(1/3))
+	end if
+else if (itype==2) then !IRI
+	if (sumgrad2==0D0.or.elerho==0D0) then
+		value=999D0
+    else
+		cfac=1
+		afac=1.1D0
+		value=cfac*dsqrt(sumgrad2)/elerho**afac
+    end if
 end if
 if (present(rho)) rho=elerho
 if (present(grad)) grad=elegrad

@@ -968,7 +968,7 @@ end subroutine
 
 
 
-!!----------------- A GUI for illustrate the domain defined by isosurface that to be integrated
+!!----------------- GUI for illustrating the domains defined by isosurfaces
 !Adapted from drawbasinintgui
 subroutine drawdomaingui
 character ictmp*4,domainlist*50000 !max 9999 domainlist (the 0th is "none"), each one take up 4 characters, adding "|",so 10000*(4+1)=50000
@@ -1016,12 +1016,15 @@ call wgpbut(idisright,"Save picture",idissavepic)
 call wgbut(idisright,"Show molecule",idrawmol,idisshowmol)
 call wgbut(idisright,"Show axis",ishowaxis,idisshowaxis)
 call wgbut(idisright,"Atom labels",ishowatmlab,idisshowatmlab)
+call wgbut(idisright,"Domain center",idrawdomaincenter,idisshowdomaincenter)
 CALL WGPOP(idiswindow,"Other settings",idisotherset)
 CALL wgapp(idisotherset,"Toggle showing cell frame",idisshowcell)
 if (ifPBC==0) call swgatt(idisshowcell,"INACTIVE","STATUS")
 CALL wgapp(idisotherset,"Toggle showing all boundary atoms",idisshowboundaryatom)
 if (ifPBC==0) call swgatt(idisshowboundaryatom,"INACTIVE","STATUS")
 CALL wgapp(idisotherset,"Load bonding connectivity from mol/mol2 file",idisloadconn)
+call SWGSTP(2D0)
+call wgscl(idisright,"Size of labels",0D0,80D0,textheigh,0,idislabelsize)
 CALL SWGSPC(1D0,0D0)
 call SWGSTP(0.1D0)
 call wgscl(idisright,"Ratio of atomic size",0D0,5D0,ratioatmsphere,2,idisatmsize)
@@ -1059,6 +1062,8 @@ call SWGCBK(idissavepic,savepic)
 call SWGCBK(idisshowmol,setshowmolstruct)
 call SWGCBK(idisshowaxis,ifshowaxis)
 call SWGCBK(idisshowatmlab,ifshowatmlabel)
+call SWGCBK(idislabelsize,setlabelsize)
+call SWGCBK(idisshowdomaincenter,ifdrawdomaincenter)
 call SWGCBK(idisatmsize,setatmsize)
 call SWGCBK(idisbondradius,setbondradius)
 call SWGCBK(idisdomainplot,showdomainsel)
@@ -1096,6 +1101,7 @@ CALL WGPOP(idiswindow,"Set perspective",idissetpersp)
 CALL wgapp(idissetpersp,"Set rotation angle",idissetangle)
 CALL wgapp(idissetpersp,"Set zoom distance",idissetzoom)
 CALL wgapp(idissetpersp,"Toggle between perspective and orthographic views",idisortho)
+CALL wgapp(idissetpersp,"Set focus length of perspective mode",idissetVANG3D)
 CALL WGDRAW(idiswindow,idisgraph) !Draw-widget to display molecular structure
 CALL SWGWTH(20) !Set parent widget width
 CALL WGBAS(idiswindow,"VERT",idisright)
@@ -1161,7 +1167,7 @@ call wgscl(idisright,"Z length (Bohr)",0D0,(zmax-zmin)+2*8,boxlenZ,2,idisboxsize
 call wgscl(idisright,"X center (Bohr)",minval(a%x),maxval(a%x),boxcenX,2,idisboxposX)
 call wgscl(idisright,"Y center (Bohr)",minval(a%y),maxval(a%y),boxcenY,2,idisboxposY)
 call wgscl(idisright,"Z center (Bohr)",minval(a%z),maxval(a%z),boxcenZ,2,idisboxposZ)
-call swgstp(0.02D0)
+call swgstp(0.01D0)
 call wgscl(idisright,"Grid spacing (Bohr)",0.05D0,1.5D0,dx,2,idisboxspc)
 ngrid=nx*ny*nz
 write(ngridstr,"(i11)") ngrid
@@ -1172,6 +1178,7 @@ call SWGCBK(idisgraph,mouse_rotate) !Make system rotatable by dragging mouse
 call SWGCBK(idissetangle,setviewangle)
 call SWGCBK(idissetzoom,setzoom)
 call SWGCBK(idisortho,setorthoview)
+call SWGCBK(idissetVANG3D,setVANG3D)
 if (imodlayout<=1) call SWGCBK(idisreturn,GUIreturn)
 call SWGCBK(idisrotleft,rotleft)
 call SWGCBK(idisrotright,rotright)
@@ -1509,6 +1516,14 @@ integer,intent (in) :: id
 call GWGBUT(id,istat)
 if (istat==0) ishowatmlab=0
 if (istat==1) ishowatmlab=1
+call drawmol
+end subroutine
+
+subroutine ifdrawdomaincenter(id)
+integer,intent (in) :: id
+call GWGBUT(id,istat)
+if (istat==0) idrawdomaincenter=0
+if (istat==1) idrawdomaincenter=1
 call drawmol
 end subroutine
 

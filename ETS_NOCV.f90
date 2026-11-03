@@ -567,9 +567,9 @@ do while(.true.)
         deallocate(cubmat)
         
     else if (isel==3.or.isel==4.or.isel==5.or.isel==8.or.isel==9.or.isel==10) then !Show or export Pauli/orbital deform./total deform. density
-        !isel=3/8: Pauli EDD,     namely rho(frz) - rho(pro)
+        !isel=3/8: Pauli EDD, namely rho(frz) - rho(pro)
         !isel=4/9: Orb. def. EDD, namely rho(complex) - rho(frz)
-        !isel=5/10: Total EDD,     namely rho(complex) - rho(pro)
+        !isel=5/10: Total EDD, namely rho(complex) - rho(pro)
         !
         if (iopsh==0) then !Set occupancy to MO case
             MOocc=occfrag
@@ -581,7 +581,9 @@ do while(.true.)
 	 	allocate(cubmat(nx,ny,nz))
         !Calculate rho(pro)
         if (isel==3.or.isel==5.or.isel==8.or.isel==10) then
-            if (allocated(rho_pro).and.size(rho_pro,1)==nx.and.size(rho_pro,2)==ny.and.size(rho_pro,3)==nz) then
+            lsizeok=.false.
+            if (allocated(rho_pro)) lsizeok=(size(rho_pro,1)==nx.and.size(rho_pro,2)==ny.and.size(rho_pro,3)==nz)
+            if (lsizeok) then
                 continue !Do not need to recompute
             else
                 if (iopsh==0) then
@@ -602,7 +604,9 @@ do while(.true.)
         end if
         !Calculate rho(frz)
         if (isel==3.or.isel==4.or.isel==8.or.isel==9) then
-            if (allocated(rho_frz).and.size(rho_frz,1)==nx.and.size(rho_frz,2)==ny.and.size(rho_frz,3)==nz) then
+            lsizeok=.false.
+            if (allocated(rho_frz)) lsizeok=(size(rho_frz,1)==nx.and.size(rho_frz,2)==ny.and.size(rho_frz,3)==nz)
+            if (lsizeok) then
                 continue !Do not need to recompute
             else
                 if (iopsh==0) then
@@ -623,7 +627,9 @@ do while(.true.)
         end if
         !Calculate rho(complex)
         if (isel==4.or.isel==5.or.isel==9.or.isel==10) then
-            if (allocated(rho_complex).and.size(rho_complex,1)==nx.and.size(rho_complex,2)==ny.and.size(rho_complex,3)==nz) then
+            lsizeok=.false.
+            if (allocated(rho_complex)) lsizeok=(size(rho_complex,1)==nx.and.size(rho_complex,2)==ny.and.size(rho_complex,3)==nz)
+            if (lsizeok) then
                 continue !Do not need to recompute
             else
                 if (iopsh==0) then

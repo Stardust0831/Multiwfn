@@ -1036,7 +1036,7 @@ subroutine genMultipolebas_curr
 use defvar
 real*8,allocatable :: mattmp(:,:,:)
 if (allocated(Dbas)) deallocate(Dbas)
-allocate(Dbas(6,nbasisCar,nbasisCar))
+allocate(Dbas(3,nbasisCar,nbasisCar))
 if (allocated(Quadbas)) deallocate(Quadbas)
 allocate(Quadbas(6,nbasisCar,nbasisCar))
 if (allocated(Octobas)) deallocate(Octobas)

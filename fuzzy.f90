@@ -504,7 +504,9 @@ else if (isel==3.or.isel==33.or.isel==4.or.isel==44.or.isel==5.or.isel==6.or.ise
 		call str2arr(c2000tmp,nDIfrag2,DIfrag2)
     end if
 	!Allocate space for AOM
-	if ((isel==9.or.isel==10).and.allocated(AOM).and.size(AOM,1)==nmo) then !The AOM calculated for FLU/PDI is smaller than nmo, since virtual orbitals are not taken into account
+	lsizeok=.false.
+	if (allocated(AOM)) lsizeok=(size(AOM,1)==nmo)
+	if ((isel==9.or.isel==10).and.lsizeok) then !The AOM calculated for FLU/PDI is smaller than nmo, since virtual orbitals are not taken into account
 		goto 10
 	else if ((isel==5.or.isel==6.or.isel==7).and.(allocated(AOM))) then !Do not calculate AOM again. If AOM is calculated for PLR, the AOM is also applicable since it is more than necessary
 		write(*,*) "Note: AOM has already been generated before, so skipping its calculation"

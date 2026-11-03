@@ -47,7 +47,8 @@ real*8,allocatable :: distmat(:,:) !Distance matrix, in Bohr
 character filename*200,firstfilename*200 !firstfilename is the filename loaded when Multiwfn boots up or in option -11 of main menu
 character extctrsetting*80 !cmdarg is the parameter of booting multiwfn
 character,allocatable :: custommapname(:)*200,customop(:) !Custom operation for custom map/cube file
-logical alive
+logical alive !Temporarily used for logical determination
+logical lsizeok !Temporarily test if an array has already been allocated with expected size
 integer :: ifragcontri=0 !=1 means fragment has been defined by users
 integer :: nfragatm=0,nfragatm_org=0 !Number of elements of fragatm and fragatm_org
 integer,allocatable :: fragatm(:),fragatm_org(:) !Store the index of atoms in fragment, used in various routines like setpromol. has no relationship with frag1/frag2. fragatm_org is used to backup fragatm during custom operation
@@ -377,6 +378,12 @@ integer iROAtype !Type of ROA spectrum
 integer iUVdir !Type of Directions of UV-Vis
 real*8 UVdirvec(3) !Direction of oscillating electric field when iUVdir=7
 integer :: istrtype=0 !Strength type. Avoid selecting the type every time when loading multiple files
+!---------- Used for domain analysis and plotting
+integer :: idrawdomainidx=0,idrawdomain=0,idrawdomaincenter=0,ndomain=0
+real*8,allocatable :: gridxyz(:,:) !XYZ coordinate of grids satisfying specific criterion
+integer,allocatable :: domainsize(:) !The number of grids contained in each domain
+integer,allocatable :: domaingrid(:,:) !The grid indices contained in each domain
+real*8,allocatable :: domainxyz(:,:) !domainxyz(1:3,numatt). XYZ coordinate of representative point of domain
 
 
 !!!!!!!!!!!!!!!!!!!!!! Parameter !!!!!!!!!!!!!!!!!!!!!!
@@ -388,6 +395,7 @@ integer idisshowatmlab,idisshowaxis,idisbondradius,idislabelsize,idisbondcrit,id
 integer idisshowattlab,idisdrawinternalbasin,idisattsize !Draw basin GUI
 integer idisshow3n3,idisshow3n1,idisshow3p1,idisshow3p3,idisshowCPlab,idisshowpath,idisshowbassurf
 integer idisshowlocminlab,idisshowlocmaxlab,idisshowlocminpos,idisshowlocmaxpos !For molecular surface analysis
+integer idisshowdomaincenter
 !For setting isosurface style, colors
 integer idisisosur1style,idisisosur1solid,idisisosur1mesh,idisisosur1point,idisisosur1solidmesh,idisisosur1tpr,idisisosur1opa
 integer idisisosur2style,idisisosur2solid,idisisosur2mesh,idisisosur2point,idisisosur2solidmesh,idisisosur2tpr,idisisosur2opa
@@ -457,11 +465,6 @@ integer :: ishow3n3=0,ishow3n1=0,ishow3p1=0,ishow3p3=0
 real*8 :: bondcrit=1.15D0,textheigh=38D0,ratioatmsphere=1D0,ratioCPsphere=1D0,bondradius=0.2D0,attsphsize=0.1D0
 real*8 :: XVU=150D0,YVU=30D0,ZVU=6D0,XFAC=1D0,VANG3DANG=28D0,XFOC=0D0,YFOC=0D0,ZFOC=0D0,camrotang=0D0 !3D view angle, they are all default value of DISLIN
 integer :: iorthoview=0 !=0: Perspective, =1: Orthographic projection in 3D view
-!Parameter for drawing domain defined by isosurfaces as grids
-integer :: idrawdomainidx=0,idrawdomain=0,ndomain=0
-real*8,allocatable :: gridxyz(:,:) !XYZ coordinate of grid that statisfied criterion
-integer,allocatable :: domainsize(:) !The number of grids contained in each domain
-integer,allocatable :: domaingrid(:,:) !The grid indices contained in each domain
 !For passing ploting parameter from GUI routine to their call-back routine
 !sur_value: The value of isosurface will be plotted by drawmol routine when idrawisosur=1 as well as drawisosurgui. sur_value_orb is specific for orbital isovalue
 real*8 :: dp_init1,dp_end1,dp_init2,dp_end2,dp_init3,dp_end3,sur_value=0.05D0,sur_value_orb=0.05D0

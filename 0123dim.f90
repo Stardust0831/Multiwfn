@@ -2437,6 +2437,7 @@ if (igridsel==100) then !Calculate value on a set of points loaded from external
 	if (allocated(extpttmp)) deallocate(extpttmp)
 	if (ncustommap/=0) allocate(extpttmp(numextpt)) !!! temp file for difference cube
 	if (ifuncsel/=4) call delvirorb(1) !Delete high-lying virtual orbitals for faster calculation
+    if (ifdoESP(ifuncsel).and.(iESPcode==2.or.iESPcode==3)) call doinitlibreta(1)
 	icustom=0
 	extpt(:,4)=0D0
 	

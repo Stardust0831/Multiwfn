@@ -112,36 +112,38 @@ include "ean_data2.h"
         real*8,intent(in) :: C(3)
         real*8,intent(out) :: theta(:)        
         type(eanvrrargs) :: vrrargs
-        real*8,allocatable :: vrrbuffer(:,:)
+        real*8 :: vrrbuffer(args%KAB,CTRSize(args%idxLAB))   !wasm port: automatic array instead of allocate/deallocate per call
         real*8,parameter :: ZeroTol = 1.E-7
-        integer :: KAB,idxLAB,i,ctrsz,vrrL0s,vrrL0e
+        integer :: KAB,idxLAB,i,j,ctrsz,vrrL0s,vrrL0e
         ! ================================================        
         KAB = args%KAB
         idxLAB = args%idxLAB
         ctrsz = CTRSize(idxLAB)
-        allocate(vrrbuffer(KAB,ctrsz))
         vrrL0s = VRRL0Start(idxLAB)
         vrrL0e = vrrL0s+ctrsz-1
         ! VRR: [0,0]^{LA+LB} -> [LA+LB,0]^{0}
         do i = 1,KAB
             if (args%maxD(i) > ZeroTol) then
-                vrrargs%PC = args%centerP(:,i)-C
-                vrrargs%pRPC2 = args%p(i)*dot_product(vrrargs%PC, vrrargs%PC)
+                vrrargs%PC(1) = args%centerP(1,i)-C(1); vrrargs%PC(2) = args%centerP(2,i)-C(2); vrrargs%PC(3) = args%centerP(3,i)-C(3)   !wasm port: no array assignments (flang routes them through the runtime Assign)
+                vrrargs%pRPC2 = args%p(i)*(vrrargs%PC(1)*vrrargs%PC(1)+vrrargs%PC(2)*vrrargs%PC(2)+vrrargs%PC(3)*vrrargs%PC(3))
                 vrrargs%pRPC2_2 = vrrargs%pRPC2*2
                 vrrargs%rec_p2 = args%rec_p2(i)
                 vrrargs%MABpi = args%MABdps(i)*PI2
                 vrrargs%MexppRPC2 = vrrargs%MABpi*exp(-vrrargs%pRPC2)
-                vrrargs%PA = args%PA(:,i)
+                vrrargs%PA(1) = args%PA(1,i); vrrargs%PA(2) = args%PA(2,i); vrrargs%PA(3) = args%PA(3,i)
                 call vrrfuncs(idxLAB)%f(vrrargs, theta)
             else
-                theta(vrrL0s:vrrL0e) = 0.
+                do j = vrrL0s,vrrL0e
+                    theta(j) = 0.
+                enddo
             endif
             ! Copy: [LA+LB,0]^{0} -> (LA+LB,0)
-            vrrbuffer(i,:) = theta(vrrL0s:vrrL0e)
+            do j = 1,ctrsz
+                vrrbuffer(i,j) = theta(vrrL0s+j-1)
+            enddo
         enddo
         ! HRR: (LA+LB,0) -> (LA,LB)
         call blockhrrfuncs(idxLAB)%f(args%AB, vrrbuffer, args%D, theta)
-        deallocate(vrrbuffer)
         ! Sum up.
         eanblock = sum(theta(TargetStart(idxLAB):TargetStart(idxLAB)+ShellPairSize(idxLAB)-1))
     end function    

@@ -60,6 +60,17 @@ real*8 eleatm(ncenter),repatm(ncenter),dispatm(ncenter),totatm(ncenter)
 !vdW parameter of each atom, for UFF they are well depths and vdW distance; For AMBER/GAFF they are well depths and vdW radii
 character(len=2) c2tmp,FFtype(ncenter) !Force field atom types, only needed by AMBER and GAFF
 
+if (ifPBC/=0) then
+	write(*,*) "Warning: EDA-FF doesn't support periodic system but cell information is available!"
+    write(*,"(a)") " If pressing ENTER button, Multiwfn will continue but remove cell information. If you input ""q"", then you will quite from this function"
+	read(*,"(a)") c200tmp
+    if (c200tmp==" ") then
+	    ifPBC=0
+    else
+		return
+    end if
+end if
+
 FFtype="?"
 if (ifiletype/=4) a%charge=0 !If the input file is not chg or pqr format, assume atomic charges to be zero
 allocate(parmA(ncenter),parmB(ncenter))
@@ -119,6 +130,7 @@ allocate(parmA(ncenter),parmB(ncenter))
 		read(*,*) ivdwmode
 		
 	else if (isel==0) then
+		deallocate(parmA,parmB)
 		return
 		
 	else if (isel==1) then

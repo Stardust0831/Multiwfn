@@ -2936,6 +2936,10 @@ call deallo_excitinfo !Deallocate excited state information
 call deallo_basinana(0) !Deallocate basin analysis information
 call deallo_topo !Clean topology analysis information
 
+!Clean domain analysis information
+ndomain=0
+if (allocated(domainxyz)) deallocate(domainxyz)
+
 !Make LIBRETA in uninitialized status
 if_initlibreta=0
 nstates=0

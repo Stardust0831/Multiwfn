@@ -166,7 +166,7 @@ do k=1,nz
                 call getgridxyz(i,j,k,tmpx,tmpy,tmpz)
             end if
 			if (functype==1513) then !Only involved by funcvsfunc routine, when RDG and sign(lambda2)rho is combined
-				call signlambda2rho_RDG(tmpx,tmpy,tmpz,cubmat(i,j,k),cubmattmp(i,j,k))
+				call signlambda2rho_IRI_RDG(1,tmpx,tmpy,tmpz,cubmat(i,j,k),cubmattmp(i,j,k))
 			else if (functype==1614) then !Only involved by funcvsfunc routine, when promolecular RDG and sign(lambda2)rho is combined
 				call signlambda2rho_RDG_prodens(tmpx,tmpy,tmpz,cubmat(i,j,k),cubmattmp(i,j,k))
             else if (functype==1599) then !Only involved by funcvsfunc routine, when IRI and sign(lambda2)rho is combined
@@ -431,7 +431,12 @@ else
 				end if
 			end do
 		else if (igridsel==10) then
+		    ishowdatarangeold=ishowdatarange !setboxGUI will set ishowdatarange=1
+			iorthoviewold=iorthoview
+			iorthoview=1 !Use orthographic view for more conveniently determining box
 			call setboxGUI
+			iorthoview=iorthoviewold
+            ishowdatarange=ishowdatarangeold
 		else if (igridsel==11) then
 			write(*,*) "Input index of the atoms to define a fragment, e.g. 2,3,7-10"
 			read(*,"(a)") c2000tmp
@@ -591,7 +596,7 @@ do while(.true.)
 	ntotluna=(nint(molxlen/spclunaqual)+1)*(nint(molylen/spclunaqual)+1)*(nint(molzlen/spclunaqual)+1)
 	
 	write(*,*) "Please select a method for setting up grid"
-	write(*,"(a,f10.5,a)") " -10 Set grid extension distance for mode 1~6, current:",aug3D," Bohr"
+	write(*,"(a,f10.5,a)") " -10 Set grid extension distance for modes 1-6, current:",aug3D," Bohr"
 	write(*,"(a,f4.2,a,i14)") " 1 Low-quality grid, spacing=",spclowqual," Bohr, number of grids:    ",ntotlow
 	write(*,"(a,f4.2,a,i14)") " 2 Medium-quality grid, spacing=",spcmedqual," Bohr, number of grids: ",ntotmed
 	write(*,"(a,f4.2,a,i14)") " 3 High-quality grid, spacing=",spchighqual," Bohr, number of grids:   ",ntothigh
@@ -702,7 +707,14 @@ else if (igridsel==11) then
 	call setgrid_for_PBC(0.25D0,0)
 end if
 
-if (igridsel==10) call setboxGUI
+if (igridsel==10) then
+	ishowdatarangeold=ishowdatarange !setboxGUI will set ishowdatarange=1
+	iorthoviewold=iorthoview
+	iorthoview=1 !Use orthographic view for more conveniently determining box
+	call setboxGUI
+    iorthoview=iorthoviewold
+    ishowdatarange=ishowdatarangeold
+end if
 
 if (igridsel/=11) then
     gridv1=0;gridv1(1)=dx

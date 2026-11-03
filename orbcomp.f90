@@ -457,7 +457,9 @@ do imo=1,nmo
 				end if
 				!Cross term between fragments 1 and 2. We assume there is no intersection set between frag1 and frag2
 				!Note: any(frag2==jbas) is a subset of .not.any(frag1==jbas), so ovpfrg12 is part of crossext
-				if (allocated(frag2).and.any(frag2==jbas)) then
+				lsizeok=.false.
+				if (allocated(frag2)) lsizeok=any(frag2==jbas)
+				if (lsizeok) then
 					ovpfrg12(imo)=ovpfrg12(imo)+2*crossij
 					if (isel==1) then
 						ovpfrg12_1(imo)=ovpfrg12_1(imo)+crossij

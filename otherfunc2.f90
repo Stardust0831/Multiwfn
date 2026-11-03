@@ -602,7 +602,7 @@ allocate(gridatm(radpot*sphpot),gridatmorg(radpot*sphpot),beckeweigrid(radpot*sp
 do isep=nmo,1,-1
 	if (MOtype(isep)==1) exit
 end do
-if (wfntype==1.or.wfntype==4) write(*,"(' Note: The orbitals from',i6,' to',i6,' are alpha; from',i6,' to',i6,' are beta')") 1,isep,isep+1,nmo
+if (wfntype==1.or.wfntype==4) write(*,"(' Note: Orbitals from',i6,' to',i6,' are alpha; from',i6,' to',i6,' are beta')") 1,isep,isep+1,nmo
 write(*,"(a)") " Input lower and upper limits of the orbitals to be considered in the present wavefunction, e.g. 2,9"
 write(*,*) "If press ENTER button directly, all orbitals will be taken into account"
 read(*,"(a)") c80tmp
@@ -1102,15 +1102,19 @@ use util
 use functions
 use basinintmod !Use its vec26 array
 implicit real*8 (a-h,o-z)
-integer :: ifunciso=13,ifPBCgrid=0
-integer,allocatable :: mergelist(:),grididx(:,:,:),dogrid(:,:)
+integer :: ifunciso=24,ifPBCgrid=0
+integer,allocatable :: mergelist(:),grididx(:,:,:),dogrid(:,:),domainlist(:)
 logical,allocatable :: boundgrid(:)
-character :: defdomain*20="<0.5",c80tmp*80,c1000tmp*1000,c2000tmp*2000,cubname*200
+character :: defdomain*20="<1.0",c80tmp*80,c200tmp*200,outname*200,c1000tmp*1000,c2000tmp*2000,cubname*200
+real*8,allocatable :: v_satt_list(:),v_matt_list(:),v_watt_list(:),v_att_list(:),v_rep_list(:),v_tot_list(:)
+real*8,allocatable :: sl2rlowlist(:),sl2rhighlist(:),q_att_list(:),q_rep_list(:),q_tot_list(:)
+real*8 tmpvec(3)
 integer,allocatable :: tmparr(:)
 
 if (allocated(gridxyz)) deallocate(gridxyz)
 if (allocated(domainsize)) deallocate(domainsize)
 if (allocated(domaingrid)) deallocate(domaingrid)
+if (allocated(domainxyz)) deallocate(domainxyz)
 if (ifPBC>0) ifPBCgrid=1
 
 do while(.true.)
@@ -1164,12 +1168,12 @@ else
 end if
 write(*,"(/,' The number of grids satisfying the criterion:',i10)") ngrid
 
-!Clustering grids that satisfied criterion to domain
+!Yielding grids that satisfied criterion to domain
 !The idea is very clever:
 !For grids that meet isovalue criterion, I assign each grid with a different index, and perform iterations, in each iteration all of these grids &
 !are looped over, index of each grid is set to that of one of the nearest 26 grids if its index is larger than current grid. Finally, &
 !grids in each domain will have identical index
-write(*,*) "Clustering domains..."
+write(*,*) "Yielding domains..."
 call walltime(iwalltime1)
 !dogrid: ix/iy/iz index of grids satisfying condition
 !gridxyz: XYZ coordinate of grids satisfying condition
@@ -1283,13 +1287,29 @@ do idom=1,ndomain
 	domainsize(idom)=j
 end do
 
-write(*,*) "Clustering domains finished!"
-call walltime(iwalltime2)
-write(*,"(' Clustering took up wall clock time',i10,' s')") iwalltime2-iwalltime1
-
+write(*,*) "Calculating domain geometry centers..."
+allocate(domainxyz(3,ndomain))
 do idom=1,ndomain
-	write(*,"(' Domain:',i7,'    Grids:',i9,'    Volume:',f11.4,' Angstrom^3')") idom,domainsize(idom),domainsize(idom)*dvol*b2a**3
+	tmpvec(:)=0
+	do igrd=1,domainsize(idom)
+		idx=domaingrid(igrd,idom)
+		tmpvec(:)=tmpvec(:)+gridxyz(:,idx)
+	end do
+    domainxyz(:,idom)=tmpvec(:)/domainsize(idom)
 end do
+
+write(*,*) "Yielding domains finished!"
+call walltime(iwalltime2)
+write(*,"(' Totally took up wall clock time',i10,' s')") iwalltime2-iwalltime1
+
+write(*,*)
+write(*,*) " Domain   N_Grids   Volume(Angs^3)       X,Y,Z of domain center (Angs)"
+do idom=1,ndomain
+	write(*,"(i7,i9,f15.4,5x,3f12.5)") idom,domainsize(idom),domainsize(idom)*dvol*b2a**3,domainxyz(:,idom)*b2a
+end do
+
+idrawdomaincenter=1
+idrawdomain=1
 
 do while(.true.)
 	write(*,*)
@@ -1302,17 +1322,28 @@ do while(.true.)
 	write(*,*) "3 Visualize domains"
     write(*,*) "4 Sort indices of domains according to their domain volumes"
 	write(*,*) "5 Calculate q_bind index for a domain"
+	write(*,*) "6 Calculate IRI interaction descriptors for domains"
+	write(*,*) "6b The same as 6 but output to a plain text file"
 	write(*,*) "10 Export a domain as domain.cub file in current folder"
 	write(*,*) "11 Export boundary grids of a domain to domain.pdb file in current folder"
     write(*,"(a)") " 12 Export X,Y,Z coordinates and value of all grids in each domain to domain.txt in current folder"
     read(*,"(a)") c80tmp
-    if (index(c80tmp,'b')/=0) then
+    if (index(c80tmp,'2b')/=0) then
 		isel2=-2
+    else if (index(c80tmp,'6b')/=0) then
+		isel2=-6
     else
 		read(c80tmp,*) isel2
     end if
     
 	if (isel2==0) then
+		idrawdomaincenter=0
+		idrawdomain=0
+		ndomain=0
+		deallocate(gridxyz)
+		deallocate(domainsize)
+		deallocate(domaingrid)
+		deallocate(domainxyz)
 		return
 	else if (isel2==-1) then
 		if (ndomain<2) then
@@ -1475,7 +1506,7 @@ do while(.true.)
         
 	else if (isel2==-2) then !Perform integration for subregion of some domains according to sign(lambda)*rho
 		write(*,*) "Input indices of the domains you want to integrate, e.g. 2,3,7-10"
-        write(*,*) "If press ENTER button directly, all domains will be selected"
+        write(*,*) "If pressing ENTER button directly, all domains will be selected"
 		read(*,"(a)") c2000tmp
         if (c2000tmp==" ") then
 			ntmp=ndomain
@@ -1530,7 +1561,7 @@ do while(.true.)
                 xnow=gridxyz(1,idx)
                 ynow=gridxyz(2,idx)
                 znow=gridxyz(3,idx)
-				call signlambda2rho_RDG(xnow,ynow,znow,sl2r,RDG,rho)
+				call signlambda2rho_IRI_RDG(1,xnow,ynow,znow,sl2r,RDG,rho)
                 if (sl2r>=rlow.and.sl2r<=rhigh) then
 					valint=calcfuncall(ifuncint,xnow,ynow,znow)
 					if (sl2r<0) then
@@ -1556,12 +1587,10 @@ do while(.true.)
         deallocate(tmparr)
         
 	else if (isel2==3) then !Visualize domains
-		idrawdomain=1
 		aug3Dold=aug3D
 		if (aug3D<3) aug3D=3 !Often we set extension distance to zero, e.g. RDG, in this case the molecule will be truncated, therefore here temporarily augment it
 		call drawdomaingui
 		aug3D=aug3Dold
-		idrawdomain=0
         
 	else if (isel2==4) then !Sort domains according to volumes from large to small
 		write(*,*) "Sorting, please wait..."
@@ -1575,6 +1604,9 @@ do while(.true.)
                     tmparr(:)=domaingrid(:,jdom+1)
                     domaingrid(:,jdom+1)=domaingrid(:,jdom)
                     domaingrid(:,jdom)=tmparr(:)
+                    tmpvec(:)=domainxyz(:,jdom+1)
+                    domainxyz(:,jdom+1)=domainxyz(:,jdom)
+                    domainxyz(:,jdom)=tmpvec(:)
                     where(grididx==jdom+1) grididx=-1
                     where(grididx==jdom) grididx=jdom+1
                     where(grididx==-1) grididx=jdom
@@ -1594,7 +1626,7 @@ do while(.true.)
 			write(*,"(a)") " Error: The index of the domain to be integrated is incorrect"
 			cycle
 		end if
-        write(*,"(a)") "Input exponent of electron density. For example, if you input 1.1, then rho^1.1 will be taken as the integrand"
+        write(*,"(a)") " Input exponent of electron density. For example, if you input 1.1, then rho^1.1 will be taken as the integrand"
         write(*,*) "If pressing ENTER button directly, then 4/3 will be used"
         read(*,"(a)") c80tmp
         if (c80tmp==" ") then
@@ -1608,7 +1640,7 @@ do while(.true.)
 		volpos=0
 		do igrd=1,domainsize(intdom)
 			idx=domaingrid(igrd,intdom)
-			call signlambda2rho_RDG(gridxyz(1,idx),gridxyz(2,idx),gridxyz(3,idx),sl2r,RDG,rho)
+			call signlambda2rho_IRI_RDG(1,gridxyz(1,idx),gridxyz(2,idx),gridxyz(3,idx),sl2r,RDG,rho)
 			if (sl2r<0) then
 				qatt=qatt+rho**expfac
 				volneg=volneg+1
@@ -1628,6 +1660,144 @@ do while(.true.)
 		write(*,"(' Volume (lambda2<0):',f13.6,' Bohr^3  ',f13.6,' Angstrom^3')") volneg
 		write(*,"(' Volume (lambda2>0):',f13.6,' Bohr^3  ',f13.6,' Angstrom^3')") volpos
 		write(*,"(' Volume (Total):    ',f13.6,' Bohr^3  ',f13.6,' Angstrom^3')") volneg+volpos
+    
+    else if (abs(isel2)==6) then !Calculate IRI interaction descriptors
+		write(*,*) "Input indices of the domains to be integrated, e.g. 2-5,8"
+        write(*,*) "If pressing ENTER button directly, all domains will be considered"
+        write(*,"(a)") " If you input e.g. a 5,9, then the domain whose geometric center is closest to the midpoint of atoms 5 and 9 will be integrated"
+		read(*,"(a)") c2000tmp
+        if (c2000tmp==" ") then
+			allocate(domainlist(ndomain))
+			forall(idom=1:ndomain) domainlist(idom)=idom
+			ndomint=ndomain
+        else if (index(c2000tmp,'a')/=0) then
+			read(c2000tmp,*) c80tmp,iatm,jatm
+			tmpvec(1)=(a(iatm)%x+a(jatm)%x)/2
+			tmpvec(2)=(a(iatm)%y+a(jatm)%y)/2
+			tmpvec(3)=(a(iatm)%z+a(jatm)%z)/2
+            distmin=1D100
+            do idom=1,ndomain
+				tmpval=dsqrt(sum((domainxyz(:,idom)-tmpvec(:))**2))
+                if (tmpval<distmin) then
+					distmin=tmpval
+					idommin=idom
+                end if
+            end do
+            ndomint=1
+			allocate(domainlist(ndomint))
+            domainlist(1)=idommin
+            write(*,"(' Domain',i5,' is closet to the midpoint')") idommin
+        else
+			call str2arr(c2000tmp,ndomint)
+			allocate(domainlist(ndomint))
+			call str2arr(c2000tmp,ndomint,domainlist)
+			if (any(domainlist<1).or.any(domainlist>ndomain)) then
+				write(*,"(a)") " Error: The domain index you inputted is incorrect"
+				deallocate(domainlist)
+				cycle
+			end if
+        end if
+        iout=6
+        if (isel2==-6) then
+            call path2filename(filename,c200tmp)
+            c200tmp=trim(c200tmp)//".txt"
+			write(*,*) "Input file path to export the result, e.g. D:\Yohane\Riko\IRIdescriptor.txt"
+            write(*,*) "If pressing ENTER button directly, result will be exported to "//trim(c200tmp)
+            read(*,"(a)") outname
+            if (outname==" ") outname=c200tmp
+			open(10,file=outname,status="replace")
+			iout=10
+        end if
+        write(iout,*) "Meaning of output:"
+        write(iout,*) "satt: Strong attraction   (sign(lambda2)rho< -0.05 a.u.)"
+        write(iout,*) "matt: Moderate attraction (-0.05 <= sign(lambda2)rho < -0.013 a.u.)"
+        write(iout,*) "watt: Weak attraction     (-0.013 <= sign(lambda2)rho < +0.009 a.u.)" !Mostly vdW, but may also be long-range electrostatic interaction
+        write(iout,*) "rep:  Repulsion           (+0.009 a.u. <= sign(lambda2)rho)"
+        write(iout,*) "att (attraction) = satt + matt + watt"
+        write(iout,*) "tot (total) = att + rep"
+        write(iout,*)
+        write(iout,*) "Number of electrons (q):"
+        write(iout,*) " Domain  q_satt    q_matt    q_watt    q_att     q_rep     q_tot   q_att/q_tot"
+        q_satt_acc=0
+		q_matt_acc=0
+		q_watt_acc=0
+		q_rep_acc=0
+        allocate(v_satt_list(ndomint),v_matt_list(ndomint),v_watt_list(ndomint),v_att_list(ndomint),v_rep_list(ndomint),v_tot_list(ndomint),&
+        q_att_list(ndomint),q_rep_list(ndomint),q_tot_list(ndomint),sl2rlowlist(ndomint),sl2rhighlist(ndomint))
+		v_satt_list=0
+		v_matt_list=0
+        v_watt_list=0
+		v_rep_list=0
+        addvol=dvol*b2a**3
+        sl2rlowlist(:)=1D100
+        sl2rhighlist(:)=-1D100
+        do itmp=1,ndomint
+			q_satt=0
+			q_matt=0
+			q_watt=0
+			q_rep=0
+			intdom=domainlist(itmp)
+			do igrd=1,domainsize(intdom)
+				idx=domaingrid(igrd,intdom)
+				call signlambda2rho_IRI_RDG(2,gridxyz(1,idx),gridxyz(2,idx),gridxyz(3,idx),sl2r,rnouse,rho)
+                addele=rho*dvol
+				if (sl2r<-0.05D0) then
+					q_satt=q_satt+addele
+					v_satt_list(itmp)=v_satt_list(itmp)+addvol
+                else if (sl2r<-0.013D0) then
+					q_matt=q_matt+addele
+					v_matt_list(itmp)=v_matt_list(itmp)+addvol
+				else if (sl2r<0.009D0) then
+					q_watt=q_watt+addele
+					v_watt_list(itmp)=v_watt_list(itmp)+addvol
+                else
+					q_rep=q_rep+addele
+					v_rep_list(itmp)=v_rep_list(itmp)+addvol
+				end if
+                if (sl2r<sl2rlowlist(itmp)) sl2rlowlist(itmp)=sl2r
+                if (sl2r>sl2rhighlist(itmp)) sl2rhighlist(itmp)=sl2r
+			end do
+			q_att=q_satt+q_matt+q_watt
+            q_tot=q_att+q_rep
+            q_att_list(itmp)=q_att
+            q_rep_list(itmp)=q_rep
+            q_tot_list(itmp)=q_tot
+            write(iout,"(i6,6f10.5,f10.5)") intdom,q_satt,q_matt,q_watt,q_att,q_rep,q_tot,q_att/q_tot
+            q_satt_acc=q_satt_acc+q_satt
+            q_matt_acc=q_matt_acc+q_matt
+            q_watt_acc=q_watt_acc+q_watt
+            q_rep_acc=q_rep_acc+q_rep
+        end do
+        q_att_acc=q_satt_acc+q_matt_acc+q_watt_acc
+        q_tot_acc=q_att_acc+q_rep_acc
+        write(iout,"(' Total',6f10.5,f10.5)") q_satt_acc,q_matt_acc,q_watt_acc,q_att_acc,q_rep_acc,q_tot_acc,q_att_acc/q_tot_acc
+        write(iout,*)
+        write(iout,*) "Volumes (Angstrom^3):"
+        write(iout,*) " Domain  V_satt    V_matt    V_watt    V_att     V_rep     V_tot   V_att/V_tot"
+        do itmp=1,ndomint
+			intdom=domainlist(itmp)
+			v_att=v_satt_list(itmp)+v_matt_list(itmp)+v_watt_list(itmp)
+            v_tot=v_att+v_rep_list(itmp)
+            v_att_list(itmp)=v_att
+            v_tot_list(itmp)=v_tot
+            write(iout,"(i6,6f10.5,f10.5)") intdom,v_satt_list(itmp),v_matt_list(itmp),v_watt_list(itmp),v_att,v_rep_list(itmp),v_tot,v_att/v_tot
+        end do
+        v_att_acc=sum(v_satt_list)+sum(v_matt_list)+sum(v_watt_list)
+        v_tot_acc=v_att_acc+sum(v_rep_list)
+        write(iout,"(' Total',6f10.5,f10.5)") sum(v_satt_list),sum(v_matt_list),sum(v_watt_list),v_att_acc,sum(v_rep_list),v_tot_acc,v_att_acc/v_tot_acc
+        write(iout,*)
+        write(iout,"(a)") " Ratios between q and V (Bohr^3) correspond to average electron density (a.u.)"
+        write(iout,*) "sl2r_low and sl2r_high: Lowest and highest sign(lambda2)rho (a.u.)"
+        write(iout,*) " Domain    q_att/V_att  q_rep/V_rep  q_tot/V_tot   sl2r_low     sl2r_high"
+        do itmp=1,ndomint
+            write(iout,"(i6,2x,5f13.5)") domainlist(itmp),q_att_list(itmp)/(v_att_list(itmp)/b2a**3),&
+            q_rep_list(itmp)/(v_rep_list(itmp)/b2a**3),q_tot_list(itmp)/(v_tot_list(itmp)/b2a**3),sl2rlowlist(itmp),sl2rhighlist(itmp)
+        end do
+        deallocate(domainlist,v_satt_list,v_matt_list,v_watt_list,v_att_list,v_rep_list,q_att_list,q_rep_list,q_tot_list,v_tot_list,sl2rlowlist,sl2rhighlist)
+        if (isel2==-6) then
+			close(10)
+            write(*,*) "Done! Result has been exported to "//trim(outname)
+        end if
         
 	else if (isel2==10) then !Export a domain as domain.cub file in current folder
 		write(*,*) "Input the index of the domain to be exported, e.g. 4"

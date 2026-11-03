@@ -84,8 +84,8 @@ contains
         real*8 :: boys_libreta
         real*8,intent(in) :: x
         integer,intent(in) :: n
-        integer :: idx1,idx2,idx3,idx4,idx5
-        real*8 :: x1,x2,x3,x4,x5
+        integer :: idx1,idx2,idx3,idx4,idx5,ipw
+        real*8 :: x1,x2,x3,x4,x5,xn
         real*8 :: y1,y2,y3,y4,y5
         real*8 :: y12,y23,y34,y45
         real*8 :: y123,y234,y345
@@ -97,7 +97,11 @@ contains
         else
             ! Asympotic approximation.
             if (x > AsymX) then
-                boys_libreta = BoysAsympoticConstants(n+1)*(x**(-n-0.5))
+                xn = 1D0   !wasm port: x**(-n-0.5) = 1/(x**n*sqrt(x)) with an integer power (libm pow was 15% of the ESP time)
+                do ipw = 1,n
+                    xn = xn*x
+                enddo
+                boys_libreta = BoysAsympoticConstants(n+1)/(xn*sqrt(x))
             ! Fast method.
             else
                 ! Look up.

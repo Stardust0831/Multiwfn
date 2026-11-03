@@ -366,6 +366,13 @@ if (idrawdomain==1.and.idrawdomainidx/=0) then
 		CALL SPHE3D(gridxyz(1,idx),gridxyz(2,idx),gridxyz(3,idx),tmpsphrad,4,4)
 	end do
 end if
+!Draw domain center as spheres
+if (idrawdomaincenter==1) then
+	do idom=1,ndomain
+		CALL MATOP3(0.65D0, 0.9D0, 0.45D0, 'diffuse')
+		CALL SPHE3D(domainxyz(1,idom),domainxyz(2,idom),domainxyz(3,idom),attsphsize,20,20)
+	end do
+end if
 
 !Draw topology paths
 if (idrawpath==1) then
@@ -650,7 +657,8 @@ end if
 if (isosur1style/=5) CALL ZBFFIN !Ending of Z-buffer
 
 !Draw label of atom name and index of atoms/CPs/paths/surface extremes/real attractors in 3D plot
-if ((ishowatmlab==1.or.ishowCPlab==1.or.ishowpathlab==1.or.ishowlocminlab==1.or.ishowlocmaxlab==1.or.(ishowattlab==1.and.numatt>0)).and.textheigh>0) then
+if ((ishowatmlab==1.or.ishowCPlab==1.or.ishowpathlab==1.or.ishowlocminlab==1.or.&
+	ishowlocmaxlab==1.or.(ishowattlab==1.and.numatt>0).or.(idrawdomaincenter==1.and.ndomain>0)).and.textheigh>0) then
     textheighmod=textheigh+155*plot2abs**1.3D0 !Change text size according to molecule size
 	call height(int(textheighmod))
 	if (ishowatmlab==1) then
@@ -769,6 +777,19 @@ if ((ishowatmlab==1.or.ishowCPlab==1.or.ishowpathlab==1.or.ishowlocminlab==1.or.
 			absx=(attxyz(1,iatt)-(xhigh+xlow)/2) * plot2abs !Find atomic absolute coordinate
 			absy=(attxyz(2,iatt)-(yhigh+ylow)/2) * plot2abs
  			absz=(attxyz(3,iatt)-(zhigh+zlow)/2) * plot2abs
+			call abs3pt(absx,absy,absz,xplotcoor,yplotcoor) !Convert atomic absolute coordinate to screen coordinate(pixel)
+			screenx=nint(xplotcoor-textheighmod/2.6)
+			screeny=nint(yplotcoor-textheighmod/1.8)
+			call messag(trim(ADJUSTL(ctemp)),screenx,screeny)
+		end do
+	end if
+	if (idrawdomaincenter==1) then
+		CALL SETRGB(0.70D0,0.3D0,0.9D0)
+		do idom=1,ndomain
+			write(ctemp,"(i5)") idom
+			absx=(domainxyz(1,idom)-(xhigh+xlow)/2) * plot2abs !Find atomic absolute coordinate
+			absy=(domainxyz(2,idom)-(yhigh+ylow)/2) * plot2abs
+ 			absz=(domainxyz(3,idom)-(zhigh+zlow)/2) * plot2abs
 			call abs3pt(absx,absy,absz,xplotcoor,yplotcoor) !Convert atomic absolute coordinate to screen coordinate(pixel)
 			screenx=nint(xplotcoor-textheighmod/2.6)
 			screeny=nint(yplotcoor-textheighmod/1.8)
