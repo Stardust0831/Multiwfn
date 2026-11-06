@@ -3,12 +3,12 @@
   import { T, useTask, useThrelte } from '@threlte/core'
   import { Group, Mesh } from 'three'
   import { rep_surface_settings, type Rep, type Vec } from './reps'
-  let { rep, volumes, translations, budget, onerror, oncolorrange }: { rep: Rep; volumes: VolumetricData[]; translations: Vec[]; budget?: number; onerror: (message: string) => void; oncolorrange?: (range: [number, number] | undefined) => void } = $props()
+  let { rep, volumes, translations, budget, quality, onerror, oncolorrange }: { rep: Rep; volumes: VolumetricData[]; translations: Vec[]; budget?: number; quality: 'source' | 'preview'; onerror: (message: string) => void; oncolorrange?: (range: [number, number] | undefined) => void } = $props()
   let source = $state.raw<Group>()
   const copies = new Group()
   const { invalidate } = useThrelte()
   let lastSignature = ''
-  const settings = $derived(rep_surface_settings(rep, budget))
+  const settings = $derived(rep_surface_settings(rep, budget, quality))
   useTask(() => {
     if (!source) return
     const parts: string[] = [JSON.stringify(translations)]

@@ -101,6 +101,18 @@ jobs:
           pnpm exec playwright install --with-deps chromium
           pnpm test:frequency
 
+      - name: Test source-grid rendering and PNG export
+        working-directory: frontend/matterviz-viewer
+        run: pnpm test:volume-quality
+
+      - name: Upload volume quality browser artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: volume-quality-browser
+          path: /tmp/multiwfn-volume-quality-browser
+          if-no-files-found: ignore
+
       - name: Upload frequency viewer failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4

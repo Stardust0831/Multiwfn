@@ -69,7 +69,8 @@
 .rep-measure-tools { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-top: 1px solid #e3eaf0; background: #fbfcfd; font-size: 11px; color: #778b9d; }
 .rep-measure-tools select { height: 27px; border: 1px solid #d6e2e9; border-radius: 4px; font-size: 11px; background: white; }
 .rep-edit-banner { padding: 9px 14px; font-size: 12px; color: #536d81; background: #edf5f8; display: flex; align-items: center; gap: 10px; }
-.viewer-shell:has(.rep-edit-banner) { grid-template-rows: auto minmax(0, 1fr) auto; }
+.viewer-shell:has(.rep-edit-banner), .viewer-shell:has(.volume-quality) { grid-template-rows: auto minmax(0, 1fr) auto; }
+.viewer-shell:has(.rep-edit-banner):has(.volume-quality) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 @media (max-width: 1000px) and (min-width: 801px) { .workspace.has-orbitals { grid-template-columns: 40px 300px minmax(0, 1fr) 210px; } }
 @media (max-width: 800px) {
   .workspace, .workspace.has-orbitals { grid-template-columns: 40px minmax(0, 1fr); grid-template-rows: minmax(0, 55%) minmax(0, 1fr); }

@@ -30,6 +30,57 @@ use socket2::{Domain, Protocol, Socket, Type};
 const SESSION_BOOTSTRAP_STAGE_TIMEOUT: Duration = Duration::from_secs(300);
 const SESSION_BOOTSTRAP_STAGES: u32 = 3; // Two optional initial volumes, then session_init.
 const MAX_PLOT_EXPORT_BYTES: usize = 64 * 1024 * 1024;
+
+fn geometry_budget(query: &[(String, String)], retained_bytes: u64) -> Result<u64, String> {
+    let values: Vec<_> = query
+        .iter()
+        .filter(|(key, _)| key == "source_bytes")
+        .collect();
+    if values.len() != 1
+        || values[0].1.is_empty()
+        || !values[0].1.bytes().all(|ch| ch.is_ascii_digit())
+    {
+        return Err("Expected one nonnegative source_bytes value".into());
+    }
+    let source_bytes = values[0]
+        .1
+        .parse::<u64>()
+        .map_err(|_| "Invalid source_bytes")?;
+    let active = retained_bytes
+        .checked_add(source_bytes)
+        .ok_or("Source byte count overflow")?;
+    Ok(memory_budget::active_data_budget(active)?
+        .active_limit_bytes
+        .saturating_sub(active))
+}
+
+fn respond_geometry_budget(
+    stream: &mut TcpStream,
+    method: &str,
+    query: &[(String, String)],
+    retained_bytes: u64,
+) {
+    if method != "GET" {
+        respond(
+            stream,
+            405,
+            "text/plain",
+            b"Method Not Allowed",
+            method == "HEAD",
+        );
+        return;
+    }
+    match geometry_budget(query, retained_bytes) {
+        Ok(bytes) => respond_json(stream, &json!({"geometry_budget_bytes": bytes}), 200, false),
+        Err(message) => respond_json(
+            stream,
+            &json!({"ok": false, "message": message}),
+            400,
+            false,
+        ),
+    }
+}
+
 fn pick_parameter_path(body: &[u8]) -> Result<Value, String> {
     let value: Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
     let kind = match value["type"].as_str() {
@@ -135,6 +186,20 @@ impl WorkbenchService {
                             let query: Vec<_> = url::form_urlencoded::parse(query.as_bytes())
                                 .map(|(k, v)| (k.into_owned(), v.into_owned()))
                                 .collect();
+                            if path == "/api/geometry-budget" {
+                                if !has_capability(&query, &cap) {
+                                    respond(
+                                        &mut stream,
+                                        403,
+                                        "text/plain",
+                                        b"Invalid capability",
+                                        false,
+                                    );
+                                    return;
+                                }
+                                respond_geometry_budget(&mut stream, method, &query, 0);
+                                return;
+                            }
                             if let Some(action) = path.strip_prefix("/api/workflows/") {
                                 if !has_capability(&query, &cap) {
                                     respond(
@@ -963,6 +1028,12 @@ impl ServiceRunner {
                 403,
                 method == "HEAD",
             );
+            return;
+        }
+        if path == "/api/geometry-budget" {
+            let retained =
+                (self.volume_store.bytes() as u64).saturating_add(self.plot_store.bytes() as u64);
+            respond_geometry_budget(&mut stream, method, &query, retained);
             return;
         }
         if path == "/api/ready" {
@@ -3559,6 +3630,20 @@ mod tests {
             multiwfn_pid: Some(1),
         })
         .unwrap();
+        let budget_path = authorized_path(service.url(), "/api/geometry-budget?source_bytes=1024");
+        let admission = request(service.url(), "GET", &budget_path);
+        assert!(admission.starts_with("HTTP/1.1 200"));
+        assert!(admission.contains("\"geometry_budget_bytes\":67107840"));
+        assert!(
+            request(service.url(), "GET", "/api/geometry-budget?source_bytes=0")
+                .starts_with("HTTP/1.1 403")
+        );
+        let exhausted = request(
+            service.url(),
+            "GET",
+            &authorized_path(service.url(), "/api/geometry-budget?source_bytes=67108864"),
+        );
+        assert!(exhausted.contains("\"geometry_budget_bytes\":0"));
         let mut ready = [0_u8; PRELUDE_BYTES];
         ack_read.read_exact(&mut ready).unwrap();
         let base = service.url().to_owned();
@@ -3916,6 +4001,40 @@ mod tests {
         assert!(response.contains("\"wavefunction\":null"));
         assert!(!response.contains("\"session\":"));
         assert!(!root.join("session").exists());
+        assert!(
+            request(&service.url, "GET", "/api/geometry-budget?source_bytes=0")
+                .starts_with("HTTP/1.1 403")
+        );
+        for invalid in [
+            "",
+            "source_bytes=-1",
+            "source_bytes=x",
+            "source_bytes=1&source_bytes=2",
+            "source_bytes=18446744073709551616",
+        ] {
+            assert!(request(
+                &service.url,
+                "GET",
+                &format!("/api/geometry-budget?{invalid}&cap={cap}")
+            )
+            .starts_with("HTTP/1.1 400"));
+        }
+        assert!(request(
+            &service.url,
+            "HEAD",
+            &format!("/api/geometry-budget?source_bytes=0&cap={cap}")
+        )
+        .starts_with("HTTP/1.1 405"));
+        let admission = request(
+            &service.url,
+            "GET",
+            &format!("/api/geometry-budget?source_bytes=1024&cap={cap}"),
+        );
+        assert!(admission.starts_with("HTTP/1.1 200"));
+        let admission: serde_json::Value =
+            serde_json::from_str(admission.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert!(admission["geometry_budget_bytes"].as_u64().is_some());
+
         let authority = authority(&page);
         let post = |headers: &str, length: usize, body: &str| {
             let mut stream = TcpStream::connect(&authority).unwrap();

@@ -125,7 +125,7 @@ const meshFractions = (volume: any, prepared: any) => {
 test('bounded geometry preparation preserves an analytic plane in orthogonal and skew cells', () => {
   for (const lattice of [[[20, 0, 0], [0, 13, 0], [0, 0, 8]], [[20, 0, 0], [3, 13, 0], [-2, 1, 8]]]) {
     const volume = planeVolume(false, lattice)
-    const prepared = sampling.prepare_geometry_grid(volume, null, { max_points: 64 })
+    const prepared = sampling.prepare_geometry_grid(volume, null, { quality: 'preview', max_points: 64 })
     assert.ok(prepared.grid.data.length <= 64)
     for (const [x] of meshFractions(volume, prepared)) assert.ok(Math.abs(x - 0.37) < 1e-6, `plane at ${x}, expected 0.37`)
     assert.equal(volume.grid.data.length, 81 * 17 * 13, 'source data remains untouched')

@@ -11,6 +11,18 @@ VERSION = "matterviz-0.4.2-multiwfn.d8719d12.r25"
 
 
 class TopologyVendor(unittest.TestCase):
+    def test_volume_quality_patch_replays_from_reviewed_frequency_package(self):
+        with tempfile.TemporaryDirectory(prefix="quality-vendor-replay-") as directory:
+            base, target = Path(directory) / "base", Path(directory) / "target"
+            base.mkdir()
+            target.mkdir()
+            for destination, suffix in [(base, ".freq1.tgz"), (target, ".quality1.tgz")]:
+                subprocess.run(["tar", "-xzf", str(VENDOR / (VERSION + suffix)), "-C", str(destination)], check=True)
+            with (VENDOR / "patches" / (VERSION + ".quality1.patch")).open("rb") as patch:
+                subprocess.run(["patch", "-p1", "-d", str(base / "package")], stdin=patch, check=True, capture_output=True)
+            files = lambda directory: {path.relative_to(directory): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+            self.assertEqual(files(base), files(target))
+
     def test_frequency_camera_series_patch_replays_without_other_renderer_changes(self):
         with tempfile.TemporaryDirectory(prefix="frequency-vendor-replay-") as directory:
             base, target = Path(directory) / "base", Path(directory) / "target"

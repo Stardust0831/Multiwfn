@@ -134,7 +134,8 @@ export const normalize_reps = (value: unknown): RepCollection | undefined => {
   return { items: valid, selectedId: valid.some((rep) => rep.id === row.selectedId) ? row.selectedId as string : valid[0]?.id ?? '' }
 }
 
-export const rep_surface_settings = (rep: Rep, budget?: number): IsosurfaceSettings => ({
+export const rep_surface_settings = (rep: Rep, budget?: number, quality: 'source' | 'preview' = 'source'): IsosurfaceSettings => ({
+  grid_quality: quality,
   ...SURFACE_DEFAULTS, isovalue: rep.volume.isovalue, opacity: rep.material.opacity,
   positive_color: rep.volume.color, negative_color: rep.volume.negative_color,
   show_negative: rep.volume.show_negative, wireframe: rep.volume.wireframe, halo: 0,
