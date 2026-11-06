@@ -6,7 +6,6 @@
     Icon,
     Structure,
     auto_color_config,
-    compare_volume_grids,
     parse_volumetric_file,
     type AnyStructure,
     type IsosurfaceLayer,
@@ -93,6 +92,7 @@
   } from './state'
   import { signal_frontend_ready } from './startup'
   import { apply_manifest_color_mapping } from './volume-mapping'
+  import { color_grid_compatibility } from './volume-compat'
   import { create_update_client, type UpdateStatus } from './update'
   import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
   import {
@@ -899,10 +899,13 @@
     const colorVolume = volumetricData?.[colorVolumeIdx]
     const surfaceVolume = volumetricData?.[volumeIdx]
     if (!colorVolume || !surfaceVolume) return
-    const compatibility = compare_volume_grids(surfaceVolume, colorVolume)
+    const compatibility = color_grid_compatibility(surfaceVolume, colorVolume)
     if (!compatibility.ok) {
       report_error(new Error(`Color grid is incompatible: ${compatibility.reason || 'grid mismatch'}`))
       return
+    }
+    if (compatibility.mode === 'resampled') {
+      add_log(ui_message('Color values are resampled from a {dims} grid onto this surface', { dims: colorVolume.grid_dims.join(' × ') }))
     }
     const color = auto_color_config(colorVolume.data_range)
     update_layer(volumeIdx, {
@@ -916,7 +919,7 @@
   const grids_compatible = (leftIdx: number, rightIdx: number): boolean => {
     const left = volumetricData?.[leftIdx]
     const right = volumetricData?.[rightIdx]
-    return Boolean(left && right && compare_volume_grids(left, right).ok)
+    return Boolean(left && right && color_grid_compatibility(left, right).ok)
   }
 
   const displayed_volume_layers = (): IsosurfaceLayer[] => {

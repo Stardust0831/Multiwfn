@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { StructureScene, Lattice, compare_volume_grids, type AnyStructure, type VolumetricData, type MeasureMode, type SelectedBondContext } from 'matterviz'
+  import { StructureScene, Lattice, type AnyStructure, type VolumetricData, type MeasureMode, type SelectedBondContext } from 'matterviz'
   import { T } from '@threlte/core'
   import { untrack } from 'svelte'
   import { rep_scene_props, valid_cell, type Rep, type Cell, type Vec } from './reps'
   import { rep_structure, rep_clip_planes, rep_translations, rep_bonds, type RepBondEdits } from './rep-periodic'
   import RepAppearance from './RepAppearance.svelte'
   import RepVolume from './RepVolume.svelte'
+  import { color_grid_compatibility } from './volume-compat'
   let { rep, structure, volumes, bondEdits, measureMode, measurementOwner, budget, sceneProps, onmeasure, oncontext, onerror, oncolorrange, order = 0 }: {
     rep: Rep; structure: AnyStructure; volumes: VolumetricData[]; measureMode: MeasureMode; measurementOwner: string; budget?: number
     bondEdits: RepBondEdits
@@ -22,7 +23,7 @@
     try {
       if (rep.source.kind === 'volume' && !sourceVolume) throw new Error('Source dataset is unavailable')
       if (rep.volume.color_volume_idx !== undefined && rep.source.kind === 'volume' && !volumes[rep.volume.color_volume_idx]) throw new Error('Color dataset is unavailable')
-      if (sourceVolume && rep.volume.color_volume_idx !== undefined && !compare_volume_grids(sourceVolume, volumes[rep.volume.color_volume_idx]).ok) throw new Error('The selected color grid is incompatible with this source')
+      if (sourceVolume && rep.volume.color_volume_idx !== undefined && !color_grid_compatibility(sourceVolume, volumes[rep.volume.color_volume_idx]).ok) throw new Error('The selected color grid is incompatible with this source')
       const referenceOrigin = volumes[0]?.origin_mode === 'absolute' ? [0, 0, 0] : volumes[0]?.origin ?? [0, 0, 0]
       const origin: Vec = sourceVolume ? sourceVolume.origin.map((n, axis) => n - referenceOrigin[axis]) as Vec : [0, 0, 0]
       return { planes: rep_clip_planes(rep.source.kind === 'structure' && rep.periodic.boundary !== 'clip' ? { ...rep.periodic, enabled: false } : rep.periodic, cell as Cell | undefined, origin), origin,

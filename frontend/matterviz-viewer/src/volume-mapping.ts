@@ -14,7 +14,7 @@ export const apply_manifest_color_mapping = (
   if (!mapping) return layer
   const colorIdx = entries.findIndex((entry) => entry.path === mapping.path)
   if (colorIdx < 0 || colorIdx === surfaceIdx || !compatible(surfaceIdx, colorIdx)) {
-    throw new Error('The mapped surface needs a separate coloring dataset on the same grid')
+    throw new Error('The mapped surface needs a separate coloring dataset on a compatible grid')
   }
   const range = mapping.range
   if (!Array.isArray(range) || range.length !== 2 || !range.every(Number.isFinite) || range[0] >= range[1]) {

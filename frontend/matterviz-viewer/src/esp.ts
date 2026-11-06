@@ -1,5 +1,6 @@
 import type { IsosurfaceLayer, VolumetricData } from 'matterviz'
 import type { ManifestEntry } from './manifest'
+import { color_grid_compatibility, create_cartesian_sampler } from './volume-compat.ts'
 
 /** Hartree to kcal/mol for one electron. */
 export const KCAL_PER_HARTREE = 627.5094740631
@@ -94,6 +95,10 @@ export interface EspRange {
   sampledCells: number
   capped: boolean
   fallback: boolean
+  /** Potential was sampled from a different-resolution grid. */
+  resampled: boolean
+  /** Surface crossings outside the potential grid, left unsampled. */
+  unsampled: number
 }
 
 export interface EspLegendTick {
@@ -130,6 +135,8 @@ export interface EspExtremaResult {
   capped: boolean
   malformed: boolean
   boundaryFiltered: number
+  resampled: boolean
+  unsampled: number
 }
 
 export interface EspScanOptions {
@@ -235,6 +242,23 @@ const same_grid = (density: unknown, potential: unknown): boolean => {
     && densityLattice.every((row, index) => vectors_match(row, potentialLattice[index])))
 }
 
+/**
+ * How potential values are read at density-surface crossings. Identical grids
+ * interpolate along the crossed edge exactly as before; spatially compatible
+ * grids of different resolution sample the potential at the crossing's
+ * Cartesian position, the same mapping MatterViz uses to color the surface.
+ */
+type PotentialAccess =
+  | { kind: 'same' }
+  | { kind: 'resampled'; sample: (position: Vec3) => number }
+
+const potential_access = (density: unknown, potential: unknown): PotentialAccess | undefined => {
+  if (same_grid(density, potential)) return { kind: 'same' }
+  if (!color_grid_compatibility(density, potential).ok) return undefined
+  const sample = create_cartesian_sampler(potential)
+  return sample ? { kind: 'resampled', sample } : undefined
+}
+
 const total_cells = (dims: Vec3, periodic: boolean): number =>
   Math.max(0, (periodic ? dims[0] : dims[0] - 1)
     * (periodic ? dims[1] : dims[1] - 1)
@@ -282,12 +306,11 @@ export const gridPointToWorld = lattice_point
 
 const for_each_cell = (
   density: unknown,
-  potential: unknown,
   options: EspScanOptions,
   on_cell: (x: number, y: number, z: number, dims: Vec3, periodic: boolean) => boolean,
 ): { sampledCells: number; totalCells: number; capped: boolean } => {
   const dims = volume_dimensions(density)
-  if (!dims || !same_grid(density, potential)) return { sampledCells: 0, totalCells: 0, capped: false }
+  if (!dims) return { sampledCells: 0, totalCells: 0, capped: false }
   const periodic = volume_periodic(density)
   const total = total_cells(dims, periodic)
   const max_cells = Math.max(0, Math.floor(number_or(options.maxCells, 50000)))
@@ -320,6 +343,8 @@ const cell_crossings = (
   adjacency: SurfaceAdjacency,
   options: EspScanOptions,
   to_world: (x: number, y: number, z: number) => Vec3,
+  access: PotentialAccess,
+  counters: { unsampled: number },
 ): boolean => {
   const next = (value: number, axis: number, dimension: number): number =>
     periodic ? (value + 1) % dimension : value + 1
@@ -332,7 +357,7 @@ const cell_crossings = (
       y: cy,
       z: cz,
       density: grid_value(density, cx % dims[0], cy % dims[1], cz % dims[2]),
-      potential: grid_value(potential, cx % dims[0], cy % dims[1], cz % dims[2]),
+      potential: access.kind === 'same' ? grid_value(potential, cx % dims[0], cy % dims[1], cz % dims[2]) : 0,
     }
   })
   if (corners.some((corner) => !finite(corner.density) || !finite(corner.potential))) return true
@@ -346,9 +371,16 @@ const cell_crossings = (
     const gx = first.x + fraction * (second.x - first.x)
     const gy = first.y + fraction * (second.y - first.y)
     const gz = first.z + fraction * (second.z - first.z)
-    const value = first.potential + fraction * (second.potential - first.potential)
-    if (!finite(value)) continue
     const world = to_world(gx, gy, gz)
+    const value = access.kind === 'same'
+      ? first.potential + fraction * (second.potential - first.potential)
+      : access.sample(world)
+    if (!finite(value)) {
+      // Outside the potential grid's box: the renderer leaves these vertices
+      // uncolored, so they are skipped here rather than clamped.
+      if (access.kind === 'resampled') counters.unsampled += 1
+      continue
+    }
     const boundary_margin = Math.max(0, Math.floor(number_or(options.boundaryMargin, 1)))
     const boundary = !periodic && (
       gx <= boundary_margin || gx >= dims[0] - 1 - boundary_margin
@@ -372,24 +404,38 @@ const cell_crossings = (
   return true
 }
 
+interface SurfaceScan {
+  points: EspSurfacePoint[]
+  adjacency: SurfaceAdjacency
+  sampledCells: number
+  totalCells: number
+  capped: boolean
+  malformed: boolean
+  resampled: boolean
+  unsampled: number
+}
+
+const malformed_scan = (): SurfaceScan => ({
+  points: [], adjacency: [], sampledCells: 0, totalCells: 0, capped: false, malformed: true, resampled: false, unsampled: 0,
+})
+
 const collect_surface_samples = (
   density: unknown,
   potential: unknown,
   isovalue: number,
   options: EspScanOptions = {},
-): { points: EspSurfacePoint[]; adjacency: SurfaceAdjacency; sampledCells: number; totalCells: number; capped: boolean; malformed: boolean } => {
+): SurfaceScan => {
   const points: EspSurfacePoint[] = []
   const adjacency: SurfaceAdjacency = []
   const dims = volume_dimensions(density)
-  const malformed = !dims || !same_grid(density, potential)
-  if (malformed || !finite(isovalue)) {
-    return { points, adjacency, sampledCells: 0, totalCells: 0, capped: false, malformed: true }
-  }
+  const access = dims ? potential_access(density, potential) : undefined
+  if (!dims || !access || !finite(isovalue)) return malformed_scan()
   const max_samples = Math.max(0, Math.floor(number_or(options.maxSamples, 100000)))
   const to_world = lattice_mapper(density, dims, volume_periodic(density))
-  const scan = for_each_cell(density, potential, options, (x, y, z, cell_dims, periodic) =>
-    cell_crossings(density, potential, x, y, z, cell_dims, periodic, isovalue, max_samples, points, adjacency, options, to_world))
-  return { points, adjacency, ...scan, malformed: false }
+  const counters = { unsampled: 0 }
+  const scan = for_each_cell(density, options, (x, y, z, cell_dims, periodic) =>
+    cell_crossings(density, potential, x, y, z, cell_dims, periodic, isovalue, max_samples, points, adjacency, options, to_world, access, counters))
+  return { points, adjacency, ...scan, malformed: false, resampled: access.kind === 'resampled', unsampled: counters.unsampled }
 }
 
 /**
@@ -406,7 +452,7 @@ export const estimate_symmetric_range = (
   options: EspScanOptions = {},
 ): number => {
   const fallback = Math.max(number_or(options.fallback, DEFAULT_ESP_LIMIT), MINIMUM_ESP_LIMIT)
-  if (!volume_dimensions(density) || !same_grid(density, potential) || !finite(isovalue) || Number(isovalue) <= 0) return fallback
+  if (!volume_dimensions(density) || !potential_access(density, potential) || !finite(isovalue) || Number(isovalue) <= 0) return fallback
   const sample_options = { ...options, maxSamples: Math.max(1, Math.floor(number_or(options.maxSamples, 100000))) }
   const { points } = collect_surface_samples(density, potential, Number(isovalue), sample_options)
   const samples = points.map((point) => Math.abs(point.value)).filter(Number.isFinite).sort((a, b) => a - b)
@@ -439,6 +485,8 @@ export const estimate_esp_range = (
     sampledCells: scan.sampledCells,
     capped: scan.capped,
     fallback: !samples.length,
+    resampled: scan.resampled,
+    unsampled: scan.unsampled,
   }
 }
 
@@ -670,6 +718,8 @@ export const extract_esp_extrema = (
     vertexCount: scan.points.length,
     capped: scan.capped || scan.points.length >= Math.max(0, Math.floor(number_or(options.maxSamples, 100000))),
     malformed: scan.malformed,
+    resampled: scan.resampled,
+    unsampled: scan.unsampled,
   }
 }
 
@@ -689,13 +739,13 @@ const collect_surface_samples_async = async (
   potential: unknown,
   isovalue: number,
   options: EspScanOptions,
-): Promise<ReturnType<typeof collect_surface_samples>> => {
+): Promise<SurfaceScan> => {
   const points: EspSurfacePoint[] = []
   const adjacency: SurfaceAdjacency = []
   const dims = volume_dimensions(density)
-  if (!dims || !same_grid(density, potential) || !finite(isovalue)) {
-    return { points, adjacency, sampledCells: 0, totalCells: 0, capped: false, malformed: true }
-  }
+  const access = dims ? potential_access(density, potential) : undefined
+  if (!dims || !access || !finite(isovalue)) return malformed_scan()
+  const counters = { unsampled: 0 }
   const periodic = volume_periodic(density)
   const total = total_cells(dims, periodic)
   const limit = Math.min(total, Math.max(0, Math.floor(number_or(options.maxCells, 50000))))
@@ -714,12 +764,15 @@ const collect_surface_samples_async = async (
       const z = remainder % cell_dims[2]
       completed = cell_crossings(
         density, potential, x, y, z, dims, periodic, isovalue,
-        max_samples, points, adjacency, options, to_world,
+        max_samples, points, adjacency, options, to_world, access, counters,
       )
     }
     if (sampled < limit && completed) await yield_to_browser()
   }
-  return { points, adjacency, sampledCells: sampled, totalCells: total, capped: !completed || sampled < total, malformed: false }
+  return {
+    points, adjacency, sampledCells: sampled, totalCells: total, capped: !completed || sampled < total,
+    malformed: false, resampled: access.kind === 'resampled', unsampled: counters.unsampled,
+  }
 }
 
 /** Async bounded variant for UI callers; yields periodically to keep the main thread responsive. */
@@ -740,6 +793,8 @@ export const extract_esp_extrema_async = async (
     vertexCount: scan.points.length,
     capped: scan.capped || scan.points.length >= Math.max(0, Math.floor(number_or(options.maxSamples, 100000))),
     malformed: scan.malformed,
+    resampled: scan.resampled,
+    unsampled: scan.unsampled,
   }
   await yield_to_browser()
   return result

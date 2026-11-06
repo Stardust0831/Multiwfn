@@ -44,7 +44,7 @@ test('maps IRI geometry by the separate signed field using the official VMD BGR 
 
 test('rejects missing, identical or incompatible coloring grids and invalid scales', () => {
   assert.throws(() => apply_manifest_color_mapping(layers, entries.slice(0, 1), () => true), /separate coloring/)
-  assert.throws(() => apply_manifest_color_mapping(layers, entries, () => false), /same grid/)
+  assert.throws(() => apply_manifest_color_mapping(layers, entries, () => false), /compatible grid/)
   const withMapping = (patch: object) => [{ ...entries[0], colorMapping: { ...entries[0].colorMapping!, ...patch } }, entries[1]]
   assert.throws(() => apply_manifest_color_mapping(layers, withMapping({ path: entries[0].path }), () => true), /separate coloring/)
   assert.throws(() => apply_manifest_color_mapping(layers, withMapping({ range: [1, -1] }), () => true), /increasing bounds/)

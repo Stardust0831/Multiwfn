@@ -130,8 +130,14 @@ test('estimates a symmetric range from MatterViz nested grids', () => {
   assert.equal(estimateSymmetricRange(density, { ...esp, origin: [2, 2, 3] }, 1), 0.05)
   assert.equal(estimateSymmetricRange(density, {
     ...esp,
-    lattice: [[2, 0, 0], [0, 4, 0], [0, 0, 4]],
+    lattice: [[2, 0, 0], [0.5, 3, 0], [0, 0, 4]],
   }, 1), 0.05)
+  // Same origin and axes with a box that covers the surface is resampled in
+  // Cartesian space rather than rejected.
+  assert.ok(Math.abs(estimateSymmetricRange(density, {
+    ...esp,
+    lattice: [[2, 0, 0], [0, 4, 0], [0, 0, 4]],
+  }, 1) - 0.1) < 1e-9)
   assert.equal(estimateSymmetricRange(density, { ...esp, periodic: true }, 1), 0.05)
 })
 

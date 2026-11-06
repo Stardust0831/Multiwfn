@@ -259,16 +259,25 @@ For a legacy `benzene_esp.cub`, select the data unit in the result row. This
 choice is saved per file in `.banewfn-view-settings.json` within that job and
 can be changed later. Filename-declared units take precedence. Pairing requires
 exact common stems and one density file in the same directory; ambiguous or
-missing pairs are not guessed. The existing viewer rejects incompatible grids
-without interpolation. Unknown Cube names open as ordinary scalar fields.
+missing pairs are not guessed. A density/ESP pair on identical grids is colored
+exactly. A finite pair with different resolutions, such as the default
+`ESP_vcube.bwc` density preset 3 with ESP preset 1, is accepted when both grids
+share the origin (within 0.001 Å) and axis directions and the ESP box ends at
+most one coarse voxel short of the density box. The ESP is then trilinearly
+resampled at each surface position, the same mapping used for the displayed
+colors, ESP range and extrema, and the log notes the resampling. Surface points
+outside the ESP box are left uncolored and skipped, never clamped. Shifted,
+rotated, singular, periodic-mismatched or truncated grids are still rejected,
+and periodic grids must match exactly. Unknown Cube names open as ordinary
+scalar fields.
 Display isovalues are adjustable and do not change computational parameters.
 Long aliases `_hole` / `_electron` and orbital offsets above 1 are also accepted
 by the GUI; use the short suffixes when a vcube script requires them.
 
 The workbench uses the installed viewer's existing colors, labels and grid
-compatibility checks. Blue/green hole/electron grouping, compact source filenames,
-Cube loading improvements and cross-resolution ESP coloring are maintained in
-the separate Cube/ESP viewer fix, outside the workflow integration.
+compatibility checks. Blue/green hole/electron grouping, compact source filenames
+and Cube loading improvements are maintained in the separate Cube/ESP viewer
+fix, outside the workflow integration.
 
 Each window owns a temporary view session, removed on normal close. Source
 outputs stay in the workflow directory; same-filesystem hard links avoid copying

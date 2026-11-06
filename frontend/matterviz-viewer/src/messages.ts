@@ -292,6 +292,7 @@ export const zh = {
   "Exclude upper boundary atoms": "不包含上边界原子",
   "Fit all visible Reps": "适配所有可见表示层",
   "The selected color grid is incompatible with this source": "所选着色网格与当前数据不兼容",
+  "Color values are resampled from a {dims} grid onto this surface": "着色数值已从 {dims} 网格重采样到当前表面",
   "Representations": "表示层（Rep）",
   "Representation editor": "表示层编辑器",
   "{visible} visible · {total} total": "已显示 {visible} 层 · 共 {total} 层",
