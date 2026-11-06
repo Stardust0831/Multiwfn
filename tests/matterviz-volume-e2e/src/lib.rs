@@ -45,7 +45,16 @@ pub mod workflows;
 
 // Native selection is covered by desktop-host tests; this headless harness
 // exercises the same service and workflow process manager without a WebView.
+#[path = "../../../frontend/matterviz-desktop/src/viewer_export.rs"]
+pub mod viewer_export;
+
 pub mod file_dialog {
+    pub fn save_viewer_export(
+        _filename: &str,
+        _extension: &str,
+    ) -> Result<Option<std::path::PathBuf>, String> {
+        Ok(None)
+    }
     pub fn select_workflow_inputs() -> Result<Option<Vec<std::path::PathBuf>>, String> {
         Ok(None)
     }

@@ -5,50 +5,54 @@
   import { FolderOpen, X } from '@lucide/svelte'
   import { t } from './i18n'
   import {
-    read_frequency_cjson, frequency_trajectory, FREQUENCY_FILE_LIMIT,
-    DEFAULT_FREQUENCY_AMPLITUDE, type FrequencyData,
+    frequency_trajectory,
+    DEFAULT_FREQUENCY_AMPLITUDE,
   } from './frequency'
+
+  import { create_frequency_queue, type FrequencyQueueState } from './frequency-queue'
+  import { create_frequency_save } from './frequency-save'
 
   let { onclose }: { onclose: () => void } = $props()
   let dialog: HTMLDialogElement
   let input: HTMLInputElement
-  let data = $state.raw<FrequencyData>()
-  let filename = $state('')
-  let error = $state('')
-  let loading = $state(false)
+  let queueState = $state.raw<FrequencyQueueState>({ files: [], index: -1, displayedName: '', error: '', loading: false })
+  let sceneError = $state('')
+  let showArrows = $state(false)
+  const data = $derived(queueState.data)
+  const filename = $derived(queueState.displayedName)
+  const error = $derived(queueState.error || sceneError)
+  const queue = create_frequency_queue(next => {
+    if (next.data !== queueState.data) {
+      modeIndex = 0
+      amplitude = DEFAULT_FREQUENCY_AMPLITUDE
+      step = 0
+      showArrows = false
+      sceneError = ''
+    }
+    queueState = next
+  })
   let modeIndex = $state(0)
   let amplitude = $state(DEFAULT_FREQUENCY_AMPLITUDE)
   let step = $state(0)
-  let generation = 0
-  let disposed = false
   const mode = $derived(data?.modes[modeIndex])
   const trajectory = $derived(data && frequency_trajectory(data, modeIndex, amplitude))
   // An explicit, stable orbit target uses MatterViz's public scene API. No camera reset
   // or DOM access is needed as frames, mode selection or display amplitude change.
   const cameraTarget = $derived(data && get_center_of_mass(data.structure))
 
+  const exportController = $derived.by(() => { trajectory; return new AbortController() })
+  const save = $derived(create_frequency_save(new URL(window.location.href), undefined, exportController.signal))
+  $effect(() => {
+    const controller = exportController
+    return () => controller.abort()
+  })
+
   async function open_file(event: Event): Promise<void> {
     const element = event.currentTarget as HTMLInputElement
-    const file = element.files?.[0]
+    const files = Array.from(element.files ?? [])
     element.value = ''
-    if (!file) return
-    const current = ++generation
-    loading = true
-    error = ''
-    try {
-      if (file.size > FREQUENCY_FILE_LIMIT) throw new Error('Frequency file exceeds the 16 MiB limit.')
-      const parsed = read_frequency_cjson(await file.text())
-      if (disposed || current !== generation) return
-      data = parsed
-      filename = file.name
-      modeIndex = 0
-      amplitude = DEFAULT_FREQUENCY_AMPLITUDE
-      step = 0
-    } catch (reason) {
-      if (!disposed && current === generation) error = reason instanceof Error ? reason.message : String(reason)
-    } finally {
-      if (!disposed && current === generation) loading = false
-    }
+    sceneError = ''
+    await queue.replace(files)
   }
 
   const set_amplitude = (event: Event): void => {
@@ -63,8 +67,8 @@
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     dialog.showModal()
     return () => {
-      disposed = true
-      generation++
+      queue.dispose()
+      exportController.abort()
       dialog.close()
       queueMicrotask(() => { if (previous?.isConnected) previous.focus() })
     }
@@ -77,10 +81,23 @@
     <button type="button" aria-label={$t('Close vibration viewer')} onclick={onclose}><X size={18}/></button>
   </header>
   <div class="file-row">
-    <button type="button" onclick={() => input.click()} disabled={loading}><FolderOpen size={17}/>{$t('Open frequency file')}</button>
-    <input bind:this={input} type="file" accept=".cjson,.json" aria-label={$t('Frequency file')} hidden onchange={open_file}/>
-    <span class="filename" title={filename}>{loading ? $t('Loading…') : filename}</span>
+    <button type="button" onclick={() => input.click()}><FolderOpen size={17}/>{$t('Open frequency file')}</button>
+    <input bind:this={input} type="file" multiple accept=".cjson,.json" aria-label={$t('Frequency file')} hidden onchange={open_file}/>
+    <span class="filename" title={filename}>{filename}</span>
+    {#if queueState.loading}<span aria-live="polite">{$t('Loading…')}</span>{/if}
   </div>
+  {#if queueState.files.length}
+    <div class="queue-row">
+      <button type="button" aria-label={$t('Previous frequency file')} disabled={queueState.index <= 0} onclick={() => queue.select(queueState.index - 1)}>‹</button>
+      <label>{$t('Frequency files')}
+        <select aria-label={$t('Frequency files')} value={queueState.index} onchange={event => queue.select(Number(event.currentTarget.value))}>
+          {#each queueState.files as file, index}<option value={index}>{index + 1}. {file.name}</option>{/each}
+        </select>
+      </label>
+      <button type="button" aria-label={$t('Next frequency file')} disabled={queueState.index >= queueState.files.length - 1} onclick={() => queue.select(queueState.index + 1)}>›</button>
+      {#if data}<span class="showing">{$t('Showing')}: {filename}</span>{/if}
+    </div>
+  {/if}
   {#if error}<p role="alert" class="error">{$t(error)}</p>{/if}
   {#if data && mode && trajectory}
     <div class="mode-row">
@@ -96,25 +113,31 @@
       </label>
       {#if mode.ir !== undefined}<span class="intensity">IR: {mode.ir.toFixed(2)} km/mol</span>{/if}
     </div>
+    <label class="arrow-toggle"><input type="checkbox" bind:checked={showArrows}/>{$t('Displacement arrows')}</label>
     <p class="hint">{$t('Amplitude and playback speed are visual settings.')}</p>
     <div class="scene">
       {#key data}
         <Trajectory
           {trajectory}
+          on_download={save}
           bind:current_step_idx={step}
           auto_play={false}
           allow_file_drop={false}
           display_mode="structure"
           fps={24}
-          show_controls={{ mode: 'always', hidden: ['filename', 'info-pane', 'export-pane', 'view-mode', 'fullscreen'] }}
+          show_controls={{ mode: 'always', hidden: ['filename', 'info-pane', 'view-mode', 'fullscreen'] }}
           fullscreen_toggle={false}
           structure_props={{
             structure_series_key: data,
             enable_measure_mode: false,
-            show_controls: { mode: 'always', hidden: ['info-pane', 'export-pane', 'fullscreen'] },
-            scene_props: { camera_target: cameraTarget, auto_rotate: 0 },
+            show_controls: { mode: 'always', hidden: ['info-pane', 'fullscreen'] },
+            scene_props: {
+              camera_target: cameraTarget, auto_rotate: 0,
+              vector_configs: { displacement: { visible: showArrows, color: '#e74c3c', scale: null } },
+              vector_normalize: false,
+            },
           }}
-          on_error={event => { error = event.error_msg ?? 'Unable to display this normal mode.' }}
+          on_error={event => { sceneError = event.error_msg ?? 'Unable to display this normal mode.' }}
         />
       {/key}
     </div>
@@ -132,7 +155,7 @@
   .frequency-viewer { position: fixed; inset: 0; width: min(1100px, calc(100vw - 32px)); height: min(820px, calc(100dvh - 32px)); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-background, white); color: var(--ui-foreground, #172b3a); overflow: hidden; }
   .frequency-viewer[open] { display: flex; flex-direction: column; }
   .frequency-viewer::backdrop { background: #15253488; }
-  header, .file-row, .mode-row { display: flex; align-items: center; gap: 16px; padding: 12px 18px; flex-shrink: 0; }
+  header, .file-row, .mode-row, .queue-row { display: flex; align-items: center; gap: 16px; padding: 12px 18px; flex-shrink: 0; }
   header { justify-content: space-between; border-bottom: 1px solid var(--ui-border); }
   h2 { font-size: 18px; margin: 0; }
   button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 6px 10px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-background, white); color: inherit; font: inherit; cursor: pointer; }
@@ -141,6 +164,11 @@
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--ui-ring); outline-offset: 2px; }
   .file-row button { flex-shrink: 0; }
   .filename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-row { gap: 8px; flex-wrap: wrap; padding-top: 0; }
+  .queue-row label { min-width: 0; max-width: calc(100% - 90px); }
+  .queue-row select { min-width: 0; max-width: 100%; }
+  .showing { font-size: 12px; overflow-wrap: anywhere; }
+  .arrow-toggle { padding: 8px 18px 0; }
   .mode-row { flex-wrap: wrap; padding-top: 0; padding-bottom: 0; }
   label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
   select, input[type=number] { color: inherit; background: var(--ui-background, white); font: inherit; border: 1px solid var(--ui-border); border-radius: 5px; padding: 6px; }

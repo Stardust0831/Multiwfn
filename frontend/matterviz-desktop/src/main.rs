@@ -3,6 +3,7 @@ mod cli;
 mod control_protocol;
 mod control_transport;
 mod file_dialog;
+mod viewer_export;
 mod inherited_pipe;
 mod lifecycle;
 mod memory_budget;
