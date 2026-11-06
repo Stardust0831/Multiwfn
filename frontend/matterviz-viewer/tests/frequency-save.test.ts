@@ -40,5 +40,17 @@ test('save exposes bounded host rejection text and never submits after its viewe
   controller.abort()
   await assert.rejects(closed('text', 'water.xyz', 'text/plain'), { name: 'AbortError' })
   assert.equal(requests, 0)
+  // Once submitted, the native dialog cannot be cancelled from the page: a later
+  // abort must not turn a real save into a reported interruption.
+  const late = new AbortController()
+  const response = deferred<Response>()
+  let init!: RequestInit
+  const inflight = create_frequency_save(new URL('http://localhost/?cap=x'), async (_url: URL, options: RequestInit) => { init = options; return response.promise }, late.signal)
+  const pending = inflight('text', 'water.xyz', 'text/plain')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  late.abort()
+  assert.equal(init.signal, undefined)
+  response.resolve(Response.json({ status: 'saved' }))
+  await pending
   assert.equal(FREQUENCY_EXPORT_LIMIT, 64 * 1024 * 1024)
 })

@@ -14,18 +14,23 @@ test.before(async () => {
 })
 test.after(async () => { await server?.close() })
 
-test('native displacement vectors exactly equal each rendered xyz shift, retaining sign and atom ratios', async () => {
+test('native displacement vectors are the constant peak excursion, visible at equilibrium, retaining sign and atom ratios', async () => {
   const data = frequency.read_frequency_cjson(source)
-  const trajectory = frequency.frequency_trajectory(data, 0, .35)
+  const amplitude = .35
+  const trajectory = frequency.frequency_trajectory(data, 0, amplitude)
   const { get_all_site_vectors } = await server.ssrLoadModule('/node_modules/matterviz/dist/structure/index.js')
+  const vectors = data.modes[0].displacement
+  const extent = Math.max(...vectors.map(vector => Math.hypot(...vector)))
   for (const idx of [0, 12, 36]) {
     const frame = (await trajectory.frame_loader!.load_frame('', idx))!
     for (const [atom, site] of frame.structure.sites.entries()) {
       const vector = site.properties?.displacement
-      assert.deepEqual(vector, site.xyz.map((v, axis) => v - data.structure.sites[atom].xyz[axis]))
+      assert.deepEqual(vector, vectors[atom].map(value => amplitude * (value / extent)))
       assert.deepEqual(get_all_site_vectors(site), [{ key: 'displacement', vec: vector }])
     }
   }
+  const equilibrium = (await trajectory.frame_loader!.load_frame('', 0))!
+  assert.ok(equilibrium.structure.sites.some(site => Math.hypot(...(site.properties!.displacement as number[])) > 0))
 })
 
 test('ordered queue parses only selected files and preserves displayed data/identity on malformed middle item', async () => {

@@ -2,7 +2,12 @@ export type FrequencyDownload = (data: Blob | string, filename: string, mime: st
 type SaveFetch = (url: URL, init: RequestInit) => Promise<Response>
 export const FREQUENCY_EXPORT_LIMIT = 64 * 1024 * 1024
 
-/** An instance-scoped byte sink. The native host alone chooses a destination path. */
+/**
+ * An instance-scoped byte sink. The native host alone chooses a destination path.
+ * `signal` only prevents new submissions: once the request is sent, the native
+ * dialog cannot be cancelled from the page, so the host's result is reported as-is
+ * rather than claiming an aborted export for a file that was actually written.
+ */
 export function create_frequency_save(page: URL, request: SaveFetch = (url, init) => fetch(url, init), signal?: AbortSignal): FrequencyDownload {
   return async (data, filename, mime) => {
     const capability = page.searchParams.get('cap')
@@ -13,7 +18,7 @@ export function create_frequency_save(page: URL, request: SaveFetch = (url, init
     const endpoint = new URL('/api/viewer-export', page)
     endpoint.searchParams.set('cap', capability)
     endpoint.searchParams.set('filename', filename)
-    const response = await request(endpoint, { method: 'POST', headers: { 'Content-Type': mime }, body, signal })
+    const response = await request(endpoint, { method: 'POST', headers: { 'Content-Type': mime }, body })
     const text = await response.text()
     let result: { status?: string; message?: string }
     try { result = JSON.parse(text) }
@@ -22,6 +27,5 @@ export function create_frequency_save(page: URL, request: SaveFetch = (url, init
     if (!response.ok) throw new Error(result.message || 'Unable to save this export.')
     if (result.status === 'cancelled') throw new DOMException('Save cancelled.', 'AbortError')
     if (result.status !== 'saved') throw new Error('Native host returned an invalid save result.')
-    signal?.throwIfAborted()
   }
 }
