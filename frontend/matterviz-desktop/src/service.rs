@@ -176,18 +176,11 @@ impl WorkbenchService {
                                 // execution gate, so batch control stays responsive while a
                                 // dialog is open. No request can write anywhere except the path
                                 // returned by this chooser.
-                                let _dialog = match export_gate.lock() {
-                                    Ok(gate) => gate,
-                                    Err(_) => {
-                                        respond_json(
-                                            &mut stream,
-                                            &json!({"message":"Native save is unavailable"}),
-                                            500,
-                                            false,
-                                        );
-                                        return;
-                                    }
-                                };
+                                // The gate guards no data (`()`), so a panic during an
+                                // earlier save must not disable native saving for good.
+                                let _dialog = export_gate
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                                 let result = crate::viewer_export::save_with(
                                     filename,
                                     mime,

@@ -267,11 +267,10 @@ pub fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Write to a sibling temporary file, then rename it over the target, so a
-/// failed write never truncates a file the user chose to overwrite.
-pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    use std::io::Write;
-    let fail = |error: std::io::Error| format!("Unable to write export: {error}");
+/// A sibling temporary path for `path`, unique per call within this process,
+/// so a temporary left behind by an interrupted save never blocks later saves.
+fn temporary_path(path: &Path) -> Result<PathBuf, String> {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -279,10 +278,19 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let name = path
         .file_name()
         .ok_or("Unable to write export: invalid path")?;
+    let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut temporary_name = std::ffi::OsString::from(".");
     temporary_name.push(name);
-    temporary_name.push(format!(".{}.partial", std::process::id()));
-    let temporary = parent.join(temporary_name);
+    temporary_name.push(format!(".{}.{counter}.partial", std::process::id()));
+    Ok(parent.join(temporary_name))
+}
+
+/// Write to a sibling temporary file, then rename it over the target, so a
+/// failed write never truncates a file the user chose to overwrite.
+pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let fail = |error: std::io::Error| format!("Unable to write export: {error}");
+    let temporary = temporary_path(path)?;
     let result = (|| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -497,6 +505,24 @@ pub(crate) mod tests {
         // A confirmed destination is still replaced.
         write_export(&root.join("water.png"), PNG, Overwrite::Confirmed).unwrap();
         assert_eq!(std::fs::read(root.join("water.png")).unwrap(), PNG);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn leftover_temporary_file_does_not_block_later_saves() {
+        let root =
+            std::env::temp_dir().join(format!("viewer-export-leftover-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("water.png");
+        // An earlier save in this process was interrupted after creating its temporary.
+        let leftover = temporary_path(&target).unwrap();
+        std::fs::write(&leftover, b"stale").unwrap();
+        assert_ne!(temporary_path(&target).unwrap(), leftover);
+        write_atomically(&target, PNG).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), PNG);
+        write_atomically(&target, b"again").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"again");
+        assert_eq!(std::fs::read(&leftover).unwrap(), b"stale");
         std::fs::remove_dir_all(root).unwrap();
     }
 
