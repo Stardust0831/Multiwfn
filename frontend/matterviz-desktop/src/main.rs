@@ -15,6 +15,7 @@ mod shutdown;
 mod stream_broker;
 mod transport;
 mod updater;
+mod viewer_export;
 pub mod volume_protocol;
 pub mod volume_store;
 mod workbench_args;

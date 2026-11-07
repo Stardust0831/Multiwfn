@@ -17,7 +17,8 @@
     "test:representations": "node tests/browser/representations.mjs",
     "test:scene-export": "node tests/browser/scene-export.mjs",
     "test:rep-color": "node tests/browser/rep-color.mjs",
-    "test:color-scale": "node tests/browser/color-scale.mjs"
+    "test:color-scale": "node tests/browser/color-scale.mjs",
+    "test:frequency-controls": "node tests/browser/frequency-controls.mjs"
   },
   "dependencies": {
     "@lucide/svelte": "1.45.0",
@@ -26,7 +27,7 @@
     "clsx": "^2.1.1",
     "d3-contour": "^4.0.2",
     "jspdf": "^4.2.1",
-    "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq1.tgz",
+    "matterviz": "file:vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq2.tgz",
     "svelte": "^5.56.4",
     "svg2pdf.js": "^2.7.0",
     "tailwind-merge": "^3.7.0",

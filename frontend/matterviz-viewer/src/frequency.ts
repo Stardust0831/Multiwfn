@@ -100,6 +100,10 @@ export function frequency_trajectory(data: FrequencyData, modeIndex: number, amp
     throw new Error('Visual amplitude must be greater than 0 and at most 2 Å.')
   }
   const extent = Math.max(...mode.displacement.map(vector => Math.hypot(...vector)))
+  // Arrows show the mode's peak Cartesian excursion at this amplitude, with the sign of
+  // the positive half-cycle. They are constant across frames so they stay visible on the
+  // equilibrium frame, where the instantaneous shift is zero.
+  const peak = mode.displacement.map(vector => vector.map(value => amplitude * (value / extent)) as Vec3)
   const frame = (index: number): TrajectoryFrame => {
     if (!Number.isInteger(index) || index < 0 || index >= FREQUENCY_FRAMES) throw new Error('Invalid vibration frame.')
     // Start at the equilibrium geometry. FPS controls visual playback independently of cm^-1.
@@ -107,10 +111,10 @@ export function frequency_trajectory(data: FrequencyData, modeIndex: number, amp
     return {
       structure: {
         ...data.structure,
-        sites: data.structure.sites.map((site, atom) => ({
-          ...site,
-          xyz: site.xyz.map((coordinate, axis) => coordinate + excursion * (mode.displacement[atom][axis] / extent)) as Vec3,
-        })),
+        sites: data.structure.sites.map((site, atom) => {
+          const xyz = site.xyz.map((coordinate, axis) => coordinate + excursion * (mode.displacement[atom][axis] / extent)) as Vec3
+          return { ...site, xyz, properties: { ...site.properties, displacement: peak[atom] } }
+        }),
       },
       step: index,
     }
