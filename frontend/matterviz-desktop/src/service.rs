@@ -77,6 +77,7 @@ impl WorkbenchService {
         let manager = workflows.clone();
         let batches = batch.clone();
         let execution_gate = Arc::new(Mutex::new(()));
+        let export_gate = Arc::new(Mutex::new(()));
         let handle = thread::spawn(move || {
             let mut requests = Vec::new();
             while !stop.load(Ordering::Acquire) {
@@ -89,6 +90,7 @@ impl WorkbenchService {
                         let manager = manager.clone();
                         let batches = batches.clone();
                         let execution_gate = execution_gate.clone();
+                        let export_gate = export_gate.clone();
                         let authority = authority.clone();
                         let cap = cap.clone();
                         let frontend = frontend.clone();
@@ -144,43 +146,44 @@ impl WorkbenchService {
                                 .map(|(k, v)| (k.into_owned(), v.into_owned()))
                                 .collect();
                             if path == "/api/viewer-export" {
-                                if !has_capability(&query, &cap) {
-                                    respond_json(&mut stream, &json!({"message":"Invalid capability"}), 403, false);
-                                    return;
-                                }
-                                if method != "POST" {
-                                    respond(&mut stream, 405, "text/plain", b"Method Not Allowed", method == "HEAD");
-                                    return;
-                                }
-                                if !same_origin(&request.headers, &authority, true) {
-                                    respond_json(&mut stream, &json!({"message":"Invalid Origin"}), 403, false);
-                                    return;
-                                }
-                                let filenames: Vec<_> = query.iter().filter(|(key, _)| key == "filename").map(|(_, value)| value.as_str()).collect();
-                                let types: Vec<_> = request.headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("content-type")).map(|(_, value)| value.as_str()).collect();
-                                if filenames.len() != 1 || types.len() != 1 || query.iter().any(|(key, _)| key != "cap" && key != "filename") {
-                                    respond_json(&mut stream, &json!({"message":"Export requires one filename and Content-Type; destination paths are not accepted"}), 400, false);
-                                    return;
-                                }
-                                if let Err(message) = crate::viewer_export::validate_export(filenames[0], types[0], &request.body) {
-                                    respond_json(&mut stream, &json!({"message":message}), 400, false);
-                                    return;
-                                }
-                                // Serialize native dialogs with other workbench dialogs. No request
-                                // can write anywhere except the path returned by this chooser.
-                                let _gate = match execution_gate.lock() {
+                                // read_workbench_http_request already enforced POST, capability,
+                                // same Host/Origin, exactly one filename/Content-Type and the
+                                // per-type body budget before reading the body.
+                                let filename = query
+                                    .iter()
+                                    .find(|(key, _)| key == "filename")
+                                    .map(|(_, value)| value.as_str())
+                                    .unwrap_or("");
+                                let mime = request
+                                    .headers
+                                    .iter()
+                                    .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                                    .map(|(_, value)| value.as_str())
+                                    .unwrap_or("");
+                                // Serialize viewer save dialogs without holding the workflow
+                                // execution gate, so batch control stays responsive while a
+                                // dialog is open. No request can write anywhere except the path
+                                // returned by this chooser.
+                                let _dialog = match export_gate.lock() {
                                     Ok(gate) => gate,
-                                    Err(_) => { respond_json(&mut stream, &json!({"message":"Native save is unavailable"}), 500, false); return; }
+                                    Err(_) => {
+                                        respond_json(&mut stream, &json!({"message":"Native save is unavailable"}), 500, false);
+                                        return;
+                                    }
                                 };
                                 let result = crate::viewer_export::save_with(
-                                    filenames[0], types[0], &request.body,
+                                    filename,
+                                    mime,
+                                    &request.body,
                                     crate::file_dialog::save_viewer_export,
-                                    |path, bytes| fs::write(path, bytes).map_err(|error| format!("Unable to write export: {error}")),
+                                    crate::viewer_export::write_atomically,
                                 );
+                                use crate::viewer_export::{SaveError, SaveOutcome};
                                 match result {
-                                    Ok(crate::viewer_export::SaveOutcome::Saved) => respond_json(&mut stream, &json!({"status":"saved"}), 200, false),
-                                    Ok(crate::viewer_export::SaveOutcome::Cancelled) => respond_json(&mut stream, &json!({"status":"cancelled"}), 200, false),
-                                    Err(message) => respond_json(&mut stream, &json!({"message":message}), 500, false),
+                                    Ok(SaveOutcome::Saved) => respond_json(&mut stream, &json!({"status":"saved"}), 200, false),
+                                    Ok(SaveOutcome::Cancelled) => respond_json(&mut stream, &json!({"status":"cancelled"}), 200, false),
+                                    Err(SaveError::Invalid(message)) => respond_json(&mut stream, &json!({"message":message}), 400, false),
+                                    Err(SaveError::Failed(message)) => respond_json(&mut stream, &json!({"message":message}), 500, false),
                                 }
                                 return;
                             }

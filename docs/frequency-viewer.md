@@ -57,8 +57,10 @@ cannot reconstruct section or orientation information omitted from CJSON.
   Incomplete arrays, nonfinite values, zero vectors and mismatched atom/mode
   counts fail with an error. Limits are 16 MiB, 2000 atoms and at most 3N modes.
 - Displacement arrows start off. The toggle uses the native vector layer, with
-  each per-site vector equal to the exact Cartesian shift applied to that frame.
-  Arrows preserve signs and atom ratios; they are not physical forces.
+  each per-site vector equal to the mode's peak Cartesian excursion at the
+  chosen visual amplitude (the positive half-cycle). The arrows are constant
+  across frames, so they are visible on the equilibrium frame. Arrows preserve
+  signs and atom ratios; they are not physical forces.
 
 ## Integration and upstream compatibility
 
@@ -129,7 +131,9 @@ serializers and recorder. Each viewer supplies its own asynchronous byte sink;
 no global browser-download override is installed. Exporting awaits the selected
 lazy frame and the renderer, pauses playback, then restores the previous frame,
 play/pause state and camera when the same dataset is still open. Changing the
-dataset/mode/amplitude or closing interrupts an active export.
+dataset/mode/amplitude or closing interrupts an active export before it is
+submitted. Once a native save dialog is open it cannot be cancelled from the
+page, and its result is reported as returned by the host.
 
 The existing workbench host accepts POST /api/viewer-export with its session
 capability, same Host/Origin, one plain suggested filename, an exact allowed
@@ -139,7 +143,11 @@ Only the native save dialog selects the write target. Text is bounded to
 their 256 KiB limit. PNG/GLB/WebM container framing, UTF-8 text and JSON are
 checked before opening a dialog. Host cancellation returns status=cancelled
 and the per-view callback rejects with AbortError, never a successful save.
-Write failures remain visible.
+Write failures remain visible. The host writes to a sibling temporary file and
+renames it over the target, so a failed write never truncates an existing file.
+If the chosen name lacks the expected suffix, the suffix is appended; an
+existing file at that adjusted name is not silently replaced. Viewer dialogs
+are serialized with each other but do not hold the workflow execution gate.
 
 OBJ and MTL are saved sequentially, with each dialog awaited. Save both in the
 same folder and retain the suggested MTL filename, which the OBJ references.

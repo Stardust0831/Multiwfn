@@ -7,6 +7,14 @@ pub enum SaveOutcome {
     Cancelled,
 }
 
+/// `Invalid` is a rejected request (HTTP 400); `Failed` is a chooser or write
+/// failure after a valid request (HTTP 500).
+#[derive(Debug, PartialEq)]
+pub enum SaveError {
+    Invalid(String),
+    Failed(String),
+}
+
 pub fn export_metadata<'a>(filename: &'a str, mime: &str) -> Result<(&'a str, usize), String> {
     if filename.is_empty()
         || filename.len() > 128
@@ -178,13 +186,67 @@ pub fn save_with(
     body: &[u8],
     choose: impl FnOnce(&str, &str) -> Result<Option<PathBuf>, String>,
     write: impl FnOnce(&Path, &[u8]) -> Result<(), String>,
-) -> Result<SaveOutcome, String> {
-    let extension = validate_export(filename, mime, body)?;
-    let Some(path) = choose(filename, extension)? else {
+) -> Result<SaveOutcome, SaveError> {
+    let extension = validate_export(filename, mime, body).map_err(SaveError::Invalid)?;
+    let Some(path) = choose(filename, extension).map_err(SaveError::Failed)? else {
         return Ok(SaveOutcome::Cancelled);
     };
-    write(&path, body)?;
+    let path = with_extension(path, extension)?;
+    write(&path, body).map_err(SaveError::Failed)?;
     Ok(SaveOutcome::Saved)
+}
+
+/// Native choosers do not all enforce the filter's suffix. Append it when the
+/// user removed it, but never silently replace a file the dialog did not confirm.
+fn with_extension(path: PathBuf, extension: &str) -> Result<PathBuf, SaveError> {
+    let matches = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case(extension));
+    if matches {
+        return Ok(path);
+    }
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".");
+    name.push(extension);
+    let adjusted = path.with_file_name(name);
+    if adjusted.exists() {
+        return Err(SaveError::Failed(format!(
+            "{} already exists; choose a filename ending in .{extension}",
+            adjusted.display()
+        )));
+    }
+    Ok(adjusted)
+}
+
+/// Write to a sibling temporary file, then rename it over the target, so a
+/// failed write never truncates a file the user chose to overwrite.
+pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let fail = |error: std::io::Error| format!("Unable to write export: {error}");
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path.file_name().ok_or("Unable to write export: invalid path")?;
+    let mut temporary_name = std::ffi::OsString::from(".");
+    temporary_name.push(name);
+    temporary_name.push(format!(".{}.partial", std::process::id()));
+    let temporary = parent.join(temporary_name);
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result.map_err(fail)
 }
 
 #[cfg(test)]
@@ -306,7 +368,7 @@ pub(crate) mod tests {
             "image/png",
             PNG,
             |_, _| Ok(Some(selected.clone())),
-            |path, bytes| std::fs::write(path, bytes).map_err(|e| e.to_string()),
+            write_atomically,
         );
         assert_eq!(result.unwrap(), SaveOutcome::Saved);
         assert_eq!(std::fs::read(&selected).unwrap(), PNG);
@@ -317,9 +379,36 @@ pub(crate) mod tests {
             "image/png",
             PNG,
             |_, _| Ok(Some(missing)),
-            |path, bytes| std::fs::write(path, bytes).map_err(|e| e.to_string()),
+            write_atomically,
         );
         assert!(result.is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_suffix_is_appended_without_replacing_unconfirmed_files() {
+        let root = std::env::temp_dir().join(format!("viewer-export-suffix-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let typed = root.join("water");
+        let result = save_with("water.png", "image/png", PNG, |_, _| Ok(Some(typed.clone())), write_atomically);
+        assert_eq!(result.unwrap(), SaveOutcome::Saved);
+        assert_eq!(std::fs::read(root.join("water.png")).unwrap(), PNG);
+        assert!(!typed.exists());
+        // water.png now exists but the dialog only confirmed "water": refuse.
+        let result = save_with("water.png", "image/png", PNG, |_, _| Ok(Some(typed.clone())), |_, _| panic!("must not overwrite"));
+        assert!(matches!(result, Err(SaveError::Failed(_))));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_file_and_leaves_no_partial() {
+        let root = std::env::temp_dir().join(format!("viewer-export-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("water.png");
+        std::fs::write(&target, b"old").unwrap();
+        write_atomically(&target, PNG).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), PNG);
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -332,14 +421,14 @@ pub(crate) mod tests {
             |_, _| Err("chooser failed".into()),
             |_, _| panic!(),
         );
-        assert_eq!(result, Err("chooser failed".into()));
+        assert_eq!(result, Err(SaveError::Failed("chooser failed".into())));
         let result = save_with(
             "water.png",
             "image/png",
             PNG,
-            |_, _| Ok(Some(PathBuf::from("/selected"))),
+            |_, _| Ok(Some(PathBuf::from("/selected.png"))),
             |_, _| Err("write failed".into()),
         );
-        assert_eq!(result, Err("write failed".into()));
+        assert_eq!(result, Err(SaveError::Failed("write failed".into())));
     }
 }
