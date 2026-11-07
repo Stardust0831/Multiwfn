@@ -180,43 +180,91 @@ fn glb_matches(body: &[u8]) -> bool {
     chunks > 0 && offset == body.len()
 }
 
+/// Whether the native dialog confirmed replacing the destination. A path whose
+/// suffix was appended after the dialog was never confirmed by the user.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Overwrite {
+    Confirmed,
+    Refuse,
+}
+
 pub fn save_with(
     filename: &str,
     mime: &str,
     body: &[u8],
     choose: impl FnOnce(&str, &str) -> Result<Option<PathBuf>, String>,
-    write: impl FnOnce(&Path, &[u8]) -> Result<(), String>,
+    write: impl FnOnce(&Path, &[u8], Overwrite) -> Result<(), String>,
 ) -> Result<SaveOutcome, SaveError> {
     let extension = validate_export(filename, mime, body).map_err(SaveError::Invalid)?;
     let Some(path) = choose(filename, extension).map_err(SaveError::Failed)? else {
         return Ok(SaveOutcome::Cancelled);
     };
-    let path = with_extension(path, extension)?;
-    write(&path, body).map_err(SaveError::Failed)?;
+    let (path, overwrite) = with_extension(path, extension)?;
+    write(&path, body, overwrite).map_err(SaveError::Failed)?;
     Ok(SaveOutcome::Saved)
 }
 
 /// Native choosers do not all enforce the filter's suffix. Append it when the
 /// user removed it, but never silently replace a file the dialog did not confirm.
-fn with_extension(path: PathBuf, extension: &str) -> Result<PathBuf, SaveError> {
+/// The early check gives a clear message; `write_export` enforces it atomically.
+fn with_extension(path: PathBuf, extension: &str) -> Result<(PathBuf, Overwrite), SaveError> {
     let matches = path
         .extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case(extension));
     if matches {
-        return Ok(path);
+        return Ok((path, Overwrite::Confirmed));
     }
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".");
     name.push(extension);
     let adjusted = path.with_file_name(name);
     if adjusted.exists() {
-        return Err(SaveError::Failed(format!(
-            "{} already exists; choose a filename ending in .{extension}",
-            adjusted.display()
-        )));
+        return Err(SaveError::Failed(already_exists(&adjusted, extension)));
     }
-    Ok(adjusted)
+    Ok((adjusted, Overwrite::Refuse))
+}
+
+fn already_exists(path: &Path, extension: &str) -> String {
+    format!(
+        "{} already exists; choose a filename ending in .{extension}",
+        path.display()
+    )
+}
+
+/// Write a viewer export. A confirmed destination is replaced atomically; an
+/// unconfirmed one is created exclusively, so a file that appears after the
+/// existence check is never replaced.
+pub fn write_export(path: &Path, bytes: &[u8], overwrite: Overwrite) -> Result<(), String> {
+    match overwrite {
+        Overwrite::Confirmed => write_atomically(path, bytes),
+        Overwrite::Refuse => write_new(path, bytes),
+    }
+}
+
+/// Create `path` exclusively (O_EXCL / CREATE_NEW), failing if it exists. A
+/// failed write removes only the file this call created.
+pub fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            return Err(already_exists(path, extension));
+        }
+        Err(error) => return Err(format!("Unable to write export: {error}")),
+    };
+    let result = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(path);
+        return Err(format!("Unable to write export: {error}"));
+    }
+    Ok(())
 }
 
 /// Write to a sibling temporary file, then rename it over the target, so a
@@ -228,7 +276,9 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let name = path.file_name().ok_or("Unable to write export: invalid path")?;
+    let name = path
+        .file_name()
+        .ok_or("Unable to write export: invalid path")?;
     let mut temporary_name = std::ffi::OsString::from(".");
     temporary_name.push(name);
     temporary_name.push(format!(".{}.partial", std::process::id()));
@@ -330,9 +380,10 @@ pub(crate) mod tests {
                 assert_eq!(ext, "png");
                 Ok(Some(chosen.clone()))
             },
-            |path, bytes| {
+            |path, bytes, overwrite| {
                 assert_eq!(path, chosen);
                 assert_eq!(bytes, PNG);
+                assert_eq!(overwrite, Overwrite::Confirmed);
                 Ok(())
             },
         )
@@ -344,7 +395,7 @@ pub(crate) mod tests {
                 "image/png",
                 PNG,
                 |_, _| Ok(None),
-                |_, _| panic!("cancel must not write")
+                |_, _, _| panic!("cancel must not write")
             )
             .unwrap(),
             SaveOutcome::Cancelled
@@ -354,7 +405,7 @@ pub(crate) mod tests {
             "image/png",
             PNG,
             |_, _| panic!("invalid must not open chooser"),
-            |_, _| panic!()
+            |_, _, _| panic!()
         )
         .is_err());
     }
@@ -368,7 +419,7 @@ pub(crate) mod tests {
             "image/png",
             PNG,
             |_, _| Ok(Some(selected.clone())),
-            write_atomically,
+            write_export,
         );
         assert_eq!(result.unwrap(), SaveOutcome::Saved);
         assert_eq!(std::fs::read(&selected).unwrap(), PNG);
@@ -379,7 +430,7 @@ pub(crate) mod tests {
             "image/png",
             PNG,
             |_, _| Ok(Some(missing)),
-            write_atomically,
+            write_export,
         );
         assert!(result.is_err());
         std::fs::remove_dir_all(root).unwrap();
@@ -387,22 +438,72 @@ pub(crate) mod tests {
 
     #[test]
     fn missing_suffix_is_appended_without_replacing_unconfirmed_files() {
-        let root = std::env::temp_dir().join(format!("viewer-export-suffix-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("viewer-export-suffix-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let typed = root.join("water");
-        let result = save_with("water.png", "image/png", PNG, |_, _| Ok(Some(typed.clone())), write_atomically);
+        let result = save_with(
+            "water.png",
+            "image/png",
+            PNG,
+            |_, _| Ok(Some(typed.clone())),
+            write_export,
+        );
         assert_eq!(result.unwrap(), SaveOutcome::Saved);
         assert_eq!(std::fs::read(root.join("water.png")).unwrap(), PNG);
         assert!(!typed.exists());
         // water.png now exists but the dialog only confirmed "water": refuse.
-        let result = save_with("water.png", "image/png", PNG, |_, _| Ok(Some(typed.clone())), |_, _| panic!("must not overwrite"));
+        let result = save_with(
+            "water.png",
+            "image/png",
+            PNG,
+            |_, _| Ok(Some(typed.clone())),
+            |_, _, _| panic!("must not overwrite"),
+        );
         assert!(matches!(result, Err(SaveError::Failed(_))));
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
+    fn unconfirmed_adjusted_path_is_never_replaced_even_if_it_appears_late() {
+        let root = std::env::temp_dir().join(format!("viewer-export-race-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let typed = root.join("water");
+        // The adjusted file appears after with_extension's check, before the write.
+        let result = save_with(
+            "water.png",
+            "image/png",
+            PNG,
+            |_, _| Ok(Some(typed.clone())),
+            |path, bytes, overwrite| {
+                assert_eq!(overwrite, Overwrite::Refuse);
+                std::fs::write(path, b"someone else's file").unwrap();
+                write_export(path, bytes, overwrite)
+            },
+        );
+        assert!(
+            matches!(&result, Err(SaveError::Failed(message)) if message.contains("already exists")),
+            "{result:?}"
+        );
+        assert_eq!(
+            std::fs::read(root.join("water.png")).unwrap(),
+            b"someone else's file"
+        );
+        assert_eq!(
+            std::fs::read_dir(&root).unwrap().count(),
+            1,
+            "no partial file is left"
+        );
+        // A confirmed destination is still replaced.
+        write_export(&root.join("water.png"), PNG, Overwrite::Confirmed).unwrap();
+        assert_eq!(std::fs::read(root.join("water.png")).unwrap(), PNG);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn atomic_write_replaces_existing_file_and_leaves_no_partial() {
-        let root = std::env::temp_dir().join(format!("viewer-export-atomic-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("viewer-export-atomic-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let target = root.join("water.png");
         std::fs::write(&target, b"old").unwrap();
@@ -419,7 +520,7 @@ pub(crate) mod tests {
             "image/png",
             PNG,
             |_, _| Err("chooser failed".into()),
-            |_, _| panic!(),
+            |_, _, _| panic!(),
         );
         assert_eq!(result, Err(SaveError::Failed("chooser failed".into())));
         let result = save_with(
@@ -427,7 +528,7 @@ pub(crate) mod tests {
             "image/png",
             PNG,
             |_, _| Ok(Some(PathBuf::from("/selected.png"))),
-            |_, _| Err("write failed".into()),
+            |_, _, _| Err("write failed".into()),
         );
         assert_eq!(result, Err(SaveError::Failed("write failed".into())));
     }
