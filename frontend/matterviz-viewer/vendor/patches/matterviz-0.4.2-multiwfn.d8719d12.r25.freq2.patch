@@ -172,7 +172,7 @@ diff -rN -U 0 a/dist/io/export.js b/dist/io/export.js
 -            }, 5000);
 +            const remaining = Math.max(0, 1000 / fps - (performance.now() - frame_start));
 +            if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
-@@ -391,4 +353,17 @@
+@@ -391,4 +353,18 @@
 -        catch (error) {
 -            if (!is_resolved) {
 -                is_resolved = true;
@@ -183,8 +183,9 @@ diff -rN -U 0 a/dist/io/export.js b/dist/io/export.js
 +        })]);
 +        signal?.throwIfAborted();
 +        const blob = new Blob(chunks, { type: `video/webm` });
-+        await wait_for(Promise.resolve(on_download(blob, filename.replace(/\.(?:mp4|webm)$/i, `.webm`), `video/webm`)));
-+        signal?.throwIfAborted();
++        // The signal stops submission only. A submitted native save cannot be
++        // cancelled from the page, so its result is awaited and reported as-is.
++        await on_download(blob, filename.replace(/\.(?:mp4|webm)$/i, `.webm`), `video/webm`);
 +        on_progress?.(100);
 +    } finally {
 +        clearTimeout(timeout);
@@ -194,7 +195,7 @@ diff -rN -U 0 a/dist/io/export.js b/dist/io/export.js
 +            if (renderer && orig_size && orig_pixel_ratio !== undefined) {
 +                renderer.setPixelRatio(orig_pixel_ratio);
 +                renderer.setSize(orig_size.width, orig_size.height, false);
-@@ -397 +372 @@
+@@ -397 +373 @@
 -    });
 +    }
 diff -rN -U 0 a/dist/structure/Structure.svelte b/dist/structure/Structure.svelte
@@ -212,11 +213,47 @@ diff -rN -U 0 a/dist/structure/Structure.svelte b/dist/structure/Structure.svelt
 +    before_export?: () => Promise<void>
 +    on_export_start?: () => void | (() => void)
 +    on_export_end?: () => void | Promise<void>
-@@ -1905,0 +1915,4 @@
+@@ -1437 +1446 @@
+-      toggle_fullscreen(wrapper)
++      toggle_fullscreen(wrapper_element)
+@@ -1586,0 +1596,6 @@
++  // Children read the rendered element, not the bindable prop. A parent that
++  // spreads fresh props (Trajectory structure_props) resets an unbound prop to
++  // its undefined fallback, which hid the canvas from the PNG export pane.
++  let wrapper_element = $state<HTMLDivElement>()
++  $effect.pre(() => { wrapper = wrapper_element })
++
+@@ -1589 +1604 @@
+-    if (typeof window !== `undefined` && wrapper && background_color) {
++    if (typeof window !== `undefined` && wrapper_element && background_color) {
+@@ -1594,2 +1609,2 @@
+-      wrapper.style.setProperty(`--struct-bg-override`, `${background_color}${alpha_hex}`)
+-    } else if (typeof window !== `undefined` && wrapper) {
++      wrapper_element.style.setProperty(`--struct-bg-override`, `${background_color}${alpha_hex}`)
++    } else if (typeof window !== `undefined` && wrapper_element) {
+@@ -1597 +1612 @@
+-      wrapper.style.removeProperty(`--struct-bg-override`)
++      wrapper_element.style.removeProperty(`--struct-bg-override`)
+@@ -1602 +1617 @@
+-    get_wrapper: () => wrapper,
++    get_wrapper: () => wrapper_element,
+@@ -1624 +1639 @@
+-  bind:this={wrapper}
++  bind:this={wrapper_element}
+@@ -1631 +1646 @@
+-    if (!(event.relatedTarget instanceof Node) || !wrapper?.contains(event.relatedTarget)) {
++    if (!(event.relatedTarget instanceof Node) || !wrapper_element?.contains(event.relatedTarget)) {
+@@ -1672 +1687 @@
+-      {wrapper}
++      wrapper={wrapper_element}
+@@ -1905,0 +1921,4 @@
 +          {on_download}
 +          {before_export}
 +          {on_export_start}
 +          {on_export_end}
+@@ -1908 +1927 @@
+-          {wrapper}
++          wrapper={wrapper_element}
 diff -rN -U 0 a/dist/structure/Structure.svelte.d.ts b/dist/structure/Structure.svelte.d.ts
 --- a/dist/structure/Structure.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
 +++ b/dist/structure/Structure.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
@@ -259,7 +296,7 @@ diff -rN -U 0 a/dist/structure/StructureExportPane.svelte b/dist/structure/Struc
 +    export_error = null
 +    const callbacks = { on_download, before_export, on_export_start, on_export_end }
 +    let started = false
-@@ -86,4 +98,10 @@
+@@ -86,4 +98,12 @@
 -      if (format === `glb`) exports.export_structure_as_glb(scene, structure)
 -      else if (format === `obj`) exports.export_structure_as_obj(scene, structure)
 -    } catch (error) {
@@ -268,13 +305,15 @@ diff -rN -U 0 a/dist/structure/StructureExportPane.svelte b/dist/structure/Struc
 +      started = true
 +      await callbacks.before_export?.()
 +      if (typeof guard === `function`) guard()
++      // Guard only before submitting. Once the host has the bytes its native dialog
++      // cannot be cancelled, so a completed save/cancel/failure is reported as-is
++      // even when the owner changed meanwhile; a later save (OBJ's MTL) is refused.
 +      const sink: DownloadCallback | undefined = callbacks.on_download && (async (data, filename, mime) => {
 +        if (typeof guard === `function`) guard()
 +        await callbacks.on_download!(data, filename, mime)
-+        if (typeof guard === `function`) guard()
 +      })
 +      await action(sink)
-@@ -90,0 +109,11 @@
+@@ -90,0 +111,11 @@
 +    catch (error) { export_error = error instanceof Error ? error.message : String(error) }
 +    finally {
 +      try { if (started) await callbacks.on_export_end?.() }
@@ -286,23 +325,23 @@ diff -rN -U 0 a/dist/structure/StructureExportPane.svelte b/dist/structure/Struc
 +    if (!scene) throw new Error(`No scene available for export`)
 +    if (format === `glb`) await exports.export_structure_as_glb(scene, structure, sink)
 +    else await exports.export_structure_as_obj(scene, structure, sink)
-@@ -103,2 +132,2 @@
+@@ -103,2 +134,2 @@
 -        disabled: !structure,
 -        on_download: () => structure && exports.export_structure_as(format, structure),
 +        disabled: !structure || is_exporting,
 +        on_download: () => save_export(sink => exports.export_structure_as(format, structure, sink)),
-@@ -113 +142 @@
+@@ -113 +144 @@
 -          disabled: !has_canvas,
 +          disabled: !has_canvas || is_exporting,
-@@ -117 +146 @@
+@@ -117 +148 @@
 -            if (canvas) export_canvas_as_png(canvas, structure, png_dpi, scene, camera)
 +            if (canvas) return save_export(sink => export_canvas_as_png(canvas, structure, png_dpi, scene, camera, sink))
-@@ -128,2 +157,2 @@
+@@ -128,2 +159,2 @@
 -        disabled: !scene,
 -        on_download: () => handle_3d_export(format),
 +        disabled: !scene || is_exporting,
 +        on_download: () => save_export(sink => handle_3d_export(format, sink)),
-@@ -146 +175,4 @@
+@@ -146 +177,4 @@
 -/>
 +>
 +  {#if export_error}<p role="status">{export_error}</p>{/if}
@@ -323,7 +362,9 @@ diff -rN -U 0 a/dist/structure/export.d.ts b/dist/structure/export.d.ts
 +++ b/dist/structure/export.d.ts	2026-10-23 00:00:00.000000000 +0000
 @@ -1,0 +2 @@
 +import type { DownloadCallback } from '../io/export';
-@@ -39,3 +40,3 @@
+@@ -10,0 +12 @@
++export declare const MAX_STRUCTURE_FILENAME_STEM = 96;
+@@ -39,3 +41,3 @@
 -export declare function export_structure_as(fmt: StructTextFormat, structure?: AnyStructure): void;
 -export declare function export_structure_as_glb(scene: Scene | null, structure: AnyStructure | undefined): void;
 -export declare function export_structure_as_obj(scene: Scene | null, structure: AnyStructure | undefined): void;
@@ -333,10 +374,22 @@ diff -rN -U 0 a/dist/structure/export.d.ts b/dist/structure/export.d.ts
 diff -rN -U 0 a/dist/structure/export.js b/dist/structure/export.js
 --- a/dist/structure/export.js	2026-10-23 00:00:00.000000000 +0000
 +++ b/dist/structure/export.js	2026-10-23 00:00:00.000000000 +0000
-@@ -611 +611 @@
+@@ -315,0 +316,6 @@
++export const MAX_STRUCTURE_FILENAME_STEM = 96;
++const bound_filename_stem = (stem) => {
++    if (stem.length <= MAX_STRUCTURE_FILENAME_STEM)
++        return stem;
++    return stem.slice(0, MAX_STRUCTURE_FILENAME_STEM).replace(/[-_. ]+$/, ``) || `structure`;
++};
+@@ -355 +361,3 @@
+-    const base_name = parts.length > 0 ? parts.join(`-`) : `structure`;
++    // Bound the stem so long formulas still fit native-host filename limits
++    // (128 bytes) with a DPI suffix and extension. OBJ/MTL share this stem.
++    const base_name = bound_filename_stem(parts.length > 0 ? parts.join(`-`) : `structure`);
+@@ -611 +619 @@
 -export function export_structure_as(fmt, structure) {
 +export async function export_structure_as(fmt, structure, on_download = download) {
-@@ -613,7 +613 @@
+@@ -613,7 +621 @@
 -    try {
 -        const content = to_str(structure);
 -        download(content, create_structure_filename(structure, ext), mime);
@@ -345,7 +398,7 @@ diff -rN -U 0 a/dist/structure/export.js b/dist/structure/export.js
 -        console.error(`Failed to export ${fmt.toUpperCase()}:`, error);
 -    }
 +    await on_download(to_str(structure), create_structure_filename(structure, ext), mime);
-@@ -621,28 +615,8 @@
+@@ -621,28 +623,8 @@
 -// Export Three.js scene as GLB (binary GLTF) file
 -// GLB preserves materials and colors, making it ideal for element visualization
 -export function export_structure_as_glb(scene, structure) {
@@ -382,7 +435,7 @@ diff -rN -U 0 a/dist/structure/export.js b/dist/structure/export.js
 +    const result = await new GLTFExporter().parseAsync(export_scene, { binary: true });
 +    if (!(result instanceof ArrayBuffer)) throw new Error(`GLB export returned unexpected format`);
 +    await on_download(new Blob([result], { type: `model/gltf-binary` }), create_structure_filename(structure, `glb`), `model/gltf-binary`);
-@@ -650,28 +624,11 @@
+@@ -650,28 +632,11 @@
 -// Export Three.js scene as OBJ (Wavefront Object) file with accompanying MTL file for materials
 -// OBJ exports geometry with material references, MTL contains color definitions
 -export function export_structure_as_obj(scene, structure) {
@@ -422,7 +475,7 @@ diff -rN -U 0 a/dist/structure/export.js b/dist/structure/export.js
 +    // Preserve browser download pacing only for the original default sink.
 +    if (on_download === download) await new Promise(resolve => setTimeout(resolve, 100));
 +    try { await on_download(new Blob([mtl], { type: `text/plain` }), mtl_filename, `text/plain`); }
-@@ -679 +636,3 @@
+@@ -679 +644,3 @@
 -        console.error(`Error exporting OBJ:`, error);
 +        const partial = new Error(`OBJ saved, but companion MTL was not saved: ${error instanceof Error ? error.message : error}`, { cause: error });
 +        partial.name = error instanceof Error ? error.name : `Error`;
@@ -470,7 +523,7 @@ diff -rN -U 0 a/dist/trajectory/Trajectory.svelte b/dist/trajectory/Trajectory.s
 @@ -473,0 +488,2 @@
 +      displayed_frame_owner = load_trajectory
 +      displayed_frame_idx = frame_idx
-@@ -687,0 +704,63 @@
+@@ -687,0 +704,67 @@
 +  let export_snapshot = $state.raw<{
 +    owner: TrajectoryType; index: number; playing: boolean
 +    canvas?: HTMLCanvasElement; camera?: import('three').Camera; pose?: import('three').Camera
@@ -526,7 +579,11 @@ diff -rN -U 0 a/dist/trajectory/Trajectory.svelte b/dist/trajectory/Trajectory.s
 +    const snapshot = export_snapshot
 +    try {
 +      if (!snapshot || disposed || trajectory !== snapshot.owner) return
-+      await go_to_export_step(snapshot.index)
++      // Restoring is best effort. If the owner/frame changed meanwhile there is
++      // nothing to restore, and cleanup must not turn a completed save into an
++      // interruption; only an unexpected restore failure is reported.
++      try { await go_to_export_step(snapshot.index) }
++      catch (error) { if (error instanceof DOMException && error.name === `AbortError`) return; throw error }
 +      if (disposed || export_snapshot !== snapshot || trajectory !== snapshot.owner || current_step_idx !== snapshot.index ||
 +          !current_frame || displayed_frame_owner !== snapshot.owner || displayed_frame_idx !== snapshot.index) return
 +      if (snapshot.camera && snapshot.pose) snapshot.camera.copy(snapshot.pose, false)
@@ -534,36 +591,36 @@ diff -rN -U 0 a/dist/trajectory/Trajectory.svelte b/dist/trajectory/Trajectory.s
 +    } finally { if (export_snapshot === snapshot) export_snapshot = undefined }
 +  }
 +
-@@ -1015,0 +1095 @@
+@@ -1015,0 +1099 @@
 +    if (export_snapshot) return false
-@@ -1187 +1267 @@
+@@ -1187 +1271 @@
 -                disabled={current_step_idx === 0 || is_playing}
 +                disabled={!!export_snapshot || current_step_idx === 0 || is_playing}
-@@ -1194 +1274 @@
+@@ -1194 +1278 @@
 -                disabled={total_frames <= 1}
 +                disabled={!!export_snapshot || total_frames <= 1}
-@@ -1205 +1285 @@
+@@ -1205 +1289 @@
 -                disabled={current_step_idx === total_frames - 1 || is_playing}
 +                disabled={!!export_snapshot || current_step_idx === total_frames - 1 || is_playing}
-@@ -1219,0 +1300 @@
+@@ -1219,0 +1304 @@
 +                disabled={!!export_snapshot}
-@@ -1233 +1314,2 @@
+@@ -1233 +1318,2 @@
 -                  bind:value={current_step_idx}
 +                  disabled={!!export_snapshot}
 +                bind:value={current_step_idx}
-@@ -1302 +1384,4 @@
+@@ -1302 +1388,4 @@
 -                on_step_change={go_to_step}
 +                on_download={on_download}
 +                on_export_start={begin_export}
 +                on_export_end={finish_export}
 +                on_step_change={go_to_export_step}
-@@ -1364,0 +1450 @@
+@@ -1364,0 +1454 @@
 +      inert={!!export_snapshot}
-@@ -1374,0 +1461,3 @@
+@@ -1374,0 +1465,3 @@
 +          before_export={() => go_to_export_step(current_step_idx)}
 +          on_export_start={begin_export}
 +          on_export_end={finish_export}
-@@ -1377,0 +1467 @@
+@@ -1377,0 +1471 @@
 +            on_download,
 diff -rN -U 0 a/dist/trajectory/Trajectory.svelte.d.ts b/dist/trajectory/Trajectory.svelte.d.ts
 --- a/dist/trajectory/Trajectory.svelte.d.ts	2026-10-23 00:00:00.000000000 +0000
@@ -593,45 +650,56 @@ diff -rN -U 0 a/dist/trajectory/TrajectoryExportPane.svelte b/dist/trajectory/Tr
 +    trajectory
 +    return () => export_controller?.abort()
 +  })
-@@ -89,0 +104 @@
+@@ -58 +72,3 @@
+-  let canvas = $derived(wrapper?.querySelector(`canvas`) as HTMLCanvasElement)
++  // Updated by the DOM observer below: a derived query ran once, before the
++  // renderer had mounted its canvas, and never saw it appear.
++  let canvas = $state<HTMLCanvasElement | undefined>()
+@@ -89,0 +106 @@
 +    if (is_exporting) return
-@@ -105,0 +121,5 @@
+@@ -105,0 +123,5 @@
 +    const first_frame = start_frame
 +    const frame_count = export_frame_count
 +    export_controller = new AbortController()
 +    const callbacks = { on_download, on_step_change, on_export_start, on_export_end }
 +    let started = false
-@@ -106,0 +127,2 @@
+@@ -106,0 +129,2 @@
 +      const guard = callbacks.on_export_start?.()
 +      started = true
-@@ -107,0 +130,6 @@
+@@ -107,0 +132,6 @@
++        // Guard only before submitting; a submitted native save is reported as-is.
 +        on_download: callbacks.on_download && (async (data, name, mime) => {
 +          if (typeof guard === `function`) guard()
 +          await callbacks.on_download!(data, name, mime)
-+          if (typeof guard === `function`) guard()
 +        }),
 +        signal: export_controller.signal,
-@@ -109 +137 @@
+@@ -109 +139 @@
 -        total_frames: export_frame_count,
 +        total_frames: frame_count,
-@@ -112 +140,5 @@
+@@ -112 +142,5 @@
 -        on_step: async (idx) => await on_step_change(start_frame + idx),
 +        on_step: async (idx) => {
 +          if (typeof guard === `function`) guard()
 +          await callbacks.on_step_change!(first_frame + idx)
 +          if (typeof guard === `function`) guard()
 +        },
-@@ -127 +158,0 @@
+@@ -127 +160,0 @@
 -      console.error(`Export failed:`, error)
-@@ -130,0 +162,4 @@
+@@ -130,0 +164,4 @@
 +    } finally {
 +      try { if (started) await callbacks.on_export_end?.() }
 +      catch (error) { export_error = to_error(error).message; is_exporting = false; export_progress = 0 }
 +      export_controller = undefined
-@@ -238 +273 @@
+@@ -142 +179,4 @@
+-  $effect(() => observe_canvas_presence(wrapper, (val) => (has_canvas = val)))
++  $effect(() => observe_canvas_presence(wrapper, (val) => {
++    has_canvas = val
++    canvas = (val && wrapper?.querySelector(`canvas`)) || undefined
++  }))
+@@ -238 +278 @@
 -      {#each [{ label: `WebM`, format: `webm`, hint: `Export as WebM video` }, { label: `MP4`, format: `mp4`, hint: `WebM + ffmpeg command` }] as const as { label, format, hint } (format)}
 +      {#each [{ label: `WebM`, format: `webm`, hint: `Export as WebM video` }, { label: `MP4`, format: `mp4`, hint: `WebM + ffmpeg command` }].filter(item => !on_download || item.format === `webm`) as { label, format, hint } (format)}
-@@ -243,2 +278,3 @@
+@@ -243,2 +283,3 @@
 -            onclick={() => handle_video_export(format)}
 -            disabled={is_exporting || !trajectory || !has_canvas}
 +            aria-label={`Download ${label}`}
