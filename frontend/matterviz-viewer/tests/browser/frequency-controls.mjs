@@ -12,7 +12,7 @@ const server = await preview({ preview: { host: '127.0.0.1', port: 0, strictPort
 const address = server.httpServer.address()
 let browser, page
 const errors = [], checks = [], exports = []
-let result = 'saved', pendingVideo
+let result = 'saved', pendingVideo, holdNext, pendingHeld
 const record = message => { checks.push(message); console.log('PASS', message) }
 const fixture = name => fileURLToPath(new URL(`../fixtures/frequency/${name}.cjson`, import.meta.url))
 try {
@@ -42,6 +42,7 @@ try {
     assert.equal(url.searchParams.has('path'), false)
     exports.push({ filename: url.searchParams.get('filename'), mime: request.headers()['content-type'], bytes })
     if (request.headers()['content-type'] === 'video/webm') await new Promise(resolve => { pendingVideo = resolve })
+    if (holdNext) { holdNext = false; await new Promise(resolve => { pendingHeld = resolve }) }
     await route.fulfill({ status: result === 'failure' ? 500 : 200, contentType: 'application/json', body: JSON.stringify(result === 'failure' ? { message: 'native write failed' } : { status: result }) })
   })
   await page.goto(`http://127.0.0.1:${address.port}/?workbench=1&cap=test-capability`)
@@ -69,9 +70,10 @@ try {
     const canvas = document.querySelector('dialog canvas'), module = await import(`/assets/${chunk}`)
     const registry = Object.values(module).find(value => (value instanceof Map || value instanceof WeakMap) && value.get(canvas)?.camera)
     window.frequencyScene = registry.get(canvas)
+    // Atom spheres only: MatterViz also draws an unlit sphere overlay at the same sites.
     window.frequencyPositions = () => {
       const positions = []
-      window.frequencyScene.scene.traverse(object => { if (object.isInstancedMesh && object.geometry.type === 'SphereGeometry') for (let index = 0; index < object.count; index++) positions.push(...object.instanceMatrix.array.slice(index * 16 + 12, index * 16 + 15)) })
+      window.frequencyScene.scene.traverse(object => { if (object.isInstancedMesh && object.geometry.type === 'SphereGeometry' && !object.material.isMeshBasicMaterial) for (let index = 0; index < object.count; index++) positions.push(...object.instanceMatrix.array.slice(index * 16 + 12, index * 16 + 15)) })
       return positions
     }
   }, chunks[0])
@@ -116,6 +118,25 @@ try {
   await dialog.getByRole('status').filter({ hasText: 'native write failed' }).waitFor()
   record('Native byte sink receives PNG; cancellation and write failure remain visible and never succeed')
   result = 'saved'
+  // Change the mode while the native dialog is open: the completed save must not
+  // be reported as interrupted, and the new mode can export afterwards.
+  holdNext = true
+  const saveCount = exports.length
+  await dialog.getByRole('button', { name: 'Download XYZ', exact: true }).click()
+  for (let attempt = 0; !pendingHeld && attempt < 1500; attempt++) await page.waitForTimeout(20)
+  assert.ok(pendingHeld, 'the save must reach the native endpoint')
+  await dialog.getByRole('combobox', { name: 'Normal mode', exact: true }).selectOption('2')
+  pendingHeld(); pendingHeld = null
+  await page.waitForFunction(() => ![...document.querySelectorAll('dialog [role=status]')].some(node => node.textContent === 'Saving…'))
+  const statuses = await dialog.getByRole('status').allTextContents()
+  assert.ok(!statuses.some(text => /interrupted|no longer available/i.test(text)), `unexpected status: ${statuses}`)
+  assert.equal(exports.length, saveCount + 1)
+  if (!await dialog.getByRole('button', { name: 'Download XYZ', exact: true }).isVisible()) await dialog.locator('.structure-export-toggle').click()
+  await dialog.getByRole('button', { name: 'Download XYZ', exact: true }).click()
+  for (let attempt = 0; exports.length < saveCount + 2 && attempt < 500; attempt++) await page.waitForTimeout(20)
+  assert.equal(exports.length, saveCount + 2, 'the new mode exports normally')
+  await dialog.getByRole('combobox', { name: 'Normal mode', exact: true }).selectOption('1')
+  record('A save completed after a mode change is reported as saved, not interrupted')
   await dialog.locator('.structure-export-toggle').click()
   await dialog.locator('.trajectory-export-toggle').click()
   assert.equal(await dialog.getByRole('button', { name: 'Download MP4', exact: true }).count(), 0)
@@ -147,6 +168,9 @@ try {
     record('Actual WebM frame geometry captured in order; completion awaits native save and restores step/camera')
     await page.waitForFunction(() => !document.querySelector('button[aria-label="Download WebM"]')?.disabled)
     await dialog.locator('.play-button').click()
+    await dialog.locator('.play-button.playing').waitFor()
+    // Clicking Play outside the export pane closes it; reopen it while playing.
+    if (!await dialog.getByRole('button', { name: 'Download WebM', exact: true }).isVisible()) await dialog.locator('.trajectory-export-toggle').click()
     await dialog.getByRole('button', { name: 'Download WebM', exact: true }).click()
     for (let attempt = 0; !pendingVideo && attempt < 1500; attempt++) await page.waitForTimeout(20)
     assert.ok(pendingVideo)

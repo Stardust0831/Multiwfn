@@ -10,7 +10,7 @@
   } from './frequency'
 
   import { create_frequency_queue, type FrequencyQueueState } from './frequency-queue'
-  import { create_frequency_save } from './frequency-save'
+  import { create_frequency_save, type FrequencyDownload } from './frequency-save'
 
   let { onclose }: { onclose: () => void } = $props()
   let dialog: HTMLDialogElement
@@ -41,11 +41,17 @@
   const cameraTarget = $derived(data && get_center_of_mass(data.structure))
 
   const exportController = $derived.by(() => { trajectory; return new AbortController() })
-  const save = $derived(create_frequency_save(new URL(window.location.href), undefined, exportController.signal))
   $effect(() => {
     const controller = exportController
     return () => controller.abort()
   })
+  // One stable sink for the viewer's lifetime: a new callback per mode change made
+  // Trajectory re-spread Structure's props, which reset the native camera zoom.
+  // The export panes' transaction guard refuses submissions for a replaced mode;
+  // the current controller additionally refuses them once the viewer closes.
+  const page = new URL(window.location.href)
+  const save: FrequencyDownload = (bytes, name, mime) =>
+    create_frequency_save(page, undefined, exportController.signal)(bytes, name, mime)
 
   async function open_file(event: Event): Promise<void> {
     const element = event.currentTarget as HTMLInputElement
