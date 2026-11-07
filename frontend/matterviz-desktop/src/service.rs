@@ -112,11 +112,23 @@ impl WorkbenchService {
                                         return;
                                     }
                                     Err(HttpRequestError::Forbidden) => {
-                                        respond(&mut stream, 403, "text/plain", b"Invalid export authorization", false);
+                                        respond(
+                                            &mut stream,
+                                            403,
+                                            "text/plain",
+                                            b"Invalid export authorization",
+                                            false,
+                                        );
                                         return;
                                     }
                                     Err(HttpRequestError::MethodNotAllowed) => {
-                                        respond(&mut stream, 405, "text/plain", b"Method Not Allowed", false);
+                                        respond(
+                                            &mut stream,
+                                            405,
+                                            "text/plain",
+                                            b"Method Not Allowed",
+                                            false,
+                                        );
                                         return;
                                     }
                                     Err(_) => {
@@ -167,7 +179,12 @@ impl WorkbenchService {
                                 let _dialog = match export_gate.lock() {
                                     Ok(gate) => gate,
                                     Err(_) => {
-                                        respond_json(&mut stream, &json!({"message":"Native save is unavailable"}), 500, false);
+                                        respond_json(
+                                            &mut stream,
+                                            &json!({"message":"Native save is unavailable"}),
+                                            500,
+                                            false,
+                                        );
                                         return;
                                     }
                                 };
@@ -176,14 +193,34 @@ impl WorkbenchService {
                                     mime,
                                     &request.body,
                                     crate::file_dialog::save_viewer_export,
-                                    crate::viewer_export::write_atomically,
+                                    crate::viewer_export::write_export,
                                 );
                                 use crate::viewer_export::{SaveError, SaveOutcome};
                                 match result {
-                                    Ok(SaveOutcome::Saved) => respond_json(&mut stream, &json!({"status":"saved"}), 200, false),
-                                    Ok(SaveOutcome::Cancelled) => respond_json(&mut stream, &json!({"status":"cancelled"}), 200, false),
-                                    Err(SaveError::Invalid(message)) => respond_json(&mut stream, &json!({"message":message}), 400, false),
-                                    Err(SaveError::Failed(message)) => respond_json(&mut stream, &json!({"message":message}), 500, false),
+                                    Ok(SaveOutcome::Saved) => respond_json(
+                                        &mut stream,
+                                        &json!({"status":"saved"}),
+                                        200,
+                                        false,
+                                    ),
+                                    Ok(SaveOutcome::Cancelled) => respond_json(
+                                        &mut stream,
+                                        &json!({"status":"cancelled"}),
+                                        200,
+                                        false,
+                                    ),
+                                    Err(SaveError::Invalid(message)) => respond_json(
+                                        &mut stream,
+                                        &json!({"message":message}),
+                                        400,
+                                        false,
+                                    ),
+                                    Err(SaveError::Failed(message)) => respond_json(
+                                        &mut stream,
+                                        &json!({"message":message}),
+                                        500,
+                                        false,
+                                    ),
                                 }
                                 return;
                             }
