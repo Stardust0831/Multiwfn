@@ -100,13 +100,16 @@ jobs:
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm test:frequency
+          pnpm test:frequency-controls
 
       - name: Upload frequency viewer failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: frequency-viewer-browser
-          path: /tmp/multiwfn-frequency-browser
+          path: |
+            /tmp/multiwfn-frequency-browser
+            /tmp/multiwfn-frequency-controls-browser
           if-no-files-found: ignore
 
       - name: Set up Rust

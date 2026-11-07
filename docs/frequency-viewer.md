@@ -133,7 +133,10 @@ lazy frame and the renderer, pauses playback, then restores the previous frame,
 play/pause state and camera when the same dataset is still open. Changing the
 dataset/mode/amplitude or closing interrupts an active export before it is
 submitted. Once a native save dialog is open it cannot be cancelled from the
-page, and its result is reported as returned by the host.
+page, so its result (saved, cancelled or failed) is reported as returned by the
+host, even if the mode or amplitude changed meanwhile; only the restoration of
+the old frame and camera is skipped. A further save for the old owner, such as
+OBJ's companion MTL, is not submitted and is reported as a partial export.
 
 The existing workbench host accepts POST /api/viewer-export with its session
 capability, same Host/Origin, one plain suggested filename, an exact allowed
@@ -146,8 +149,15 @@ and the per-view callback rejects with AbortError, never a successful save.
 Write failures remain visible. The host writes to a sibling temporary file and
 renames it over the target, so a failed write never truncates an existing file.
 If the chosen name lacks the expected suffix, the suffix is appended; an
-existing file at that adjusted name is not silently replaced. Viewer dialogs
-are serialized with each other but do not hold the workflow execution gate.
+existing file at that adjusted name is not silently replaced: the dialog never
+confirmed it, so it is created exclusively and fails if a file appears there
+after the check. Viewer dialogs are serialized with each other but do not hold
+the workflow execution gate.
+
+Suggested structure filenames are built from the formula and site count. Their
+stem is bounded to 96 characters so long formulas still fit the host's
+128-byte filename limit with a PNG DPI suffix and extension; OBJ and MTL share
+the bounded stem, so the OBJ's `mtllib` reference matches.
 
 OBJ and MTL are saved sequentially, with each dialog awaited. Save both in the
 same folder and retain the suggested MTL filename, which the OBJ references.
@@ -161,12 +171,22 @@ through the native endpoint without its running BaneWfn host.
 
 The traceable r25.freq2 patch is applied on the retained r25.freq1 archive.
 It adds instance download/transaction callbacks, actual frame readiness and
-the displacement semantic vector key. Existing freq1 archives and exact replay
+the displacement semantic vector key. It also lets the Structure and Trajectory
+export panes see the rendered canvas: Structure passes its own rendered element
+to child panes (a parent spreading fresh props reset the bindable `wrapper`
+prop, which disabled PNG), and the trajectory pane tracks the canvas with the
+same DOM observer instead of a query that ran before the canvas existed. Existing freq1 archives and exact replay
 tests are retained. tests/vendor-frequency.test.ts checks the exact freq2
 changed-file allowlist, replayed bytes, installed package and lock integrity.
 
 After building, test:frequency-controls exercises queue/arrows/current-frame
-exports plus PNG/WebM bytes and save/cancel/error boundaries in real Chromium.
-Its save endpoint is stubbed at the HTTP boundary; the Rust headless host
-harness separately tests real validation, writes and distinct cancellation.
-Native platform dialogs still require platform-specific acceptance.
+exports plus PNG/WebM bytes, save/cancel/error boundaries and a save that
+completes after a mode change in real Chromium; the matterviz-gui workflow runs
+it after test:frequency. Its save endpoint is stubbed at the HTTP boundary.
+tests/frequency-export-transaction.test.ts runs the exact export-pane,
+Trajectory transaction and native sink code together for saves, cancellations,
+failures and partial OBJ/MTL saves around an owner change. The Rust headless
+host harness separately tests real validation, writes, distinct cancellation
+and the no-replace rule for adjusted names. The Linux GTK helper has been
+driven under Xvfb (accept, cancel, overwrite confirmation, removed suffix);
+macOS and Windows native dialogs still require platform-specific acceptance.
