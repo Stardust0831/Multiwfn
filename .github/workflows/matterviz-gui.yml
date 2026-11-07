@@ -65,7 +65,9 @@ concurrency:
 jobs:
   build:
     name: MatterViz frontend and Rust host
-    runs-on: ubuntu-latest
+    # ubuntu-latest is 26.04, which Playwright 1.58.2 cannot install browser
+    # dependencies for; keep the browser acceptance tests on a supported image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     steps:
