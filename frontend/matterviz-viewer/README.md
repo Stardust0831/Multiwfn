@@ -11,7 +11,10 @@ frequency results exported as cclib CJSON. It uses MatterViz's native trajectory
 renderer and starts paused. See [frequency viewing](../../docs/frequency-viewer.md)
 for conversion, supported inputs and displacement conventions.
 
-The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq1.tgz`.
+The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.quality1.tgz`.
+The quality extension adds explicit source/preview sampling, bounded temporary
+storage, immutable Worker input and scene-local geometry readiness. See
+[volume quality and export](../../docs/matterviz-volume-quality.md).
 The [frequency camera patch](../../docs/frequency-viewer.md#camera-compatibility-patch)
 extends `r25.reps2` with the upstream series-identity contract. Reps2's
 reviewable color patch extends the retained `r25.reps1` archive, preserving the
@@ -56,19 +59,19 @@ the legacy path for rotated, anisotropic and nonorthogonal cells. Unlit and
 wireframe surfaces bypass tone mapping so their colors agree with the legend;
 lit finishes retain the renderer's tone mapping and transparency.
 
-The retained lineage is r25 → workbench1 → workbench2 → upstream1 → reps1 → reps2.
+The retained lineage is r25 → workbench1 → workbench2 → upstream1 → reps1 → reps2 → freq1 → quality1.
 Earlier reviewed archives and patches remain reproducible bases. The current
-reps2 archive SHA-256 is `cef5d1e2c97e6c65041ba3b0a50d94b41acbd7705d85a8d3cd4b7ed7218632ec`;
+quality1 archive SHA-256 is `e0655467291af71e31642b104dbcb0027a3836cbf8d94060528cc456fd2a4654`;
 `package.json` and `pnpm-lock.yaml` pin its path and integrity.
 
 To reproduce the current package (Node.js 24 and npm):
 
 ```bash
 workbench_tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.tgz -C "$workbench_tmpdir"
-patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.patch
+tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq1.tgz -C "$workbench_tmpdir"
+patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.quality1.patch
 npm pack --ignore-scripts --pack-destination vendor "$workbench_tmpdir/package"
-sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz
+sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.quality1.tgz
 ```
 
 The checksum identifies the retained archive. To verify a repack across npm

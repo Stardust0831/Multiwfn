@@ -1,5 +1,14 @@
 /** Application-owned UI text. Keep scientific data, identifiers and user labels unchanged. */
 export const zh = {
+  'Surface sampling': '等值面采样',
+  'Original grid': '原始网格',
+  'Preview (500k samples)': '预览（50 万采样点）',
+  'PNG uses the original grid.': 'PNG 导出使用原始网格。',
+  'Preview may reduce detail to limit display cost.': '预览可能降低细节以减少显示开销。',
+  'Preparing surfaces…': '正在生成等值面…',
+  'Source → displayed samples': '原始 → 显示采样点',
+  'Choose Preview or reduce the visible surfaces/range.': '可选择预览，或减少可见等值面及显示范围。',
+
   'Vibrational modes': '振动模式',
   'Loading…': '正在载入…',
   'Close vibration viewer': '关闭振动查看器',

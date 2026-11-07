@@ -1,12 +1,14 @@
-import { canvas_to_png_blob, scene_registry } from 'matterviz'
+import { canvas_to_png_blob, scene_registry, wait_for_isosurface_geometry } from 'matterviz'
 
 /** MatterViz displays the background with CSS; its WebGL canvas is transparent.
  * Composite a solid background only in the saved image, leaving the live scene,
  * camera, and translucent Rep materials unchanged. Omit it to keep PNG alpha. */
-export const scene_to_png_blob = async (canvas: HTMLCanvasElement, background?: string): Promise<Blob> => {
+export const scene_to_png_blob = async (canvas: HTMLCanvasElement, background?: string, dpi = 150, waitForVolumes = true): Promise<Blob> => {
   const scene = scene_registry.get(canvas)
   if (!scene) throw new Error('The 3D renderer is not ready for export')
-  const blob = await canvas_to_png_blob(canvas, 150, scene.scene, scene.camera)
+  // Dedicated topology/surface-result views do not display scalar volumes.
+  if (waitForVolumes) await wait_for_isosurface_geometry(scene.scene, 'source')
+  const blob = await canvas_to_png_blob(canvas, dpi, scene.scene, scene.camera)
   if (background === undefined) return blob
 
   const image = await createImageBitmap(blob)

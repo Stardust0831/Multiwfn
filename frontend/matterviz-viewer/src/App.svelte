@@ -43,6 +43,8 @@
   import MeasurementReadout, { type BondResult } from './MeasurementReadout.svelte'
   import { scene_registry } from 'matterviz'
   import { scene_to_png_blob } from './scene-export'
+  import { request_geometry_budget } from './geometry-budget'
+  import VolumeQuality from './VolumeQuality.svelte'
   import { migrate_color_scale } from './color-scale'
   import { render_plot_document } from './plot-export'
   import {
@@ -180,6 +182,26 @@
   let espIsovalue = $state(0.001)
   let bondMethod = $state('mayer')
   let viewerShell = $state<HTMLElement | undefined>()
+  let geometryBudgetError = $state('')
+  let geometryBudgetGeneration = 0
+  let geometryBudgetRequest = Promise.resolve()
+  const refresh_geometry_budget = (): Promise<void> => {
+    const generation = ++geometryBudgetGeneration
+    const volumes = volumetricData ?? []
+    geometryBudgetError = ''
+    isosurfaceSettings = { ...isosurfaceSettings, geometry_memory_budget_bytes: 0 }
+    geometryBudgetRequest = request_geometry_budget(volumes).then((budget) => {
+      if (generation === geometryBudgetGeneration)
+        isosurfaceSettings = { ...isosurfaceSettings, geometry_memory_budget_bytes: budget }
+    }).catch((error) => {
+      if (generation === geometryBudgetGeneration) geometryBudgetError = (error as Error).message
+    })
+    return geometryBudgetRequest
+  }
+  $effect(() => {
+    void volumetricData
+    untrack(() => { if (volumetricData?.length) void refresh_geometry_budget() })
+  })
   let bondContextMenuElement = $state<HTMLElement | undefined>()
   let bondContextMenu = $state<BondContextMenuState | undefined>()
   let logOpen = $state(false)
@@ -364,8 +386,11 @@
   const save_result = async (format: 'png' | 'pdf' | 'svg' | 'csv' | 'json'): Promise<void> => {
     if (savingResult) return
     savingResult = true
+    errorMessage = undefined
     openMenu = undefined
     const plot = active_plot
+    const previousQuality = isosurfaceSettings.grid_quality ?? 'source'
+    const exportVolumes = !topologyActive && !surfaceActive
     try {
       if (plot) {
         if (format === 'csv' || format === 'json') {
@@ -380,11 +405,25 @@
       } else {
         const canvas = viewerShell?.querySelector<HTMLCanvasElement>('.structure canvas')
         if (!canvas) throw new Error('The 3D scene is not ready')
-        download_blob(await scene_to_png_blob(canvas, transparentExport ? undefined : backgroundColor), 'Multiwfn-scene.png')
+        if (exportVolumes && volumetricData?.length) {
+          await refresh_geometry_budget()
+          // A source replacement during admission supersedes the previous request.
+          await geometryBudgetRequest
+          if (geometryBudgetError) throw new Error(geometryBudgetError)
+          isosurfaceSettings = { ...isosurfaceSettings, grid_quality: 'source' }
+          await tick()
+        }
+        const blob = await scene_to_png_blob(canvas, transparentExport ? undefined : backgroundColor, 150, exportVolumes)
+        const invalidRep = representations.items.find((rep) => rep.visible && repErrors[rep.id])
+        if (exportVolumes && !advancedStructure && invalidRep) throw new Error(repErrors[invalidRep.id])
+        download_blob(blob, 'Multiwfn-scene.png')
       }
       set_status(ui_message('{format} exported', { format: format.toUpperCase() }))
     } catch (error) { report_error(error) }
-    finally { savingResult = false }
+    finally {
+      if (!plot) isosurfaceSettings = { ...isosurfaceSettings, grid_quality: previousQuality }
+      savingResult = false
+    }
   }
 
   type ApiPayload = {
@@ -2060,6 +2099,9 @@
       <TopologyPanel bind:options={topologyOptions} bind:display={topologyDisplay} bind:active={topologyActive} bind:selection={topologySelection} result={topologyResult} busy={loading} reason={topologyReason} cell={topologyCell} onrun={() => void request_topology()} onclose={() => topologyPanelOpen = false} onexport={export_topology} />
     {/if}
     <section class="viewer-shell">
+    {#if volumetricData?.length && !topologyActive && !surfaceActive}
+      <VolumeQuality shell={viewerShell} bind:quality={isosurfaceSettings.grid_quality} disabled={savingResult} error={geometryBudgetError} />
+    {/if}
     {#if advancedStructure}<div class="rep-edit-banner"><span>{$t("Editing source structure. Atom and bond edits apply to all Reps.")}</span><button type="button" onclick={open_representations}>{$t("Back to Reps")}</button></div>{/if}
     <div class="scene-viewport" bind:this={viewerShell}>
       {#if structure}
@@ -2082,7 +2124,7 @@
           bind:error_msg={viewerError}
           on_camera_move={track_camera}
           on_camera_reset={track_camera}
-          on_geometry_error={(message) => report_error(new Error(message))}
+          on_geometry_error={(message) => { if (message) report_error(new Error(message)) }}
           on_selected_bond_context={open_bond_context_menu}
           show_atom_tooltip={false}
           measure_selection_policy={{
@@ -2448,6 +2490,7 @@
     {#each representations.items.filter((rep) => rep.visible) as rep, order (rep.id)}
       <RepLayer {rep} {order} {structure} {bondEdits} volumes={volumetricData ?? []} {measureMode} sceneProps={sceneProps}
         measurementOwner={repMeasurement?.id ?? ''}
+        quality={isosurfaceSettings.grid_quality ?? 'source'}
         budget={isosurfaceSettings.geometry_memory_budget_bytes === undefined ? undefined : Math.floor(isosurfaceSettings.geometry_memory_budget_bytes / Math.max(1, representations.items.filter((item) => item.visible && item.source.kind === 'volume').length))}
         onmeasure={measure_rep} oncontext={open_bond_context_menu} onerror={report_rep_error} oncolorrange={report_rep_color_range} />
     {/each}
