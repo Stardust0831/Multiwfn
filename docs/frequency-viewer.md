@@ -1,10 +1,10 @@
 # Molecular frequency viewing
 
 Open **BaneWfn GUI → Vibrational modes → Open frequency file** and choose a
-CJSON file exported by [cclib](https://cclib.github.io/). The viewer shows the
+one or more ordered CJSON files exported by [cclib](https://cclib.github.io/). The viewer shows the
 equilibrium geometry first. Click MatterViz's Play control to animate the
 selected mode; its own controls also provide scrubbing, playback speed, camera
-rotation and zoom. Negative frequencies retain their sign and are marked
+rotation and zoom. Use the ordered file list or previous/next buttons to switch files. Only the selected file is parsed; an invalid item stays selected while the last valid scene keeps its own filename. New selections and closing discard pending old reads. Negative frequencies retain their sign and are marked
 imaginary. Available IR intensities are displayed in km/mol.
 
 For an existing Gaussian or ORCA frequency output, use cclib's established
@@ -56,13 +56,19 @@ cannot reconstruct section or orientation information omitted from CJSON.
 - New files start paused. Invalid imports retain the previous valid dataset.
   Incomplete arrays, nonfinite values, zero vectors and mismatched atom/mode
   counts fail with an error. Limits are 16 MiB, 2000 atoms and at most 3N modes.
+- Displacement arrows start off. The toggle uses the native vector layer, with
+  each per-site vector equal to the mode's peak Cartesian excursion at the
+  chosen visual amplitude (the positive half-cycle). The arrows are constant
+  across frames, so they are visible on the equilibrium frame. Arrows preserve
+  signs and atom ratios; they are not physical forces.
 
 ## Integration and upstream compatibility
 
 The feature is a lazily loaded panel inside the independent `banewfn_gui`
 entry introduced by #73. It uses the existing Rust WebView host and reads the
-selected local file with the browser File API. There is no new HTTP endpoint,
-session format, calculation hook, process runner or packaging path. Multiwfn
+selected local files with the browser File API. The same workbench host now
+provides one bounded native save endpoint. There is no new service, session
+format, calculation hook, process runner or packaging path. Multiwfn
 core sources and the pinned BaneWfn source are unchanged; noGUI dependencies
 are unchanged. Existing Multiwfn frequency calculations and spectrum plotting
 continue to own their scientific behavior.
@@ -78,7 +84,7 @@ adapter without changing the importer or application host. This is not a
 claim that the upstream phonon explorer supports molecules today.
 
 Spectrum broadening, frequency computation, new quantum-output parsers,
-CP2K/xTB support and video export are outside this rendering PR.
+and CP2K/xTB import support remain outside this rendering feature.
 
 ## Verification
 
@@ -116,3 +122,71 @@ complete changed-file allowlist. SHA-256 of `r25.freq1.tgz`:
 ```text
 0f24494f31d94479a78c741958a5929cbc68efcc7af63db31f8603ecd70bf9fa
 ```
+
+## Native saving and the freq2 layer
+
+The existing MatterViz Structure and Trajectory export panes are available in
+the frequency viewer. Text/JSON, PNG, GLB, OBJ+MTL and WebM keep their native
+serializers and recorder. Each viewer supplies its own asynchronous byte sink;
+no global browser-download override is installed. Exporting awaits the selected
+lazy frame and the renderer, pauses playback, then restores the previous frame,
+play/pause state and camera when the same dataset is still open. Changing the
+dataset/mode/amplitude or closing interrupts an active export before it is
+submitted. Once a native save dialog is open it cannot be cancelled from the
+page, so its result (saved, cancelled or failed) is reported as returned by the
+host, even if the mode or amplitude changed meanwhile; only the restoration of
+the old frame and camera is skipped. A further save for the old owner, such as
+OBJ's companion MTL, is not submitted and is reported as a partial export.
+
+The existing workbench host accepts POST /api/viewer-export with its session
+capability, same Host/Origin, one plain suggested filename, an exact allowed
+Content-Type and raw bytes. The frontend cannot supply a destination path.
+Only the native save dialog selects the write target. Text is bounded to
+16 MiB, PNG to 32 MiB, GLB/WebM to 64 MiB; ordinary workflow requests retain
+their 256 KiB limit. PNG/GLB/WebM container framing, UTF-8 text and JSON are
+checked before opening a dialog. Host cancellation returns status=cancelled
+and the per-view callback rejects with AbortError, never a successful save.
+Write failures remain visible. The host writes to a sibling temporary file and
+renames it over the target, so a failed write never truncates an existing file.
+If the chosen name lacks the expected suffix, the suffix is appended; an
+existing file at that adjusted name is not silently replaced: the dialog never
+confirmed it, so it is created exclusively and fails if a file appears there
+after the check. Viewer dialogs are serialized with each other but do not hold
+the workflow execution gate.
+
+Suggested structure filenames are built from the formula and site count. Their
+stem is bounded to 96 characters so long formulas still fit the host's
+128-byte filename limit with a PNG DPI suffix and extension; OBJ and MTL share
+the bounded stem, so the OBJ's `mtllib` reference matches.
+
+OBJ and MTL are saved sequentially, with each dialog awaited. Save both in the
+same folder and retain the suggested MTL filename, which the OBJ references.
+Cancelling or failing the second save explicitly reports that the OBJ was
+saved but its companion was not; this is not an atomic two-file transaction.
+
+WebM requires the current WebView to support MediaRecorder VP9. Unsupported
+codecs leave recording disabled. The native sink offers WebM only, not an MP4
+encoder or automatic ffmpeg conversion. A browser-only preview cannot save
+through the native endpoint without its running BaneWfn host.
+
+The traceable r25.freq2 patch is applied on the retained r25.freq1 archive.
+It adds instance download/transaction callbacks, actual frame readiness and
+the displacement semantic vector key. It also lets the Structure and Trajectory
+export panes see the rendered canvas: Structure passes its own rendered element
+to child panes (a parent spreading fresh props reset the bindable `wrapper`
+prop, which disabled PNG), and the trajectory pane tracks the canvas with the
+same DOM observer instead of a query that ran before the canvas existed. Existing freq1 archives and exact replay
+tests are retained. tests/vendor-frequency.test.ts checks the exact freq2
+changed-file allowlist, replayed bytes, installed package and lock integrity.
+
+After building, test:frequency-controls exercises queue/arrows/current-frame
+exports plus PNG/WebM bytes, save/cancel/error boundaries and a save that
+completes after a mode change in real Chromium; the matterviz-gui workflow runs
+it after test:frequency. Its save endpoint is stubbed at the HTTP boundary.
+tests/frequency-export-transaction.test.ts runs the exact export-pane,
+Trajectory transaction and native sink code together for saves, cancellations,
+failures and partial OBJ/MTL saves around an owner change. The Rust headless
+host harness separately tests real validation, writes, distinct cancellation
+and the no-replace rule for adjusted names. The Linux GTK helper has been
+driven under Xvfb (accept, cancel, overwrite confirmation, removed suffix);
+macOS and Windows native dialogs still require platform-specific acceptance.

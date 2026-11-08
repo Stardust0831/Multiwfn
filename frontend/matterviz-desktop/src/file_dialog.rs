@@ -82,8 +82,34 @@ pub fn select_workflow_inputs() -> Result<Option<Vec<PathBuf>>, String> {
         .pick_files())
 }
 
+/// Unit tests never open a native chooser: on a runner with a session bus the
+/// xdg-portal request can block until the client times out. Like the headless
+/// harness, tests get a chooser that the user cancelled.
+#[cfg(test)]
+pub fn save_viewer_export(_filename: &str, _extension: &str) -> Result<Option<PathBuf>, String> {
+    Ok(None)
+}
+
+#[cfg(not(test))]
+pub fn save_viewer_export(filename: &str, extension: &str) -> Result<Option<PathBuf>, String> {
+    #[cfg(target_os = "linux")]
+    if let Some(result) = packaged_chooser_args("save-viewer", &[filename, extension]) {
+        return result.map_err(|e| e.to_string());
+    }
+    Ok(rfd::FileDialog::new()
+        .set_title("Save viewer export")
+        .set_file_name(filename)
+        .add_filter("Viewer export", &[extension])
+        .save_file())
+}
+
 #[cfg(target_os = "linux")]
 fn packaged_chooser(kind: &str) -> Option<io::Result<Option<PathBuf>>> {
+    packaged_chooser_args(kind, &[])
+}
+
+#[cfg(target_os = "linux")]
+fn packaged_chooser_args(kind: &str, args: &[&str]) -> Option<io::Result<Option<PathBuf>>> {
     let helper = std::env::current_exe()
         .ok()?
         .parent()?
@@ -92,7 +118,10 @@ fn packaged_chooser(kind: &str) -> Option<io::Result<Option<PathBuf>>> {
         return None;
     }
     Some((|| {
-        let output = std::process::Command::new(helper).arg(kind).output()?;
+        let output = std::process::Command::new(helper)
+            .arg(kind)
+            .args(args)
+            .output()?;
         match output.status.code() {
             Some(0) => {
                 use std::os::unix::ffi::OsStringExt;
