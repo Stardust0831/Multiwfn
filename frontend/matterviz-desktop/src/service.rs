@@ -101,44 +101,21 @@ impl WorkbenchService {
                             let request =
                                 match read_workbench_http_request(&mut stream, &authority, &cap) {
                                     Ok(r) => r,
-                                    Err(HttpRequestError::TooLarge) => {
-                                        respond(
-                                            &mut stream,
-                                            413,
-                                            "text/plain",
-                                            b"Payload Too Large",
-                                            false,
-                                        );
-                                        return;
-                                    }
-                                    Err(HttpRequestError::Forbidden) => {
-                                        respond(
-                                            &mut stream,
-                                            403,
-                                            "text/plain",
-                                            b"Invalid export authorization",
-                                            false,
-                                        );
-                                        return;
-                                    }
-                                    Err(HttpRequestError::MethodNotAllowed) => {
-                                        respond(
-                                            &mut stream,
-                                            405,
-                                            "text/plain",
-                                            b"Method Not Allowed",
-                                            false,
-                                        );
-                                        return;
-                                    }
-                                    Err(_) => {
-                                        respond(
-                                            &mut stream,
-                                            400,
-                                            "text/plain",
-                                            b"Bad Request",
-                                            false,
-                                        );
+                                    Err(error) => {
+                                        let (status, body): (u16, &[u8]) = match error {
+                                            HttpRequestError::TooLarge => {
+                                                (413, b"Payload Too Large")
+                                            }
+                                            HttpRequestError::Forbidden => {
+                                                (403, b"Invalid export authorization")
+                                            }
+                                            HttpRequestError::MethodNotAllowed => {
+                                                (405, b"Method Not Allowed")
+                                            }
+                                            HttpRequestError::BadRequest => (400, b"Bad Request"),
+                                        };
+                                        respond(&mut stream, status, "text/plain", body, false);
+                                        close_after_early_response(&mut stream);
                                         return;
                                     }
                                 };
@@ -2368,6 +2345,30 @@ fn serve_file(stream: &mut TcpStream, path: &Path, head: bool) {
         Err(_) => respond(stream, 404, "text/plain", b"Not Found", head),
     }
 }
+/// Close a connection whose request was rejected from its headers alone.
+/// Dropping a socket with unread request body makes the kernel send RST, and
+/// some stacks (macOS) then discard the response the client has not read yet.
+/// Half-close after the response, then discard a bounded amount of the rest of
+/// the request until the client closes or a short deadline passes.
+fn close_after_early_response(stream: &mut TcpStream) {
+    const MAX_DRAIN_BYTES: usize = 1024 * 1024;
+    const DRAIN_DEADLINE: Duration = Duration::from_secs(1);
+    let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let deadline = std::time::Instant::now() + DRAIN_DEADLINE;
+    let mut buffer = [0_u8; 8192];
+    let mut drained = 0;
+    while drained < MAX_DRAIN_BYTES {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() || stream.set_read_timeout(Some(remaining)).is_err() {
+            break;
+        }
+        match stream.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(length) => drained += length,
+        }
+    }
+}
 fn respond_json(stream: &mut TcpStream, value: &Value, status: u16, head: bool) {
     let data = serde_json::to_vec(value).unwrap_or_else(|_| b"{\"ok\":false}".to_vec());
     respond(stream, status, "application/json", &data, head);
@@ -4104,6 +4105,37 @@ mod tests {
             &format!("/api/workflows/status?cap={cap}&cap={cap}")
         )
         .starts_with("HTTP/1.1 403"));
+        service.shutdown();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn early_rejection_is_readable_when_the_body_arrives_after_the_response() {
+        // A client that sends its body after the server has already rejected the
+        // headers must still read the response, not a connection reset.
+        let root = fixture("viewer-export-early-rejection");
+        let frontend = root.join("frontend");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "BaneWfn").unwrap();
+        let service =
+            super::WorkbenchService::start(frontend, root.join("engine"), None, None).unwrap();
+        let page = Url::parse(&service.url).unwrap();
+        let authority = authority(&page);
+        let png = crate::viewer_export::tests::PNG;
+        for _ in 0..3 {
+            let mut stream = TcpStream::connect(&authority).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            // No capability: rejected from the headers alone, before any body is read.
+            write!(stream, "POST /api/viewer-export?filename=water.png HTTP/1.1\r\nHost: {authority}\r\nOrigin: http://{authority}\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", png.len()).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            let _ = stream.write_all(png);
+            std::thread::sleep(Duration::from_millis(100));
+            let mut response = Vec::new();
+            stream.read_to_end(&mut response).unwrap();
+            assert!(response.starts_with(b"HTTP/1.1 403"));
+        }
         service.shutdown();
         fs::remove_dir_all(root).unwrap();
     }
