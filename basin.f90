@@ -9,6 +9,7 @@ implicit real*8 (a-h,o-z)
 integer,allocatable :: attconvold(:),realattconv(:),usercluslist(:),tmparr(:)
 character basinfilename*200,selectyn,c80tmp*80,ctmp1*20,ctmp2*20,ctmp3*20,ctmp4*20,c2000tmp*2000,c200tmp*200
 real*8,allocatable :: tmparrf(:)
+integer :: igridmethod=3
 ishowattlab=1
 ishowatmlab=0
 ishowatt=1
@@ -595,7 +596,7 @@ do while(.true.)
 		textheigh=ioldtextheigh
 		
 	else if (isel==1) then !(Re)generate basins and (re)locate attractors
-		call generatebasin_wrapper(1)
+		call generatebasin_wrapper(1,igridmethod)
 		
 	else if (isel==2) then !Integrate real space function using uniform grid
 		call integratebasin
@@ -661,12 +662,12 @@ end subroutine
 !!------- Wrapper of generating basins from regular grid, which perform some initalizations and deal with some special cases
 !imode=1: Full wrapper
 !imode=2: Simplified process, only generate AIM basins
-subroutine generatebasin_wrapper(imode)
+subroutine generatebasin_wrapper(imode,igridmethod)
 use defvar
 use basinintmod
 use util
 implicit real*8 (a-h,o-z)
-integer :: igridmethod=3
+integer imode,igridmethod
 real*8 :: threslowvalatt=1D-5
 character selectyn
 logical alive1,alive2
@@ -716,13 +717,12 @@ if (imode==1) then
 		allocate(cubmat(nx,ny,nz))
 		!For basin analysis of IRI-pi, IRI_rhocut should be set to zero to avoid automatically setting it to 5 in low rho region, which will lead to huge number of artificial extrema
 		ichange=0
-		if (ifuncbasin==100.and.iuserfunc==99.and.IRI_rhocut/=0) then
+		if (((ifuncbasin==100.and.iuserfunc==99).or.ifuncbasin==24).and.IRI_rhocut/=0) then
 			write(*,"(a)") " Note: IRI_rhocut parameter has been temporarily set to 0 during calculating grid data"
 			tmpval=IRI_rhocut
 			IRI_rhocut=0
 			ichange=1
 		end if
-		!call gen_GTFuniq(0) !Generate unique GTFs, for faster evaluation in orbderv. This is automatically done in savecubmat
 		call savecubmat(ifuncbasin,0,iorbsel)
 		if (ichange==1) then
 			write(*,*) "Note: Original IRI_rhocut parameter has been restored"
@@ -751,30 +751,29 @@ else
 	ixup=nx;iyup=ny;izup=nz
 end if
 		
-!For the regions with negative value, invert its sign to positive and locate attractor as usual, then minima of the negative part can be located
 allocate(grdposneg(nx,ny,nz)) !.true./.false means this grid has positive/negative value
 grdposneg=.true.
-do iz=1,nz
-	do iy=1,ny
-		do ix=1,nx
-			if (cubmat(ix,iy,iz)<0D0) then
-				grdposneg(ix,iy,iz)=.false.
-				cubmat(ix,iy,iz)=-cubmat(ix,iy,iz)
-			end if
+
+if (all(cubmat>=0).and.ibasinlocmin==1) then
+    write(*,"(/,a)") " Note: Since ""ibasinlocmin"" in settings.ini has been set to 1, and all grid data have non-negative value, &
+    &minima (repulsors) rather than maxima (attractors) will be located. The attractors reported subsequently in fact correspond to minima"
+	cubmat(:,:,:)=-cubmat(:,:,:)
+	grdposneg(:,:,:)=.false.
+else !For regions with negative value, invert its sign to positive and locate attractor as usual, then minima of the negative part can be locate
+	do iz=1,nz
+		do iy=1,ny
+			do ix=1,nx
+				if (cubmat(ix,iy,iz)<0D0) then
+					grdposneg(ix,iy,iz)=.false.
+					cubmat(ix,iy,iz)=-cubmat(ix,iy,iz)
+				end if
+			end do
 		end do
 	end do
-end do
-! 		where (cubmat<0D0)  !DO NOT USE THIS, because I found that "where" will consuming vary large amount of memory!
-! 			grdposneg=.false.
-! 			cubmat=-cubmat !Invert negative values to positive, after basins are generated the values will be recovered
-! 		end where
-if (ibasinlocmin==1) then
-    if (all(cubmat>=0)) then
-        write(*,"(/,a)") " Note: Since ""ibasinlocmin"" in settings.ini has been set to 1, and all grid data have non-negative value, &
-        &therefore minima (repulsors) rather than maxima (attractors) will be located. The attractors reported subsequently in fact correspond to minima"
-		grdposneg(:,:,:)=.false.
-		cubmat(:,:,:)=-cubmat(:,:,:)
-    end if
+	! 		where (cubmat<0D0)  !DO NOT USE THIS, because I found that "where" will consuming vary large amount of memory!
+	! 			grdposneg=.false.
+	! 			cubmat=-cubmat !Invert negative values to positive, after basins are generated the values will be recovered
+	! 		end where
 end if
         
 !Initialize grid array of recording basin indices
@@ -1124,9 +1123,9 @@ use basinintmod
 implicit real*8 (a-h,o-z)
 integer imode
 real*8 threslowvalatt
-integer highvalatt(numatt)
+integer highvalatt(numatt) !High value attractor list
 integer att2att(-2:numatt) !Convert indices of old attractors to new ones
-integer atttypelist(numatt)
+integer atttypelist(numatt) !Status of attractor, 0 means low value, 1 mean high value
 
 if (imode==1) then
 	return
@@ -1137,15 +1136,17 @@ else
 		if (abs(cubmat(attgrid(1,iatt),attgrid(2,iatt),attgrid(3,iatt)))>=threslowvalatt) then
 			icounthigh=icounthigh+1
 			highvalatt(icounthigh)=iatt
-			atttypelist(iatt)=1 !high
+			atttypelist(iatt)=1 !high value
 		end if
 	end do
-	nlowvalatt=numatt-icounthigh
+	nlowvalatt=numatt-icounthigh !Number of low value attactors
 	if (imode==2) then
 		do iz=izlow,izup
 			do iy=iylow,iyup
 				do ix=ixlow,ixup
-					if (atttypelist(gridbas(ix,iy,iz))==0) gridbas(ix,iy,iz)=0
+					if (gridbas(ix,iy,iz)>0) then
+						if (atttypelist(gridbas(ix,iy,iz))==0) gridbas(ix,iy,iz)=0
+                    end if
 				end do
 			end do
 		end do
@@ -1153,21 +1154,23 @@ else
 		do iz=izlow,izup
 			do iy=iylow,iyup
 				do ix=ixlow,ixup
-					call getgridxyz(ix,iy,iz,rnowx,rnowy,rnowz)
-					if (atttypelist(gridbas(ix,iy,iz))==0) then !Find out which grid belongs to insignificant attractors
-						shortmaxsqr=1D20
-						do iatt=1,numatt !Will be attribute to the nearest significant attractors
-							if (atttypelist(iatt)==1) then
-								call getgridxyz(attgrid(1,iatt),attgrid(2,iatt),attgrid(3,iatt),xatt,yatt,zatt)
-								disttmpsqr=(xatt-rnowx)**2+(yatt-rnowy)**2+(zatt-rnowz)**2
-								if (disttmpsqr<shortmaxsqr) then
-									ishortmax=iatt
-									shortmaxsqr=disttmpsqr
+					if (gridbas(ix,iy,iz)>0) then
+						if (atttypelist(gridbas(ix,iy,iz))==0) then !Find out which grid belongs to insignificant attractors
+							call getgridxyz(ix,iy,iz,rnowx,rnowy,rnowz)
+							shortmaxsqr=1D20
+							do iatt=1,numatt !Will be attribute to the nearest significant attractors
+								if (atttypelist(iatt)==1) then
+									call getgridxyz(attgrid(1,iatt),attgrid(2,iatt),attgrid(3,iatt),xatt,yatt,zatt)
+									disttmpsqr=(xatt-rnowx)**2+(yatt-rnowy)**2+(zatt-rnowz)**2
+									if (disttmpsqr<shortmaxsqr) then
+										ishortmax=iatt
+										shortmaxsqr=disttmpsqr
+									end if
 								end if
-							end if
-						end do
-						gridbas(ix,iy,iz)=ishortmax
-					end if
+							end do
+							gridbas(ix,iy,iz)=ishortmax
+						end if
+                    end if
 				end do
 			end do
 		end do

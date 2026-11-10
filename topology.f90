@@ -170,13 +170,25 @@ do while(.true.)
 			IRI_rhocut=0
         end if
 		if (ifunctopo==13.or.ifunctopo==24) then !RDG and IRI
-			write(*,"(a)") " Note: CP searching method has been changed to steepest descent method, because it is most suitable for this case. &
-            &In addition, gradient convergence criterion has been changed to a very large value (1000) to deactivate its effect, &
-            &because for IRI or RDG, it is almost impossible to use steepest descent method to converge very accurately to a position with small enough gradient"
-			itopomethod=4
-            dispconv=0.0001D0
-            gradconv=1000
-            numsearchpt=1000
+			itmp=0
+			if (ifunctopo==24) then
+				write(*,*) "Choose type of IRI:"
+                write(*,*) "1 IRI"
+                write(*,*) "2 IRI-pi"
+                read(*,*) itmp
+            end if
+            if (itmp==2) then !If found if steepest descent method is used, line search will fail for IRI-pi topology analysis example in IRI official tutorial
+				write(*,"(a)") " Note: CP searching method has been changed to Barzilai-Borwein"
+                itopomethod=2
+            else
+				write(*,"(a)") " Note: CP searching method has been changed to steepest descent method, because it is most suitable for this case. &
+				&In addition, gradient convergence criterion has been changed to a very large value (1000) to deactivate its effect, &
+				&because for IRI or RDG, it is almost impossible to use steepest descent method to converge very accurately to a position with small enough gradient"
+				itopomethod=4
+				dispconv=0.0001D0
+				gradconv=1000
+				numsearchpt=1000
+            end if
         else if (ifunctopo==25) then !vdW potential
 			write(*,"(a)") " Note: CP searching method has been changed to steepest descent method, because it is most suitable for this case"
 			itopomethod=4

@@ -36,7 +36,7 @@ call set_color(C_BRIGHT_MAGENTA)
 write(*,*) "Multiwfn -- A Multifunctional Wavefunction Analyzer"
 call reset_color()
 call set_color(C_GREEN)
-write(*,*) "Version 2026.11.3 (release date is the same as version name)"
+write(*,*) "Version 2026.11.10 (release date is the same as version name)"
 call reset_color()
 write(*,*) "Developer: Tian Lu (Beijing Kein Research Center for Natural Sciences)"
 write(*,*) "Multiwfn official website: http://sobereva.com/multiwfn"
@@ -296,7 +296,7 @@ do while(.true.) !Main loop
 	write(*,*) "15 Fuzzy atomic space analysis"
 	write(*,*) "16 Charge decomposition analysis (CDA) and plot orbital interaction diagram"
 	write(*,*) "17 Basin analysis                       18 Electron excitation analysis"
-	write(*,*) "19 Orbital localization analysis        20 Visual study of weak interaction"
+	write(*,*) "19 Orbital localization analysis        20 Visual study of weak interactions"
 	write(*,*) "21 Energy decomposition analysis        22 Conceptual DFT (CDFT) analysis"
     write(*,*) "23 ETS-NOCV analysis                    24 (Hyper)polarizability analysis"
     write(*,*) "25 Electron delocalization and aromaticity analyses"

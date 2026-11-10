@@ -1151,7 +1151,7 @@ read(*,*) iAOM
 if (iAOM==0) then
     return
 else if (iAOM==1) then
-    call generatebasin_wrapper(2) !Generate AIM basins
+    call generatebasin_wrapper(2,3) !Generate AIM basins
     if (allocated(cubmat)) deallocate(cubmat)
     write(*,*)
     write(*,*) "Generating atomic overlap matrix (AOM)..."

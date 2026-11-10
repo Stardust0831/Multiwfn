@@ -167,7 +167,7 @@ do while(.true.)
     else if (ibondana==11) then
         call AV1245
     else if (ibondana==12) then
-		call generatebasin_wrapper(2) !Generate AIM basins
+		call generatebasin_wrapper(2,3) !Generate AIM basins
         call LIDIbasin(2) !Calculate DI using mixed grid
     else if (ibondana==20) then
         call BOD

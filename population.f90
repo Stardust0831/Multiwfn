@@ -199,7 +199,7 @@ else
 		else if (ipopsel==13) then
 			call fitESP(1)
 		else if (ipopsel==14) then !QTAIM
-			call generatebasin_wrapper(2) !Generate AIM basins
+			call generatebasin_wrapper(2,3) !Generate AIM basins
 			call integratebasinmix(-2)
 		else if (ipopsel==15) then !Hirshfeld-I
             if (ifiletype==7) then !Evenly distributed grids, and utilizing loaded electron density

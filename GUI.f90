@@ -141,7 +141,7 @@ CALL wgapp(idissetpersp,"Set rotation of viewpoint",idissetangle)
 CALL wgapp(idissetpersp,"Set rotation along screen",idissetcamrot)
 CALL wgapp(idissetpersp,"Set zoom distance",idissetzoom)
 CALL wgapp(idissetpersp,"Set position of focus point",idissetfocpt)
-CALL wgapp(idissetpersp,"Toggle between perspective and orthographic modes",idisortho)
+CALL wgapp(idissetpersp,"Toggle between perspective and orthographic views",idisortho)
 CALL wgapp(idissetpersp,"Set focus length of perspective mode",idissetVANG3D)
 CALL WGPOP(idiswindow,"Other settings",idisotherset)
 CALL wgapp(idisotherset,"Set extension distance",idisextdist)
@@ -479,7 +479,7 @@ CALL wgapp(idissetpersp,"Set rotation of viewpoint",idissetangle)
 CALL wgapp(idissetpersp,"Set rotation along screen",idissetcamrot)
 CALL wgapp(idissetpersp,"Set zoom distance",idissetzoom)
 CALL wgapp(idissetpersp,"Set position of focus point",idissetfocpt)
-CALL wgapp(idissetpersp,"Toggle between perspective and orthographic modes",idisortho)
+CALL wgapp(idissetpersp,"Toggle between perspective and orthographic views",idisortho)
 CALL wgapp(idissetpersp,"Set focus length of perspective mode",idissetVANG3D)
 CALL WGPOP(idiswindow,"Other settings",idisotherset)
 CALL wgapp(idisotherset,"Set lighting",idissetlight)
@@ -652,7 +652,7 @@ CALL wgapp(idissetpersp,"Set rotation of viewpoint",idissetangle)
 CALL wgapp(idissetpersp,"Set rotation along screen",idissetcamrot)
 CALL wgapp(idissetpersp,"Set zoom distance",idissetzoom)
 CALL wgapp(idissetpersp,"Set position of focus point",idissetfocpt)
-CALL wgapp(idissetpersp,"Toggle between perspective and orthographic modes",idisortho)
+CALL wgapp(idissetpersp,"Toggle between perspective and orthographic views",idisortho)
 CALL wgapp(idissetpersp,"Set focus length of perspective mode",idissetVANG3D)
 CALL WGPOP(idiswindow,"Other settings",idisotherset)
 CALL wgapp(idisotherset,"Set atomic label type",idisatmlabtyp)
@@ -780,7 +780,7 @@ CALL wgapp(idissetpersp,"Set rotation of viewpoint",idissetangle)
 CALL wgapp(idissetpersp,"Set rotation along screen",idissetcamrot)
 CALL wgapp(idissetpersp,"Set zoom distance",idissetzoom)
 CALL wgapp(idissetpersp,"Set position of focus point",idissetfocpt)
-CALL wgapp(idissetpersp,"Toggle between perspective and orthographic modes",idisortho)
+CALL wgapp(idissetpersp,"Toggle between perspective and orthographic views",idisortho)
 CALL wgapp(idissetpersp,"Set focus length of perspective mode",idissetVANG3D)
 CALL WGBAS(idiswindow,"VERT",idisright)
 CALL WGBAS(idisright,"VERT",idisOK)
@@ -879,7 +879,7 @@ CALL wgapp(idissetpersp,"Set rotation of viewpoint",idissetangle)
 CALL wgapp(idissetpersp,"Set rotation along screen",idissetcamrot)
 CALL wgapp(idissetpersp,"Set zoom distance",idissetzoom)
 CALL wgapp(idissetpersp,"Set position of focus point",idissetfocpt)
-CALL wgapp(idissetpersp,"Toggle between perspective and orthographic modes",idisortho)
+CALL wgapp(idissetpersp,"Toggle between perspective and orthographic views",idisortho)
 CALL wgapp(idissetpersp,"Set focus length of perspective mode",idissetVANG3D)
 CALL WGBAS(idisright,"VERT",idisOK)
 call wgpbut(idisOK,"RETURN",idisreturn)
@@ -972,7 +972,7 @@ end subroutine
 !Adapted from drawbasinintgui
 subroutine drawdomaingui
 character ictmp*4,domainlist*50000 !max 9999 domainlist (the 0th is "none"), each one take up 4 characters, adding "|",so 10000*(4+1)=50000
-GUI_mode=6
+GUI_mode=9
 isavepic=0
 domainlist(1:4)="None"
 domainlist(5:)=" "
@@ -1001,7 +1001,7 @@ CALL wgapp(idissetpersp,"Set rotation of viewpoint",idissetangle)
 CALL wgapp(idissetpersp,"Set rotation along screen",idissetcamrot)
 CALL wgapp(idissetpersp,"Set zoom distance",idissetzoom)
 CALL wgapp(idissetpersp,"Set position of focus point",idissetfocpt)
-CALL wgapp(idissetpersp,"Toggle between perspective and orthographic modes",idisortho)
+CALL wgapp(idissetpersp,"Toggle between perspective and orthographic views",idisortho)
 CALL wgapp(idissetpersp,"Set focus length of perspective mode",idissetVANG3D)
 CALL WGBAS(idiswindow,"VERT",idisright)
 CALL WGBAS(idiswindow,"VERT",idisright2) !Provide another frame for linux version
@@ -1205,7 +1205,7 @@ end subroutine
 !!--------- A minimum GUI, used for e.g. visualizing molecule in principal orientation
 subroutine miniGUI
 use defvar
-GUI_mode=7 !Use GUI_mode setting in dislin response routine
+GUI_mode=8 !Use GUI_mode setting in dislin response routine
 isavepic=0
 CALL swgtit(' ')
 if (imodlayout==2) then
@@ -1224,6 +1224,7 @@ CALL WGPOP(idiswindow,"Set perspective",idissetpersp)
 CALL wgapp(idissetpersp,"Set rotation angle",idissetangle)
 CALL wgapp(idissetpersp,"Set zoom distance",idissetzoom)
 CALL wgapp(idissetpersp,"Toggle between perspective and orthographic views",idisortho)
+CALL wgapp(idissetpersp,"Set focus length of perspective mode",idissetVANG3D)
 CALL WGDRAW(idiswindow,idisgraph) !Draw-widget to display molecular structure
 CALL SWGWTH(20) !Set parent widget width
 CALL WGBAS(idiswindow,"VERT",idisright)
@@ -1247,6 +1248,7 @@ call SWGCBK(idisgraph,mouse_rotate) !Make system rotatable by dragging mouse
 call SWGCBK(idissetangle,setviewangle)
 call SWGCBK(idissetzoom,setzoom)
 call SWGCBK(idisortho,setorthoview)
+call SWGCBK(idissetVANG3D,setVANG3D)
 call SWGCBK(idisreturn,GUIreturn)
 call SWGCBK(idisrotleft,rotleft)
 call SWGCBK(idisrotright,rotright)
@@ -1390,7 +1392,7 @@ atmlabclrG=0D0
 atmlabclrB=0D0
 ORIGIN_3D_X=0
 ORIGIN_3D_Y=0
-if (GUI_mode==1.or.GUI_mode==3) then
+if (GUI_mode==1.or.GUI_mode==3) then !Show system and orbitals / Show isosurface
 	bondcrit=1.15D0
 	textheigh=38D0
 	ratioatmsphere=1D0
@@ -1418,7 +1420,7 @@ if (GUI_mode==1.or.GUI_mode==3) then
 		call swgbut(idisshowmol,idrawmol)
 		call swgbut(idisshowisosur,idrawisosur)
 	end if
-else if (GUI_mode==4) then
+else if (GUI_mode==4) then !Show system and CPs
 	ZVU=5D0 !Let the system seems closer
 	ishowatmlab=0
 	ishowCPlab=0
@@ -1448,7 +1450,7 @@ else if (GUI_mode==4) then
 	if (imodlayout/=2) call swgscl(idisbondradius,bondradius)
 	call swgscl(idisatmsize,ratioatmsphere)
 	call swgscl(idislabelsize,textheigh)
-else if (GUI_mode==5) then
+else if (GUI_mode==5) then !Show system and surface extrema
 	ZVU=6D0
 	textheigh=30D0
 	ratioatmsphere=1D0
@@ -1468,7 +1470,7 @@ else if (GUI_mode==5) then
 	call swgbut(idisshowlocmaxlab,ishowlocmaxlab)
 	call swgbut(idisshowlocminpos,ishowlocminpos)
 	call swgbut(idisshowlocmaxpos,ishowlocmaxpos)
-else if (GUI_mode==6) then
+else if (GUI_mode==6) then !Show basins
 	ZVU=6D0
 	idrawmol=1
 	ishowaxis=1
@@ -1487,7 +1489,25 @@ else if (GUI_mode==6) then
 	if (imodlayout/=2) call swgscl(idisbondradius,bondradius)
 	call swgscl(idislabelsize,textheigh)
 	call swgscl(idisattsize,attsphsize)
-else if (GUI_mode==2) then
+else if (GUI_mode==9) then !Show domains
+	ZVU=6D0
+	idrawmol=1
+	ishowaxis=1
+	ishowatmlab=0
+    idrawdomaincenter=1
+	ratioatmsphere=1D0
+	bondradius=0.2D0
+	textheigh=40D0
+	call swgbut(idisshowmol,idrawmol)
+	call swgbut(idisshowaxis,ishowaxis)
+	call swgbut(idisshowatmlab,ishowatmlab)
+	call swgbut(idisshowdomaincenter,idrawdomaincenter)
+	if (imodlayout/=2) then
+		call swgscl(idisatmsize,ratioatmsphere)
+		call swgscl(idisbondradius,bondradius)
+    end if
+	call swgscl(idislabelsize,textheigh)
+else if (GUI_mode==2) then !Show relief map
 	ZVU=7D0
 end if
 if (GUI_mode==2) then

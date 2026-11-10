@@ -402,8 +402,8 @@ integer idisisosur2style,idisisosur2solid,idisisosur2mesh,idisisosur2point,idisi
 integer idisisosurallstyle,idisisosurallsolid,idisisosurallmesh,idisisosurallpoint,idisisosurallsolidmesh,idisisosuralltpr
 !For setting box
 integer idisboxsizeX,idisboxsizeY,idisboxsizeZ,idisboxposX,idisboxposY,idisboxposZ,idisboxspc,idisnpt
-!=1: Show system and orbitals  =2: Show relief plane map  =3: Show isosurface  =4: Show system and CPs &
-!=5: Show system and surface extrema  =6: Show basin or domain space  =7: Set box in GUI  =8: Minimum GUI
+!=1: Show system and orbitals  =2: Show relief map  =3: Show isosurface  =4: Show system and CPs &
+!=5: Show system and surface extrema  =6: Show basins  =7: Set box in GUI  =8: Minimum GUI  =9: Show domains
 integer GUI_mode 
 
 !Plotting external parameter, can be set in settings.ini

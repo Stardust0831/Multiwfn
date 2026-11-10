@@ -7881,7 +7881,7 @@ do i=1,nmo
 end do
 write(ifileid,"('END DATA',/,' THE  HF ENERGY = ',f19.12,' THE VIRIAL(-V/T)= ',f12.8)") totenergy,virialratio
 write(ifileid,"(/,a)") "$MOSPIN"
-write(ifileid,"(30i2)") MOtype(:)
+write(ifileid,"(30i2)") pack(MOtype(1:nmo),MOocc(1:nmo)/=0D0) !Only the orbitals written above (zero-occupied ones are discarded)
 write(ifileid,"(a)") "$END"
 if (ifPBC>0) then
     write(ifileid,"(/,a)") "[Cell]"

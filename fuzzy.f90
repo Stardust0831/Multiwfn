@@ -27,11 +27,12 @@ implicit real*8 (a-h,o-z)
 integer iwork
 integer :: iintgrid=2 !Type of grids for integrating used in subfunctions 1 and 12. =1: Atomic grid =2: Molecular grid
 integer atmcalclist(ncenter),natmcalclist !The atoms to be calculated will be recorded in the array
-real*8 potx(sphpot),poty(sphpot),potz(sphpot),potw(sphpot)
-type(content) gridatm(radpot*sphpot)
-real*8 Pvec(ncenter),rintval(ncenter,10),funcval(radpot*sphpot) !rintval store integral, can record 10 integrand at the same time
-real*8 atmspcweight(radpot*sphpot) !Selected weights of current atom on grids of current center
-real*8 beckeweigrid(radpot*sphpot) !Becke weight of current atom on grids of current center
+real*8,allocatable :: potx(:),poty(:),potz(:),potw(:)
+type(content),allocatable :: gridatm(:)
+real*8 Pvec(ncenter),rintval(ncenter,10) !rintval store integral, can record 10 integrand at the same time
+real*8,allocatable :: funcval(:) !Function value at every grid
+real*8,allocatable :: atmspcweight(:) !Selected weights of current atom on grids of current center
+real*8,allocatable :: beckeweigrid(:) !Becke weight of current atom on grids of current center
 real*8,allocatable :: atmspcweiarr(:,:) !Weights of all atoms on grids of current center, (grid,center)
 real*8,allocatable :: alldens(:,:) !Density of all free-atoms on grids of current center, (grid,center)
 !--- AOM related
@@ -46,8 +47,8 @@ integer FOM1atm(ncenter),FOM2atm(ncenter),nFOM1atm,nFOM2atm !Atom list used in e
 real*8,allocatable :: FOM1(:,:),FOM1b(:,:),FOM2(:,:),FOM2b(:,:) !Fragment overlap matrix of fragments 1 and 2
 !--- Misc
 real*8 rintvalp(ncenter,10) !Private for each OpenMP thread
-real*8 promol(radpot*sphpot),atomdens(radpot*sphpot),selfdens(radpot*sphpot),selfdensgrad(3,radpot*sphpot),selfdenslapl(radpot*sphpot) !For Hirshfeld partition
-real*8 specrho(radpot*sphpot),specrhograd2(radpot*sphpot) !Density and its gradient^2 of atom in specific state (user-provided atomic wavefunction). Used for taking Hirshfeld as reference to calculate relative Shannon and Fisher entropy
+real*8,allocatable :: promol(:),atomdens(:),selfdens(:),selfdensgrad(:,:),selfdenslapl(:) !For Hirshfeld partition
+real*8,allocatable :: specrho(:),specrhograd2(:) !Density and its gradient^2 of atom in specific state (user-provided atomic wavefunction). Used for taking Hirshfeld as reference to calculate relative Shannon and Fisher entropy
 real*8 :: covr_becke(0:nelesupp)=0D0 !Covalent radii used for Becke partition
 real*8 DI(ncenter,ncenter),DIa(ncenter,ncenter),DIb(ncenter,ncenter) !Delocalization index matrix
 real*8 DI_tmp(ncenter,ncenter),DIa_tmp(ncenter,ncenter),DIb_tmp(ncenter,ncenter) !Temporarily used for parallel calculation of DI
@@ -631,7 +632,8 @@ if (ifPBC/=0) then
     end if
 end if
 
-rintval=0D0 !Initialize accumulated variables
+!Initialize accumulated variables
+rintval=0D0
 ovlpintpos=0D0
 ovlpintneg=0D0
 atmmono=0
@@ -647,17 +649,31 @@ if (iwork/=11) then
 end if
 call walltime(iwalltime1)
 
-call Lebedevgen(sphpot,potx,poty,potz,potw)
-
 !Allocate arrays for molecular grid calculation
+if (allocated(gridatm)) then
+    if (size(gridatm)/=radpot*sphpot.or.size(potx)/=sphpot) then
+		deallocate(potx,poty,potz,potw,gridatm,funcval,atmspcweight,beckeweigrid,promol,atomdens,selfdens,selfdensgrad,selfdenslapl,specrho,specrhograd2)
+    end if
+end if
+if (.not.allocated(gridatm)) then
+	allocate(potx(sphpot),poty(sphpot),potz(sphpot),potw(sphpot),gridatm(radpot*sphpot), &
+    funcval(radpot*sphpot),atmspcweight(radpot*sphpot),beckeweigrid(radpot*sphpot),promol(radpot*sphpot),atomdens(radpot*sphpot), &
+    selfdens(radpot*sphpot),selfdensgrad(3,radpot*sphpot),selfdenslapl(radpot*sphpot),specrho(radpot*sphpot),specrhograd2(radpot*sphpot))
+end if
 if ((iintgrid==2.or.iAOMgrid==2).and.(.not.allocated(atmspcweiarr))) allocate(atmspcweiarr(ncenter,radpot*sphpot),alldens(ncenter,radpot*sphpot))
 if (iAOMgrid==2.and.(.not.allocated(orbvalarr))) allocate(orbvalarr(nmo,radpot*sphpot))
 
+!Generate Lebedev grid information
+call Lebedevgen(sphpot,potx,poty,potz,potw)
+
+!Initialize progress bar
 if ((isel==2.and.iout==20).or.(isel/=2.and.isel/=13)) then
 	ifinish=0
 	call showprog(0,natmcalclist)
 end if
 
+
+!! Cycle each atom !!!! Cycle each atom !!!! Cycle each atom !!!! Cycle each atom !!
 !! Cycle each atom !!!! Cycle each atom !!!! Cycle each atom !!!! Cycle each atom !!
 !! Cycle each atom !!!! Cycle each atom !!!! Cycle each atom !!!! Cycle each atom !!
 do iatm=1,ncenter

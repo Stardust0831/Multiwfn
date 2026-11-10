@@ -1517,7 +1517,7 @@ else if (ifuncsel==111.or.ifuncsel==112) then !Becke/Hirshfeld weight
 	drawlowlim=0D0
 	drawuplim=1D0
 else if (ifuncsel==100) then
-	if (iuserfunc==20.or.iuserfunc==99) then !DORI/IRI
+	if (iuserfunc==20) then !DORI
 		drawlowlim=0D0
 		drawuplim=2D0
 	else if (iuserfunc>=910.and.iuserfunc<=914) then !Atomic weighting functions

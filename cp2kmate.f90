@@ -75,7 +75,7 @@ character selectyn,c80tmp*80,c80tmp2*80,c200tmp*200,c2000tmp*2000
 character :: method*22="PBE",PBCdir*4="XYZ ",cellfix*4="NONE"
 character(len=30) :: basname(-10:30)=" "
 integer :: itask=1,idispcorr=0,imolden=0,ioutvibmol=1,ithermostat=0,ibarostat=0,inoSCFinfo=0,iSCCS=0,idipcorr=0,iwfc=0,iHFX=0,iRIHFX=0,imoment=0,ihyperfine=0,ioptmethod=1,iprintlevel=1
-integer :: iTDDFT=0,nstates_TD=3,iTDtriplet=0,isTDA=0,iNTO=0,nADDED_MOS=0,icentering=0,itightopt=0,iraman=0,iSOCTDDFT=0
+integer :: iTDDFT=0,nstates_TD=3,iTDtriplet=0,isTDA=0,iNTO=0,nADDED_MOS=0,icentering=0,itightopt=0,iraman=0,iSOCTDDFT=0,iprtPDOS=0
 integer :: iMDformat=1,nMDsavefreq=1,ioutcube=0,idiagOT=1,imixing=2,ismear=0,iatomcharge=0,ifineXCgrid=0,iouterSCF=1,iDFTplusU=0,NHOMO=0,NLUMO=0
 integer :: natmcons=0,nthermoatm=0,ikpoint1=1,ikpoint2=1,ikpoint3=1,nrep1=1,nrep2=1,nrep3=1,ikeepcell=0
 integer,allocatable :: atmcons(:),thermoatm(:)
@@ -282,8 +282,9 @@ do while(.true.)
                 if (iouterSCF==1) write(*,*) " 5 Toggle using outer SCF process, current: Yes"
             end if
         end if
-        if (iSCCS==0) write(*,*) " 7 Toggle using self-consistent continuum solvation (SCCS), current: No"
-        if (iSCCS==1) write(*,*) " 7 Toggle using self-consistent continuum solvation (SCCS), current: Yes"
+        if (iSCCS==0) write(*,*) " 7 Choose self-consistent continuum solvation (SCCS), current: No"
+        if (iSCCS==1) write(*,*) " 7 Choose self-consistent continuum solvation (SCCS), current: Andreussi"
+        if (iSCCS==2) write(*,*) " 7 Choose self-consistent continuum solvation (SCCS), current: Solvent aware"
         if (PBCdir/="NONE") then
             if (ikpoint1==1.and.ikpoint2==1.and.ikpoint3==1) then
                 write(*,*) " 8 Set k-points, current: GAMMA only"
@@ -469,6 +470,8 @@ do while(.true.)
                 if (idipcorr==2) write(*,*) "23 Set surface dipole correction, current: Y direction"
                 if (idipcorr==3) write(*,*) "23 Set surface dipole correction, current: Z direction"
             end if
+            if (iprtPDOS==1) write(*,*) "24 Toggle output PDOS curve files, current: Yes"
+            if (iprtPDOS==0) write(*,*) "24 Toggle output PDOS curve files, current: No"
             if (istructfile==1) write(*,*) "30 Toggle giving path of geometry file instead of &COORD, current: Yes"
             if (istructfile==0) write(*,*) "30 Toggle giving path of geometry file instead of &COORD, current: No"
             read(*,*) isel2
@@ -733,6 +736,12 @@ do while(.true.)
                 write(*,*) "2 Use surface dipole correction in Y direction"
                 write(*,*) "3 Use surface dipole correction in Z direction"
                 read(*,*) idipcorr
+            else if (isel2==24) then
+                if (iprtPDOS==1) then
+                    iprtPDOS=0
+                else
+                    iprtPDOS=1
+                end if
             else if (isel2==30) then
                 if (istructfile==1) then
                     istructfile=0
@@ -1133,12 +1142,15 @@ do while(.true.)
             write(*,"(a)") " Note: The number of virtual orbitals to solve has been changed to 0"
         end if
     else if (isel==7) then
-        if (iSCCS==0) then
-            iSCCS=1
-            write(*,"(a)") " Note: In the generated input file, the SCCS parameters correspond to water case given in &
-            J. Chem. Phys., 150, 041710 (2019), please manually modify according to actual situation"
-        else
-            iSCCS=0
+        write(*,*) "Choose SCCS implicit solvation model:"
+        write(*,*) "0 No (Vacuum)"
+        write(*,*) "1 Smoothing function proposed by Andreussi et al."
+        write(*,"(a)") " 2 Smoothing function of the solvent aware algorithm (better than 1, but only 3D periodic condition is supported)"
+        read(*,*) iSCCS
+        if (iSCCS/=0) then
+            write(*,"(a)") " Note: In the generated input file, RHO_MIN and RHO_MAX correspond to water case given in &
+            J. Chem. Phys., 150, 041710 (2019), you may modify them according to actual situation"
+            if (iSCCS==2) write(*,"(a)") " Note: In the generated input file, R_SOLV and F0 correspond to recommended values for water in Comput. Phys. Commun., 311, 109563 (2025)"
         end if
     else if (isel==8) then
         write(*,*) "Input number of k-points of MONKHORST-PACK in three directions, e.g. 8,6,2"
@@ -1581,7 +1593,7 @@ if (method(1:3)/="GFN".and.method/="PM6".and.method/="SCC-DFTB".and.method/="FIS
                     write(ifileid,"(a)") "        L 3 #Quantum number of angular momentum the atomic orbitals to +U. 0=s, 1=p, 2=d, 3=f"
                     write(ifileid,"(a)") "        U_MINUS_J [eV] 2.0 #Effective on-site Coulomb interaction parameter U(eff) = U - J"
                     write(ifileid,"(a)") "      &END DFT_PLUS_U"
-                else if ((ie>=21.and.ie<=28).or.(ie>=39.and.ie<=46).or.(ie>=71.and.ie<=78)) then !d elements
+                else if ((ie>=21.and.ie<=30).or.(ie>=39.and.ie<=48).or.(ie>=71.and.ie<=80)) then !d elements
                     write(ifileid,"(a)") "      &DFT_PLUS_U"
                     write(ifileid,"(a)") "        L 2 #Quantum number of angular momentum the atomic orbitals to +U. 0=s, 1=p, 2=d, 3=f"
                     write(ifileid,"(a)") "        U_MINUS_J [eV] 2.0 #Effective on-site Coulomb interaction parameter U(eff) = U - J"
@@ -1802,15 +1814,9 @@ else
         write(ifileid,"(a)") "      EPS_PGF_ORB 1E-7 #If warning ""Kohn Sham matrix not 100% occupied"" occurs and meantime calculation is obviously problematic, decrease it"
     end if
 end if
-if (ikpoint1==1.and.ikpoint2==1.and.ikpoint3==1) then !Gamma
-    if (itask==6) then !Explicitly add these, allowing users to adapt
-        write(ifileid,"(a)") "      EXTRAPOLATION ASPC #Extrapolation for wavefunction during e.g. MD. ASPC is default, PS can also be used"
-        write(ifileid,"(a)") "      EXTRAPOLATION_ORDER 3 #Order for PS or ASPC extrapolation. 3 is default"
-    end if
-else !k-point case, wavefunction extrapolation cannot be uesd, so add a line so that users can uncomment it to use previous density matrix
-    if (itask==3.or.itask==4.or.itask==5.or.itask==6.or.itask==7.or.itask==8) then !Tasks involving geometry change
-        write(ifileid,"(a)") "#     EXTRAPOLATION USE_PREV_P #Use converged density matrix of last geometry as initial guess"
-    end if
+if (itask==3.or.itask==4.or.itask==5.or.itask==6.or.itask==7.or.itask==8) then !Tasks involving geometry change, allowing users to adapt
+    write(ifileid,"(a)") "      EXTRAPOLATION ASPC #Extrapolation method of wavefunction during geometry change. ASPC is default, GEXT_PROJ, PS, etc. can also be used"
+    write(ifileid,"(a)") "      EXTRAPOLATION_ORDER 3 #Order of ASPC, GEXT_PROJ, and PS extrapolations. 3 is default"
 end if
 if (method=="GFN1-xTB") then
     write(ifileid,"(a)") "      METHOD xTB"
@@ -1819,13 +1825,6 @@ if (method=="GFN1-xTB") then
     write(ifileid,"(a)") "        CHECK_ATOMIC_CHARGES F #xTB calculation often crashes without setting this to false"
     write(ifileid,"(a)") "      &END xTB"
 else if (method=="GFN2-xTB") then
-    !Suitable for <=2026.1
-    !write(ifileid,"(a)") "      METHOD xTB"
-    !write(ifileid,"(a)") "      &xTB"
-    !write(ifileid,"(a)") "        &TBLITE"
-    !write(ifileid,"(a)") "          METHOD GFN2"
-    !write(ifileid,"(a)") "        &END TBLITE"
-    !write(ifileid,"(a)") "      &END xTB"
     write(ifileid,"(a)") "      METHOD xTB"
     write(ifileid,"(a)") "      &xTB"
     write(ifileid,"(a)") "        GFN_TYPE TBLITE"
@@ -2186,28 +2185,33 @@ if (iHFX==1) then !HFX potential
     end if
     if (iRIHFX==0) write(ifileid,"(a)") "          SCREEN_ON_INITIAL_P T #Screening ERI based on initial density matrix, need to provide wavefunction restart file"
     write(ifileid,"(a)") "        &END SCREENING"
-    if (index(method,"HSE")/=0) then
+    if (PBCdir/="NONE") then !PBC system needs Coulomb truncation for common hybrid functionals. By default the Coulomb interaction is not truncated
         write(ifileid,"(a)") "        &INTERACTION_POTENTIAL"
-        write(ifileid,"(a)") "          POTENTIAL_TYPE SHORTRANGE"
-        write(ifileid,"(a)") "          OMEGA 0.11"
-        write(ifileid,"(a)") "        &END INTERACTION_POTENTIAL"
-    else
-        if (PBCdir/="NONE") then !PBC system needs Coulomb truncation for common hybrid functionals. By default the Coulomb interaction is not truncated
-            write(ifileid,"(a)") "        &INTERACTION_POTENTIAL"
+        if (index(method,"HSE")/=0) then
+            write(ifileid,"(a)") "          POTENTIAL_TYPE SHORTRANGE"
+            write(ifileid,"(a)") "          OMEGA 0.11"
+        else
             write(ifileid,"(a)") "          POTENTIAL_TYPE TRUNCATED"
-            if (ikpoint1==1.and.ikpoint2==1.and.ikpoint3==1) then !Gamma point
-                if (trunc_rad>6) then !If half of shortest box length is larger than 6 Angstrom, simply use 6, this is usually adequate
-                    write(ifileid,"(a,f8.4)") "          CUTOFF_RADIUS 6.0 #Cutoff radius (Angstrom) for truncated 1/r Coulomb operator"
-                else
-                    write(ifileid,"(a,f8.4,a)") "          CUTOFF_RADIUS",trunc_rad," #Cutoff radius (Angstrom) for truncated 1/r Coulomb operator"
-                end if
-            else !RI-HFXk case
-                if (trunc_rad_kp>6) then !If half of shortest box length is larger than 6 Angstrom, simply use 6, this is usually adequate
-                    write(ifileid,"(a,f8.4)") "          CUTOFF_RADIUS 6.0 #Cutoff radius (Angstrom) for truncated 1/r Coulomb operator"
-                else
-                    write(ifileid,"(a,f8.4,a)") "          CUTOFF_RADIUS",trunc_rad_kp," #Cutoff radius (Angstrom) for truncated 1/r Coulomb operator"
-                end if
+        end if
+        if (ikpoint1==1.and.ikpoint2==1.and.ikpoint3==1) then !Gamma point
+            if (trunc_rad>6) then !If half of shortest box length is larger than 6 Angstrom, simply use 6, which is usually adequate
+                write(ifileid,"(a,f8.4)") "          CUTOFF_RADIUS 6.0 #Cutoff radius (Angstrom) for 1/r Coulomb operator"
+            else
+                write(ifileid,"(a,f8.4,a)") "          CUTOFF_RADIUS",trunc_rad," #Cutoff radius (Angstrom) for 1/r Coulomb operator"
             end if
+        else !RI-HFXk case
+            if (trunc_rad_kp>6) then !If half of shortest box length is larger than 6 Angstrom, simply use 6, this is usually adequate
+                write(ifileid,"(a,f8.4)") "          CUTOFF_RADIUS 6.0 #Cutoff radius (Angstrom) for 1/r Coulomb operator"
+            else
+                write(ifileid,"(a,f8.4,a)") "          CUTOFF_RADIUS",trunc_rad_kp," #Cutoff radius (Angstrom) for 1/r Coulomb operator"
+            end if
+        end if
+        write(ifileid,"(a)") "        &END INTERACTION_POTENTIAL"
+    else !For nonperiodic case, by default full Coulomb operator is used, only HSE06 needs to be defined
+        if (index(method,"HSE")/=0) then
+            write(ifileid,"(a)") "        &INTERACTION_POTENTIAL"
+            write(ifileid,"(a)") "          POTENTIAL_TYPE SHORTRANGE"
+            write(ifileid,"(a)") "          OMEGA 0.11"
             write(ifileid,"(a)") "        &END INTERACTION_POTENTIAL"
         end if
     end if
@@ -2234,6 +2238,10 @@ if (iHFX==1) then !HFX potential
         write(ifileid,"(a)") "          KP_USE_DELTA_P T #Using incremental Fock, set to F if SCF is difficult to converge"
         write(ifileid,"(a)") "          EPS_PGF_ORB 1E-5 #Set precision of integral tensors, the default 1E-5 is usually fine enough"
         !write(ifileid,"(a)") "          MEMORY_CUT 3 #Memory reduction factor. Larger saves more memory but more time-consuming"
+        write(ifileid,"(a)") "          &PRINT"
+        write(ifileid,"(a)") "            KP_RI_MEMORY_ESTIMATE T #Show rough upper amount of memory per MPI rank before SCF"
+        write(ifileid,"(a)") "            KP_RI_PROGRESS_BAR T #Monitor progress of SCF iteration"
+        write(ifileid,"(a)") "          &END PRINT"
         write(ifileid,"(a)") "        &END RI"
         write(ifileid,"(a)") "      &END HF"
     end if
@@ -2455,7 +2463,7 @@ else !&SCF
         else
             write(ifileid,"(a)") "#     SCF_GUESS RESTART #Use wavefunction from WFN_RESTART_FILE_NAME file as initial guess"
         end if
-        write(ifileid,"(a)") "#     IGNORE_CONVERGENCE_FAILURE #Continue calculation even if SCF not converged, works for version >= 2024.1"
+        write(ifileid,"(a)") "#     IGNORE_CONVERGENCE_FAILURE #Continue calculation even if SCF not converged"
         if (idiagOT==1) then
             write(ifileid,"(a)") "      &DIAGONALIZATION"
             write(ifileid,"(a)") "        ALGORITHM STANDARD #Algorithm for diagonalization"
@@ -2552,7 +2560,7 @@ else !&SCF
 end if
 
 !--- &PRINT of DFT level, FORCE_EVAL/DFT/PRINT
-if (imolden==1.or.ioutSbas==1.or.ioutKSbas==1.or.ioutcube>0.or.iatomcharge>0.or.itask==5.or.imoment==1.or.ihyperfine==1.or.ioutorbene==1.or.iSCCS==1.or.iDFTplusU==1) then
+if (imolden==1.or.ioutSbas==1.or.ioutKSbas==1.or.ioutcube>0.or.iatomcharge>0.or.itask==5.or.imoment==1.or.ihyperfine==1.or.ioutorbene==1.or.iSCCS/=0.or.iDFTplusU==1.or.iprtPDOS==1) then
     write(ifileid,"(a)") "    &PRINT"
     if (ioutSbas==1) then
         write(ifileid,"(a)") "      &S_CSR_WRITE #Exporting .csr file containing overlap matrix"
@@ -2674,19 +2682,19 @@ if (imolden==1.or.ioutSbas==1.or.ioutKSbas==1.or.ioutcube>0.or.iatomcharge>0.or.
         end if
         write(ifileid,"(a)") "      &END MOMENTS"
     end if
-    if (iSCCS==1) then
+    if (iSCCS/=0) then
         write(ifileid,"(a)") "      @IF 1 #Printing SCCS information in each SCF iteration" !When print level is medium, will also print SCCS iteration information
         write(ifileid,"(a)") "      &SCCS"
         write(ifileid,"(a)") "        &EACH"
         write(ifileid,"(a)") "          QS_SCF 1"
         write(ifileid,"(a)") "        &END EACH"
-        write(ifileid,"(a)") "        &POLARISATION_CHARGE_DENSITY"
+        write(ifileid,"(a)") "        &POLARISATION_CHARGE_DENSITY #Output cube file of polarization charge density"
         write(ifileid,"(a)") "          &EACH"
         write(ifileid,"(a)") "            QS_SCF 0"
         write(ifileid,"(a)") "          &END EACH"
         write(ifileid,"(a)") "          STRIDE 2"
         write(ifileid,"(a)") "        &END POLARISATION_CHARGE_DENSITY"
-        write(ifileid,"(a)") "        &DIELECTRIC_FUNCTION"
+        write(ifileid,"(a)") "        &DIELECTRIC_FUNCTION #Output cube file of dielectric function"
         write(ifileid,"(a)") "          &EACH"
         write(ifileid,"(a)") "            QS_SCF 0"
         write(ifileid,"(a)") "          &END EACH"
@@ -2695,9 +2703,25 @@ if (imolden==1.or.ioutSbas==1.or.ioutKSbas==1.or.ioutcube>0.or.iatomcharge>0.or.
         write(ifileid,"(a)") "      &END SCCS"
         write(ifileid,"(a)") "      @ENDIF"
     end if
+    if (iprtPDOS==1) then
+        write(ifileid,"(a)") "      &DOS"
+        write(ifileid,"(a)") "        NLUMO 20 #Number of unoccupied orbitals to include in (P)DOS"
+        write(ifileid,"(a)") "        DELTA_E 0.0005 #Grid spacing of broadended curve (Hartree)"
+        write(ifileid,"(a)") "        &CURVE #Output (P)DOS curve files"
+        write(ifileid,"(a)") "          ENERGY_UNIT eV #Unit of the (P)DOS energy axis"
+        write(ifileid,"(a)") "          ENERGY_ZERO AUTO #Reference energy of (P)DOS, can be explicitly set as ABSOLUTE, FERMI, HOCO"
+        write(ifileid,"(a)") "          &BROADEN"
+        write(ifileid,"(a)") "            WIDTH [eV] 0.1 #FWHM of broadened peak"
+        write(ifileid,"(a)") "          &END BROADEN"
+        write(ifileid,"(a)") "        &END CURVE"
+        write(ifileid,"(a)") "        &PDOS"
+        write(ifileid,"(a)") "          COMPONENTS T #Decompose DOS as contributions from individual angular moments"
+        write(ifileid,"(a)") "        &END PDOS"
+        write(ifileid,"(a)") "      &END DOS"
+    end if
     write(ifileid,"(a)") "    &END PRINT"
 end if
-if (iSCCS==1) then
+if (iSCCS/=0) then
     write(ifileid,"(a)") "    &SCCS"
     write(ifileid,"(a)") "      ALPHA [mN/m] 57.2"
     write(ifileid,"(a)") "      BETA [GPa] -0.5"
@@ -2707,10 +2731,21 @@ if (iSCCS==1) then
     write(ifileid,"(a)") "      EPS_SCCS 1E-6 #Requested accuracy for convergence of polarization charge density iteration"
     write(ifileid,"(a)") "      MAX_ITER 150 #Maximum number of polarization charge density iterations"
     write(ifileid,"(a)") "      DERIVATIVE_METHOD CD5 #Method for calculation of numerical derivatives. Can be FFT, CD3, CD5, CD7"
-    write(ifileid,"(a)") "      &ANDREUSSI"
-    write(ifileid,"(a)") "        RHO_MIN 0.0001841"
-    write(ifileid,"(a)") "        RHO_MAX 0.0013604"
-    write(ifileid,"(a)") "      &END ANDREUSSI"
+    if (iSCCS==1) then
+        write(ifileid,"(a)") "      METHOD ANDREUSSI"
+        write(ifileid,"(a)") "      &ANDREUSSI"
+        write(ifileid,"(a)") "        RHO_MIN 0.0001841"
+        write(ifileid,"(a)") "        RHO_MAX 0.0013604"
+        write(ifileid,"(a)") "      &END ANDREUSSI"
+    else if (iSCCS==2) then
+        write(ifileid,"(a)") "      METHOD SAA_ANDREUSSI"
+        write(ifileid,"(a)") "      &SAA_ANDREUSSI"
+        write(ifileid,"(a)") "        RHO_MIN 0.0001841"
+        write(ifileid,"(a)") "        RHO_MAX 0.0013604"
+        write(ifileid,"(a)") "        R_SOLV 2.6"
+        write(ifileid,"(a)") "        F0 0.65"
+        write(ifileid,"(a)") "      &END SAA_ANDREUSSI"
+    end if
     write(ifileid,"(a)") "    &END SCCS"
 end if
 if (idipcorr>0) then
@@ -3242,7 +3277,8 @@ if (itask==3.or.itask==4.or.itask==5.or.itask==6.or.itask==7.or.itask==8.or.itas
         write(ifileid,"(a)") "      &END DIIS"
         write(ifileid,"(a)") "    &END OPTIMIZE_BAND"
         write(ifileid,"(a)") "    &PROGRAM_RUN_INFO #Print basic information during running the BAND task"
-        write(ifileid,"(a)") "      INITIAL_CONFIGURATION_INFO F #Print details of constructing initial configurations"
+        write(ifileid,"(a)") "      INITIAL_CONFIGURATION_INFO F #If printing details of constructing initial configurations"
+        write(ifileid,"(a)") "      PLOT_REL_ENERGY F #If plotting relative energy variation along path at each step"
         write(ifileid,"(a)") "    &END PROGRAM_RUN_INFO"
         write(ifileid,"(a)") "    &CONVERGENCE_INFO #Print convergence criteria during the BAND run in [proj]-BAND**.out files"
         write(ifileid,"(a)") "    &END CONVERGENCE_INFO"
