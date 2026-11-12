@@ -75,10 +75,11 @@ character selectyn,c80tmp*80,c80tmp2*80,c200tmp*200,c2000tmp*2000
 character :: method*22="PBE",PBCdir*4="XYZ ",cellfix*4="NONE"
 character(len=30) :: basname(-10:30)=" "
 integer :: itask=1,idispcorr=0,imolden=0,ioutvibmol=1,ithermostat=0,ibarostat=0,inoSCFinfo=0,iSCCS=0,idipcorr=0,iwfc=0,iHFX=0,iRIHFX=0,imoment=0,ihyperfine=0,ioptmethod=1,iprintlevel=1
-integer :: iTDDFT=0,nstates_TD=3,iTDtriplet=0,isTDA=0,iNTO=0,nADDED_MOS=0,icentering=0,itightopt=0,iraman=0,iSOCTDDFT=0,iprtPDOS=0
-integer :: iMDformat=1,nMDsavefreq=1,ioutcube=0,idiagOT=1,imixing=2,ismear=0,iatomcharge=0,ifineXCgrid=0,iouterSCF=1,iDFTplusU=0,NHOMO=0,NLUMO=0
+integer :: iTDDFT=0,nstates_TD=3,iTDtriplet=0,isTDA=0,iNTO=0,nADDED_MOS=0,icentering=0,itightopt=0,iraman=0,iGCSCF=0,iSOCTDDFT=0,iprtPDOS=0
+integer :: iMDformat=1,nMDsavefreq=1,ioutcube=0,idiagOT=1,imixing=2,ismear=0,ismeartype=1,iatomcharge=0,ifineXCgrid=0,iouterSCF=1,iDFTplusU=0,NHOMO=0,NLUMO=0
 integer :: natmcons=0,nthermoatm=0,ikpoint1=1,ikpoint2=1,ikpoint3=1,nrep1=1,nrep2=1,nrep3=1,ikeepcell=0
 integer,allocatable :: atmcons(:),thermoatm(:)
+real*8 :: T_smear=300
 real*8 :: efieldvec(3)=0,vacsizex=5/b2a,vacsizey=5/b2a,vacsizez=5/b2a
 integer :: frag1chg,frag2chg,frag1multi,frag2multi,totalmulti
 integer :: iprestype=1,ioutSbas=0,ioutKSbas=0,ioutorbene=0,istate_force=1,idiaglib=1,iGAPW=0,iLSSCF=0,iLRIGPW=0,iPSOLVER=1,niter_evGW=1,niter_scGW0=1,istructfile=0
@@ -273,9 +274,17 @@ do while(.true.)
                     if (imixing==1) write(*,*) " 5 Set density matrix mixing, current: Direct mixing + DIIS"
                     if (imixing==2) write(*,*) " 5 Set density matrix mixing, current: Broyden mixing"
                     if (imixing==3) write(*,*) " 5 Set density matrix mixing, current: Pulay mixing"
+                    if (imixing==4) write(*,*) " 5 Set density matrix mixing, current: New Pulay mixing"
                 end if
-                if (ismear==0) write(*,*) " 6 Toggle smearing electron occupation, current: No"
-                if (ismear==1) write(*,*) " 6 Toggle smearing electron occupation, current: Yes"
+                if (ismear==0) then
+                    write(*,*) " 6 Toggle smearing electron occupation, current: No"
+                else if (ismear==1) then
+                    write(*,*) " 6 Toggle smearing electron occupation, current: Yes"
+                    if (ismeartype==1) write(*,"(a,f7.1,' K')") " 66 Set smearing method, current: Fermi-Dirac, T:",T_smear
+                    if (ismeartype==2) write(*,"(a,f7.1,' K')") " 66 Set smearing method, current: Gaussian, T:",T_smear
+                    if (ismeartype==3) write(*,"(a,f7.1,' K')") " 66 Set smearing method, current: Methfessel-Paxton, T:",T_smear
+                    if (ismeartype==4) write(*,"(a,f7.1,' K')") " 66 Set smearing method, current: Marzari-Vanderbilt cold smearing, T:",T_smear
+                end if
             else if (idiagOT==2) then
                 write(*,*) " 4 Switching between diagonalization and OT, current: OT"
                 if (iouterSCF==0) write(*,*) " 5 Toggle using outer SCF process, current: No"
@@ -472,6 +481,8 @@ do while(.true.)
             end if
             if (iprtPDOS==1) write(*,*) "24 Toggle output PDOS curve files, current: Yes"
             if (iprtPDOS==0) write(*,*) "24 Toggle output PDOS curve files, current: No"
+            if (iGCSCF==0) write(*,*) "25 Toggle performing grand canonical SCF (GCSCF), current: No"
+            if (iGCSCF==1) write(*,*) "25 Toggle performing grand canonical SCF (GCSCF), current: Yes"
             if (istructfile==1) write(*,*) "30 Toggle giving path of geometry file instead of &COORD, current: Yes"
             if (istructfile==0) write(*,*) "30 Toggle giving path of geometry file instead of &COORD, current: No"
             read(*,*) isel2
@@ -741,6 +752,17 @@ do while(.true.)
                     iprtPDOS=0
                 else
                     iprtPDOS=1
+                end if
+            else if (isel2==25) then !GC-SCF
+                if (iGCSCF==1) then
+                    iGCSCF=0
+                else
+                    iGCSCF=1
+                    ismear=1
+                    ismeartype=1
+                    idiagOT=1
+                    imixing=4
+                    PBCdir="XYZ "
                 end if
             else if (isel2==30) then
                 if (istructfile==1) then
@@ -1122,6 +1144,8 @@ do while(.true.)
             write(*,*) "1 Direct mixing with DIIS (default, usually poor)"
             write(*,*) "2 Broyden mixing"
             write(*,*) "3 Pulay mixing"
+            write(*,*) "4 New Pulay mixing (better than Pulay mixing)"
+            write(*,*) "5 Kerker mixing"
             read(*,*) imixing
         else if (idiagOT==2) then
             if (iouterSCF==0) then
@@ -1135,12 +1159,21 @@ do while(.true.)
             ismear=1
             nADDED_MOS=nint(ncenter/2D0) !This is usually sufficient for 300 K smearing
             if (nADDED_MOS<30) nADDED_MOS=30
-            write(*,"(a,i5,a)") " Note: The number of virtual orbitals to solve has been changed to",nADDED_MOS,", please properly adjust if need"
+            write(*,"(a,i5,a)") " Note: The number of virtual orbitals to solve has been changed to",nADDED_MOS,", please properly adjust it when needed"
         else
             ismear=0
             nADDED_MOS=0
             write(*,"(a)") " Note: The number of virtual orbitals to solve has been changed to 0"
         end if
+    else if (isel==66) then
+        write(*,*) "Choose type of smearing function:"
+        write(*,*) "1 Fermi-Dirac"
+        write(*,*) "2 Gaussian"
+        write(*,*) "3 Methfessel-Paxton"
+        write(*,*) "4 Marzari-Vanderbilt cold smearing"
+        read(*,*) ismeartype
+        write(*,*) "Input smearing temperature in K, e.g. 350"
+        read(*,*) T_smear
     else if (isel==7) then
         write(*,*) "Choose SCCS implicit solvation model:"
         write(*,*) "0 No (Vacuum)"
@@ -2514,20 +2547,35 @@ else !&SCF
                     write(ifileid,"(a)") "        ALPHA 0.4 #Default. Mixing 40% of new density matrix with the old one"
                 end if
             else if (imixing==2) then
-                write(ifileid,"(a)") "        METHOD BROYDEN_MIXING #PULAY_MIXING is also a good alternative"
+                write(ifileid,"(a)") "        METHOD BROYDEN_MIXING"
                 write(ifileid,"(a)") "        ALPHA 0.4 #Default. Mixing 40% of new density matrix with the old one"
                 write(ifileid,"(a)") "        NBROYDEN 8 #Default is 4. Number of previous steps stored for the actual mixing scheme" !Equivalent to NBUFFER
             else if (imixing==3) then
-                write(ifileid,"(a)") "        METHOD PULAY_MIXING #BROYDEN_MIXING is also a good alternative"
+                write(ifileid,"(a)") "        METHOD PULAY_MIXING"
                 write(ifileid,"(a)") "        NPULAY 8 #Default is 4. Number of previous steps stored for the actual mixing scheme" !Equivalent to NBUFFER
+            else if (imixing==4) then
+                write(ifileid,"(a)") "        METHOD NEW_PULAY_MIXING"
+                write(ifileid,"(a)") "        NPULAY 8 #Default is 4. Number of previous steps stored for the actual mixing scheme" !Equivalent to NBUFFER
+                write(ifileid,"(a)") "        QK 3.0 # in Bohr^-1. Control parameter in the denominator of the Kerker preconditioner"
+                write(ifileid,"(a)") "        QKAPPA 0.25 # in Bohr^-1. Control parameter in the numerator and the denominator of the Pulay metric and the Kerker preconditioner"
+                write(ifileid,"(a)") "        QM 0.75 # in Bohr^-1. Control parameter in the numerator of the Pulay metric"
+            else if (imixing==5) then
+                write(ifileid,"(a)") "        METHOD KERKER_MIXING"
             end if
             write(ifileid,"(a)") "      &END MIXING"
         end if
         !--- &SCF \ &SMEAR
         if (ismear==1) then
             write(ifileid,"(a)") "      &SMEAR"
-            write(ifileid,"(a)") "        METHOD FERMI_DIRAC" !Can also be ENERGY_WINDOW, LIST
-            write(ifileid,"(a)") "        ELECTRONIC_TEMPERATURE 300 #Electronic temperature of Fermi-Dirac smearing in K"
+            if (ismeartype==1) write(ifileid,"(a)") "        METHOD FERMI_DIRAC"
+            if (ismeartype==2) write(ifileid,"(a)") "        METHOD GAUSSIAN"
+            if (ismeartype==3) write(ifileid,"(a)") "        METHOD METHFESSEL_PAXTON"
+            if (ismeartype==4) write(ifileid,"(a)") "        METHOD MARZARI_VANDERBILT"
+            if (ismeartype==1) then
+                write(ifileid,"(a,f8.1,a)") "        ELECTRONIC_TEMPERATURE",T_smear," #Electronic temperature of Fermi-Dirac smearing in K"
+            else
+                write(ifileid,"(a,f8.4,a)") "        SIGMA [eV]",T_smear*8.6173D-5," #Smearing width sigma"
+            end if
             write(ifileid,"(a)") "      &END SMEAR"
         end if
         if (nADDED_MOS/=0) then
@@ -2537,6 +2585,13 @@ else !&SCF
                 write(ifileid,"(a,i6,a)") "      ADDED_MOS",nADDED_MOS," #Number of virtual MOs to solve"
             end if
         end if
+    end if
+    !--- &SCF \ &GCE
+    if (iGCSCF==1) then
+        write(ifileid,"(a)") "      &GCE #Grand canonical SCF"
+        write(ifileid,"(a)") "        MIXING_COEF 0.3 #Proportion of target work function mixed with the work function of previous SCF"
+        write(ifileid,"(a)") "        TARGET_WORKFUNCTION [eV] 4.5 #Target work function"
+        write(ifileid,"(a)") "      &END GCE"
     end if
     !--- &SCF \ &PRINT
     write(ifileid,"(a)") "      &PRINT"
@@ -2823,6 +2878,15 @@ if (itask==15) then !XAS
     end if
     write(ifileid,"(a)") "    &END XAS_TDP"
 end if
+
+if (iGCSCF==1) then !Set planar counter charge for GCSCF
+    write(ifileid,"(a)") "    &PLANAR_COUNTER_CHARGE #Parameters of planar counter charge density with Gaussian distribution"
+    write(ifileid,"(a)") "      DIST_EDGE 1.0 #Distance (Angstrom) between center of the Gaussian and the cell boundary"
+    write(ifileid,"(a)") "      GAU_C 1.5 #Spread (Angstrom) of the Gaussian distribution"
+    write(ifileid,"(a)") "      PARALLEL_PLANE XY #Plane that the counter charge density is parallel to"
+    write(ifileid,"(a)") "    &END PLANAR_COUNTER_CHARGE"
+end if
+
 write(ifileid,"(a)") "  &END DFT"
 
 end if !END distinguishing FIST and DFT
