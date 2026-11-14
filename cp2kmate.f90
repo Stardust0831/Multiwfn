@@ -762,7 +762,14 @@ do while(.true.)
                     ismeartype=1
                     idiagOT=1
                     imixing=4
+                    icentering=1
+                    iSCCS=2
+                    T_smear=300
                     PBCdir="XYZ "
+                    write(*,"(a)") " Enabled GCSCF, and set to diagonlization with new Pulay mixing, Fermi-Dirac smearing at 300 K, centering system"
+                    nADDED_MOS=nint(ncenter/2D0) !This is usually sufficient for 300 K smearing
+                    if (nADDED_MOS<30) nADDED_MOS=30
+                    write(*,"(a,i5,a)") " Note: The number of virtual orbitals to solve has been changed to",nADDED_MOS,", please properly adjust it when needed"
                 end if
             else if (isel2==30) then
                 if (istructfile==1) then
@@ -2783,7 +2790,11 @@ if (iSCCS/=0) then
     write(ifileid,"(a)") "      GAMMA [mN/m] 0.0"
     write(ifileid,"(a)") "      DIELECTRIC_CONSTANT 78.36"
     write(ifileid,"(a)") "      EPS_SCF 0.2 #SCCS is activated only if SCF iteration is converged to this threshold"
-    write(ifileid,"(a)") "      EPS_SCCS 1E-6 #Requested accuracy for convergence of polarization charge density iteration"
+    if (iGCSCF==0) then
+        write(ifileid,"(a)") "      EPS_SCCS 1E-6 #Requested accuracy for convergence of polarization charge density iteration"
+    else !Tighter, otherwise GCSCF can hardly converge
+        write(ifileid,"(a)") "      EPS_SCCS 1E-8 #Requested accuracy for convergence of polarization charge density iteration"
+    end if
     write(ifileid,"(a)") "      MAX_ITER 150 #Maximum number of polarization charge density iterations"
     write(ifileid,"(a)") "      DERIVATIVE_METHOD CD5 #Method for calculation of numerical derivatives. Can be FFT, CD3, CD5, CD7"
     if (iSCCS==1) then
@@ -2876,13 +2887,13 @@ if (itask==15) then !XAS
         write(ifileid,"(a)") "      &GW2X #Enable GW2X correction"
         write(ifileid,"(a)") "      &END GW2X"
     end if
-    write(ifileid,"(a)") "    &END XAS_TDP"
 end if
 
 if (iGCSCF==1) then !Set planar counter charge for GCSCF
     write(ifileid,"(a)") "    &PLANAR_COUNTER_CHARGE #Parameters of planar counter charge density with Gaussian distribution"
-    write(ifileid,"(a)") "      DIST_EDGE 1.0 #Distance (Angstrom) between center of the Gaussian and the cell boundary"
-    write(ifileid,"(a)") "      GAU_C 1.5 #Spread (Angstrom) of the Gaussian distribution"
+    tmpval=(cellv3(3)/2)*b2a - (maxval(a%z)-minval(a%z))/2*b2a - 5
+    write(ifileid,"(a,f6.1,a)") "      DIST_EDGE ",tmpval," #Distance (Angstrom) between center of the Gaussian and the cell boundary"
+    write(ifileid,"(a)") "      GAU_C 0.2 #Spread (Angstrom) of the Gaussian distribution"
     write(ifileid,"(a)") "      PARALLEL_PLANE XY #Plane that the counter charge density is parallel to"
     write(ifileid,"(a)") "    &END PLANAR_COUNTER_CHARGE"
 end if
