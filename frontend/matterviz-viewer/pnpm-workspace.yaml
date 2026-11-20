@@ -1,4 +1,6 @@
+# Upstream MatterViz consumes svelte-widgets from GitHub. The lockfile pins both revisions.
+blockExoticSubdeps: false
 allowBuilds:
   core-js: false
   matterviz: true
-  matterviz@0.4.2-multiwfn.d8719d12.r25.workbench1: false
+  svelte-widgets: true

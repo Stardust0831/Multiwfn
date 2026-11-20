@@ -112,13 +112,13 @@ export const parse_plot_artifact = (value: unknown): PlotArtifact => {
   return { format: 'multiwfn-matterviz-plot', version: 1, kind: item.kind as PlotKind, title: string_value(item.title, 'title'), panels: (item.panels as unknown[]).map(panel) }
 }
 
-export type MatterVizSeries = { id: string; label?: string; x: number[]; y: number[]; markers: 'line' | 'line+points'; visible?: boolean; y_axis?: 'y1' | 'y2'; line_style?: { stroke?: string; stroke_width?: number; line_dash?: string }; point_style?: { radius: number; fill_opacity: number; stroke_opacity: number }; point_label?: Array<{ text?: string; auto_placement?: boolean }> }
+export type MatterVizSeries = { id: string; label?: string; x: number[]; y: number[]; markers: 'line' | 'line+points'; visible?: boolean; y_axis?: 'y' | 'y2'; line_style?: { color?: string; width?: number; dash?: string }; point_style?: { radius: number; fill_opacity: number; stroke_opacity: number }; point_label?: Array<{ text?: string; auto_placement?: boolean }> }
 export const to_matterviz_series = (input: PlotSeries): MatterVizSeries => {
   const labels = input.labels?.map((label) => label ? { text: label, auto_placement: true } : {})
   const label_style = labels ? { markers: 'line+points' as const, point_style: { radius: 0, fill_opacity: 0, stroke_opacity: 0 }, point_label: labels } : { markers: 'line' as const }
-  if (input.type === 'line') return { id: input.id, label: input.label, x: input.x, y: input.y, ...label_style, visible: input.visible, y_axis: input.axis === 'y2' ? 'y2' : 'y1', line_style: { stroke: input.color, stroke_width: input.lineWidth, line_dash: input.dash === 'dash' ? '6 4' : undefined } }
+  if (input.type === 'line') return { id: input.id, label: input.label, x: input.x, y: input.y, ...label_style, visible: input.visible, y_axis: input.axis === 'y2' ? 'y2' : 'y', line_style: { color: input.color, width: input.lineWidth, dash: input.dash === 'dash' ? '6 4' : undefined } }
   const first = input.x[0]
-  return { id: input.id, label: input.label, x: [first, first], y: [0, 0], markers: 'line', visible: input.visible, y_axis: input.axis === 'y2' ? 'y2' : 'y1', line_style: { stroke: input.color, stroke_width: input.lineWidth, line_dash: input.dash === 'dash' ? '6 4' : undefined } }
+  return { id: input.id, label: input.label, x: [first, first], y: [0, 0], markers: 'line', visible: input.visible, y_axis: input.axis === 'y2' ? 'y2' : 'y', line_style: { color: input.color, width: input.lineWidth, dash: input.dash === 'dash' ? '6 4' : undefined } }
 }
 
 export const stick_path = (
@@ -508,24 +508,24 @@ export const plot_render_values = (values: Float64Array): number[] => {
   return result
 }
 
-export const to_matterviz_data_series = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; x: number[]; y: number[]; markers: 'line' | 'points' | 'line+points'; x_axis: 'x1' | 'x2'; y_axis: 'y1' | 'y2'; visible?: boolean; line_style?: { stroke?: string; stroke_width?: number; line_dash?: string }; point_style?: { radius?: number; fill?: string; fill_opacity?: number; stroke?: string; stroke_opacity?: number } } => {
+export const to_matterviz_data_series = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; x: number[]; y: number[]; markers: 'line' | 'points' | 'line+points'; x_axis: 'x' | 'x2'; y_axis: 'y' | 'y2'; visible?: boolean; line_style?: { color?: string; width?: number; dash?: string }; point_style?: { radius?: number; fill?: string; fill_opacity?: number; stroke?: string; stroke_opacity?: number } } => {
   const points = materialize_plot_layer(layer, dataset)
   const style = layer.style ?? {}
   const markers = layer.type === 'line' ? 'line' : layer.type === 'scatter' ? 'points' : 'line+points'
   return {
-    id: layer.id, label: layer.label, x: plot_render_values(points.x), y: plot_render_values(points.y), markers, x_axis: layer.xAxis ?? 'x1', y_axis: layer.yAxis ?? 'y1', visible: layer.visible,
-    line_style: { stroke: typeof style.color === 'string' ? style.color : undefined, stroke_width: typeof style.width === 'number' ? style.width : undefined, line_dash: typeof style.dash === 'string' ? style.dash : undefined },
+    id: layer.id, label: layer.label, x: plot_render_values(points.x), y: plot_render_values(points.y), markers, x_axis: layer.xAxis === 'x2' ? 'x2' : 'x', y_axis: layer.yAxis === 'y2' ? 'y2' : 'y', visible: layer.visible,
+    line_style: { color: typeof style.color === 'string' ? style.color : undefined, width: typeof style.width === 'number' ? style.width : undefined, dash: typeof style.dash === 'string' ? style.dash : undefined },
     point_style: { radius: typeof style.markerSize === 'number' ? Math.max(1, style.markerSize / 10) : typeof style.radius === 'number' ? style.radius : undefined, fill: typeof style.color === 'string' ? style.color : undefined, fill_opacity: typeof style.opacity === 'number' ? style.opacity : undefined },
   }
 }
 
-export const to_matterviz_bar_series = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; x: Float64Array; y: Float64Array; baseline: Float64Array; x_axis: 'x1' | 'x2'; y_axis: 'y1' | 'y2'; color?: string; visible?: boolean; bar_width?: number } => {
+export const to_matterviz_bar_series = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; x: Float64Array; y: Float64Array; baseline: Float64Array; x_axis: 'x' | 'x2'; y_axis: 'y' | 'y2'; color?: string; visible?: boolean; bar_width?: number } => {
   const points = materialize_plot_layer(layer, dataset)
   const baseline_raw = dataset.baseline
   if (!baseline_raw || baseline_raw.length !== points.y.length) scene_fail(`dataset ${layer.datasetId} is missing a matching baseline role for ${layer.id}`)
   const baseline = baseline_raw as Float64Array
   const style = layer.style ?? {}
-  return { id: layer.id, label: layer.label, x: points.x, y: points.y, baseline, x_axis: layer.xAxis ?? 'x1', y_axis: layer.yAxis ?? 'y1', color: typeof style.color === 'string' ? style.color : undefined, visible: layer.visible, bar_width: layer.width }
+  return { id: layer.id, label: layer.label, x: points.x, y: points.y, baseline, x_axis: layer.xAxis === 'x2' ? 'x2' : 'x', y_axis: layer.yAxis === 'y2' ? 'y2' : 'y', color: typeof style.color === 'string' ? style.color : undefined, visible: layer.visible, bar_width: layer.width }
 }
 
 export const to_matterviz_fill_region = (layer: PlotSceneLayer, dataset: PlotDataset): { id: string; label?: string; upper: { type: 'data'; values: number[]; x: number[] }; lower: { type: 'data'; values: number[]; x: number[] }; fill?: string; fill_opacity?: number; visible?: boolean } => {

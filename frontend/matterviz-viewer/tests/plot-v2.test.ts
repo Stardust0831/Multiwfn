@@ -71,7 +71,7 @@ test('parses v2 layers, explicit axes, reversed/log ranges, and annotations', ()
 })
 
 test('compiles the v2 component entry with lazy v1 initialization', async () => {
-  const server = await createServer({ appType: 'custom', server: { middlewareMode: true } })
+  const server = await createServer({ appType: 'custom', server: { middlewareMode: true, watch: null, hmr: false } })
   try {
     const module = await server.ssrLoadModule('/src/MultiwfnPlotView.svelte')
     assert.equal(typeof module.default, 'function')

@@ -94,17 +94,6 @@ test('render winding is consistent, outward, and leaves native facets unchanged'
   assert.deepEqual(Array.from(r.indices), original)
 })
 
-test('surface view masks only volume meshes, retaining bonds, controls and the shared scene', async () => {
-  const root = new URL('../node_modules/matterviz/dist/structure/', import.meta.url)
-  for (const file of ['Structure.svelte', 'StructureViewport.svelte', 'StructureScene.svelte']) {
-    const text = await readFile(new URL(file, root), 'utf8')
-    assert.match(text, /surface_view\?: boolean/)
-  }
-  const scene = await readFile(new URL('StructureScene.svelte', root), 'utf8')
-  assert.match(scene, /Isosurface rendering[\s\S]*?<T.Group visible=\{!topology_view && !surface_view\}>/)
-  assert.match(scene, /<T.Group visible=\{!topology_view\}>/)
-  assert.doesNotMatch(scene, /\{#if !surface_view/)
-})
 
 test('unknown metadata retains geometry without inventing mapping, volume or mass density', async () => {
   const m: SurfaceMetadata = { ...metadata(), surfaceType: null, mappedFunction: null, mapped: null, volume: null, massDensity: null, extrema: 0, metadataSource: 'unconfirmed' }

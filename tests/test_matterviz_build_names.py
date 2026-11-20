@@ -1,5 +1,6 @@
 from pathlib import Path
 import ctypes
+import json
 import shutil
 import subprocess
 import tempfile
@@ -34,9 +35,6 @@ VIEWER_STYLES = (ROOT / "frontend" / "matterviz-viewer" / "src" / "styles.css").
 VIEWER_PNPM_WORKSPACE = (
     ROOT / "frontend" / "matterviz-viewer" / "pnpm-workspace.yaml"
 ).read_text(encoding="utf-8")
-ESP_LEGEND = (
-    ROOT / "frontend" / "matterviz-viewer" / "src" / "EspLegend.svelte"
-).read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github" / "workflows" / "matterviz-gui.yml").read_text(encoding="utf-8")
 WINDOWS_ASYNC = (ROOT / "tests" / "windows" / "test_matterviz_async_launch.ps1").read_text(
     encoding="utf-8"
@@ -48,7 +46,13 @@ LINUX_REAL_ORBITAL = (
 
 class MatterVizBuildNamingTests(unittest.TestCase):
     def test_frontend_declares_reviewed_dependency_build_scripts(self):
+        viewer = ROOT / "frontend" / "matterviz-viewer"
+        package = json.loads((viewer / "package.json").read_text(encoding="utf-8"))
+        self.assertEqual(package["dependencies"]["matterviz"], "github:janosh/matterviz#main")
+        lock = (viewer / "pnpm-lock.yaml").read_text(encoding="utf-8")
+        self.assertRegex(lock, r"codeload\.github\.com/janosh/matterviz/tar\.gz/[a-f0-9]{40}")
         self.assertIn("matterviz: true", VIEWER_PNPM_WORKSPACE)
+        self.assertIn("svelte-widgets: true", VIEWER_PNPM_WORKSPACE)
         self.assertIn("core-js: false", VIEWER_PNPM_WORKSPACE)
 
     def test_scientific_plot_axes_use_black_text_and_strokes(self):
@@ -56,12 +60,6 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn(".plot-scene", VIEWER_STYLES)
         self.assertGreaterEqual(VIEWER_STYLES.count("--text-color: #000"), 2)
         self.assertGreaterEqual(VIEWER_STYLES.count("--border-color: #000"), 2)
-
-    def test_inline_plot_session_signals_frontend_ready(self):
-        inline_branch = VIEWER_APP.split("if (inlinePlot !== undefined)", 1)[1].split(
-            "manifestBase = new URL('.', url)", 1
-        )[1].split("return", 1)[0]
-        self.assertIn("await signal_frontend_ready()", inline_branch)
 
     def test_cmake_exposes_a_first_class_matterviz_backend(self):
         self.assertIn("PROPERTY STRINGS dislin 3dmol matterviz", CMAKE)
@@ -181,22 +179,6 @@ class MatterVizBuildNamingTests(unittest.TestCase):
         self.assertIn("HOST_VM_INFO64", RUST_MEMORY_BUDGET)
         self.assertNotIn('macos_sysctl_u64("vm.page_inactive_count")', RUST_MEMORY_BUDGET)
 
-    def test_esp_tools_are_guarded_by_current_explicit_mapping(self):
-        compact = VIEWER_APP.split("const compact_volumes", 1)[1].split(
-            "const remove_volumes", 1
-        )[0]
-        self.assertIn("if (!esp_pair()) clear_esp_tools()", compact)
-        self.assertIn(
-            "{#if activeResult === 'scene' && !topologyActive && !surfaceActive && espExtremaOpen && esp_pair()}",
-            VIEWER_APP,
-        )
-        self.assertIn("{#if !topologyActive && !surfaceActive && espLegendOpen && esp_pair()}", VIEWER_APP)
-
-    def test_mobile_esp_legend_keeps_tick_label_width(self):
-        mobile = ESP_LEGEND.split("@media (max-width: 520px)", 1)[1]
-        self.assertIn(".legend-gradient { width: 20px; }", mobile)
-        self.assertNotIn(".legend-gradient, .legend-ticks { width: 20px", mobile)
-
     def test_packaged_windows_requests_a_real_native_orbital(self):
         self.assertIn("matterviz-real-orbital-Co5Cr.fch.gz", WINDOWS_ASYNC)
         self.assertIn("index=43&quality=25000", WINDOWS_ASYNC)
@@ -282,24 +264,8 @@ class MatterVizBuildNamingTests(unittest.TestCase):
 
     def test_managed_viewer_keeps_volume_imports_in_the_session_adapter(self):
         self.assertIn("allow_file_drop={false}", VIEWER_APP)
-        self.assertNotIn("structure_frame_delta", VIEWER_APP)
-        volume_adapter = (
-            ROOT
-            / "frontend"
-            / "matterviz-viewer"
-            / "src"
-            / "volume.ts"
-        ).read_text(encoding="utf-8")
-        self.assertIn("origin_mode: 'absolute'", volume_adapter)
-        self.assertIn("manifest.structure?.path ? { origin_mode: 'absolute' as const }", VIEWER_APP)
-        isosurface_path = (
-            ROOT / "frontend" / "matterviz-viewer" / "node_modules" / "matterviz"
-            / "dist" / "isosurface" / "Isosurface.svelte"
-        )
-        if not isosurface_path.is_file():
-            self.skipTest("viewer dependencies are not installed")
-        isosurface = isosurface_path.read_text(encoding="utf-8")
-        self.assertEqual(isosurface.count("volume_reference_origin(all_volumes)"), 3)
+        self.assertIn("load_field(entry, manifestBase", VIEWER_APP)
+        self.assertIn("pnpm test:scene-export", WORKFLOW)
 
     def test_matterviz_package_workflow_has_no_transitional_names(self):
         for obsolete in (

@@ -1,4 +1,4 @@
-import type { IsosurfaceLayer, VolumetricData } from 'matterviz'
+import type { VolumetricData } from 'matterviz/isosurface'
 import type { ManifestEntry } from './manifest'
 
 /** Hartree to kcal/mol for one electron. */
@@ -11,9 +11,8 @@ export const normalize_esp_volume = (volume: VolumetricData, entry: ManifestEntr
   const scale = (value: number): number => value / KCAL_PER_HARTREE
   return {
     ...volume,
-    grid: Array.isArray(volume.grid)
-      ? volume.grid.map(plane => plane.map(row => row.map(scale)))
-      : { ...volume.grid, data: volume.grid.data.map(scale) },
+    values: volume.values.map(scale),
+    units: 'hartree/e',
     data_range: {
       min: scale(volume.data_range.min), max: scale(volume.data_range.max),
       abs_max: scale(volume.data_range.abs_max), mean: scale(volume.data_range.mean),
@@ -34,15 +33,15 @@ export const ESP_COLORMAP = 'interpolateTransFlag'
 
 export const surface_colormap = (
   colorSource: ManifestEntry | undefined,
-  fallback: NonNullable<IsosurfaceLayer['colormap']>,
-): NonNullable<IsosurfaceLayer['colormap']> =>
+  fallback: string,
+): string =>
   colorSource?.analysisKind === 'esp-potential' ? ESP_COLORMAP : fallback
 
 export type Vec3 = [number, number, number]
 export type LegendPosition = { left: number; top: number }
 export type EspVolume = Partial<VolumetricData> | Record<string, unknown>
 export type EspPair = { densityIdx: number; potentialIdx: number }
-type EspLayerLink = Pick<IsosurfaceLayer, 'volume_idx' | 'color_volume_idx'>
+type EspLayerLink = { volume_idx?: number; color_volume_idx?: number }
 type GridCompatibility = (leftIdx: number, rightIdx: number) => boolean
 
 export const find_declared_esp_pair = (
@@ -176,6 +175,10 @@ const as_grid = (volume: unknown): unknown[][][] | undefined => {
 
 /** Return validated dimensions without assuming a particular parser layout. */
 export const volume_dimensions = (volume: unknown): Vec3 | undefined => {
+  const flat = volume as Partial<VolumetricData> | undefined
+  if (flat?.values instanceof Float64Array && flat.dims?.length === 3 &&
+    flat.dims.every(n => Number.isSafeInteger(n) && n > 0) &&
+    flat.values.length === flat.dims[0] * flat.dims[1] * flat.dims[2]) return flat.dims
   const candidate = (volume as { grid_dims?: unknown })?.grid_dims
   const grid = as_grid(volume)
   if (!grid) return undefined
@@ -212,6 +215,8 @@ const vectors_match = (left: Vec3, right: Vec3, tolerance = 1e-8): boolean =>
   left.every((value, index) => Math.abs(value - right[index]) <= tolerance)
 
 const grid_value = (volume: unknown, x: number, y: number, z: number): number => {
+  const flat = volume as Partial<VolumetricData>
+  if (flat?.values && flat.dims) return flat.values[(x * flat.dims[1] + y) * flat.dims[2] + z]
   const grid = as_grid(volume)
   const value = grid?.[x]?.[y]?.[z]
   return Number(value)

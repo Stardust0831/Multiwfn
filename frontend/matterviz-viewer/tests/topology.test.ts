@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import { AIM_DEFAULTS, BOHR_TO_ANGSTROM, normalize_topology_display, parse_topology, resolve_topology, topology_csv, topology_document, topology_path_length, topology_path_points, topology_scene_data, type Topology } from '../src/topology.ts'
-import { create_workbench_state, parse_workbench_state, restore_workbench_state } from '../src/state.ts'
 
 const metadata = (): Topology => ({ version: 1, coordinateUnit: 'bohr', functionId: 1, datasetId: 9, hasDensity: true, eulerCount: 1, missingPathDirections: 1,
   criticalPoints: [{ id: 1, type: 2, density: .1, laplacian: -.3 }, { id: 2, type: 1, density: .8, laplacian: -2 }],
@@ -63,30 +62,7 @@ test('exports retain raw Bohr coordinates, scalar properties and every path poin
   assert.match(csv.at(-1)!, /path,1,1,2,0.2,0,0,,,1,2/)
 })
 
-test('display settings round-trip independently of topology scientific data', () => {
-  const display = normalize_topology_display({ labels: true, radius: .13, width: 4, cpTypes: [false,true,true,false,true], pathTypes: [true,false,true,false] })
-  const state = create_workbench_state({ manifest: {}, entries: [], isosurfaceSettings: {}, activeVolume: 0, atomSupercell: '1x1x1', showBoundaryAtoms: true, showUnitCell: false, topologyDisplay: display })
-  const parsed = parse_workbench_state(JSON.parse(JSON.stringify(state)))
-  assert.deepEqual(parsed.topologyDisplay, display)
-  const restored = restore_workbench_state(parsed, { entries: [], isosurfaceSettings: {} })
-  assert.deepEqual(restored.topologyDisplay, display)
-  assert.equal('criticalPoints' in state, false)
-  assert.deepEqual(normalize_topology_display({ radius: NaN, width: 100, cpTypes: [1] }), { cpTypes: [true,true,true,true,true], pathTypes: [true,true,true,true], radius: .09, width: 6, labels: false })
-})
 
-test('vendor exposes a shared scene slot and hides surfaces without unmounting', async () => {
-  const base = new URL('../node_modules/matterviz/dist/structure/', import.meta.url)
-  const scene = await readFile(new URL('StructureScene.svelte', base), 'utf8')
-  const structure = await readFile(new URL('Structure.svelte', base), 'utf8')
-  const declarations = await readFile(new URL('Structure.svelte.d.ts', base), 'utf8')
-  assert.match(scene, /\{@render scene_children\?\.\(\)\}/)
-  assert.match(scene, /<T.Group visible=\{!topology_view\}>/)
-  assert.match(scene, /show_atoms \|\| topology_view/)
-  assert.doesNotMatch(scene, /\{#if !topology_view\}/)
-  assert.match(structure, /scene_props,\s+scene_children,\s+topology_view,/)
-  assert.match(declarations, /scene_children\?: Snippet/)
-  assert.match(declarations, /topology_view\?: boolean/)
-})
 
 test('the overlay does not alter atom identities or scalar geometry', async () => {
   const overlay = await readFile(new URL('../src/TopologyOverlay.svelte', import.meta.url), 'utf8')

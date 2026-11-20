@@ -4,13 +4,15 @@ import test from 'node:test'
 import { createServer } from 'vite'
 
 let server: Awaited<ReturnType<typeof createServer>>
+let upstream: typeof import('matterviz/trajectory')
 let api: typeof import('../src/frequency.ts')
 const fixture = async (name = 'gaussian16-water') => JSON.parse(await readFile(new URL(`./fixtures/frequency/${name}.cjson`, import.meta.url), 'utf8'))
 test.before(async () => {
   server = await createServer({
-    server: { middlewareMode: true, hmr: false }, appType: 'custom',
+    server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom',
     cacheDir: 'node_modules/.vite-frequency-tests',
   })
+  upstream = await server.ssrLoadModule('matterviz/trajectory')
   api = await server.ssrLoadModule('/src/frequency.ts')
 })
 test.after(async () => { await server?.close() })
@@ -40,8 +42,8 @@ test('real water mode retains O/H displacement ratios and gives a bounded visual
   assert.deepEqual(data.structure.sites.map(site => site.species[0].element), ['O', 'H', 'H'])
   const unchanged = JSON.stringify(data)
   const trajectory = api.frequency_trajectory(data, 0, .35)
-  assert.equal(trajectory.frames.length, 1, 'only equilibrium is eager; native trajectory owns playback/cache')
-  const read = async (index: number) => (await trajectory.frame_loader!.load_frame('', index))!
+  assert.equal(trajectory.frame_count, 48)
+  const read = async (index: number) => upstream.materialize_frame(await trajectory.read_frame(index))
   assert.deepEqual((await read(0)).structure.sites.map(site => site.xyz), data.structure.sites.map(site => site.xyz))
   const plus = await read(12), minus = await read(36)
   const shifts = plus.structure.sites.map((site, atom) => site.xyz.map((v, axis) => v - data.structure.sites[atom].xyz[axis]))
@@ -51,7 +53,7 @@ test('real water mode retains O/H displacement ratios and gives a bounded visual
   for (const [atom, site] of minus.structure.sites.entries()) {
     site.xyz.forEach((value, axis) => assert.ok(Math.abs(value - data.structure.sites[atom].xyz[axis] + shifts[atom][axis]) < 1e-12))
   }
-  assert.equal(plus.structure.properties?.bonds, data.structure.properties?.bonds, 'equilibrium bonds remain fixed')
+  assert.deepEqual(plus.structure.properties?.bonds, data.structure.properties?.bonds, 'equilibrium bonds remain fixed')
   assert.equal(JSON.stringify(data), unchanged)
 })
 
@@ -98,7 +100,7 @@ test('invalid visual settings and out-of-range frame access are rejected', async
   for (const amplitude of [0, -1, NaN, Infinity, 2.01]) assert.throws(() => api.frequency_trajectory(data, 0, amplitude), /amplitude/)
   assert.throws(() => api.frequency_trajectory(data, 99), /normal mode/)
   const trajectory = api.frequency_trajectory(data, 0)
-  for (const frame of [-1, .5, 48, NaN]) await assert.rejects(trajectory.frame_loader!.load_frame('', frame), /frame/)
+  for (const frame of [-1, .5, 48, NaN]) await assert.rejects(async () => trajectory.read_frame(frame), /frame/i)
 })
 
 test('tiny finite displacement scales never create NaN coordinates', async () => {
@@ -107,7 +109,7 @@ test('tiny finite displacement scales never create NaN coordinates', async () =>
   const data = api.read_frequency_cjson(JSON.stringify(source))
   const trajectory = api.frequency_trajectory(data, 0)
   for (const index of [0, 12]) {
-    const frame = await trajectory.frame_loader!.load_frame('', index)
+    const frame = upstream.materialize_frame(await trajectory.read_frame(index))
     assert.ok(frame!.structure.sites.every(site => site.xyz.every(Number.isFinite)))
   }
 })

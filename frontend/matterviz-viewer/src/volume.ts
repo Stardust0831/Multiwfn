@@ -1,3 +1,4 @@
+import { BOHR_TO_ANGSTROM } from 'matterviz/constants'
 import type { VolumetricData } from 'matterviz/isosurface'
 
 export type Vec3 = [number, number, number]
@@ -38,7 +39,6 @@ const VOLUME_HEADER_BYTES = 304
 const MAX_POINTS = 1_500_000n
 const MAX_BODY_BYTES = 12_000_000n
 const MAX_FRAME_BYTES = 12_000_304n
-const BOHR_TO_ANGSTROM = 0.529177249
 const NATIVE_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
 const VOLUME_MAGIC = [0x4d, 0x57, 0x46, 0x4e, 0x56, 0x4f, 0x4c, 0x00] as const
 
@@ -312,8 +312,8 @@ export function decode_matterviz_volume(input: ArrayBufferLike | Uint8Array): Ma
   }
 }
 
-/** Convert a decoded frame to MatterViz volumetric data without copying samples. */
-export function adapt_matterviz_volume(volume: MattervizVolumeV1): VolumetricData {
+/** MatterViz consumes flat C-order values. Cube-order frames can share their sample buffer. */
+export function adapt_matterviz_volume(volume: MattervizVolumeV1, id = String(volume.volume_id)): VolumetricData {
   const [nx, ny, nz] = volume.dimensions
   const periodic_axis_count = volume.periodic_axes.filter(Boolean).length
   if (periodic_axis_count !== 0 && periodic_axis_count !== 3) {
@@ -331,18 +331,24 @@ export function adapt_matterviz_volume(volume: MattervizVolumeV1): VolumetricDat
   if (grid_lattice.flat().some((value) => !Number.isFinite(value))) {
     throw new Error('MatterViz volume grid lattice must be finite')
   }
+  let values = volume.samples
+  if (volume.data_order === 'i_fastest_fortran') {
+    values = new Float64Array(volume.samples.length)
+    for (let x = 0; x < nx; x++) {
+      for (let y = 0; y < ny; y++) {
+        for (let z = 0; z < nz; z++) {
+          values[(x * ny + y) * nz + z] = volume.samples[(z * ny + y) * nx + x]
+        }
+      }
+    }
+  }
   return {
-    grid: {
-      data: volume.samples,
-      dimensions: volume.dimensions,
-      order: volume.data_order === 'i_fastest_fortran' ? 'x-fastest' : 'z-fastest',
-    },
-    grid_dims: volume.dimensions,
+    id, values, dims: volume.dimensions, order: 'z_fastest',
     lattice: grid_lattice,
     origin: scale_vec3(volume.origin, scale),
-    origin_mode: 'absolute',
     data_range: volume.statistics,
-    data_order: volume.data_order === 'i_fastest_fortran' ? 'x_fastest' : 'z_fastest',
+    units: volume.value_unit,
+    signed: volume.quantity_kind !== 'electron_density',
     periodic: periodic_axis_count === 3,
   }
 }

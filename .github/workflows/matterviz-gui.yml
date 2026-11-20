@@ -39,7 +39,6 @@ on:
       - tests/test_matterviz_build_names.py
       - tests/test_matterviz_mapped_surfaces.py
       - tests/test_matterviz_plot_adapter.py
-      - tests/test_matterviz_topology_vendor.py
       - tests/test_macos_app_bundle.py
       - tools/macos/**
       - tests/matterviz_plot_capture_harness.f90
@@ -95,10 +94,11 @@ jobs:
           pnpm check
           VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build
 
-      - name: Test frequency viewer interactions
+      - name: Test native isosurface finishes and frequency viewer interactions
         working-directory: frontend/matterviz-viewer
         run: |
           pnpm exec playwright install --with-deps chromium
+          pnpm test:scene-export
           pnpm test:frequency
 
       - name: Upload frequency viewer failure artifacts
@@ -163,7 +163,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_macos_app_bundle.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |

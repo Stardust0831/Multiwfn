@@ -220,7 +220,6 @@ button:disabled { opacity: 0.45; cursor: default; }
   width: 100% !important;
   height: 100% !important;
 }
-.scene-viewport .measure-label { display: none !important; }
 .scene-readouts { min-width: 0; max-height: 140px; overflow: auto; border-top: 1px solid #cfd6df; background: #f8f9fb; color: #18202a; }
 .calculation-status { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 10px; font-size: 12px; }
 .calculation-status progress { width: 56px; height: 8px; flex: 0 0 56px; }

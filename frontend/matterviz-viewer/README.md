@@ -11,86 +11,11 @@ frequency results exported as cclib CJSON. It uses MatterViz's native trajectory
 renderer and starts paused. See [frequency viewing](../../docs/frequency-viewer.md)
 for conversion, supported inputs and displacement conventions.
 
-The frontend consumes `vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.freq1.tgz`.
-The [frequency camera patch](../../docs/frequency-viewer.md#camera-compatibility-patch)
-extends `r25.reps2` with the upstream series-identity contract. Reps2's
-reviewable color patch extends the retained `r25.reps1` archive, preserving the
-reviewed topology, measurement, material, parser and sampling fixes. Reps render
-geometry in the host scene without adding cameras or lights. Their atoms and
-bonds share the standard matte/glossy/PBR/unlit material pool, with gradient bond
-colors, opacity, rim shading and local clipping.
-Editable color scales use shared sRGB control points for surface coloring and
-the legend; color-only edits reuse the extracted geometry. The renderer reports
-its actual surface-fitted color range so automatic legend ticks remain accurate.
+The viewer uses the unmodified `main` branch of [janosh/matterviz](https://github.com/janosh/matterviz). The pnpm lockfile records the exact commit for reproducible desktop builds. To take a later upstream revision, run `pnpm update matterviz` in this directory and commit the refreshed lockfile after testing.
 
-See [the representation workbench](../../docs/representation-workbench.md) for
-controls, migration, resource limits and browser acceptance coverage.
+Open **Structure controls** and select an isosurface finish. The native WebGPU viewer provides Satin, Translucent shell, Chalk and Unlit. Satin uses shell shading on translucent single-color layers. Set an orbital layer's opacity to 1 to see its opaque satin finish. The structure viewer also owns the isosurface layers, atom editing, measurements, camera and volume slices. Old Reps display snapshots and custom material settings belonged to the retired workbench. Native JSON with a ghost species such as `Bq` follows upstream's unsupported-species diagnostics.
 
-The topology extension exposes shared scene snippets, `topology_view` and
-`surface_view` masks, and shares native scene/lattice control dictionaries with
-the parent so camera snapshots cannot reset auto-rotation. Topology shows atoms
-and hides ordinary bonds and scalar surfaces; quantitative-surface view hides
-scalar surfaces while keeping chemical bonds. Rendering resources stay mounted,
-but hidden bond hit targets and their HTML menu unmount. Atom/label right-clicks
-cannot target hidden bonds, previous menus/hover clear when views change, and
-atom picking remains available even when the ordinary view's atom toggle is off.
-All topology and quantitative-surface analysis logic stays in the frontend and
-GUI adapters; the vendor adds no scientific calculation or geometry extraction.
-
-The material extension adds bounded rim shading and angle-dependent transparency
-to lit finishes, using Three r185's unexpanded output include and preserving
-zero/fully opaque alpha endpoints. Saved-camera restoration also reconciles
-orientation after declarative pose setters, while identical live Arcball
-feedback preserves the current quaternion. Worker buffer returns support
-environments without SharedArrayBuffer.
-
-Legacy Trans Flag coloring uses negative pink `#f5a9b8`, physical-zero white and
-positive blue `#5bcefa`. Its vertex colors and colorbars share those semantics for
-asymmetric, one-sided and zero-width ranges, with an odd-sized LUT preserving
-exact white at zero. Saved ranges migrate to editable points with those colors
-intact. The fresh pink/white/blue preset places its points at 0%, 50% and 100%;
-subsequent range changes keep their percentage positions fixed. Explicit ESP
-layers use this palette by default. Typed Worker geometry recomputes area-weighted normals from
-its final Cartesian vertices, reusing the allocated normal buffer. This matches
-the legacy path for rotated, anisotropic and nonorthogonal cells. Unlit and
-wireframe surfaces bypass tone mapping so their colors agree with the legend;
-lit finishes retain the renderer's tone mapping and transparency.
-
-The retained lineage is r25 → workbench1 → workbench2 → upstream1 → reps1 → reps2.
-Earlier reviewed archives and patches remain reproducible bases. The current
-reps2 archive SHA-256 is `cef5d1e2c97e6c65041ba3b0a50d94b41acbd7705d85a8d3cd4b7ed7218632ec`;
-`package.json` and `pnpm-lock.yaml` pin its path and integrity.
-
-To reproduce the current package (Node.js 24 and npm):
-
-```bash
-workbench_tmpdir="$(mktemp -d)"
-tar -xzf vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps1.tgz -C "$workbench_tmpdir"
-patch -d "$workbench_tmpdir/package" -p1 < vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.patch
-npm pack --ignore-scripts --pack-destination vendor "$workbench_tmpdir/package"
-sha256sum vendor/matterviz-0.4.2-multiwfn.d8719d12.r25.reps2.tgz
-```
-
-The checksum identifies the retained archive. To verify a repack across npm
-versions, `tests/test_matterviz_topology_vendor.py` compares every extracted
-package file against an independent patch replay, avoiding tar metadata
-differences. It also checks that both reviewed vendor branches remain present.
-
-`pnpm test:color-scale` checks editable preset/custom stops against real WebGL
-surface buffers and pixels, legend ranges, independent copies, saved settings,
-validation and bilingual/narrow-screen controls. Like the other representation
-browser scripts, it uses the running local session preview and accepts
-`PLAYWRIGHT_MODULE`, `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, `PREVIEW_URL` and `ARTIFACT_DIR`.
-
-`pnpm test:topology-picking` runs the installed scene in Chromium with real Three.js
-raycasting and Threlte event registration. It requires Playwright and its Chromium
-browser. An external Playwright install can be selected with `PLAYWRIGHT_MODULE`
-(the absolute path to its `index.mjs`); `PLAYWRIGHT_CHROMIUM_EXECUTABLE` optionally
-selects an existing Chromium executable. `KEEP_BROWSER_FIXTURE=1` retains the
-temporary fixture and JSON evidence. The test checks hidden-bond deletion and
-context menus, atom/partial-occupancy/label interaction, and retained bond geometry.
-A real typed-grid density surface also verifies both display masks, preserving
-its mesh, geometry and material while atoms and chemical bonds follow their masks.
+Multiwfn loads Cube files and binary fields into the native volume list. Density surfaces refer to their coloring field by ID. A declared custom gradient uses the closest native named palette, preserving its direction and physical range. ESP potential values declared in kcal/mol are converted to atomic units before mapping.
 
 ## AIM topology workbench
 
@@ -133,19 +58,12 @@ Float64 x/y/z arrays in Bohr, CPs first followed by complete path polylines.
 Dataset lifetime is independent of 2D plots; replacement releases only old
 topology arrays. Refreshing the page restores the latest result without computing.
 
-The scene extension renders instanced CP spheres and batched thick path segments
-in the molecule's scene coordinate system. Periodic integration steps are
-unwrapped, with endpoint CP images retaining the original IDs. The topology mask
-hides scalar surfaces and ordinary bonds without unmounting or extracting them.
-Display controls and object details are outside the canvas; CSV/JSON export keeps
-all raw coordinates, while PNG uses the shared scene. Display settings are saved
-separately in the existing workbench state. Changing the underlying geometry
-invalidates cached topology and in-flight results.
+The analysis view renders critical points and paths in their Cartesian coordinates. Periodic paths retain their original CP IDs. CSV and JSON contain the raw data, and PNG captures the displayed analysis. Changing the underlying geometry invalidates cached and in-flight analysis results.
 
 Regression commands from the repository root:
 
 ```bash
-python3 -m unittest tests/test_matterviz_topology.py tests/test_matterviz_topology_vendor.py
+python3 -m unittest tests/test_matterviz_topology.py
 MULTIWFN_TOPOLOGY_FIXTURE=/path/to/input.fchk python3 -m unittest tests/test_matterviz_topology.py
 ```
 
@@ -209,7 +127,7 @@ Snapshots validate references, finite values and a 256 MiB budget, never modify
 the original arrays, and release their temporary buffers after publication. The
 renderer orients a copy of triangle winding for consistent normals; original
 connectivity, coordinates and scalar values remain intact in CSV/JSON exports.
-PNG uses the shared 3D scene. Local display controls never invoke marching cubes,
+PNG captures the analysis view. Local display controls never invoke marching cubes,
 an extrema Worker or another backend calculation. Changing structures clears the
 result; orbitals/ESP temporarily replace its view, and Tools reopens it from memory.
 Atom/fragment decompositions, surface basins and fingerprint analysis are not
@@ -239,7 +157,8 @@ scope of this change.
 Node.js 24.11 or newer and pnpm 11 are recommended.
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+pnpm test
 pnpm check
 pnpm build
 ```
@@ -260,87 +179,11 @@ The workbench keeps frontend and backend operation messages in an in-app log pan
 use therefore does not depend on terminal output, while calculation failures remain available for
 copying into bug reports.
 
-The Multiwfn integration currently preserves independent volume layers when dynamic orbitals or
-ESP data are calculated. The layer panel controls visibility, isovalue, opacity, deletion, and
-strict-grid cross-coloring by another loaded volume. When the manifest exposes bond-analysis
-capabilities, select two bonded atoms with MatterViz's measurement tool and right-click either
-atom or their visible bond to choose a bond-order calculation. The toolbar remains available for
-any valid two-atom calculation, including pairs without a rendered bond. Ordered measurement mode
-uses two sites for distance, three for bond angle, and four for signed dihedral angle.
-
-ESP-colored density surfaces receive a robust symmetric color range, a draggable kcal/mol/e legend, and an
-on-demand bounded extrema table. The current MatterViz renderer does not expose a stable API for
-arbitrary 3D extrema markers, so extrema coordinates are listed rather than drawn in the scene.
-Explicit ESP layers default to pink/white/blue with white at zero. The legend follows
-the selected layer palette and manual range, including asymmetric limits.
-Surfaces offers Matte, Soft gloss, Satin and Unlit color finishes, with bounded
-rim, opacity and shading refinements. Finishes preserve scientific isovalues and
-layer colors; periodic boundary padding is under Cell. These settings are saved
-with the workbench state.
-
-### Studio lighting and language selection
-
-Structure > Lighting preset offers **Standard lighting** and **Studio lighting**
-(中文：标准布光 / 影棚布光). Studio lighting is a MatterViz lighting preset,
-using hemisphere ambient light, a camera-following key, warm fill, and cool rim.
-It disables tone mapping. Standard lighting uses neutral lights and AgX tone mapping.
-Reset restores the four light intensities for the selected preset.
-The historical `tmim` identifier remains in display snapshots for compatibility.
-
-Structure > Finish preset offers Balanced, Goodsell, Edgy, Glass, Metallic, and
-Matte. Balanced replaces the display name Current; its saved ID remains `current`.
-An untouched renderer material shows Renderer default. Atom finish and lighting
-are independent controls. These atom presets apply outline parameters that were
-inactive in the historical source, so they are not exact recreations of that viewer.
-
-The toolbar **中文 / EN** button switches Multiwfn-owned controls immediately,
-without remounting the scene or changing its camera, scientific data, or materials.
-Language is saved in browser localStorage (`multiwfn-ui-language`); the first visit
-follows the browser language (Chinese for `zh`, English otherwise). If storage is
-unavailable, switching still works for the current page. UI language is independent
-of scientific/display exports. User labels, scientific identifiers, and raw backend
-logs retain their original text. MatterViz's native embedded controls retain their
-upstream language.
-
-The Surfaces control keeps the four primary finishes above and provides the
-legacy MaterialPanel combinations in a dropdown: Diffuse, Goodsell, Edgy,
-EdgyShiny, AOShiny, AOChalky, Glass1, GlassBubble, EdgyGlass, BrushedMetal,
-Metallic, and PBR. Matte and Unlit are reused from the primary controls. Legacy
-names are visual material recipes; names containing AO do not add an ambient
-occlusion pass. Transparency is implemented as surface alpha, not physical
-refraction. All values are saved and restored with the workbench state, but
-rendering is not guaranteed to be pixel-identical across browser or GPU
-implementations.
-
-Save > Save display settings writes a versioned JSON snapshot of layer, periodic, isosurface-material,
-lighting, atom-style, and camera state. The same snapshot can be restored with Save > Restore display settings or a `state=` URL query;
-the browser and WebView launchers also accept `--state <path>` and expose only that selected file
-through a fixed session route.
-
-For periodic sessions, manifest cell vectors are injected into structures that would otherwise be
-plain molecules (for example XYZ files), so MatterViz can render the cell, boundary atoms, periodic
-bonds, and atom supercells. Fractional surface ranges remain independent from the integer atom
-supercell. The 2D Slice panel samples any loaded cube on XY/XZ/YZ or custom Miller-index planes and
-renders the result on a resizable canvas with selectable color and value ranges.
+The orbital panel selects cached orbitals or requests a new grid from Multiwfn. **Tools** exposes ESP, AIM and bond-order calculations when supported by the session. For bond order, select two atoms in the native measurement tool, then choose the method in **Tools**. A visible density surface explicitly colored by its ESP field also enables the approximate-extrema table.
 
 ## Unified result workbench
 
-Interactive native 2D plots and the 3D scene now share the result selector, operation log,
-Save menu, and Return action. View holds camera steps, axes, inspector, orbitals, layers,
-and volume slices; Tools holds backend calculations. Missing ESP capability disables its
-calculation button. Sidebars collapse on narrow screens instead of compressing the canvas.
-Switching results retains the mounted 3D renderer, camera, selected atoms, and surfaces;
-spin pauses while another result is active and resumes on return.
-
-Backend calculations have their own status row and do not set the renderer's
-structure-loading flag or unmount its canvas. Geometry measurements and bond-order
-results occupy a scrollable strip outside the 3D viewport; measurement lines and
-selection markers remain in the scene. Distances (including PBC/direct values),
-ordered angles, and signed dihedrals use the same MatterViz geometry helpers as the
-scene. Each bond-order result can be dismissed independently.
-The orbital rail includes declared closed-shell HOMO/LUMO shortcuts and centers
-its list on the initial frontier pair, or the current orbital when reopened.
-This positioning does not scroll the page or request new orbital data.
+Interactive 2D plots and the 3D scene share the result selector, operation log, Save menu and Return action. Switching to a plot keeps the structure viewport mounted. The orbital list includes HOMO/LUMO shortcuts for closed-shell sessions.
 
 Open plot accepts rectangular numeric `.txt`/`.dat`/`.csv` tables (first column X,
 remaining columns Y), native v1 plot JSON, and self-contained plot documents. Fortran
@@ -395,33 +238,6 @@ produces `Multiwfn_MatterVizGUI`. MatterViz resources do not include the legacy
 
 MatterViz is distributed under the MIT license. Multiwfn remains under its original license.
 
-## Workbench UI preview
-
-The Multiwfn toolbar and inspector now use local shadcn-svelte components:
-Button, Popover, Select, Tabs, Slider and Tooltip. The structure renderer remains
-MatterViz. Scene settings, original material presets, result selection and
-analysis availability still use the existing callbacks and workbench state.
-The UI source and local adaptations are documented in
-`src/lib/components/ui/README.md`.
-
-Use the normal `pnpm dev` command with a session manifest for local development.
-Browser acceptance against a running preview containing the two density/ESP
-fixture volumes is available as:
-
-```bash
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
-PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium \
-PREVIEW_URL=http://127.0.0.1:5197/ \
-node tests/browser/workbench-ui.mjs
-```
-
-This checks keyboard navigation, popover dismissal and focus return, all four
-lighting controls, material choices, display-setting download/restore, volume
-visibility, backend-unavailability help, the single canvas lifecycle and a
-600 px viewport. The supplied molecule preview has no calculation backend;
-analysis controls retain their real unavailable state.
-
-
 ## Local session preview
 
 Provide an existing session's data under `session/` in a separate public directory.
@@ -435,16 +251,4 @@ PREVIEW_PUBLIC_DIR=/path/to/preview/public pnpm preview:session
 # Add ?manifest=/session/surface-manifest.json for another manifest.
 ```
 
-`pnpm test:representations` checks the molecule/density/ESP fixture in Chromium.
-Set `PREVIEW_URL` to its manifest URL, `PLAYWRIGHT_MODULE` to an external Playwright
-`index.mjs`, and optionally `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. `ARTIFACT_DIR` controls
-where it saves screenshots, portable states and verification JSON. The fixture
-expects two compatible grids named Density and ESP and at least 32 structure sites.
-`workbench-ui.mjs` and `workbench-language.mjs` additionally cover the retained
-advanced inspector.
-`pnpm test:scene-export` checks downloaded PNG pixels for white, chosen-color and
-transparent backgrounds, translucent materials, bilingual controls and unchanged
-camera/scene state, using the same environment variables and surface fixture.
-`pnpm test:rep-color` checks diffuse gain and saturation against actual WebGL
-pixels for atoms, bonds, mapped surfaces and wireframes, including settings
-round-trip and unchanged alpha/camera state.
+After building, run `pnpm exec playwright install chromium`, `pnpm test:scene-export` and `pnpm test:frequency`. The finish test opens an orbital and a mapped ESP surface, selects each native finish, downloads the PNGs, and checks their pixels. The frequency test exercises playback and the camera on Gaussian and ORCA fixtures. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use an existing Chromium executable.
