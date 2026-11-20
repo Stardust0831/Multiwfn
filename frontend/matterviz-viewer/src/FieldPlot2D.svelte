@@ -98,7 +98,7 @@
     {padding}
     user_content={user_content}
     legend={SCIENTIFIC_PLOT_LEGEND}
-    controls={{ show: true }}
+    show_controls="always"
     fullscreen_toggle={true}
     pan={{ enabled: true }}
   />

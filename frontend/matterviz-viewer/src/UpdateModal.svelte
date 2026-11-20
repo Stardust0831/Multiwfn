@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Icon } from 'matterviz'
+  import { Download, RefreshCw, X } from '@lucide/svelte'
   import { onDestroy } from 'svelte'
   import {
     create_update_client,
@@ -65,7 +65,7 @@
           <h2 id="update-heading">Update Multiwfn</h2>
         </div>
         <button class="icon-button" type="button" title="Dismiss updater" aria-label="Dismiss updater" onclick={close}>
-          <Icon icon="Cross" width="16" height="16" />
+          <X size={16} />
         </button>
       </header>
 
@@ -78,17 +78,17 @@
         {#if status.state === 'idle'}
           <p>Check for a signed Multiwfn update.</p>
           <button class="update-primary" type="button" onclick={() => run_action('check')} disabled={busy}>
-            <Icon icon="Version" width="15" height="15" /> Check for updates
+            <RefreshCw size={15} /> Check for updates
           </button>
         {:else if status.state === 'available'}
           <p>A verified update is available.</p>
           <button class="update-primary" type="button" onclick={() => run_action('stage')} disabled={busy}>
-            <Icon icon="Download" width="15" height="15" /> Download and verify
+            <Download size={15} /> Download and verify
           </button>
         {:else if status.state === 'ready'}
           <p class="update-warning">The update is ready. Installing closes this WebView. Type <code>q</code> in Multiwfn after it closes, then restart Multiwfn manually.</p>
           <button class="update-primary" type="button" onclick={() => run_action('install')} disabled={busy}>
-            <Icon icon="Download" width="15" height="15" /> Install update
+            <Download size={15} /> Install update
           </button>
         {:else if status.state === 'conflict'}
           <p class="update-warning">No files were changed. Resolve the listed conflicts, then retry.</p>
@@ -104,7 +104,7 @@
           <div class="update-actions"><button type="button" onclick={retry} disabled={busy}>Retry</button><button type="button" onclick={close}>Dismiss</button></div>
         {:else if status.state === 'error'}
           <p class="update-error">{status.message ?? 'The update request failed.'}</p>
-          <div class="update-actions"><button type="button" onclick={retry} disabled={busy}><Icon icon="Version" width="14" height="14" /> Retry</button><button type="button" onclick={close}>Dismiss</button></div>
+          <div class="update-actions"><button type="button" onclick={retry} disabled={busy}><RefreshCw size={14} /> Retry</button><button type="button" onclick={close}>Dismiss</button></div>
         {:else}
           <p>{progress_label(status.state)}</p>
           <div class="update-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(status.progress ?? 0)}>

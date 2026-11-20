@@ -87,7 +87,7 @@ test('result navigation keeps renderers mounted and preserves original calculati
   assert.match(app, /class:inactive=\{activeResult !== 'scene'\}/)
   assert.match(app, /class:inactive=\{activeResult !== plot.id\}/)
   assert.match(app, /onExported=\{return_to_multiwfn\}/)
-  assert.match(app, /scene_registry.get\(canvas\)/)
+  assert.match(app, /scene_to_png_blob\(canvas,/)
   assert.doesNotMatch(app, /\{#if plotArtifact\}/)
 })
 

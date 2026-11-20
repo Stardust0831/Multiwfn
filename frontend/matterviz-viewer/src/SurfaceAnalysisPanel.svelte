@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from './i18n'
-  import { Icon } from 'matterviz'
+  import { Download, Scan, Upload, X } from '@lucide/svelte'
   import { SURFACE_TYPES, SURFACE_FUNCTIONS, surface_statistics, surface_function, surface_position, surface_range, type SurfaceResult, type SurfaceDisplay, type SurfaceConfirmation } from './surface-analysis'
   let { result, display = $bindable(), active = $bindable(false), selection = $bindable(), busy = false, onclose, onexport, onfit, onconfirm, onlog, onclearlog }:
     { result: SurfaceResult; display: SurfaceDisplay; active: boolean; selection: number | undefined; busy?: boolean; onclose: () => void; onexport: (format: 'json' | 'csv') => void; onfit: () => void; onconfirm: (value: SurfaceConfirmation) => void; onlog: (event: Event) => void; onclearlog: () => void } = $props()
@@ -17,7 +17,7 @@
 </script>
 
 <aside class="surface-analysis-panel" aria-label={$t("Quantitative surface results")}>
-  <header><strong>{$t("Quantitative surface")}</strong><button type="button" title={$t("Close panel")} aria-label={$t("Close surface results panel")} onclick={onclose}><Icon icon="Cross" width="16" /></button></header>
+  <header><strong>{$t("Quantitative surface")}</strong><button type="button" title={$t("Close panel")} aria-label={$t("Close surface results panel")} onclick={onclose}><X size={16} /></button></header>
   <div class="body">
     <div><strong>{$t(mapped.name)}</strong><p>{$t(m.surfaceType === null ? 'Surface type not confirmed' : SURFACE_TYPES[m.surfaceType])} {$t("· iso")} {m.isovalue}</p></div>
     <fieldset disabled={busy}>
@@ -29,7 +29,7 @@
       {#if m.metadataSource === 'user'}<p>{$t("Types: user-confirmed")}</p>{/if}
     </fieldset>
     <label class="check"><input type="checkbox" bind:checked={active} />{$t("Surface analysis view")}</label>
-    <button type="button" onclick={onfit} disabled={!active}><Icon icon="ZoomOut" width="14" />{$t("Fit surface")}</button>
+    <button type="button" onclick={onfit} disabled={!active}><Scan size={14} />{$t("Fit surface")}</button>
     <label class="check"><input type="checkbox" bind:checked={display.surface} />{$t("Show surface")}</label>
     <label class="field"><span>{$t("Opacity")} {Math.round(display.opacity * 100)}%</span><input aria-label={$t("Quantitative surface opacity")} type="range" min="0.05" max="1" step="0.01" bind:value={display.opacity} /></label>
     <label class="check"><input type="checkbox" bind:checked={display.wireframe} />{$t("Wireframe")}</label>
@@ -66,11 +66,11 @@
     </dl>
     <div class="log-import">
       <input hidden type="file" accept=".txt,.log,.out,text/plain" bind:this={logInput} onchange={onlog} />
-      <button type="button" disabled={busy} onclick={() => logInput.click()}><Icon icon="ArrowUp" width="14" />{$t("Import statistics log")}</button>
-      {#if m.statisticsSource}<button type="button" disabled={busy} title={$t("Clear imported statistics")} aria-label={$t("Clear imported statistics")} onclick={onclearlog}><Icon icon="Cross" width="14" /></button><p>{m.statisticsSource.filename} {$t("· printed precision")}</p>{:else if m.volume === null}<p>{$t("Volume / mass density: not provided")}</p>{/if}
+      <button type="button" disabled={busy} onclick={() => logInput.click()}><Upload size={14} />{$t("Import statistics log")}</button>
+      {#if m.statisticsSource}<button type="button" disabled={busy} title={$t("Clear imported statistics")} aria-label={$t("Clear imported statistics")} onclick={onclearlog}><X size={14} /></button><p>{m.statisticsSource.filename} {$t("· printed precision")}</p>{:else if m.volume === null}<p>{$t("Volume / mass density: not provided")}</p>{/if}
     </div>
     <p>{result.values.length.toLocaleString()} {$t("vertices ·")} {result.areas.length.toLocaleString()} {$t("facets")}</p>
-    <div class="exports"><button type="button" onclick={() => onexport('csv')}><Icon icon="Download" width="14" />CSV</button><button type="button" onclick={() => onexport('json')}><Icon icon="Download" width="14" />{$t("Surface JSON")}</button></div>
+    <div class="exports"><button type="button" onclick={() => onexport('csv')}><Download size={14} />CSV</button><button type="button" onclick={() => onexport('json')}><Download size={14} />{$t("Surface JSON")}</button></div>
   </div>
 </aside>
 

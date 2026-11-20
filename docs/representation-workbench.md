@@ -1,5 +1,7 @@
 # Representation workbench
 
+This document describes the former customized MatterViz 0.4.2 viewer. The current viewer uses the upstream structure and surface controls. [Current viewer documentation](../frontend/matterviz-viewer/README.md)
+
 The workbench uses VMD's representation model: a list of independently visible
 representations, with one editor for the selected representation. Each Rep owns
 its data source, drawing method, material, and periodic display. Camera, lighting,

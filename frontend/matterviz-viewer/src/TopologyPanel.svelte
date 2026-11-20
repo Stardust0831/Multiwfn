@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from './i18n'
-  import { Icon } from 'matterviz'
+  import { Download, X } from '@lucide/svelte'
   import AnalysisAction from './AnalysisAction.svelte'
   import { AIM_DEFAULTS, CP_NAMES, CP_COLORS, topology_position, topology_path_points, topology_path_length, type AimOptions, type TopologyResult, type TopologySelection, type TopologyDisplay } from './topology'
   import { TOPOLOGY_LABEL_LIMIT } from './topology-labels'
@@ -20,7 +20,7 @@
 </script>
 
 <aside class="topology-panel" aria-label={$t("AIM topology analysis")}>
-  <header><strong>{$t("Topology analysis (AIM)")}</strong><button type="button" title={$t("Close panel")} aria-label={$t("Close topology panel")} onclick={onclose}><Icon icon="Cross" width="16" /></button></header>
+  <header><strong>{$t("Topology analysis (AIM)")}</strong><button type="button" title={$t("Close panel")} aria-label={$t("Close topology panel")} onclick={onclose}><X size={16} /></button></header>
   <div class="body">
     <details><summary>{$t("Search settings")}</summary>
       <fieldset disabled={busy}>
@@ -65,7 +65,7 @@
       {/if}
       <p class="reason">N − B + R − C = {result.metadata.eulerCount}{$t(". This count alone does not establish a complete search.")}</p>
       {#if result.metadata.missingPathDirections}<p class="reason">{result.metadata.missingPathDirections} {$t("path directions did not reach a located CP.")}</p>{/if}
-      <div class="exports"><button type="button" onclick={() => onexport('csv')}><Icon icon="Download" width="14" />CSV</button><button type="button" onclick={() => onexport('json')}><Icon icon="Download" width="14" />{$t("Topology JSON")}</button></div>
+      <div class="exports"><button type="button" onclick={() => onexport('csv')}><Download size={14} />CSV</button><button type="button" onclick={() => onexport('json')}><Download size={14} />{$t("Topology JSON")}</button></div>
     {/if}
   </div>
 </aside>

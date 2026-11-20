@@ -5,12 +5,12 @@ import { createServer, type ViteDevServer } from 'vite'
 import type { AnyStructure } from 'matterviz'
 
 let server: ViteDevServer
-let parse_any_structure: (content: string, filename: string) => AnyStructure
+let parse_structure_file: (content: string, filename: string) => AnyStructure
 
 test.before(async () => {
-  server = await createServer({ appType: 'custom', logLevel: 'silent', server: { middlewareMode: true } })
+  server = await createServer({ appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, watch: null, hmr: false } })
   const parser = await server.ssrLoadModule('matterviz/structure/parse')
-  parse_any_structure = parser.parse_any_structure
+  parse_structure_file = parser.parse_structure_file
 })
 
 test.after(async () => {
@@ -55,7 +55,7 @@ test('parses native nonperiodic JSON and preserves explicit root bond orders', (
     properties: { bonds },
   }
 
-  const parsed = parse_any_structure(JSON.stringify(native), 'structure.json')
+  const parsed = parse_structure_file(JSON.stringify(native), 'structure.json')
 
   assert.equal(parsed.charge, 0)
   assert.equal('lattice' in parsed, false)
@@ -79,7 +79,7 @@ test('parses native periodic JSON and round-trips the lattice matrix', () => {
     },
   }
 
-  const parsed = parse_any_structure(JSON.stringify(native), 'structure.json')
+  const parsed = parse_structure_file(JSON.stringify(native), 'structure.json')
 
   assert.ok('lattice' in parsed && parsed.lattice)
   assert.deepEqual(parsed.lattice.matrix, native.lattice.matrix)
@@ -95,7 +95,7 @@ test('parses native periodic JSON and round-trips the lattice matrix', () => {
 
 test('preserves explicit cross-boundary bond cell shifts from a native periodic artifact', async () => {
   const artifact = new URL('./artifacts/periodic-cross-boundary/structure.json', import.meta.url)
-  const parsed = parse_any_structure(await readFile(artifact, 'utf8'), 'structure.json')
+  const parsed = parse_structure_file(await readFile(artifact, 'utf8'), 'structure.json')
 
   assert.ok('lattice' in parsed && parsed.lattice)
   assert.deepEqual(parsed.lattice.matrix, [[5, 0, 0], [1, 4, 0], [0.5, 0.25, 5]])
@@ -107,7 +107,7 @@ test('preserves explicit cross-boundary bond cell shifts from a native periodic 
   }])
 })
 
-test('preserves a labeled Multiwfn ghost center without mapping it to a real element', () => {
+test('reports a Multiwfn ghost center as an unsupported species', () => {
   const native = {
     sites: [{
       species: [{ element: 'Bq', occu: 1, oxidation_state: 0 }],
@@ -120,9 +120,5 @@ test('preserves a labeled Multiwfn ghost center without mapping it to a real ele
     properties: { bonds: [] },
   }
 
-  const parsed = parse_any_structure(JSON.stringify(native), 'structure.json')
-
-  assert.equal(parsed.sites[0]?.species[0]?.element, 'Bq')
-  assert.equal(parsed.sites[0]?.properties?.multiwfnGhost, true)
-  assert.deepEqual(parsed.sites[0]?.xyz, [1, 2, 3])
+  assert.throws(() => parse_structure_file(JSON.stringify(native), 'structure.json'), /Bq is not an element/)
 })

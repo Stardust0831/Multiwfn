@@ -77,15 +77,11 @@ test('decodes the shared orbital golden frame and adapts geometry', async () => 
     ...decoded,
     periodic_axes: [true, true, true],
   })
-  const bohr = 0.529177249
-  assert.deepEqual(adapted.grid, {
-    data: decoded.samples,
-    dimensions: [2, 2, 3],
-    order: 'x-fastest',
-  })
+  const bohr = 0.529177210544
+  assert.deepEqual(adapted.dims, [2, 2, 3])
+  assert.deepEqual([...adapted.values], [1, 5, 9, 3, 7, 11, 2, 6, 10, 4, 8, 12])
+  assert.equal(adapted.order, 'z_fastest')
   assert.deepEqual(adapted.origin, [bohr, 2 * bohr, 3 * bohr])
-  assert.equal(adapted.origin_mode, 'absolute')
-  assert.equal(adapted.data_order, 'x_fastest')
   assert.equal(adapted.periodic, true)
   assert.deepEqual(adapted.lattice, [
     [0.1 * (2 * bohr), 0, 0],
@@ -104,12 +100,10 @@ test('preserves k-fastest Cube order in the flat scalar grid', async () => {
     ...decode_matterviz_volume(frame),
     periodic_axes: [false, false, false],
   })
-  assert.deepEqual(adapted.grid, {
-    data: decode_matterviz_volume(frame).samples,
-    dimensions: [2, 2, 3],
-    order: 'z-fastest',
-  })
-  assert.equal(adapted.data_order, 'z_fastest')
+  assert.deepEqual(adapted.dims, [2, 2, 3])
+  assert.equal(adapted.values.buffer, frame.buffer)
+  assert.deepEqual(adapted.values, decode_matterviz_volume(frame).samples)
+  assert.equal(adapted.order, 'z_fastest')
 })
 
 test('decodes signed samples and every quantity-unit pair', async () => {
