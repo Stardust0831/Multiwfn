@@ -17,7 +17,6 @@ public static class NativeDesktop {
     public static extern bool GetUserObjectInformation(IntPtr handle, int index, StringBuilder value, uint length, out uint needed);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
-    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr parameter, string value);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr parameter, StringBuilder value);
 }
 '@
@@ -122,8 +121,15 @@ function Set-Filename($Dialog, [string]$Path) {
     } else {
         $handle = [IntPtr]$edit.Current.NativeWindowHandle
         if ($handle -eq [IntPtr]::Zero) { throw 'Native filename field exposes neither ValuePattern nor HWND' }
-        # WM_SETTEXT/WM_GETTEXT operate only on the observed native filename HWND.
-        [void][NativeDesktop]::SendMessage($handle, 0x000C, [IntPtr]::Zero, $Path)
+        # Typing also updates IFileDialog's internal filename. WM_SETTEXT alone
+        # updates the child HWND's visible text without committing that state.
+        Click-Element $edit
+        [System.Windows.Forms.SendKeys]::SendWait('^a')
+        $keys = -join ($Path.ToCharArray() | ForEach-Object {
+            if ('+^%~(){}[]'.Contains([string]$_)) { '{' + $_ + '}' } else { [string]$_ }
+        })
+        [System.Windows.Forms.SendKeys]::SendWait($keys)
+        [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
         $readback = [Text.StringBuilder]::new(32768)
         [void][NativeDesktop]::SendMessage($handle, 0x000D, [IntPtr]32768, $readback)
         if ($readback.ToString() -ne $Path) { throw 'Native filename HWND readback differs from requested path' }
@@ -208,6 +214,7 @@ try {
             Click-Name 'Cancel' $dialog
         } else {
             Set-Filename $dialog $target
+            Capture "$mode-filename"
             Click-Name 'Save' $dialog
             if ($mode -in @('refuse-overwrite','overwrite')) {
                 $replace = Wait-For { Find-Name 'Yes' } 'native replacement confirmation'

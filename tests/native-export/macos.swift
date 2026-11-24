@@ -98,8 +98,23 @@ func click(_ element: AXUIElement) throws {
     CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
 }
 func clickName(_ name: String, root: AXUIElement? = nil) throws {
-    let element = try wait("control \(name)") { find(name, root: root) }
+    let element = try wait("control \(name)") {
+        elements(root ?? appAX!).first { element, _ in
+            ["AXButton", "AXPopUpButton", "AXMenuItem"].contains(text(element, "AXRole")) &&
+            ["AXTitle", "AXDescription", "AXValue"].contains { text(element, $0) == name }
+        }?.0
+    }
     try click(element)
+}
+func container(_ element: AXUIElement) throws -> AXUIElement {
+    var current = element
+    for _ in 0..<20 {
+        guard let parent = attribute(current, "AXParent").1,
+              CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
+        current = parent as! AXUIElement
+        if ["AXSheet", "AXWindow"].contains(text(current, "AXRole")) { return current }
+    }
+    throw Failure("Native dialog container is missing")
 }
 func key(_ code: CGKeyCode, flags: CGEventFlags = []) throws {
     guard CGPreflightPostEventAccess() else { throw Failure("BLOCKED: native key input is not authorized") }
@@ -195,7 +210,7 @@ do {
     ], logName: "host.log", environment: environment)
     appAX = AXUIElementCreateApplication(host!.processIdentifier)
     AXUIElementSetMessagingTimeout(appAX!, 5)
-    NSRunningApplication(processIdentifier: host!.processIdentifier)?.activate(options: [.activateIgnoringOtherApps])
+    NSRunningApplication(processIdentifier: host!.processIdentifier)?.activate(options: [])
     info["hostPID"] = host!.processIdentifier
     try write("environment.json", info)
     stage = "webview-accessibility"
@@ -214,6 +229,7 @@ do {
         try clickName("PNG image")
         stage = "\(mode)-chooser"
         let cancel = try wait("native Save panel Cancel button", seconds: 45) { find("Cancel", role: "AXButton") }
+        let panel = try container(cancel)
         capture("\(mode)-dialog")
         if mode == "cancel" { try click(cancel) }
         else {
@@ -221,17 +237,14 @@ do {
             // access only and assert the field value before submitting it.
             try key(5, flags: [.maskCommand, .maskShift]) // G
             let folderField = try wait("Go to Folder path field") {
-                guard let value = attribute(appAX!, "AXFocusedUIElement").1,
-                      CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil as AXUIElement? }
-                let element = value as! AXUIElement
-                let role = text(element, "AXRole")
-                return (role == "AXComboBox" || role == "AXTextField") &&
-                    text(element, "AXIdentifier") != "saveAsNameTextField" &&
-                    text(element, "AXDescription") != "Save As:" ? element : nil
+                elements(panel).first { text($0.0, "AXIdentifier") == "PathTextField" }?.0
             }
             try setValue(folderField, output.path)
             capture("\(mode)-folder")
             try key(36) // Return
+            _ = try wait("Go to Folder sheet dismissed") {
+                elements(panel).contains { text($0.0, "AXIdentifier") == "GoToWindow" } ? nil : true
+            }
             let filename = try wait("native Save As filename field") {
                 elements(appAX!).first { element, _ in
                     text(element, "AXRole") == "AXTextField" &&
@@ -241,14 +254,14 @@ do {
             }
             try setValue(filename, target.lastPathComponent)
             capture("\(mode)-filename")
-            try clickName("Save")
+            try clickName("Save", root: panel)
             if mode == "refuse-overwrite" || mode == "overwrite" {
                 let replace = try wait("native replacement confirmation") { find("Replace", role: "AXButton") }
                 capture("\(mode)-confirmation")
                 if mode == "refuse-overwrite" {
-                    try clickName("Cancel")
+                    try clickName("Cancel", root: container(replace))
                     _ = try wait("dismiss replacement confirmation") { find("Replace", role: "AXButton") == nil ? true : nil }
-                    try clickName("Cancel")
+                    try clickName("Cancel", root: panel)
                 } else { try click(replace) }
             }
         }
@@ -268,9 +281,12 @@ do {
                         "png": image, "passed": true])
         try write("results.json", ["status": "in_progress", "stage": stage, "cases": records, "launcher": launcher])
     }
-    try write("results.json", ["status": "passed", "stage": "complete", "cases": records, "launcher": launcher,
+    let launcherFailed = (launcher["exitCode"] as? Int32).map { $0 != 0 } ?? false
+    try write("results.json", ["status": launcherFailed ? "failed" : "passed", "hostStatus": "passed",
+        "stage": launcherFailed ? "app-launcher" : "complete", "cases": records, "launcher": launcher,
         "scope": "Unmodified packaged host with managed fixture; app entry is reported independently in launcher."])
     if let app = host, app.isRunning { app.terminate() }
+    if launcherFailed { exit(2) }
 } catch {
     capture("failure")
     let reason = String(describing: error)
