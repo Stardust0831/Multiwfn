@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { preview } from 'vite'
 import { chromium } from 'playwright'
+import { chromiumOptions } from './chromium-options.mjs'
 
 const artifacts = process.env.ARTIFACT_DIR || '/tmp/multiwfn-frequency-browser'
 await mkdir(artifacts, { recursive: true })
@@ -16,11 +17,7 @@ const cameraSettling = []
 const record = message => { checks.push(message); console.log('PASS', message) }
 const fixture = name => fileURLToPath(new URL(`../fixtures/frequency/${name}.cjson`, import.meta.url))
 try {
-  browser = await chromium.launch({
-    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
-    headless: true,
-    args: ['--enable-features=Vulkan', '--use-angle=vulkan', '--use-vulkan=swiftshader', '--enable-unsafe-webgpu', '--enable-unsafe-swiftshader'],
-  })
+  browser = await chromium.launch(chromiumOptions)
   page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: 'en-US' })
   page.on('pageerror', error => errors.push(error.message))
   // Only the unrelated workflow catalog is stubbed. File input, mode adapter,

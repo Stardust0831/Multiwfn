@@ -103,10 +103,13 @@ jobs:
 
       - name: Test native isosurface finishes and frequency viewer interactions
         working-directory: frontend/matterviz-viewer
+        env:
+          PLAYWRIGHT_HEADED: '1'
         run: |
           pnpm exec playwright install --with-deps chromium
-          pnpm test:scene-export
-          pnpm test:frequency
+          # Match upstream: headless Linux WebGPU can present transparent canvases.
+          xvfb-run -a pnpm test:scene-export
+          xvfb-run -a pnpm test:frequency
 
       - name: Upload MatterViz browser verification and PNGs
         if: always()

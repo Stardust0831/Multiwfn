@@ -264,6 +264,12 @@ PREVIEW_PUBLIC_DIR=/path/to/preview/public pnpm preview:session
 
 After building, run `pnpm exec playwright install chromium`, `pnpm test:scene-export` and `pnpm test:frequency`. The finish test opens an orbital and a mapped ESP surface, selects each native finish, downloads the PNGs, and checks their pixels. The frequency test exercises playback and the camera on Gaussian and ORCA fixtures. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use an existing Chromium executable.
 
+Both tests use full Chromium and upstream MatterViz's software WebGPU settings:
+SwiftShader is selected directly for WebGPU and ANGLE, with Vulkan surfaces
+disabled so the same tests can render on CI runners without a GPU.
+Linux CI runs each test with `xvfb-run -a` and `PLAYWRIGHT_HEADED=1`, matching
+upstream's workaround for transparent WebGPU canvases in Linux headless mode.
+
 The finish test retains all eight downloaded PNGs and a JSON record of image
 dimensions, SHA-256 hashes and input URLs in `/tmp/multiwfn-scene-export-browser`
 (override with `ARTIFACT_DIR`). `ORBITAL_PREVIEW_URL` and `ESP_PREVIEW_URL` can

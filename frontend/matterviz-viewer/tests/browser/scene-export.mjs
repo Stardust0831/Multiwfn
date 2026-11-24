@@ -4,15 +4,15 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { preview } from 'vite'
+import { chromiumOptions } from './chromium-options.mjs'
 
 const server = process.env.PREVIEW_URL ? undefined : await preview({ preview: { port: 0, host: '127.0.0.1' } })
 const base = process.env.PREVIEW_URL ?? server.resolvedUrls.local[0]
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
-  args: ['--enable-features=Vulkan', '--use-angle=vulkan', '--use-vulkan=swiftshader', '--enable-unsafe-webgpu', '--enable-unsafe-swiftshader'] })
+const browser = await chromium.launch(chromiumOptions)
 const finishes = ['satin', 'translucent_shell', 'chalk', 'unlit']
 const artifacts = process.env.ARTIFACT_DIR || '/tmp/multiwfn-scene-export-browser'
 await mkdir(artifacts, { recursive: true })
-const verification = { status: 'failed', cases: [] }
+const verification = { status: 'failed', browserVersion: browser.version(), cases: [] }
 
 // A signed p-like orbital and two independent scalar fields on the same finite grid.
 function cube(role) {
