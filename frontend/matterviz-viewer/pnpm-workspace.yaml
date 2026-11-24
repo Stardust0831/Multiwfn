@@ -1,5 +1,9 @@
 # Upstream MatterViz consumes svelte-widgets from GitHub. The lockfile pins both revisions.
 blockExoticSubdeps: false
+# Retain the previously locked upstream widget revision. Its successor 1.12.0
+# cannot prepare with npm 11 because its development Vitest peers conflict.
+overrides:
+  svelte-widgets: github:janosh/svelte-widgets#55345ea3d59913ff1abb66f87ef778eea517e304
 allowBuilds:
   core-js: false
   matterviz: true

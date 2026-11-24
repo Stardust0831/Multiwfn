@@ -13,6 +13,17 @@ for conversion, supported inputs and displacement conventions.
 
 The viewer uses the unmodified `main` branch of [janosh/matterviz](https://github.com/janosh/matterviz). The pnpm lockfile records the exact commit for reproducible desktop builds. To take a later upstream revision, run `pnpm update matterviz` in this directory and commit the refreshed lockfile after testing.
 
+Git dependency preparation must run outside a `node_modules` directory: Node's
+TypeScript loader rejects scripts beneath that path. CI sets
+`pnpm_config_store_dir` to the runner's temporary `pnpm-store` directory before
+both cache setup and installation. Local builds with a pnpm installation inside
+`node_modules` should likewise set `pnpm_config_store_dir` to an external writable
+directory. This keeps the upstream preparation scripts enabled and unchanged.
+The workspace also pins the unmodified `svelte-widgets` revision `55345ea3` used
+by the previous lockfile. Its newer Git revision's development dependencies mix
+Vitest 5.1.0 and 5.1.1, causing npm's Git preparation to reject their peer graph.
+Update that pin only after a clean preparation and the viewer checks pass.
+
 Open **Structure controls** and select an isosurface finish. The native WebGPU viewer provides Satin, Translucent shell, Chalk and Unlit. Satin uses shell shading on translucent single-color layers. Set an orbital layer's opacity to 1 to see its opaque satin finish. The structure viewer also owns the isosurface layers, atom editing, measurements, camera and volume slices. Old Reps display snapshots and custom material settings belonged to the retired workbench. Native JSON with a ghost species such as `Bq` follows upstream's unsupported-species diagnostics.
 
 Multiwfn loads Cube files and binary fields into the native volume list. Density surfaces refer to their coloring field by ID. A declared custom gradient uses the closest native named palette, preserving its direction and physical range. ESP potential values declared in kcal/mol are converted to atomic units before mapping.
@@ -252,3 +263,10 @@ PREVIEW_PUBLIC_DIR=/path/to/preview/public pnpm preview:session
 ```
 
 After building, run `pnpm exec playwright install chromium`, `pnpm test:scene-export` and `pnpm test:frequency`. The finish test opens an orbital and a mapped ESP surface, selects each native finish, downloads the PNGs, and checks their pixels. The frequency test exercises playback and the camera on Gaussian and ORCA fixtures. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use an existing Chromium executable.
+
+The finish test retains all eight downloaded PNGs and a JSON record of image
+dimensions, SHA-256 hashes and input URLs in `/tmp/multiwfn-scene-export-browser`
+(override with `ARTIFACT_DIR`). `ORBITAL_PREVIEW_URL` and `ESP_PREVIEW_URL` can
+point to existing sessions with a `manifest` query parameter to check real
+calculation data. Without those URLs the test uses its small synthetic grids.
+CI retains both the finish and frequency artifacts on successful and failed runs.

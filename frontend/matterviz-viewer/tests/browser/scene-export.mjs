@@ -1,6 +1,7 @@
 // Exercise the production workbench, the upstream finish selector and the real PNG download.
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { preview } from 'vite'
 
@@ -9,6 +10,9 @@ const base = process.env.PREVIEW_URL ?? server.resolvedUrls.local[0]
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
   args: ['--enable-features=Vulkan', '--use-angle=vulkan', '--use-vulkan=swiftshader', '--enable-unsafe-webgpu', '--enable-unsafe-swiftshader'] })
 const finishes = ['satin', 'translucent_shell', 'chalk', 'unlit']
+const artifacts = process.env.ARTIFACT_DIR || '/tmp/multiwfn-scene-export-browser'
+await mkdir(artifacts, { recursive: true })
+const verification = { status: 'failed', cases: [] }
 
 // A signed p-like orbital and two independent scalar fields on the same finite grid.
 function cube(role) {
@@ -23,7 +27,9 @@ function cube(role) {
 }
 
 try {
-  for (const [mode, width] of [['orbital', 1080], ['esp', 390]]) {
+  // Keep the synthetic ESP case narrow for responsive coverage. Real reference
+  // sessions use the desktop canvas so the whole molecular surface is visible.
+  for (const [mode, width] of [['orbital', 1080], ['esp', process.env.ESP_PREVIEW_URL ? 1080 : 390]]) {
     const page = await browser.newPage({ viewport: { width, height: 720 }, locale: 'en-US' })
     try {
       const errors = []
@@ -36,6 +42,8 @@ try {
           { path: 'potential.cube', name: 'Potential', analysisKind: 'esp-potential', visible: false }]
       const url = new URL((mode === 'orbital' ? process.env.ORBITAL_PREVIEW_URL : process.env.ESP_PREVIEW_URL) ?? base)
       const fixture = !url.searchParams.has('manifest')
+      const result = { mode, fixture, url: url.href, viewport: { width, height: 720 }, images: [], errors }
+      verification.cases.push(result)
       if (fixture) {
         url.searchParams.set('manifest', '/test-session/manifest.json')
         await page.route('**/test-session/*', route => {
@@ -56,6 +64,19 @@ try {
         await opacity.press('End')
         assert.equal(Number(await opacity.inputValue()), 1)
       }
+      if (!fixture && mode === 'esp') {
+        // Upstream initially fits the atoms; the density surface extends beyond
+        // them. Use its normal zoom interaction to frame the reference export.
+        const bounds = await page.locator('.scene-viewport canvas').boundingBox()
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+        for (let step = 0; step < 3; step++) {
+          await page.mouse.wheel(0, 500)
+          await page.waitForTimeout(200)
+        }
+        await page.mouse.move(5, 5)
+        await page.waitForTimeout(1500)
+        result.cameraAdjustment = 'Three native wheel zoom-out events of 500 before all four exports'
+      }
       // Reopen controls between downloads because the native pane dismisses on outside clicks.
       const images = []
       for (const value of finishes) {
@@ -66,7 +87,10 @@ try {
         await page.getByRole('button', { name: 'PNG image', exact: true }).click()
         const download = await pending
         assert.equal(await download.failure(), null)
-        const png = await readFile(await download.path())
+        const filename = `${mode}-${value}.png`
+        await download.saveAs(`${artifacts}/${filename}`)
+        const png = await readFile(`${artifacts}/${filename}`)
+        assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a')
         const pixels = await page.evaluate(async base64 => {
           const image = new Image()
           image.src = 'data:image/png;base64,' + base64
@@ -78,20 +102,26 @@ try {
           return Array.from(ctx.getImageData(0, 0, 128, 128).data)
         }, png.toString('base64'))
         assert.ok(pixels.filter((v, i) => i % 4 !== 3 && v < 220).length > 120, 'molecule appears in PNG')
+        result.images.push({ finish: value, filename, bytes: png.length,
+          width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+          sha256: createHash('sha256').update(png).digest('hex') })
         images.push(pixels)
       }
       for (let i = 0; i < images.length; i++) for (let j = 0; j < i; j++) {
         assert.ok(images[i].some((v,k) => Math.abs(v - images[j][k]) > 4), finishes[i] + ' should differ from ' + finishes[j])
       }
-      if (fixture && mode === 'esp') {
+      if (mode === 'esp') {
         if (!await finish.isVisible()) await controls.click()
-        await page.getByRole('button', { name: 'Remove volume Density', exact: true }).click()
+        const removeDensity = page.getByRole('button', { name: /^Remove volume .*density$/i })
+        const restoreLabel = (await removeDensity.getAttribute('aria-label')).replace(/^Remove/, 'Restore')
+        await removeDensity.click()
         await page.locator('.statusbar').getByText('1 volume(s)', { exact: true }).waitFor()
-        await page.getByRole('button', { name: 'Restore volume Density', exact: true }).click()
+        await page.getByRole('button', { name: restoreLabel, exact: true }).click()
         await page.locator('.statusbar').getByText('2 volume(s)', { exact: true }).waitFor()
         await page.getByRole('button', { name: 'Tools', exact: true }).click()
         await page.getByRole('button', { name: 'Approx. ESP extrema', exact: true }).click()
         await page.locator('.esp-extrema-list').waitFor()
+        result.volumeRecovery = true
       }
       const toolbar = page.locator('.toolbar')
       await toolbar.getByRole('button', { name: '切换到中文', exact: true }).click()
@@ -100,9 +130,18 @@ try {
       assert.equal(await page.locator('html').getAttribute('lang'), 'en')
       assert.deepEqual(errors, [])
       console.log(mode + ': four native finishes rendered and exported at ' + width + 'px')
+    } catch (error) {
+      await page.screenshot({ path: `${artifacts}/${mode}-failure.png` }).catch(() => {})
+      await writeFile(`${artifacts}/${mode}-failure.txt`, await page.locator('body').ariaSnapshot().catch(() => ''))
+      throw error
     } finally { await page.close() }
   }
+  verification.status = 'passed'
+} catch (error) {
+  verification.error = String(error)
+  throw error
 } finally {
+  await writeFile(`${artifacts}/verification.json`, JSON.stringify(verification, null, 2))
   await browser.close()
   if (server) await server.close()
 }
