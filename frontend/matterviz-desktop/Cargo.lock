@@ -1996,6 +1996,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "url",
+ "webkit2gtk",
  "windows-sys 0.61.2",
 ]
 

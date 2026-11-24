@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { preview } from 'vite'
 import { chromium } from 'playwright'
+import { chromiumOptions } from './chromium-options.mjs'
 
 const artifacts = process.env.ARTIFACT_DIR || '/tmp/multiwfn-frequency-browser'
 await mkdir(artifacts, { recursive: true })
@@ -16,15 +17,11 @@ const cameraSettling = []
 const record = message => { checks.push(message); console.log('PASS', message) }
 const fixture = name => fileURLToPath(new URL(`../fixtures/frequency/${name}.cjson`, import.meta.url))
 try {
-  browser = await chromium.launch({
-    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
-    headless: true,
-    args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-  })
+  browser = await chromium.launch(chromiumOptions)
   page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: 'en-US' })
   page.on('pageerror', error => errors.push(error.message))
   // Only the unrelated workflow catalog is stubbed. File input, mode adapter,
-  // MatterViz component, WebGL renderer and interactions are the production build.
+  // MatterViz component, renderer and interactions are the production build.
   await page.route('**/api/workflows/**', route => {
     assert.equal(route.request().method(), 'GET', 'viewing frequencies must not run a calculation')
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
@@ -41,17 +38,21 @@ try {
   await file.setInputFiles(fixture('gaussian16-water'))
   const canvas = dialog.locator('canvas')
   await canvas.waitFor()
-  const step = dialog.getByRole('spinbutton', { name: 'Step input', exact: true })
+  const step = dialog.getByRole('spinbutton', { name: 'step input', exact: true })
   await page.waitForTimeout(1200)
-  assert.equal(await step.inputValue(), '0')
+  assert.equal(await step.inputValue(), '1')
   assert.equal(await dialog.getByRole('combobox', { name: 'Normal mode', exact: true }).locator('option').count(), 3)
   assert.match(await dialog.innerText(), /IR: 7.25 km\/mol/)
   assert.equal(await canvas.count(), 1)
   await page.evaluate(() => { window.frequencyCanvas = document.querySelector('dialog canvas') })
   // Read MatterViz's public scene registry from the shared production chunk.
   // Rollup renames exports; locate the registry by the canvas key, not its minified name.
-  const chunks = (await readdir(new URL('../../dist/assets/', import.meta.url)))
-    .filter(name => name.endsWith('.js') && name.startsWith('structure-'))
+  const assets = new URL('../../dist/assets/', import.meta.url)
+  const chunks = []
+  for (const map of (await readdir(assets)).filter(name => name.endsWith('.js.map'))) {
+    const { sources } = JSON.parse(await readFile(new URL(map, assets), 'utf8'))
+    if (sources.some(path => path.endsWith('/matterviz/dist/io/export.js'))) chunks.push(map.slice(0, -4))
+  }
   assert.equal(chunks.length, 1)
   await page.evaluate(async chunk => {
     const module = await import(`/assets/${chunk}`)
@@ -69,11 +70,8 @@ try {
   const geometryPositions = () => page.evaluate(() => {
     const positions = []
     window.frequencyScenes.get(window.frequencyCanvas).scene.traverse(object => {
-      if (object.isInstancedMesh) {
-        for (let index = 0; index < object.count; index++) {
-          positions.push(...object.instanceMatrix.array.slice(index * 16 + 12, index * 16 + 15))
-        }
-      } else if (object.isMesh) positions.push(...object.matrixWorld.elements.slice(12, 15))
+      const atoms = object.geometry?.getAttribute('atomPositionRadius')
+      if (atoms) for (let i = 0; i < object.count; i++) positions.push(atoms.getX(i), atoms.getY(i), atoms.getZ(i))
     })
     return positions
   })
@@ -92,16 +90,16 @@ try {
 
   const play = dialog.locator('.play-button')
   await play.click()
-  await page.waitForFunction(() => Number(document.querySelector('[aria-label="Step input"]').value) > 0)
+  await page.waitForFunction(() => Number(document.querySelector('[aria-label="step input"]').value) > 1)
   await play.click()
   const paused = await step.inputValue()
   await page.waitForTimeout(250)
   assert.equal(await step.inputValue(), paused)
-  await step.fill('0')
+  await step.fill('1')
   await page.waitForTimeout(250)
   const equilibrium = await canvas.screenshot()
   const equilibriumPositions = await geometryPositions()
-  await step.fill('12')
+  await step.fill('13')
   await page.waitForTimeout(250)
   assert.notDeepEqual(await canvas.screenshot(), equilibrium, 'quarter-cycle must change rendered atoms')
   assert.notDeepEqual(await geometryPositions(), equilibriumPositions, 'the native scene must update geometry, not only pixel effects')
@@ -111,7 +109,7 @@ try {
   const modePositions = await geometryPositions()
   await modes.selectOption('1')
   await waitForGeometryChange(modePositions, 'changing modes must update rendered geometry')
-  assert.equal(await step.inputValue(), '12', 'changing modes preserves the current visual phase')
+  assert.equal(await step.inputValue(), '13', 'changing modes preserves the current visual phase')
   const amplitude = dialog.getByRole('spinbutton', { name: 'Visual amplitude (Å)', exact: true })
   for (const value of ['', '0', '-1', '10']) {
     await amplitude.fill(value)
@@ -125,6 +123,10 @@ try {
   await waitForGeometryChange(amplitudePositions, 'changing amplitude must update rendered geometry')
   record('Mode selection and amplitude changes use the same canvas; invalid amplitude recovers')
 
+  // Capture upstream's reset pose for this mode and phase.
+  await canvas.dblclick({ position: { x: 15, y: 15 } })
+  await page.waitForTimeout(300)
+  const homeCamera = await cameraPose()
   const bounds = await canvas.boundingBox()
   await page.mouse.move(bounds.x + bounds.width * .6, bounds.y + bounds.height * .5)
   await page.mouse.down()
@@ -163,18 +165,21 @@ try {
   await canvas.screenshot({ path: `${artifacts}/camera-after.png` })
   assert.ok(near(returned, rotated), `switching modes must preserve the camera: ${JSON.stringify({ rotated, returned })}`)
   await play.click()
-  await page.waitForFunction(() => Number(document.querySelector('[aria-label="Step input"]').value) !== 12)
+  await page.waitForFunction(() => Number(document.querySelector('[aria-label="step input"]').value) !== 13)
   await play.click()
-  assert.ok(near(await settledCamera(), rotated), 'playback must also preserve the native camera')
-  await step.fill('12')
+  // Upstream follows the frame center during playback. Rotation and zoom stay fixed.
+  assert.ok(near((await settledCamera()).slice(3), rotated.slice(3)), 'playback preserves camera orientation and zoom')
+  await step.fill('13')
   await page.waitForTimeout(250)
   assert.equal(await page.evaluate(() => document.querySelector('dialog canvas') === window.frequencyCanvas), true)
-  await dialog.getByRole('button', { name: 'Reset camera (or double-click)', exact: true }).click()
-  assert.ok(near(await settledCamera(), initialCamera), 'native reset must retain the initial camera baseline across frames')
+  await canvas.dblclick({ position: { x: 15, y: 15 } })
+  const reset = await settledCamera()
+  assert.ok(near(reset.slice(3, 7), homeCamera.slice(3, 7)) && !near(reset, rotated),
+    `native reset restores the home orientation: ${JSON.stringify({ homeCamera, reset, rotated })}`)
   record('Native rotate/zoom and mode switching preserve the camera and canvas')
 
   await file.setInputFiles({ name: 'broken.cjson', mimeType: 'application/json', buffer: Buffer.from('{"chemical json":0}') })
-  await dialog.getByRole('alert').waitFor()
+  await dialog.locator('.error[role="alert"]').waitFor()
   assert.equal(await modes.locator('option').count(), 3)
   assert.match(await dialog.locator('.filename').innerText(), /gaussian16-water/)
   await play.click()
@@ -184,10 +189,10 @@ try {
   await file.setInputFiles({ name: 'imaginary.cjson', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(imaginary)) })
   await page.waitForFunction(() => document.querySelector('dialog .filename')?.textContent === 'imaginary.cjson')
   assert.match(await modes.locator('option').first().textContent(), /-2169.76 cm⁻¹ \(imaginary\)/)
-  assert.equal(await step.inputValue(), '0')
+  assert.equal(await step.inputValue(), '1')
   await page.waitForTimeout(250)
-  assert.equal(await step.inputValue(), '0', 'a replacement file must stop existing playback')
-  assert.equal(await dialog.getByRole('alert').count(), 0)
+  assert.equal(await step.inputValue(), '1', 'a replacement file must stop existing playback')
+  assert.equal(await dialog.locator('.error').count(), 0)
   record('Invalid file keeps valid data; replacement resets playback and preserves negative frequency')
 
   await file.setInputFiles(fixture('orca42-dvb'))
@@ -196,7 +201,7 @@ try {
   assert.equal(await modes.locator('option').count(), 54)
   assert.match(await modes.locator('option').first().textContent(), /45.75/)
   await modes.selectOption('53')
-  await step.fill('12')
+  await step.fill('13')
   await page.waitForTimeout(250)
   await page.screenshot({ path: `${artifacts}/orca-frequency.png` })
   await page.setViewportSize({ width: 600, height: 800 })
@@ -206,7 +211,7 @@ try {
   record('Real ORCA export: all 54 modes and responsive viewer')
 
   await page.evaluate(() => { window.frequencyClosingCanvas = document.querySelector('dialog canvas') })
-  await page.keyboard.press('Escape')
+  await dialog.getByRole('button', { name: 'Close vibration viewer', exact: true }).click()
   await dialog.waitFor({ state: 'hidden' })
   assert.equal(await open.evaluate(element => document.activeElement === element), true)
   assert.equal(await page.locator('canvas').count(), 0)
@@ -217,7 +222,7 @@ try {
   await open.click()
   await file.setInputFiles(fixture('gaussian16-water'))
   await canvas.waitFor()
-  assert.equal(await step.inputValue(), '0')
+  assert.equal(await step.inputValue(), '1')
   assert.equal(await canvas.count(), 1)
   await page.screenshot({ path: `${artifacts}/gaussian-frequency.png` })
   record('Closing restores workbench focus and releases the scene; reopening starts paused')

@@ -965,6 +965,52 @@ impl ServiceRunner {
             );
             return;
         }
+        if path == "/api/viewer-export" {
+            if method != "POST" {
+                respond(
+                    &mut stream,
+                    405,
+                    "text/plain",
+                    b"Method Not Allowed",
+                    method == "HEAD",
+                );
+                return;
+            }
+            if !same_origin(headers, &self.authority, true) {
+                respond(&mut stream, 403, "text/plain", b"Invalid Origin", false);
+                return;
+            }
+            let filenames: Vec<_> = query
+                .iter()
+                .filter(|(key, _)| key == "filename")
+                .map(|(_, value)| value.as_str())
+                .collect();
+            let types: Vec<_> = headers
+                .iter()
+                .filter(|(key, _)| key.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.as_str())
+                .collect();
+            let metadata = if filenames.len() == 1 && types.len() == 1 {
+                crate::viewer_export::validate(filenames[0], types[0], body)
+            } else {
+                Err("Export requires one filename and Content-Type".into())
+            };
+            match metadata {
+                Err(message) => respond_json(&mut stream, &json!({"message": message}), 400, false),
+                Ok(extension) => match crate::viewer_export::save(filenames[0], extension, body) {
+                    Ok(saved) => respond_json(
+                        &mut stream,
+                        &json!({"status": if saved { "saved" } else { "cancelled" }}),
+                        200,
+                        false,
+                    ),
+                    Err(message) => {
+                        respond_json(&mut stream, &json!({"message": message}), 500, false)
+                    }
+                },
+            }
+            return;
+        }
         if path == "/api/ready" {
             if method != "POST" {
                 respond(
@@ -1960,13 +2006,15 @@ fn plot_export_magic_matches(format: &PlotExportFormat, body: &[u8]) -> bool {
 }
 
 fn write_plot_export(export: &PlotExportDirective, body: &[u8]) -> Result<(), String> {
-    let parent = export
-        .path
+    write_export_atomically(&export.path, body)
+}
+
+pub(crate) fn write_export_atomically(path: &Path, body: &[u8]) -> Result<(), String> {
+    let parent = path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let name = export
-        .path
+    let name = path
         .file_name()
         .ok_or_else(|| "plot export path has no file name".to_owned())?
         .to_string_lossy();
@@ -1984,7 +2032,7 @@ fn write_plot_export(export: &PlotExportDirective, body: &[u8]) -> Result<(), St
         file.write_all(body)
             .and_then(|_| file.sync_all())
             .map_err(|error| format!("could not write plot export: {error}"))?;
-        replace_file(&temp, &export.path)
+        replace_file(&temp, path)
             .map_err(|error| format!("could not finalize plot export: {error}"))
     })();
     if result.is_err() {
@@ -3345,6 +3393,88 @@ mod tests {
             }
         }
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn viewer_export_rejects_unauthorized_or_invalid_requests_before_choosing_a_file() {
+        let root = fixture("native-viewer-export");
+        let frontend = root.join("frontend");
+        let session = root.join("session");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&session).unwrap();
+        fs::write(frontend.join("index.html"), "MatterViz").unwrap();
+        fs::write(session.join("manifest.json"), "{}").unwrap();
+        let service = HttpService::start(AppConfig {
+            frontend,
+            session,
+            manifest: None,
+            state: None,
+            host: "127.0.0.1".into(),
+            port: 0,
+            transport: None,
+            multiwfn_pid: Some(1),
+        })
+        .unwrap();
+        let target = authorized_path(service.url(), "/api/viewer-export?filename=scene.png");
+        let url = url::Url::parse(service.url()).unwrap();
+        let authority = url.authority();
+        for (method, path, origin, mime, body, expected) in [
+            (
+                "POST",
+                "/api/viewer-export?filename=scene.png",
+                format!("http://{authority}"),
+                "image/png",
+                "bytes",
+                403,
+            ),
+            (
+                "GET",
+                target.as_str(),
+                format!("http://{authority}"),
+                "image/png",
+                "",
+                405,
+            ),
+            (
+                "POST",
+                target.as_str(),
+                "http://example.invalid".into(),
+                "image/png",
+                "bytes",
+                403,
+            ),
+            (
+                "POST",
+                target.as_str(),
+                format!("http://{authority}"),
+                "text/plain",
+                "bytes",
+                400,
+            ),
+            (
+                "POST",
+                target.as_str(),
+                format!("http://{authority}"),
+                "image/png",
+                "not a PNG",
+                400,
+            ),
+        ] {
+            let mut stream = TcpStream::connect(authority).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            write!(stream, "{method} {path} HTTP/1.1\r\nHost: {authority}\r\nOrigin: {origin}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            assert!(
+                response.starts_with(&format!("HTTP/1.1 {expected} ")),
+                "{response}"
+            );
+        }
+        service.shutdown();
+        join_service(service);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -807,6 +807,7 @@ export const zh = {
   "Session loading failed": "会话载入失败",
   "{count} plot(s) opened": "已打开 {count} 张图表",
   "{format} exported": "已导出 {format}",
+  "Save cancelled": "已取消保存",
   "{name} removed": "已移除 {name}",
   "Original quantitative surface results loaded": "已载入原始表面定量分析结果",
   "Structure loaded": "已载入结构",

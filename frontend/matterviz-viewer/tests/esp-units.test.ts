@@ -20,8 +20,7 @@ ${values.join(' ')}
 const close = (actual: number, expected: number): void => {
   assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} != ${expected}`)
 }
-const values = (volume: VolumetricData): number[] => Array.isArray(volume.grid)
-  ? volume.grid.flat(2) : Array.from(volume.grid.data)
+const values = (volume: VolumetricData): number[] => Array.from(volume.values)
 
 test('kcal/mol Cube imports match a.u. values, color range and numerical legend', async () => {
   const server = await createServer({ appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false, watch: null } })
@@ -50,10 +49,6 @@ test('kcal/mol Cube imports match a.u. values, color range and numerical legend'
       DEFAULT_ESP_LIMIT * KCAL_PER_HARTREE)
     assert.equal(normalized.origin, original.origin)
     assert.equal(normalized.lattice, original.lattice)
-    // The same import adapter also accepts the parser's packed representation.
-    const packed = { ...original, grid: { dimensions: [2, 2, 2] as [number, number, number], order: 'z-fastest' as const, data: new Float64Array(samples) } }
-    values(normalize_esp_volume(packed, entry)).forEach((value, index) => close(value, values(atomic)[index]))
-    assert.deepEqual(Array.from(packed.grid.data), samples)
     for (const unconverted of [
       { ...entry, valueUnit: 'au' as const },
       { ...entry, valueUnit: undefined },

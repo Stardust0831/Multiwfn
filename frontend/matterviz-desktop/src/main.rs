@@ -15,8 +15,11 @@ mod shutdown;
 mod stream_broker;
 mod transport;
 mod updater;
+mod viewer_export;
 pub mod volume_protocol;
 pub mod volume_store;
+#[cfg(target_os = "linux")]
+mod webkit_features;
 mod workbench_args;
 mod workflow_batch;
 mod workflow_builder;
@@ -316,6 +319,7 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
     let stop_service = service.clone();
     let ready_service = service.clone();
     let navigation_reports_ready = service.is_none();
+    let native_export = service.is_some();
     let result = tauri::Builder::default()
         .setup(move |app| {
             let callback_status = setup_status.clone();
@@ -324,6 +328,11 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
                     .title("MatterViz")
                     .inner_size(1400.0, 900.0)
                     .resizable(true)
+                    .initialization_script(if native_export {
+                        "window.__MULTIWFN_NATIVE_EXPORT__ = true;"
+                    } else {
+                        ""
+                    })
                     .on_page_load(move |_window, payload| {
                         if navigation_reports_ready
                             && matches!(payload.event(), PageLoadEvent::Finished)
@@ -332,11 +341,15 @@ fn run_tauri(url: String, service: Option<Arc<HttpService>>, timeout: Duration) 
                         }
                     })
                     .build();
-            if let Err(error) = window_result {
+            let window = window_result.map_err(|error| {
                 let message = format!("could not create MatterViz window: {error}");
                 setup_status.error(&message);
-                return Err(std::io::Error::other(message).into());
-            }
+                std::io::Error::other(message)
+            })?;
+            #[cfg(target_os = "linux")]
+            window.with_webview(|webview| webkit_features::enable_webgpu(&webview.inner()))?;
+            #[cfg(not(target_os = "linux"))]
+            let _ = window;
             if let Some(service) = ready_service.clone() {
                 let ready_status = setup_status.clone();
                 thread::spawn(move || {

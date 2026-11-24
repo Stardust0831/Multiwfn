@@ -45,7 +45,7 @@
     label: line.label,
     style: { color: line.color, dash: line.dash === 'dash' ? '6 4' : undefined },
     annotation: line.label ? { text: line.label } : undefined,
-    y_axis: line.axis === 'y2' ? 'y2' : 'y1',
+    y_axis: line.axis === 'y2' ? 'y2' : 'y',
   })) as RefLine[]
 
   let panels = $state(untrack(() => artifact.version === 1 ? v1_artifact.panels.map((panel) => ({
@@ -94,16 +94,16 @@
           <ScatterPlot
             class="scientific-scatter-plot"
             line_tween={{ duration: 0 }}
-            bind:series={view.series}
+            series={view.series}
             bind:x_axis={view.x_axis}
             bind:y_axis={view.y_axis}
             bind:y2_axis={view.y2_axis}
-            bind:ref_lines={view.ref_lines}
+            ref_lines={view.ref_lines}
             bind:display={view.display}
             padding={SCIENTIFIC_PLOT_PADDING}
             user_content={scientific_content}
             legend={SCIENTIFIC_PLOT_LEGEND}
-            controls={{ show: true }}
+            show_controls="always"
             fullscreen_toggle={true}
             pan={{ enabled: true }}
           />

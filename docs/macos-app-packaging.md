@@ -46,9 +46,9 @@ The bundle utilizes a dual launcher architecture:
 
 2. **Backend Setup & Direct GUI Pipe (`Contents/MacOS/multiwfn_macos_launcher.sh`)**:
    - **Environment Resolution**: Dynamically calculates `MULTIWFN_MATTERVIZ_HOME` and exports `DYLD_LIBRARY_PATH` to point to `Contents/Resources/lib`.
-   - **Proactive Quarantine Removal**: Runs `xattr -cr` recursively across the bundle upon launch to prevent Gatekeeper from blocking nested `.dylib` libraries or the `matterviz-desktop` helper executable.
-   - **Direct GUI Mode**: Passes the selected file path and main menu selection `0` via standard input pipe (`printf "%s\n0\n" "$INPUT_FILE" | exec "$BINARY"`), opening the MatterViz 3D viewer directly without requiring manual keystrokes.
+   - **Direct GUI Mode**: Passes the selected file as the core's first argument and supplies `0\nq\n` on standard input. The core reads the requested molecule and starts its managed MatterViz viewer; returning from the viewer then exits the core gracefully. The presence of workflow resources does not change this molecular-viewer entry.
    - **Terminal Compatibility**: Preserves standard CLI workflows when executed interactively or in batch pipelines.
+   - **Workbench Entry**: The separate BaneWfn app's marker routes its arguments unchanged to the host's supported `--workbench` mode.
 
 ## File Associations (`CFBundleDocumentTypes`)
 
@@ -110,8 +110,21 @@ cmake --build . --target multiwfn_macos_app
 ## Testing
 
 Automated unit tests in `tests/test_macos_app_bundle.py` verify:
+
 - XML syntax and schema compliance of `Info.plist.in`
 - Complete coverage of all 19 registered chemical file extensions
 - Syntax and contract compliance of `multiwfn_macos_launcher.sh` and `Install_Multiwfn.command`
 - RPATH relocation rules and DMG creation logic
 - High-resolution `Multiwfn.icns` integrity and magic header bytes
+
+The macOS package job also tests the real app extracted from its newly built
+DMG. Through LaunchServices it opens the app without arguments, chooses a file
+in the native Open panel, and opens a different document. It verifies the exact
+input paths and all atom species/coordinates delivered by the core to the host.
+The same native window then exercises PNG save, cancellation, refused overwrite
+and confirmed overwrite, with decoded PNGs, screenshots and hashes retained.
+Direct-GUI and ordinary CLI cases check process exit after Return or `q`.
+
+`tests/native-export/README.md` describes the driver and how to repeat acceptance
+against an existing package. The package job records the source head, actual
+checkout commit, and DMG/launcher/core/host hashes alongside the UI evidence.

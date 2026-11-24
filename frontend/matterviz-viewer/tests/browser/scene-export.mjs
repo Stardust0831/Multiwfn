@@ -1,117 +1,147 @@
-// Pixel-level acceptance of actual scene downloads, including translucent Reps.
-// Start preview:session first; Playwright is supplied by the developer environment.
+// Exercise the production workbench, the upstream finish selector and the real PNG download.
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import path from 'node:path'
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
-const preview = process.env.PREVIEW_URL || 'http://127.0.0.1:5297/?manifest=/session/surface-manifest.json'
-const artifacts = process.env.ARTIFACT_DIR || '/tmp/multiwfn-scene-export'
+import { chromium } from 'playwright'
+import { preview } from 'vite'
+import { chromiumOptions } from './chromium-options.mjs'
+
+const server = process.env.PREVIEW_URL ? undefined : await preview({ preview: { port: 0, host: '127.0.0.1' } })
+const base = process.env.PREVIEW_URL ?? server.resolvedUrls.local[0]
+const browser = await chromium.launch(chromiumOptions)
+const finishes = ['satin', 'translucent_shell', 'chalk', 'unlit']
+const artifacts = process.env.ARTIFACT_DIR || '/tmp/multiwfn-scene-export-browser'
 await mkdir(artifacts, { recursive: true })
-const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
-  headless: true, args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
-const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, locale: 'en-US', acceptDownloads: true })
-const errors = [], checks = []
-page.on('pageerror', error => errors.push(String(error)))
-page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()) })
-const button = name => page.getByRole('button', { name, exact: true })
-const record = message => { checks.push(message); console.log('PASS', message) }
-const state = () => page.evaluate(() => {
-  const { camera, scene } = window.exportTestScene
-  const canvas = document.querySelector('.structure canvas')
-  const materials = []
-  scene.traverse(object => {
-    if (object.isMesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-      materials.push([material.uuid, material.opacity, material.transparent])
-    }
-  })
-  return { position: camera.position.toArray(), rotation: camera.quaternion.toArray(), zoom: camera.zoom,
-    width: canvas.width, height: canvas.height, ratio: window.exportTestRenderer.getPixelRatio(),
-    background: getComputedStyle(canvas.closest('.structure')).getPropertyValue('--struct-bg-override'),
-    materials, sameCanvas: canvas === window.exportTestCanvas }
-})
-const pixels = async file => page.evaluate(async data => {
-  const image = new Image()
-  image.src = `data:image/png;base64,${data}`
-  await image.decode()
-  const canvas = document.createElement('canvas')
-  canvas.width = image.width; canvas.height = image.height
-  const context = canvas.getContext('2d')
-  context.drawImage(image, 0, 0)
-  const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data
-  const corner = Array.from(rgba.slice(0, 4))
-  let transparent = 0, partial = 0, opaque = 0, foreground = 0
-  for (let i = 0; i < rgba.length; i += 4) {
-    if (rgba[i + 3] === 0) transparent++
-    else if (rgba[i + 3] === 255) opaque++
-    else partial++
-    if (rgba[i + 3] > 0 && (rgba[i] !== corner[0] || rgba[i + 1] !== corner[1] || rgba[i + 2] !== corner[2])) foreground++
+const verification = { status: 'failed', browserVersion: browser.version(), cases: [] }
+
+// A signed p-like orbital and two independent scalar fields on the same finite grid.
+function cube(role) {
+  const axis = 23, data = []
+  for (let i = 0; i < axis; i++) for (let j = 0; j < axis; j++) for (let k = 0; k < axis; k++) {
+    const [x, y, z] = [i, j, k].map(n => (n - 11) / 5)
+    const rho = Math.exp(-x*x - y*y - z*z)
+    data.push(role === 'potential' ? x : role === 'orbital' ? x*rho : rho)
   }
-  return { width: image.width, height: image.height, corner, transparent, partial, opaque, foreground }
-}, (await readFile(file)).toString('base64'))
-const save = async (name, transparent, zh = false) => {
-  const before = await state()
-  await button(zh ? '保存' : 'Save').click()
-  const checkbox = page.getByRole('checkbox', { name: zh ? '透明背景' : 'Transparent background', exact: true })
-  if (transparent === undefined) assert.equal(await checkbox.isChecked(), false, 'opaque background is the default')
-  else await checkbox.setChecked(transparent)
-  const download = page.waitForEvent('download')
-  await button(zh ? 'PNG 图像' : 'PNG image').click()
-  const file = path.join(artifacts, `${name}.png`)
-  await (await download).saveAs(file)
-  await page.getByRole('dialog', { name: zh ? '保存选项' : 'Save controls', exact: true }).waitFor({ state: 'hidden' })
-  await page.waitForFunction(() => !document.querySelector('.return')?.disabled)
-  assert.deepEqual(await state(), before, 'export preserves camera, background, materials and canvas size')
-  const stats = await pixels(file)
-  assert.ok(stats.foreground > 1000, 'download contains the rendered model')
-  return stats
+  return ['Multiwfn', role, '2 -2.2 -2.2 -2.2', '-23 0.2 0 0', '-23 0 0.2 0', '-23 0 0 0.2',
+    '6 0 -0.8 0 0', '8 0 0.8 0 0', data.join(' ')].join('\n')
 }
+
 try {
-  await page.goto(preview, { waitUntil: 'networkidle', timeout: 180000 })
-  await page.locator('.rep-row').first().waitFor()
-  await page.evaluate(async () => {
-    const url = performance.getEntriesByType('resource').map(e => e.name).find(url => /\/matterviz\.js/.test(url))
-    const mv = await import(url)
-    const canvas = document.querySelector('.structure canvas')
-    window.exportTestScene = mv.scene_registry.get(canvas)
-    window.exportTestRenderer = mv.renderer_registry.get(canvas)
-    window.exportTestCanvas = canvas
-  })
-  await page.waitForFunction(() => window.exportTestScene.scene.getObjectByName('rep-copies-volume-1')?.children[0]?.children.length > 0)
-  const white = await save('white')
-  assert.deepEqual(white.corner, [255, 255, 255, 255])
-  assert.equal(white.transparent + white.partial, 0)
-  record('Default PNG has an opaque white background and visible structure/surface')
-
-  const transparent = await save('transparent', true)
-  assert.equal(transparent.corner[3], 0)
-  assert.ok(transparent.transparent > 1000 && transparent.partial > 1000)
-  assert.equal(transparent.width, white.width); assert.equal(transparent.height, white.height)
-  record('Transparent PNG has empty alpha outside the model and partial alpha on translucent surfaces')
-
-  await button('Scene').click()
-  await page.getByLabel('Background', { exact: true }).fill('#64a0d0')
-  await page.getByRole('spinbutton', { name: 'Background opacity', exact: true }).fill('0.35')
-  const colored = await save('colored', false)
-  assert.deepEqual(colored.corner, [100, 160, 208, 255])
-  assert.equal(colored.transparent + colored.partial, 0)
-  record('Opaque export uses the chosen background color even with translucent on-screen background')
-
-  await button('切换到中文').click()
-  const chinese = await save('transparent-zh', true, true)
-  assert.equal(chinese.corner[3], 0)
-  await button('保存').click()
-  assert.equal(await page.getByRole('checkbox', { name: '透明背景', exact: true }).isChecked(), true)
-  await page.screenshot({ path: path.join(artifacts, 'save-menu-zh.png'), animations: 'disabled' })
-  await page.keyboard.press('Escape')
-  await button('工具').click(); await button('编辑原子和键…').click()
-  await page.locator('.rep-edit-banner').waitFor()
-  await button('返回表示层').click()
-  assert.equal(await page.locator('.tool-rail').getByRole('button', { name: '编辑', exact: true }).count(), 0)
-  record('Chinese export option works, selection persists and source editing remains available in Tools')
-  assert.deepEqual(errors, [])
-  await writeFile(path.join(artifacts, 'verification.json'), JSON.stringify({ preview, checks, white, transparent, colored, chinese, errors }, null, 2))
+  // Keep the synthetic ESP case narrow for responsive coverage. Real reference
+  // sessions use the desktop canvas so the whole molecular surface is visible.
+  for (const [mode, width] of [['orbital', 1080], ['esp', process.env.ESP_PREVIEW_URL ? 1080 : 390]]) {
+    const page = await browser.newPage({ viewport: { width, height: 720 }, locale: 'en-US' })
+    try {
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      const entries = mode === 'orbital'
+        ? [{ path: 'orbital.cube', role: 'orbital', mode: 'signed', isovalue: .15, opacity: 1 }]
+        : [{ path: 'density.cube', name: 'Density', analysisKind: 'esp-density', isovalue: .15,
+            colorMapping: { path: 'potential.cube', range: [-1, 1], stops: [
+              { position: 0, color: '#ff0000' }, { position: .5, color: '#ffffff' }, { position: 1, color: '#0000ff' }] } },
+          { path: 'potential.cube', name: 'Potential', analysisKind: 'esp-potential', visible: false }]
+      const url = new URL((mode === 'orbital' ? process.env.ORBITAL_PREVIEW_URL : process.env.ESP_PREVIEW_URL) ?? base)
+      const fixture = !url.searchParams.has('manifest')
+      const result = { mode, fixture, url: url.href, viewport: { width, height: 720 }, images: [], errors }
+      verification.cases.push(result)
+      if (fixture) {
+        url.searchParams.set('manifest', '/test-session/manifest.json')
+        await page.route('**/test-session/*', route => {
+          const filename = new URL(route.request().url()).pathname.split('/').pop()
+          if (filename === 'manifest.json') return route.fulfill({ json: { cubes: entries } })
+          return route.fulfill({ contentType: 'text/plain', body: cube(filename.split('.')[0]) })
+        })
+      }
+      await page.goto(url.href)
+      const controls = page.getByRole('button', { name: 'Structure controls', exact: true })
+      await controls.click()
+      const finish = page.locator('select').filter({ has: page.locator('option[value="translucent_shell"]') }).filter({ visible: true })
+      await finish.waitFor()
+      assert.deepEqual(await finish.locator('option').evaluateAll(options => options.map(o => o.value)), finishes)
+      if (mode === 'orbital') {
+        // Upstream renders translucent, uniformly colored satin lobes with the shell shader.
+        const opacity = page.getByRole('slider', { name: 'Opacity', exact: true }).first()
+        await opacity.press('End')
+        assert.equal(Number(await opacity.inputValue()), 1)
+      }
+      if (!fixture && mode === 'esp') {
+        // Upstream initially fits the atoms; the density surface extends beyond
+        // them. Use its normal zoom interaction to frame the reference export.
+        const bounds = await page.locator('.scene-viewport canvas').boundingBox()
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+        for (let step = 0; step < 3; step++) {
+          await page.mouse.wheel(0, 500)
+          await page.waitForTimeout(200)
+        }
+        await page.mouse.move(5, 5)
+        await page.waitForTimeout(1500)
+        result.cameraAdjustment = 'Three native wheel zoom-out events of 500 before all four exports'
+      }
+      // Reopen controls between downloads because the native pane dismisses on outside clicks.
+      const images = []
+      for (const value of finishes) {
+        if (!await finish.isVisible()) await controls.click()
+        await finish.selectOption(value)
+        await page.getByRole('button', { name: 'Save', exact: true }).click()
+        const pending = page.waitForEvent('download')
+        await page.getByRole('button', { name: 'PNG image', exact: true }).click()
+        const download = await pending
+        assert.equal(await download.failure(), null)
+        const filename = `${mode}-${value}.png`
+        await download.saveAs(`${artifacts}/${filename}`)
+        const png = await readFile(`${artifacts}/${filename}`)
+        assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a')
+        const pixels = await page.evaluate(async base64 => {
+          const image = new Image()
+          image.src = 'data:image/png;base64,' + base64
+          await image.decode()
+          const c = document.createElement('canvas')
+          c.width = c.height = 128
+          const ctx = c.getContext('2d')
+          ctx.drawImage(image, 0, 0, 128, 128)
+          return Array.from(ctx.getImageData(0, 0, 128, 128).data)
+        }, png.toString('base64'))
+        assert.ok(pixels.filter((v, i) => i % 4 !== 3 && v < 220).length > 120, 'molecule appears in PNG')
+        result.images.push({ finish: value, filename, bytes: png.length,
+          width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+          sha256: createHash('sha256').update(png).digest('hex') })
+        images.push(pixels)
+      }
+      for (let i = 0; i < images.length; i++) for (let j = 0; j < i; j++) {
+        assert.ok(images[i].some((v,k) => Math.abs(v - images[j][k]) > 4), finishes[i] + ' should differ from ' + finishes[j])
+      }
+      if (mode === 'esp') {
+        if (!await finish.isVisible()) await controls.click()
+        const removeDensity = page.getByRole('button', { name: /^Remove volume .*density$/i })
+        const restoreLabel = (await removeDensity.getAttribute('aria-label')).replace(/^Remove/, 'Restore')
+        await removeDensity.click()
+        await page.locator('.statusbar').getByText('1 volume(s)', { exact: true }).waitFor()
+        await page.getByRole('button', { name: restoreLabel, exact: true }).click()
+        await page.locator('.statusbar').getByText('2 volume(s)', { exact: true }).waitFor()
+        await page.getByRole('button', { name: 'Tools', exact: true }).click()
+        await page.getByRole('button', { name: 'Approx. ESP extrema', exact: true }).click()
+        await page.locator('.esp-extrema-list').waitFor()
+        result.volumeRecovery = true
+      }
+      const toolbar = page.locator('.toolbar')
+      await toolbar.getByRole('button', { name: '切换到中文', exact: true }).click()
+      assert.equal(await page.locator('html').getAttribute('lang'), 'zh-CN')
+      await toolbar.getByRole('button', { name: 'Switch to English', exact: true }).click()
+      assert.equal(await page.locator('html').getAttribute('lang'), 'en')
+      assert.deepEqual(errors, [])
+      console.log(mode + ': four native finishes rendered and exported at ' + width + 'px')
+    } catch (error) {
+      await page.screenshot({ path: `${artifacts}/${mode}-failure.png` }).catch(() => {})
+      await writeFile(`${artifacts}/${mode}-failure.txt`, await page.locator('body').ariaSnapshot().catch(() => ''))
+      throw error
+    } finally { await page.close() }
+  }
+  verification.status = 'passed'
 } catch (error) {
-  await page.screenshot({ path: path.join(artifacts, 'failure.png') }).catch(() => {})
-  console.error({ checks, errors })
+  verification.error = String(error)
   throw error
-} finally { await browser.close() }
+} finally {
+  await writeFile(`${artifacts}/verification.json`, JSON.stringify(verification, null, 2))
+  await browser.close()
+  if (server) await server.close()
+}

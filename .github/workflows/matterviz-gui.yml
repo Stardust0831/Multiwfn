@@ -39,8 +39,8 @@ on:
       - tests/test_matterviz_build_names.py
       - tests/test_matterviz_mapped_surfaces.py
       - tests/test_matterviz_plot_adapter.py
-      - tests/test_matterviz_topology_vendor.py
       - tests/test_macos_app_bundle.py
+      - tests/native-export/macos.swift
       - tools/macos/**
       - tests/matterviz_plot_capture_harness.f90
       - tests/matterviz-volume-e2e/**
@@ -65,7 +65,8 @@ concurrency:
 jobs:
   build:
     name: MatterViz frontend and Rust host
-    runs-on: ubuntu-latest
+    # Playwright 1.58.2 provides browser dependencies for Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     steps:
@@ -73,6 +74,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      # Keep Git dependency preparation outside node_modules: Node refuses to
+      # strip TypeScript there. Set this before setup-node queries pnpm's cache.
+      - name: Set pnpm store outside node_modules
+        shell: bash
+        run: printf 'pnpm_config_store_dir=%s/pnpm-store\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -95,18 +102,24 @@ jobs:
           pnpm check
           VITE_MATTERVIZ_PRERELEASE_UPDATER=1 pnpm build
 
-      - name: Test frequency viewer interactions
+      - name: Test native isosurface finishes and frequency viewer interactions
         working-directory: frontend/matterviz-viewer
+        env:
+          PLAYWRIGHT_HEADED: '1'
         run: |
           pnpm exec playwright install --with-deps chromium
-          pnpm test:frequency
+          # Match upstream: headless Linux WebGPU can present transparent canvases.
+          xvfb-run -a pnpm test:scene-export
+          xvfb-run -a pnpm test:frequency
 
-      - name: Upload frequency viewer failure artifacts
-        if: failure()
+      - name: Upload MatterViz browser verification and PNGs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frequency-viewer-browser
-          path: /tmp/multiwfn-frequency-browser
+          name: matterviz-browser-verification
+          path: |
+            /tmp/multiwfn-frequency-browser
+            /tmp/multiwfn-scene-export-browser
           if-no-files-found: ignore
 
       - name: Set up Rust
@@ -163,7 +176,7 @@ jobs:
           bash tests/c/run_matterviz_stream_test.sh
 
       - name: Test MatterViz build contract
-        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_matterviz_topology_vendor.py tests/test_macos_app_bundle.py
+        run: python3 -m unittest -v tests/test_gui_session_paths.py tests/test_matterviz_build_names.py tests/test_matterviz_mapped_surfaces.py tests/test_matterviz_plot_adapter.py tests/test_macos_app_bundle.py
 
       - name: Build Multiwfn with MatterViz frontend
         run: |
@@ -206,6 +219,10 @@ jobs:
       - name: Test macOS formal and preview package arguments
         if: runner.os == 'macOS'
         run: python3 -m unittest -v tests/test_macos_app_bundle.py
+
+      - name: Set pnpm store outside node_modules
+        shell: bash
+        run: printf 'pnpm_config_store_dir=%s/pnpm-store\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -544,6 +561,34 @@ jobs:
             WEBKIT_DISABLE_COMPOSITING_MODE=1 \
             python3 tests/linux/test_matterviz_mapped_surfaces.py \
               --executable "$root/Multiwfn_MatterVizGUI"
+      - name: Test native Linux PNG save, cancel and overwrite
+        if: runner.os == 'Linux'
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          # The minimal runner has AT-SPI libraries but no desktop bus launcher.
+          # Extract its registry into RUNNER_TEMP and run a private bus; install
+          # no system or login service. Xvfb must precede D-Bus so activated
+          # helpers inherit DISPLAY.
+          mkdir -p "$RUNNER_TEMP/matterviz-atspi"
+          (cd "$RUNNER_TEMP/matterviz-atspi" && apt-get download at-spi2-core)
+          for deb in "$RUNNER_TEMP/matterviz-atspi/"*.deb; do
+            dpkg-deb -x "$deb" "$RUNNER_TEMP/matterviz-atspi"
+          done
+          xvfb-run -a -s '-screen 0 1440x1000x24' dbus-run-session -- \
+            /usr/bin/python3 tests/linux/test_matterviz_native_export.py \
+              --package "$PWD/clean-test/$PKG" \
+              --output "$RUNNER_TEMP/matterviz-native-export" \
+              --atspi-registry "$RUNNER_TEMP/matterviz-atspi/usr/libexec/at-spi2-registryd"
+
+      - name: Upload native export evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-native-export-${{ matrix.platform }}
+          path: ${{ runner.temp }}/matterviz-native-export
+          if-no-files-found: ignore
+
       - name: Package macOS preview
         if: runner.os == 'macOS'
         shell: bash
@@ -858,6 +903,7 @@ jobs:
           fi
 
       - name: Upload MatterViz package
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: matterviz-package-${{ matrix.platform }}
@@ -883,6 +929,48 @@ jobs:
           name: matterviz-macos-dmg
           path: macos-dist/*.dmg
           if-no-files-found: error
+
+      - name: Test macOS app entry and native exports
+        if: runner.os == 'macOS'
+        env:
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/macos-app-entry"
+          mount="$RUNNER_TEMP/macos-entry-mount"
+          app="$RUNNER_TEMP/macos-entry-extracted/Multiwfn.app"
+          mkdir -p "$output" "$mount" "$(dirname "$app")"
+          trap 'hdiutil detach "$mount" >/dev/null 2>&1 || true' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "macos-dist/$PKG.dmg"
+          ditto "$mount/Multiwfn.app" "$app"
+          hdiutil detach "$mount"
+          trap - EXIT
+          cmp tools/macos/multiwfn_macos_launcher.sh "$app/Contents/MacOS/multiwfn_macos_launcher.sh"
+          codesign --verify --deep --strict "$app" 2> "$output/signature.log"
+          python3 - "$app" "$output" "macos-dist/$PKG.dmg" <<'PY'
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+          app, output, dmg = map(Path, sys.argv[1:])
+          paths = [Path('tools/macos/launcher.m'), Path('tools/macos/multiwfn_macos_launcher.sh'),
+                   app/'Contents/MacOS/Multiwfn', app/'Contents/MacOS/Multiwfn_MatterVizGUI',
+                   app/'Contents/MacOS/multiwfn_macos_launcher.sh',
+                   app/'Contents/Resources/tools/matterviz-desktop', dmg]
+          provenance = {'source_head': os.environ['SOURCE_HEAD'],
+                        'checkout_sha': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
+                        'run_id': os.environ['GITHUB_RUN_ID'],
+                        'files': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}}
+          (output/'build-provenance.json').write_text(json.dumps(provenance, indent=2))
+          PY
+          swiftc tests/native-export/macos.swift -o "$RUNNER_TEMP/macos-entry-driver" -framework Cocoa -framework ApplicationServices
+          "$RUNNER_TEMP/macos-entry-driver" "$app" "$output"
+
+      - name: Retain macOS app entry evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-native-entry-macOS
+          path: ${{ runner.temp }}/macos-app-entry
+          if-no-files-found: ignore
 
   sign-preview:
     name: Sign MatterViz preview packages

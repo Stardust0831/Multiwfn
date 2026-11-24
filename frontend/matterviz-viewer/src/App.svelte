@@ -1,116 +1,105 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+  import { Structure, type AnyStructure } from 'matterviz/structure'
+  import { parse_structure_file } from 'matterviz/structure/parse'
+  import { DEFAULT_ISOSURFACE_SETTINGS, type IsosurfaceSettings, type VolumetricData } from 'matterviz/isosurface'
+  import { Atom, Download, FolderOpen, Info, Languages, RefreshCw, X } from '@lucide/svelte'
+  import { load_field, field_id, layer_for_field, type SessionField } from './session-fields'
+  import { adapt_matterviz_volume, decode_matterviz_volume, read_matterviz_volume_response, read_geometry_memory_budget } from './volume'
+  import { cube_entries, display_range, manifest_url, plot_export, resolve_entry_url, type ManifestEntry, type MultiwfnManifest } from './manifest'
+  import { extract_esp_extrema_async, type EspExtremaResult } from './esp'
+  import { inject_manifest_lattice } from './periodic'
+  import { initial_orbital_volume_index, loaded_orbital_volume_index, normalize_orbital_isovalue, orbital_frontier_label, ORBITAL_GRID_QUALITY_LEVELS } from './orbital'
   import { t, locale, set_locale, sync_document_locale, ui_message, format_message, type UiMessage } from './i18n'
-  import { normalize_lighting } from './lighting'
-  import {
-    DEFAULT_ISOSURFACE_SETTINGS,
-    Icon,
-    Structure,
-    auto_color_config,
-    compare_volume_grids,
-    parse_volumetric_file,
-    type AnyStructure,
-    type IsosurfaceLayer,
-    type IsosurfaceSettings,
-    type VolumetricData,
-    type MeasureMode,
-  } from 'matterviz'
-  import { parse_any_structure } from 'matterviz/structure/parse'
-  import { onMount, tick, untrack } from 'svelte'
-  import { PerspectiveCamera, OrthographicCamera, Box3, Sphere, Vector3, Mesh, type Plane } from 'three'
-  import { camera_update_matches, normalize_camera_pose, normalize_camera_step, pan_camera, rotate_camera, zoom_camera, type CameraDirection, type CameraPose } from './camera'
-  import EspLegend from './EspLegend.svelte'
-  import TopologyPanel from './TopologyPanel.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import WorkbenchMenu from './WorkbenchMenu.svelte'
+  import WorkbenchSelect from './WorkbenchSelect.svelte'
+  import MultiwfnPlotView from './MultiwfnPlotView.svelte'
+  import { parse_plot, plot_title, read_plot_dataset_response } from './plot'
+  import { render_plot_document } from './plot-export'
+  import { cached_plot_resolver, download_blob, import_plot_document, plot_data_csv, serialize_plot_document, PLOT_FILE_LIMIT, PLOT_RESULT_LIMIT, type WorkbenchPlot } from './workbench-plots'
+  import { scene_to_png_blob } from './scene-export'
+  import { signal_frontend_ready } from './startup'
+  import { request_return_and_close } from './return'
+  import { create_update_client, type UpdateStatus } from './update'
+  import UpdateModal from './UpdateModal.svelte'
   import AnalysisAction from './AnalysisAction.svelte'
-  import TopologyOverlay from './TopologyOverlay.svelte'
-  import SurfaceAnalysisOverlay from './SurfaceAnalysisOverlay.svelte'
+  import TopologyPanel from './TopologyPanel.svelte'
   import SurfaceAnalysisPanel from './SurfaceAnalysisPanel.svelte'
+  import AnalysisViewport from './AnalysisViewport.svelte'
+  import { analysis_structure_key } from './analysis-structure'
   import { resolve_surface, surface_display_defaults, surface_document, surface_csv, type SurfaceResult, type SurfaceConfirmation } from './surface-analysis'
   import { parse_surface_log, SURFACE_LOG_LIMIT } from './surface-log'
   import { AIM_DEFAULTS, resolve_topology, topology_display_defaults, topology_csv, topology_document, type TopologyResult, type TopologySelection } from './topology'
-  import MultiwfnPlotView from './MultiwfnPlotView.svelte'
-  import SlicePanel from './SlicePanel.svelte'
-  import UpdateModal from './UpdateModal.svelte'
-  import ViewerInspector from './ViewerInspector.svelte'
-  import RepInspector from './RepInspector.svelte'
-  import RepLayer from './RepLayer.svelte'
-  import './reps.css'
-  import { create_rep, dataset_key, migrate_reps, remap_rep_sources, MAX_REPS, type RepCollection, type Cell } from './reps'
-  import { LIGHTING_DEFAULTS, TMIM_LIGHTING_DEFAULTS } from './lighting'
-  import WorkbenchMenu from './WorkbenchMenu.svelte'
-  import WorkbenchSelect from './WorkbenchSelect.svelte'
-  import { Button } from '$lib/components/ui/button'
-  import { Atom, Layers, Box, Orbit, PanelLeftClose, Languages } from '@lucide/svelte'
-  import MeasurementReadout, { type BondResult } from './MeasurementReadout.svelte'
-  import { scene_registry } from 'matterviz'
-  import { scene_to_png_blob } from './scene-export'
-  import { migrate_color_scale } from './color-scale'
-  import { render_plot_document } from './plot-export'
-  import {
-    cached_plot_resolver, download_blob, import_plot_document, plot_data_csv,
-    serialize_plot_document, PLOT_FILE_LIMIT, PLOT_RESULT_LIMIT, type WorkbenchPlot,
-  } from './workbench-plots'
-  import {
-    ESP_COLORS,
-    estimate_esp_range,
-    extract_esp_extrema_async,
-    find_declared_esp_pair,
-    find_mapped_esp_pair,
-    normalize_esp_volume,
-    resolve_esp_legend_visibility,
-    surface_colormap,
-    type EspExtremaResult,
-    type LegendPosition,
-  } from './esp'
-  import {
-    cube_entries,
-    display_range,
-    manifest_url,
-    plot_export,
-    resolve_entry_url,
-    resolve_volume_entry_url,
-    type ManifestEntry,
-    type MultiwfnManifest,
-  } from './manifest'
-  import {
-    ORBITAL_GRID_QUALITY_LEVELS,
-    exclusive_volume_visibility,
-    initial_orbital_volume_index,
-    loaded_orbital_volume_index,
-    normalize_orbital_isovalue,
-    orbital_frontier_label,
-    visible_orbital_index,
-  } from './orbital'
-  import { clipped_rep_bounds, type RepBondEdits } from './rep-periodic'
-  import { clamp_periodic_bound, inject_manifest_lattice } from './periodic'
-  import { request_return_and_close } from './return'
-  import {
-    create_workbench_state,
-    download_workbench_state,
-    parse_workbench_state,
-    restore_workbench_state,
-    type MatterVizWorkbenchState,
-    type WorkbenchCameraState,
-  } from './state'
-  import { signal_frontend_ready } from './startup'
-  import { apply_manifest_color_mapping } from './volume-mapping'
-  import { create_update_client, type UpdateStatus } from './update'
-  import { AXIS_PRESETS, type SliceAxis, type SliceColormap } from './slice'
-  import {
-    adapt_matterviz_volume,
-    decode_matterviz_volume,
-    read_matterviz_volume_response,
-    read_geometry_memory_budget,
-  } from './volume'
-  import {
-    compact_volume_cache,
-    orbital_visibility,
-    type VolumeCacheOptions,
-  } from './volume-cache'
-  import { parse_plot, plot_title, read_plot_dataset_response } from './plot'
-  import { analysis_structure_key } from './analysis-structure'
 
+  const manifestBase = manifest_url()
   let manifest = $state<MultiwfnManifest>({})
-  let manifestBase = $state(new URL('/session/', window.location.href))
+  let structure = $state.raw<AnyStructure>()
+  let fields = $state.raw<SessionField[]>([])
+  // Native undo restores the volume. Keep its provenance without retaining the sample buffer.
+  const volumeEntriesById = new Map<string, ManifestEntry>()
+  const volumetricData = $derived(fields.map(field => field.volume))
+  const volumeEntries = $derived(fields.map(field => field.entry))
+  let settings = $state<IsosurfaceSettings>({ ...DEFAULT_ISOSURFACE_SETTINGS })
+  let activeVolume = $state<string>()
+  let espExtremaOpen = $state(false)
+  let espExtremaLoading = $state(false)
+  let espExtrema = $state<EspExtremaResult>()
+  const espPair = $derived.by(() => {
+    for (const layer of settings.layers) {
+      if (!layer.visible || !layer.color_volume_id) continue
+      const density = fields.find(f => f.volume.id === layer.volume_id && f.entry.analysisKind === 'esp-density')
+      const potential = fields.find(f => f.volume.id === layer.color_volume_id && f.entry.analysisKind === 'esp-potential')
+      if (density && potential) return { density: density.volume, potential: potential.volume, iso: layer.isovalue }
+    }
+  })
+  $effect(() => { espPair; espExtrema = undefined; espExtremaOpen = false })
+  async function calculate_esp_extrema() {
+    const pair = espPair
+    if (!pair || espExtremaLoading) return
+    espExtremaLoading = espExtremaOpen = true
+    try {
+      const result = await extract_esp_extrema_async(pair.density, pair.potential, pair.iso,
+        { maxCells: 120000, maxSamples: 50000, maxExtrema: 12, excludeBoundary: true })
+      if (espPair === pair) espExtrema = result
+    } catch (error) { report_error(error) }
+    finally { espExtremaLoading = false }
+  }
+  let backgroundColor = $state('#ffffff')
+  let sceneProps = $state<import('matterviz/structure').StructureSettings>({})
+  let selectedSites = $state<number[]>([])
+  let loading = $state(true)
+  let structureLoading = $state(false)
+  let workingMessage = $state<UiMessage>(ui_message('Loading session...'))
+  let errorMessage = $state('')
+  let status = $state<UiMessage>(ui_message('Loading Multiwfn session...'))
+  let returnPending = $state(false)
+  let viewerShell: HTMLElement
+  let orbitalIndex = $state(0)
+  let orbitalIsovalue = $state(0.02)
+  let quality = $state(120000)
+  let espIsovalue = $state(0.001)
+  let orbitalBackendAvailable = $state(true)
+  let logOpen = $state(false)
+  let plots = $state<WorkbenchPlot[]>([])
+  let activeResult = $state('scene')
+  let openMenu = $state<string | undefined>()
+  let plotInput: HTMLInputElement
+  let resultStage: HTMLDivElement
+  let importingPlot = $state(false)
+  let savingResult = $state(false)
+  let transparentExport = $state(false)
+  let orbitalPanelOpen = $state(window.innerWidth >= 760)
+  let orbitalListElement = $state<HTMLDivElement>()
+  const homoIndex = $derived(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex)
+  const active_plot = $derived(plots.find(plot => plot.id === activeResult))
+  const scene_available = $derived(Boolean(structure))
+  let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: UiMessage }>>([])
+  let updateStatus = $state<UpdateStatus>()
+  let updateOpen = $state(false)
+  const updaterBuildEnabled = import.meta.env.VITE_MATTERVIZ_PRERELEASE_UPDATER === '1'
+  const updateClient = updaterBuildEnabled ? create_update_client(new URL(window.location.href)) : undefined
+
   let topologyPanelOpen = $state(false)
   let topologyActive = $state(false)
   let topologyResult = $state.raw<TopologyResult>()
@@ -123,19 +112,18 @@
   let surfaceActive = $state(false)
   let surfaceSelection = $state<number>()
   let surfaceDisplay = $state(surface_display_defaults())
-  let surfaceFitPending = false
-  $effect(() => { if (topologyActive) surfaceActive = false })
+  let analysisViewport = $state<AnalysisViewport>()
   const open_surface_results = () => {
-    if (!surfaceResult) return
-    openMenu = undefined; surfacePanelOpen = true; surfaceActive = true
-    topologyPanelOpen = false; topologyActive = false; inspectorOpen = false; orbitalPanelOpen = false
+    openMenu = undefined
+    surfacePanelOpen = surfaceActive = true
+    topologyPanelOpen = topologyActive = orbitalPanelOpen = false
   }
   const topologyCell = $derived(manifest.periodic?.enabled && manifest.periodic.cell?.a && manifest.periodic.cell.b && manifest.periodic.cell.c ? [manifest.periodic.cell.a, manifest.periodic.cell.b, manifest.periodic.cell.c] : undefined)
-  let loadedManifestUrl = $state(manifest_url())
-  let structure = $state<AnyStructure | undefined>()
   let loadedGeometryKey = $state('')
   const geometryKey = $derived(analysis_structure_key(structure))
-  const topologyReason = $derived(loadedGeometryKey && geometryKey !== loadedGeometryKey ? 'The displayed structure no longer matches the loaded wavefunction' : manifest.topologyAnalysis?.aim?.available === true ? '' : manifest.topologyAnalysis?.aim?.reason || 'The loaded input does not provide AIM wavefunction data')
+  const topologyReason = $derived(loadedGeometryKey && geometryKey !== loadedGeometryKey
+    ? 'The displayed structure no longer matches the loaded wavefunction'
+    : manifest.topologyAnalysis?.aim?.available ? '' : manifest.topologyAnalysis?.aim?.reason || 'The loaded input does not provide AIM wavefunction data')
   $effect(() => {
     if (loadedGeometryKey && geometryKey !== loadedGeometryKey) {
       topologyGeneration++
@@ -148,192 +136,7 @@
       surfacePanelOpen = false
     }
   })
-  let displayedStructure = $state<AnyStructure | undefined>()
-  let bondEdits = $state<RepBondEdits>({ added: [], removed: [], overrides: [] })
-  let volumetricData = $state<VolumetricData[] | undefined>()
-  let volumeEntries = $state<ManifestEntry[]>([])
-  let isosurfaceSettings = $state<IsosurfaceSettings>({ ...DEFAULT_ISOSURFACE_SETTINGS })
-  let activeVolumeIdx = $state(0)
-  let measuredSites = $state<number[]>([])
-  let measureMode = $state<MeasureMode>('distance')
-  let bondResults = $state<BondResult[]>([])
-  let supercellScaling = $state('1x1x1')
-  let showImageAtoms = $state(true)
-  let showUnitCell = $state(true)
-  let showGizmo = $state<boolean | undefined>()
-  let latticeProps = $state({
-    cell_edge_opacity: 1,
-    cell_surface_opacity: 0,
-    show_cell_vectors: true,
-  })
-  let loading = $state(true)
-  let structureLoading = $state(false)
-  let workingMessage = $state<UiMessage>(ui_message('Loading session...'))
-  let returnPending = $state(false)
-  let errorMessage = $state<string | undefined>()
-  let viewerError = $state<string | undefined>()
-  let status = $state<UiMessage>(ui_message('Loading Multiwfn session...'))
-  let orbitalIndex = $state(0)
-  let orbitalIsovalue = $state(0.02)
-  let orbitalBackendAvailable = $state(true)
-  let quality = $state(120000)
-  let espIsovalue = $state(0.001)
-  let bondMethod = $state('mayer')
-  let viewerShell = $state<HTMLElement | undefined>()
-  let bondContextMenuElement = $state<HTMLElement | undefined>()
-  let bondContextMenu = $state<BondContextMenuState | undefined>()
-  let logOpen = $state(false)
-  let layerOpen = $state(false)
-  let sliceOpen = $state(false)
-  let slicePlane = $state<SliceAxis>('xy')
-  let sliceMillerH = $state(0)
-  let sliceMillerK = $state(0)
-  let sliceMillerL = $state(1)
-  let slicePosition = $state(0.5)
-  let sliceResolution = $state(128)
-  let sliceColormap = $state<SliceColormap>('Viridis')
-  let sliceRangeMode = $state<'auto' | 'manual'>('auto')
-  let sliceManualMin = $state('')
-  let sliceManualMax = $state('')
-  let espLegendOpen = $state(false)
-  let interactionLegendOpen = $state(true)
-  let interactionLegendPosition = $state<LegendPosition>({ left: 232, top: 16 })
-  let espExtremaOpen = $state(false)
-  let espExtremaLoading = $state(false)
-  let espExtrema = $state<EspExtremaResult | undefined>()
-  let representations = $state<RepCollection>({ items: [], selectedId: '' })
-  let repsInitialized = $state(false)
-  let previousRepLayers = new Map<string, string>()
-  let advancedStructure = $state(false)
-  let repErrors = $state<Record<string, string>>({})
-  let repColorRanges = $state<Record<string, [number, number] | undefined>>({})
-  let repMeasurement = $state<{ id: string; structure: AnyStructure; sites: number[] }>()
-  const measurementSites = $derived(!advancedStructure && !topologyActive && !surfaceActive ? repMeasurement?.sites ?? [] : measuredSites)
-  const measurementStructure = $derived(!advancedStructure && !topologyActive && !surfaceActive && repMeasurement ? repMeasurement.structure : displayedStructure ?? structure)
-  const selectedRep = $derived(representations.items.find((rep) => rep.id === representations.selectedId))
-  const selectedRepCell = $derived(selectedRep?.source.kind === 'volume'
-    ? volumetricData?.[selectedRep.source.index]?.lattice
-    : structure && 'lattice' in structure ? structure.lattice.matrix : undefined)
-  let inspectorOpen = $state(true)
-  $effect(() => { sceneProps.render_geometry = advancedStructure || topologyActive || surfaceActive })
-  $effect(() => {
-    // Only dataset/backend updates enter this bridge. Material edits and duplicate
-    // Reps remain independent of the old per-volume controls.
-    const entries = volumeEntries, layers = isosurfaceSettings.layers ?? [], ready = !loading && Boolean(structure)
-    if (!ready) return
-    untrack(() => {
-      if (!repsInitialized) {
-        representations = migrate_reps(sceneProps, isosurfaceSettings, entries, Boolean(manifest.periodic?.enabled), { atomSupercell: supercellScaling, showBoundaryAtoms: showImageAtoms, showUnitCell })
-        repsInitialized = true
-      } else {
-        let next = remap_rep_sources(representations, entries)
-        next = { ...next, items: next.items.filter((rep) => !(rep.followData && rep.source.kind === 'volume' && rep.source.index < 0)) }
-        const generated = migrate_reps(sceneProps, isosurfaceSettings, entries, Boolean(manifest.periodic?.enabled), { atomSupercell: supercellScaling, showBoundaryAtoms: showImageAtoms, showUnitCell }).items.slice(1)
-        for (const rep of generated) {
-          if (rep.source.kind !== 'volume') continue
-          const path = rep.source.path
-          const sourcePath = dataset_key(entries, rep.source.index)
-          const serialized = JSON.stringify(layers.find((layer) => layer.volume_idx === (rep.source.kind === 'volume' ? rep.source.index : -1)))
-          const existing = next.items.find((item) => item.followData && item.source.kind === 'volume' && item.source.path === path && (item.source.slot ?? 0) === (rep.source.kind === 'volume' ? rep.source.slot ?? 0 : 0))
-          if (!existing && next.items.length < MAX_REPS && previousRepLayers.get(sourcePath) !== serialized) next = { ...next, items: [...next.items, { ...rep, id: crypto.randomUUID() }] }
-          else if (existing && previousRepLayers.get(sourcePath) !== serialized) next = { ...next, items: next.items.map((item) => item.id === existing.id ? { ...item, visible: rep.visible, volume: rep.volume, material: { ...item.material, opacity: rep.material.opacity } } : item) }
-        }
-        if (!next.items.some((item) => item.id === next.selectedId)) next = { ...next, selectedId: next.items[0]?.id ?? '' }
-        representations = next
-      }
-      previousRepLayers = new Map(layers.map((layer, index) => [dataset_key(entries, layer.volume_idx ?? index), JSON.stringify(layer)]))
-    })
-  })
-  const update_representations = (next: RepCollection) => {
-    representations = next
-    repColorRanges = Object.fromEntries(Object.entries(repColorRanges).filter(([id]) => next.items.some((rep) => rep.id === id)))
-    const rep = next.items.find((item) => item.id === next.selectedId)
-    if (rep?.source.kind === 'volume' && rep.source.index >= 0) activeVolumeIdx = rep.source.index
-    if (repMeasurement && !next.items.some((item) => item.id === repMeasurement?.id && item.visible)) repMeasurement = undefined
-  }
-  const add_representation = () => {
-    if (representations.items.length >= MAX_REPS) return
-    const rep = create_rep({ kind: 'structure' })
-    rep.name = `Rep ${representations.items.length + 1}`
-    representations = { items: [...representations.items, rep], selectedId: rep.id }
-  }
-  const report_rep_error = (id: string, message: string) => {
-    if ((repErrors[id] ?? '') !== message) repErrors = { ...repErrors, [id]: message }
-  }
-  const report_rep_color_range = (id: string, range: [number, number] | undefined) => {
-    if (repColorRanges[id]?.[0] !== range?.[0] || repColorRanges[id]?.[1] !== range?.[1]) repColorRanges = { ...repColorRanges, [id]: range }
-    const rep = representations.items.find((item) => item.id === id)
-    if (range && rep && !migrate_color_scale(rep.volume)) {
-      // Freeze the migrated percentages only after a real surface range exists.
-      const volume = { ...rep.volume, colorScale: migrate_color_scale(rep.volume, range) }
-      representations = { ...representations, items: representations.items.map((item) => item.id === id ? { ...item, volume } : item) }
-    }
-  }
-  const measure_rep = (id: string, displayed: AnyStructure, sites: number[]) => {
-    repMeasurement = sites.length ? { id, structure: displayed, sites } : undefined
-  }
-  const open_representations = () => {
-    if (measureMode !== 'distance' && measureMode !== 'angle') measureMode = 'distance'
-    advancedStructure = false; inspectorOpen = true; topologyPanelOpen = false; surfacePanelOpen = false
-    topologyActive = false; surfaceActive = false; layerOpen = false
-  }
-  const open_structure_editor = () => {
-    open_representations()
-    advancedStructure = true
-    openMenu = undefined
-  }
-  let inspectorSection = $state<'structure' | 'surfaces' | 'cell'>('structure')
-  let rotationStep = $state(15)
-  let panStep = $state(0.25)
-  let zoomStep = $state(10)
-  let espRange = $state<[number, number]>([-0.05, 0.05])
-  let espLegendPosition = $state<LegendPosition>({ left: 16, top: 16 })
-  let stateInput = $state<HTMLInputElement | undefined>()
-  let backgroundColor = $state('#ffffff')
-  let backgroundOpacity = $state(1)
-  let sceneProps = $state<{
-    camera_position?: [number, number, number]
-    camera_target?: [number, number, number]
-    camera_up?: [number, number, number]
-    camera_zoom?: number
-    camera_projection?: 'perspective' | 'orthographic'
-    [key: string]: unknown
-  }>({ auto_rotate: 0, camera_control_mode: 'arcball' })
-  let logEntries = $state<Array<{ timestamp: string; level: 'info' | 'error'; message: UiMessage }>>([])
-  let updateStatus = $state<UpdateStatus | undefined>()
-  let updateOpen = $state(false)
-  const updaterBuildEnabled = import.meta.env.VITE_MATTERVIZ_PRERELEASE_UPDATER === '1'
-  const updateClient = updaterBuildEnabled ? create_update_client(new URL(window.location.href)) : undefined
-  let plots = $state<WorkbenchPlot[]>([])
-  let activeResult = $state('scene')
-  let openMenu = $state<string | undefined>()
-  let plotInput: HTMLInputElement
-  let resultStage: HTMLDivElement
-  let importingPlot = $state(false)
-  let savingResult = $state(false)
-  let transparentExport = $state(false)
-  let orbitalPanelOpen = $state(true)
-  let orbitalListElement = $state<HTMLDivElement | undefined>()
-  const homoIndex = $derived(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex)
-  let suspendedSpin: unknown
-  const active_plot = $derived(plots.find((plot) => plot.id === activeResult))
-  const scene_available = $derived(Boolean(structure || volumetricData?.length))
-
-  const show_result = (id: string): void => {
-    if (activeResult === 'scene' && id !== 'scene') {
-      suspendedSpin = sceneProps.auto_rotate
-      sceneProps = { ...sceneProps, auto_rotate: 0 }
-    } else if (id === 'scene' && activeResult !== 'scene' && suspendedSpin !== undefined) {
-      sceneProps = { ...sceneProps, auto_rotate: suspendedSpin }
-      suspendedSpin = undefined
-    }
-    activeResult = id
-    openMenu = undefined
-    close_bond_context_menu()
-    layerOpen = false
-    logOpen = false
-  }
-
+  const show_result = (id: string) => { activeResult = id; openMenu = undefined }
   const open_plot_files = async (event: Event): Promise<void> => {
     const input = event.currentTarget as HTMLInputElement
     const files = [...(input.files ?? [])]
@@ -350,7 +153,7 @@
       // Apply the whole group only after validation, retaining the current scene on errors.
       plots = [...plots, ...imported]
       show_result(imported[0].id)
-      errorMessage = undefined
+      errorMessage = ''
       set_status(ui_message('{count} plot(s) opened', { count: imported.length }))
     } catch (error) { report_error(error) }
     finally { importingPlot = false; input.value = '' }
@@ -367,22 +170,25 @@
     openMenu = undefined
     const plot = active_plot
     try {
+      let outcome: string
       if (plot) {
         if (format === 'csv' || format === 'json') {
           const data = format === 'csv' ? await plot_data_csv(plot) : await serialize_plot_document(plot)
-          download_blob(new Blob([data], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json' }), `${plot_title(plot.artifact)}.${format}`)
+          outcome = await download_blob(new Blob([data], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json' }), `${plot_title(plot.artifact)}.${format}`)
         } else {
           const root = resultStage?.querySelector<HTMLElement>('.result-document:not(.inactive) [data-plot-document]')
           if (!root) throw new Error('The active plot is not ready')
           const bytes = await render_plot_document(root, format)
-          download_blob(new Blob([bytes.slice().buffer], { type: format === 'svg' ? 'image/svg+xml' : format === 'pdf' ? 'application/pdf' : 'image/png' }), `${plot_title(plot.artifact)}.${format}`)
+          outcome = await download_blob(new Blob([bytes.slice().buffer], { type: format === 'svg' ? 'image/svg+xml' : format === 'pdf' ? 'application/pdf' : 'image/png' }), `${plot_title(plot.artifact)}.${format}`)
         }
       } else {
-        const canvas = viewerShell?.querySelector<HTMLCanvasElement>('.structure canvas')
+        const canvas = viewerShell?.querySelector<HTMLCanvasElement>('canvas')
         if (!canvas) throw new Error('The 3D scene is not ready')
-        download_blob(await scene_to_png_blob(canvas, transparentExport ? undefined : backgroundColor), 'Multiwfn-scene.png')
+        const background = transparentExport ? undefined : backgroundColor
+        const png = analysisViewport ? await analysisViewport.capture(background) : await scene_to_png_blob(canvas, background)
+        outcome = await download_blob(png, 'Multiwfn-scene.png')
       }
-      set_status(ui_message('{format} exported', { format: format.toUpperCase() }))
+      set_status(outcome === 'cancelled' ? ui_message('Save cancelled') : ui_message('{format} exported', { format: format.toUpperCase() }))
     } catch (error) { report_error(error) }
     finally { savingResult = false }
   }
@@ -402,139 +208,6 @@
     components?: Record<string, number>
   }
 
-  type BondPair = [number, number]
-
-  type SelectedBondContextDetail = {
-    displayed_site_indices: BondPair
-    source_site_indices: BondPair
-    bond_order?: number | 'aromatic'
-    cell_shift?: [number, number, number]
-    client_x: number
-    client_y: number
-  }
-
-  type BondContextMenuState = SelectedBondContextDetail & {
-    left: number
-    top: number
-    max_width: number
-    max_height: number
-  }
-
-  const CONTEXT_MENU_MARGIN = 8
-  let bondContextMenuGeneration = 0
-
-  const valid_bond_pair = (sites: readonly number[]): BondPair | undefined => {
-    if (sites.length !== 2) return undefined
-    const [first, second] = sites
-    if (!Number.isInteger(first) || !Number.isInteger(second) || first < 0 || second < 0 || first === second) {
-      return undefined
-    }
-    return [first, second]
-  }
-
-  const valid_source_bond_pair = (sites: readonly number[]): BondPair | undefined => {
-    const pair = valid_bond_pair(sites)
-    const sourceSiteCount = structure?.sites?.length
-    return pair && Number.isInteger(sourceSiteCount) && pair.every((siteIndex) => siteIndex < Number(sourceSiteCount))
-      ? pair
-      : undefined
-  }
-
-  const displayed_source_site_index = (siteIndex: number): number | undefined => {
-    const properties = measurementStructure?.sites?.[siteIndex]?.properties
-    const sourceIndex = properties?.orig_unit_cell_idx ?? properties?.orig_site_idx ?? siteIndex
-    return Number.isInteger(sourceIndex) && Number(sourceIndex) >= 0 ? Number(sourceIndex) : undefined
-  }
-
-  const selected_source_bond_pair = (): BondPair | undefined => {
-    const displayedPair = valid_bond_pair(measurementSites)
-    if (!displayedPair) return undefined
-    const first = displayed_source_site_index(displayedPair[0])
-    const second = displayed_source_site_index(displayedPair[1])
-    return first === undefined || second === undefined ? undefined : valid_source_bond_pair([first, second])
-  }
-
-  const same_unordered_pair = (first: BondPair, second: BondPair): boolean =>
-    (first[0] === second[0] && first[1] === second[1]) ||
-    (first[0] === second[1] && first[1] === second[0])
-
-  const close_bond_context_menu = (): void => {
-    bondContextMenuGeneration += 1
-    bondContextMenu = undefined
-  }
-
-  const context_menu_position = (
-    clientX: number,
-    clientY: number,
-    menuWidth = 260,
-    menuHeight = 280,
-  ): Pick<BondContextMenuState, 'left' | 'top' | 'max_width' | 'max_height'> => {
-    const bounds = viewerShell?.getBoundingClientRect() ?? {
-      left: 0,
-      top: 0,
-      right: window.innerWidth,
-      bottom: window.innerHeight,
-      width: window.innerWidth,
-      height: window.innerHeight,
-    }
-    const maxWidth = Math.max(0, bounds.width - CONTEXT_MENU_MARGIN * 2)
-    const maxHeight = Math.max(0, bounds.height - CONTEXT_MENU_MARGIN * 2)
-    const renderedWidth = Math.min(menuWidth, maxWidth)
-    const renderedHeight = Math.min(menuHeight, maxHeight)
-    const minimumLeft = bounds.left + CONTEXT_MENU_MARGIN
-    const minimumTop = bounds.top + CONTEXT_MENU_MARGIN
-    const maximumLeft = Math.max(minimumLeft, bounds.right - CONTEXT_MENU_MARGIN - renderedWidth)
-    const maximumTop = Math.max(minimumTop, bounds.bottom - CONTEXT_MENU_MARGIN - renderedHeight)
-    return {
-      left: Math.min(maximumLeft, Math.max(minimumLeft, clientX)),
-      top: Math.min(maximumTop, Math.max(minimumTop, clientY)),
-      max_width: maxWidth,
-      max_height: maxHeight,
-    }
-  }
-
-  const open_bond_context_menu = async (detail: SelectedBondContextDetail): Promise<void> => {
-    const displayedPair = valid_bond_pair(detail.displayed_site_indices)
-    const sourcePair = valid_source_bond_pair(detail.source_site_indices)
-    const currentSelection = valid_bond_pair(measurementSites)
-    const methods = manifest.bondAnalysis?.methods
-    if (
-      !displayedPair ||
-      !sourcePair ||
-      !currentSelection ||
-      !same_unordered_pair(displayedPair, currentSelection) ||
-      !methods ||
-      Object.keys(methods).length === 0
-    ) {
-      close_bond_context_menu()
-      return
-    }
-    const generation = bondContextMenuGeneration + 1
-    bondContextMenuGeneration = generation
-    const clientX = Number.isFinite(detail.client_x) ? detail.client_x : 0
-    const clientY = Number.isFinite(detail.client_y) ? detail.client_y : 0
-    bondContextMenu = {
-      ...detail,
-      displayed_site_indices: [...displayedPair],
-      source_site_indices: [...sourcePair],
-      client_x: clientX,
-      client_y: clientY,
-      ...context_menu_position(clientX, clientY),
-    }
-    await tick()
-    if (generation !== bondContextMenuGeneration || !bondContextMenu || !bondContextMenuElement) return
-    const position = context_menu_position(
-      clientX,
-      clientY,
-      bondContextMenuElement.offsetWidth,
-      bondContextMenuElement.offsetHeight,
-    )
-    bondContextMenu = { ...bondContextMenu, ...position }
-    await tick()
-    const firstAvailableMethod = bondContextMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')
-    if (firstAvailableMethod) firstAvailableMethod.focus()
-    else bondContextMenuElement?.focus()
-  }
 
   const unavailable_bond_method_reason = (method: string): string | undefined => {
     if (loading) return 'Another calculation is currently running'
@@ -584,6 +257,7 @@
       Number(manifest.orbitals?.count ?? 0),
       Number(manifest.multiwfnGui?.state?.orbitalCount ?? 0),
       ...items.map((item) => Number(item.index) || 0),
+      ...volumeEntries.map(entry => entry.orbitalIndex ?? 0),
     )
   }
 
@@ -654,663 +328,145 @@
     return response.text()
   }
 
-  const layer_for_entry = (entry: ManifestEntry, volume_idx: number): IsosurfaceLayer => {
-    const signed = entry.mode === 'signed' || entry.role === 'orbital'
-    const espPotential = entry.analysisKind === 'esp-potential'
-    return {
-      isovalue: Math.abs(Number(entry.isovalue ?? (signed ? 0.02 : 0.001))),
-      color: espPotential ? ESP_COLORS.positive : signed ? '#2563eb' : '#9ca3af',
-      negative_color: espPotential ? ESP_COLORS.negative : '#dc2626',
-      opacity: Number(entry.opacity ?? 0.82),
-      visible: entry.visible !== false,
-      show_negative: signed,
-      volume_idx,
-    }
+
+  function replace_fields(next: SessionField[], replaced: Set<string> = new Set()) {
+    const ids = new Set(next.map(field => field.volume.id))
+    if (ids.size !== next.length) throw new Error('Duplicate volume in Multiwfn session')
+    const previous = settings.layers.filter(layer => ids.has(layer.volume_id) && !replaced.has(layer.volume_id))
+    const added = next.filter(field => !fields.some(old => old.volume.id === field.volume.id) || replaced.has(field.volume.id))
+    const layers = [...previous, ...added.map(field => layer_for_field(field, next))]
+    for (const field of next) volumeEntriesById.set(field.volume.id, field.entry)
+    settings = { ...settings, layers }
+    fields = next
   }
 
-  const parse_volume_entry = async (
-    entry: ManifestEntry,
-    base: URL,
-  ): Promise<{ structure?: AnyStructure; volumes: VolumetricData[]; geometryBudget?: number }> => {
-    if (entry.format === 'mwfn-volume-v1' || entry.format === 'mwfn-volume-v2') {
-      const url = resolve_volume_entry_url(entry, base)
-      const response = await fetch(url, { cache: 'no-store' })
-      if (!response.ok) throw new Error(`${url.pathname}: HTTP ${response.status}`)
-      const contentType = response.headers.get('content-type') || ''
-      if (!contentType.includes('application/vnd.multiwfn.volume')) {
-        throw new Error(`${url.pathname}: expected a MatterViz binary volume`)
-      }
-      const volume = adapt_matterviz_volume(
-        decode_matterviz_volume(await read_matterviz_volume_response(response)),
-      )
-      return {
-        geometryBudget: read_geometry_memory_budget(response.headers),
-        volumes: [{
-          ...volume,
-          label: entry.name || entry.role || 'Volume',
-          source: entry.path,
-        }],
-      }
-    }
-    const text = await fetch_text(resolve_entry_url(entry, base))
-    const parsed = parse_volumetric_file(text, entry.path)
-    if (!parsed) throw new Error(`MatterViz could not parse ${entry.path}`)
-    const volumes = parsed.volumes.map((volume, idx) => ({
-      ...normalize_esp_volume(volume, entry),
-      ...(manifest.structure?.path ? { origin_mode: 'absolute' as const } : {}),
-      label: entry.name || `${entry.role || 'Volume'} ${idx + 1}`,
-      source: entry.path,
+  function sync_native_volumes(volumes: VolumetricData[] | undefined) {
+    const next = volumes ?? []
+    if (next.length === fields.length && next.every((volume, index) => volume === fields[index].volume)) return
+    fields = next.map(volume => ({
+      volume, entry: volumeEntriesById.get(volume.id) ?? { path: volume.source ?? volume.id, name: volume.label },
     }))
-    return { structure: parsed.structure, volumes }
   }
 
-  const apply_entries = async (
-    entries: ManifestEntry[],
-    base: URL,
-    mode: 'replace' | 'append' = 'replace',
-  ): Promise<number> => {
-    const parsed = await Promise.all(entries.map((entry) => parse_volume_entry(entry, base)))
-    const volumes = parsed.flatMap((item) => item.volumes)
-    const expandedEntries = entries.flatMap((entry, idx) => parsed[idx].volumes.map((_, datasetSlot) => ({ ...entry, datasetSlot })))
-    const previousVolumes = mode === 'append' ? (volumetricData ?? []) : []
-    const nextVolumes = [...previousVolumes, ...volumes]
-    if (!structure) {
-      const parsedStructureIdx = parsed.findIndex((item) => item.structure)
-      const parsedStructure = parsed[parsedStructureIdx]?.structure
-      if (parsedStructure) {
-        structure = inject_manifest_lattice(parsedStructure, manifest, { override: true })
-        loadedGeometryKey = analysis_structure_key(structure)
-      }
-    }
-    const previousLayers = mode === 'append' ? (isosurfaceSettings.layers ?? []) : []
-    const firstVolumeIdx = previousVolumes.length
-    volumetricData = nextVolumes
-    volumeEntries = mode === 'append' ? [...volumeEntries, ...expandedEntries] : expandedEntries
-    const budgets = parsed.flatMap(({ geometryBudget }) => geometryBudget === undefined ? [] : [geometryBudget])
-    if (mode === 'append' && isosurfaceSettings.geometry_memory_budget_bytes !== undefined) {
-      budgets.push(isosurfaceSettings.geometry_memory_budget_bytes)
-    }
-    isosurfaceSettings = {
-      ...(mode === 'append' ? isosurfaceSettings : DEFAULT_ISOSURFACE_SETTINGS),
-      display_range: display_range(manifest),
-      geometry_memory_budget_bytes: budgets.length ? Math.min(...budgets) : undefined,
-      layers: [...previousLayers, ...entries.flatMap((entry, idx) =>
-        parsed[idx].volumes.map((_, local_idx) =>
-          layer_for_entry(
-            entry,
-            firstVolumeIdx + parsed.slice(0, idx).reduce((sum, item) => sum + item.volumes.length, 0) + local_idx,
-          ),
-        ),
-      )],
-    }
-    isosurfaceSettings = {
-      ...isosurfaceSettings,
-      layers: [...previousLayers, ...apply_manifest_color_mapping(
-        (isosurfaceSettings.layers ?? []).slice(previousLayers.length), volumeEntries, grids_compatible,
-      )],
-    }
-    activeVolumeIdx = firstVolumeIdx
-    return firstVolumeIdx
-  }
-
-  const compact_volumes = (options: VolumeCacheOptions = {}): Map<number, number> => {
-    const repReferences = representations.items.filter((rep) => !rep.followData && rep.source.kind === 'volume')
-      .flatMap((rep) => [rep.source.kind === 'volume' ? rep.source.index : -1, rep.volume.color_volume_idx ?? -1]).filter((index) => index >= 0)
-    const compacted = compact_volume_cache({
-      volumes: volumetricData ?? [],
-      entries: volumeEntries,
-      layers: isosurfaceSettings.layers ?? [],
-      active_volume_idx: activeVolumeIdx,
-    }, { ...options, retain_indices: [...(options.retain_indices ?? []), ...repReferences] })
-    volumetricData = compacted.volumes
-    volumeEntries = compacted.entries
-    isosurfaceSettings = { ...isosurfaceSettings, layers: compacted.layers }
-    activeVolumeIdx = compacted.active_volume_idx
-    if (!esp_pair()) clear_esp_tools()
-    return compacted.old_to_new
-  }
-
-  const remove_volumes = (predicate: (entry: ManifestEntry, index: number) => boolean): void => {
-    const remove_indices = volumeEntries.flatMap((entry, index) => predicate(entry, index) ? [index] : [])
-    compact_volumes({ remove_indices })
-  }
-
-  const remove_volume = (volumeIdx: number): void => {
-    const target = volumeEntries[volumeIdx]
-    if (!target) return
-    remove_volumes((_entry, index) => index === volumeIdx)
-    set_status(ui_message('{name} removed', { name: target.name || target.role || 'Volume' }))
-  }
-
-  const activate_only_volume = (volumeIdx: number | undefined): void => {
-    isosurfaceSettings = {
-      ...isosurfaceSettings,
-      layers: exclusive_volume_visibility(isosurfaceSettings.layers ?? [], volumeIdx),
-    }
-    if (volumeIdx !== undefined) activeVolumeIdx = volumeIdx
-  }
-
-  const activate_orbital_volume = (volumeIdx: number | undefined): number | undefined => {
-    isosurfaceSettings = {
-      ...isosurfaceSettings,
-      layers: orbital_visibility(isosurfaceSettings.layers ?? [], volumeEntries, volumeIdx),
-    }
-    if (volumeIdx !== undefined) activeVolumeIdx = volumeIdx
-    const oldToNew = compact_volumes({ retain_active_volume: volumeIdx !== undefined })
-    return volumeIdx === undefined ? undefined : oldToNew.get(volumeIdx)
-  }
-
-  const restore_visible_orbital_selection = (): void => {
-    orbitalIndex = visible_orbital_index(volumeEntries, isosurfaceSettings.layers ?? []) ?? 0
-  }
-
-  const active_volume_bytes = (): number => {
-    const buffers = new Set<ArrayBufferLike>()
-    let bytes = 0
-    for (const volume of volumetricData ?? []) {
-      if (Array.isArray(volume.grid)) continue
-      const buffer = volume.grid.data.buffer
-      if (buffers.has(buffer)) continue
-      buffers.add(buffer)
-      bytes += buffer.byteLength
-      if (!Number.isSafeInteger(bytes)) return Number.MAX_SAFE_INTEGER
-    }
-    return bytes
-  }
-
-  const replace_volume_entry = async (
-    volumeIdx: number,
-    entry: ManifestEntry,
-    base: URL,
-  ): Promise<number> => {
-    const parsed = await parse_volume_entry(entry, base)
-    if (parsed.volumes.length !== 1) {
-      remove_volumes((_entry, index) => index === volumeIdx)
-      return apply_entries([entry], base, 'append')
-    }
-    if (!structure && parsed.structure) {
-      structure = inject_manifest_lattice(parsed.structure, manifest, { override: true })
-    }
-    const volumes = [...(volumetricData ?? [])]
-    volumes[volumeIdx] = parsed.volumes[0]
-    volumetricData = volumes
-    volumeEntries = volumeEntries.map((current, index) => index === volumeIdx ? entry : current)
-    isosurfaceSettings = {
-      ...isosurfaceSettings,
-      geometry_memory_budget_bytes: parsed.geometryBudget ?? isosurfaceSettings.geometry_memory_budget_bytes,
-      layers: (isosurfaceSettings.layers ?? []).map((layer) =>
-        layer.volume_idx === volumeIdx ? layer_for_entry(entry, volumeIdx) : layer),
-    }
-    return volumeIdx
-  }
-
-  const upsert_loaded_volume = (
-    volumeIdx: number | undefined,
-    entry: ManifestEntry,
-    volume: VolumetricData,
-  ): number => {
-    if (volumeIdx === undefined) {
-      const nextIdx = volumetricData?.length ?? 0
-      volumetricData = [...(volumetricData ?? []), volume]
-      volumeEntries = [...volumeEntries, entry]
-      isosurfaceSettings = {
-        ...isosurfaceSettings,
-        layers: [...(isosurfaceSettings.layers ?? []), layer_for_entry(entry, nextIdx)],
-      }
-      return nextIdx
-    }
-    const volumes = [...(volumetricData ?? [])]
-    volumes[volumeIdx] = volume
-    volumetricData = volumes
-    volumeEntries = volumeEntries.map((current, index) => index === volumeIdx ? entry : current)
-    isosurfaceSettings = {
-      ...isosurfaceSettings,
-      layers: (isosurfaceSettings.layers ?? []).map((layer) =>
-        layer.volume_idx === volumeIdx ? layer_for_entry(entry, volumeIdx) : layer),
-    }
-    return volumeIdx
-  }
-
-  const update_layer = (volumeIdx: number, patch: Partial<IsosurfaceLayer>): void => {
-    const layers = isosurfaceSettings.layers ?? []
-    isosurfaceSettings = {
-      ...isosurfaceSettings,
-      layers: layers.map((layer) => layer.volume_idx === volumeIdx ? { ...layer, ...patch } : layer),
-    }
-  }
-
-  const set_color_range = (volumeIdx: number, bound: 0 | 1, value: number): void => {
-    if (!Number.isFinite(value)) return
-    const layer = (isosurfaceSettings.layers ?? []).find((item) => item.volume_idx === volumeIdx)
-    const [lower, upper] = layer?.color_range ?? [-0.05, 0.05]
-    update_layer(volumeIdx, {
-      color_range: bound === 0
-        ? [Math.min(value, upper), upper]
-        : [lower, Math.max(value, lower)],
-    })
-  }
-
-  const set_color_volume = (volumeIdx: number, colorVolumeIdx: number): void => {
-    if (colorVolumeIdx < 0) {
-      update_layer(volumeIdx, { color_volume_idx: undefined, colormap: undefined, color_range: undefined })
-      if (!esp_pair()) clear_esp_tools()
-      return
-    }
-    const colorVolume = volumetricData?.[colorVolumeIdx]
-    const surfaceVolume = volumetricData?.[volumeIdx]
-    if (!colorVolume || !surfaceVolume) return
-    const compatibility = compare_volume_grids(surfaceVolume, colorVolume)
-    if (!compatibility.ok) {
-      report_error(new Error(`Color grid is incompatible: ${compatibility.reason || 'grid mismatch'}`))
-      return
-    }
-    const color = auto_color_config(colorVolume.data_range)
-    update_layer(volumeIdx, {
-      color_volume_idx: colorVolumeIdx,
-      colormap: surface_colormap(volumeEntries[colorVolumeIdx], color.colormap),
-      color_range: color.color_range,
-    })
-    if (!esp_pair()) clear_esp_tools()
-  }
-
-  const grids_compatible = (leftIdx: number, rightIdx: number): boolean => {
-    const left = volumetricData?.[leftIdx]
-    const right = volumetricData?.[rightIdx]
-    return Boolean(left && right && compare_volume_grids(left, right).ok)
-  }
-
-  const displayed_volume_layers = (): IsosurfaceLayer[] => {
-    if (!repsInitialized || advancedStructure) return isosurfaceSettings.layers ?? []
-    const items = [...representations.items].sort((a, b) => Number(b.id === representations.selectedId) - Number(a.id === representations.selectedId))
-    return items.flatMap((rep) => rep.source.kind === 'volume' && rep.source.index >= 0
-      ? [{ ...rep.volume, color_stops: migrate_color_scale(rep.volume)?.stops, color_range: rep.volume.color_range ?? repColorRanges[rep.id], volume_idx: rep.source.index, visible: rep.visible, opacity: rep.material.opacity }] : [])
-  }
-  const interaction_legend = (): IsosurfaceLayer | undefined => displayed_volume_layers().find((layer) =>
-    layer.visible && layer.color_volume_idx !== undefined && layer.color_range
-    && volumeEntries[layer.color_volume_idx]?.analysisKind === 'weak-interaction-color')
-
-  const esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined => {
-    return find_mapped_esp_pair(volumeEntries, displayed_volume_layers(), grids_compatible)
-  }
-
-  const declared_esp_pair = (): { densityIdx: number; potentialIdx: number } | undefined =>
-    find_declared_esp_pair(volumeEntries, grids_compatible)
-
-  const clear_esp_tools = (): void => {
-    espLegendOpen = false
-    espExtremaOpen = false
-    espExtrema = undefined
-  }
-
-  const refresh_esp_range = (densityIdx: number, potentialIdx: number): void => {
-    const density = volumetricData?.[densityIdx]
-    const potential = volumetricData?.[potentialIdx]
-    if (!density || !potential) return
-    const range = estimate_esp_range(density, potential, espIsovalue, { maxCells: 150000, maxSamples: 50000 })
-    espRange = [range.min, range.max]
-    update_layer(densityIdx, { color_range: espRange })
-  }
-
-  const linked_esp_range = (): [number, number] | undefined => {
-    const pair = esp_pair()
-    if (!pair) return undefined
-    const layer = displayed_volume_layers().find((item) => item.volume_idx === pair.densityIdx && item.color_volume_idx === pair.potentialIdx && item.visible)
-    const potentialRange = volumetricData?.[pair.potentialIdx]?.data_range
-    const range = layer?.color_range ?? (potentialRange ? [potentialRange.min, potentialRange.max] : undefined)
-    if (!Array.isArray(range) || range.length < 2) return undefined
-    const lower = Number(range[0])
-    const upper = Number(range[1])
-    if (!Number.isFinite(lower) || !Number.isFinite(upper)) return undefined
-    return lower <= upper ? [lower, upper] : [upper, lower]
-  }
-
-  const current_esp_range = (): [number, number] => linked_esp_range() ?? espRange
-
-  const current_esp_colormap = (): NonNullable<IsosurfaceLayer['colormap']> => {
-    const pair = esp_pair()
-    return displayed_volume_layers().find((layer) => layer.volume_idx === pair?.densityIdx && layer.color_volume_idx === pair?.potentialIdx && layer.visible)?.colormap
-      ?? 'interpolateTransFlag'
-  }
-  const current_esp_color_stops = (): IsosurfaceLayer['color_stops'] => {
-    const pair = esp_pair()
-    return displayed_volume_layers().find((layer) => layer.volume_idx === pair?.densityIdx && layer.color_volume_idx === pair?.potentialIdx && layer.visible)?.color_stops
-  }
-
-  const state_url = (): URL | undefined => {
-    const value = new URL(window.location.href).searchParams.get('state')
-    return value ? new URL(value, window.location.href) : undefined
-  }
-
-  const fetch_workbench_state = async (url: URL): Promise<MatterVizWorkbenchState> => {
-    const response = await fetch(url, { cache: 'no-store' })
-    if (!response.ok) throw new Error(`Workbench state request returned HTTP ${response.status}`)
-    return parse_workbench_state(await response.json())
-  }
-
-  const apply_workbench_state = (state: MatterVizWorkbenchState): void => {
-    const restored = restore_workbench_state(state, { entries: volumeEntries, isosurfaceSettings })
-    const layers = (restored.isosurfaceSettings.layers ?? []).map((layer) => {
-      const volumeIdx = layer.volume_idx ?? 0
-      const colorIdx = layer.color_volume_idx
-      if (colorIdx === undefined || grids_compatible(volumeIdx, colorIdx)) return layer
-      add_log(`Ignored incompatible restored color grid for volume ${volumeIdx + 1}`, 'error')
-      return { ...layer, color_volume_idx: undefined, colormap: undefined, color_range: undefined }
-    })
-    isosurfaceSettings = { ...restored.isosurfaceSettings, layers }
-    activeVolumeIdx = restored.activeVolume
-    const activeLayer = layers.find((layer) => (layer.volume_idx ?? 0) === activeVolumeIdx)
-    const activeOrbitalIndex = Number(volumeEntries[activeVolumeIdx]?.orbitalIndex)
-    orbitalIndex = activeLayer?.visible !== false && Number.isInteger(activeOrbitalIndex) && activeOrbitalIndex > 0
-      ? activeOrbitalIndex
-      : 0
-    if (restored.periodic) {
-      if (restored.periodic.displayRange) {
-        isosurfaceSettings = { ...isosurfaceSettings, display_range: restored.periodic.displayRange }
-      }
-      supercellScaling = restored.periodic.atomSupercell
-      showImageAtoms = restored.periodic.showBoundaryAtoms
-      showUnitCell = restored.periodic.showUnitCell
-      latticeProps = {
-        ...latticeProps,
-        cell_edge_opacity: showUnitCell ? 1 : 0,
-        show_cell_vectors: showUnitCell,
-      }
-    }
-    if (restored.camera) {
-      sceneProps = {
-        ...sceneProps,
-        ...(restored.camera.position ? { camera_position: [...restored.camera.position] as [number, number, number] } : {}),
-        ...(restored.camera.target ? { camera_target: [...restored.camera.target] as [number, number, number] } : {}),
-        ...(restored.camera.up ? { camera_up: [...restored.camera.up] as [number, number, number] } : {}),
-        ...(restored.camera.zoom !== undefined ? { camera_zoom: restored.camera.zoom } : {}),
-        ...(restored.camera.projection ? { camera_projection: restored.camera.projection } : {}),
-      }
-    }
-    if (restored.structureAppearance) {
-      const appearance = restored.structureAppearance
-      sceneProps = {
-        ...sceneProps,
-        ...normalize_lighting(appearance),
-        ...(appearance.lightingRig !== undefined ? { lighting_rig: appearance.lightingRig } : {}),
-        ...(appearance.sceneToneMapping !== undefined ? { scene_tone_mapping: appearance.sceneToneMapping } : {}),
-        ...(appearance.atomStyle !== undefined ? { atom_style: appearance.atomStyle } : {}),
-        ...(appearance.atomMaterial !== undefined ? { atom_material: appearance.atomMaterial } : {}),
-        ...(appearance.atomRoughness !== undefined ? { atom_roughness: appearance.atomRoughness } : {}),
-        ...(appearance.atomMetalness !== undefined ? { atom_metalness: appearance.atomMetalness } : {}),
-        ...(appearance.atomOpacity !== undefined ? { atom_opacity: appearance.atomOpacity } : {}),
-        ...(appearance.atomOutline !== undefined ? { atom_outline: appearance.atomOutline } : {}),
-        ...(appearance.atomOutlineWidth !== undefined ? { atom_outline_width: appearance.atomOutlineWidth } : {}),
-        ...(appearance.representationPreset !== undefined ? { representation_preset: appearance.representationPreset } : {}),
-        ...(appearance.representationAtomBase !== undefined ? { representation_atom_base: appearance.representationAtomBase } : {}),
-        ...(appearance.representationBondBase !== undefined ? { representation_bond_base: appearance.representationBondBase } : {}),
-        ...(appearance.showAtoms !== undefined ? { show_atoms: appearance.showAtoms } : {}),
-        ...(appearance.showBonds !== undefined ? { show_bonds: appearance.showBonds } : {}),
-        ...(appearance.showGizmo !== undefined ? { show_gizmo: appearance.showGizmo } : {}),
-        ...(appearance.atomRadius !== undefined ? { atom_radius: appearance.atomRadius } : {}),
-        ...(appearance.sameSizeAtoms !== undefined ? { same_size_atoms: appearance.sameSizeAtoms } : {}),
-        ...(appearance.bondThickness !== undefined ? { bond_thickness: appearance.bondThickness } : {}),
-        ...(appearance.bondingStrategy !== undefined ? { bonding_strategy: appearance.bondingStrategy } : {}),
-        ...(appearance.showSiteLabels !== undefined ? { show_site_labels: appearance.showSiteLabels } : {}),
-        ...(appearance.showSiteIndices !== undefined ? { show_site_indices: appearance.showSiteIndices } : {}),
-        ...(appearance.sphereSegments !== undefined ? { sphere_segments: appearance.sphereSegments } : {}),
-      }
-      if (appearance.showGizmo !== undefined) showGizmo = appearance.showGizmo
-      if (appearance.backgroundColor !== undefined) backgroundColor = appearance.backgroundColor
-      if (appearance.backgroundOpacity !== undefined) backgroundOpacity = appearance.backgroundOpacity
-    }
-    const slice = restored.slice
-    sliceOpen = slice?.open ?? false
-    slicePlane = slice?.plane ?? 'xy'
-    const millerIndices = slice?.millerIndices ?? AXIS_PRESETS[slicePlane]
-    sliceMillerH = millerIndices[0]
-    sliceMillerK = millerIndices[1]
-    sliceMillerL = millerIndices[2]
-    slicePosition = slice?.position ?? 0.5
-    sliceResolution = slice?.resolution ?? 128
-    sliceColormap = slice?.colormap ?? 'Viridis'
-    sliceRangeMode = slice?.rangeMode ?? 'auto'
-    sliceManualMin = slice?.manualMin === undefined ? '' : String(slice.manualMin)
-    sliceManualMax = slice?.manualMax === undefined ? '' : String(slice.manualMax)
-    espLegendOpen = resolve_esp_legend_visibility(restored.espLegend?.visible, esp_pair())
-    espLegendPosition = restored.espLegend?.position ?? { left: 16, top: 16 }
-    if (restored.topologyDisplay) topologyDisplay = restored.topologyDisplay
-    const restoredEspRange = linked_esp_range()
-    if (restoredEspRange) espRange = restoredEspRange
-    representations = restored.representations ?? migrate_reps(sceneProps, isosurfaceSettings, volumeEntries, Boolean(manifest.periodic?.enabled), { atomSupercell: supercellScaling, showBoundaryAtoms: showImageAtoms, showUnitCell })
-    repsInitialized = true
-    previousRepLayers = new Map((isosurfaceSettings.layers ?? []).map((layer, index) => [dataset_key(volumeEntries, layer.volume_idx ?? index), JSON.stringify(layer)]))
-    set_status(ui_message('MatterViz workbench state restored'))
-    add_log('Workbench state restored')
-  }
-
-  const load_structure = async (): Promise<void> => {
-    const entry = manifest.structure
-    if (!entry?.path) return
-    const text = await fetch_text(resolve_entry_url(entry, manifestBase))
-    const loaded = inject_manifest_lattice(parse_any_structure(text, entry.path), manifest, { override: true })
-    structure = loaded
-    loadedGeometryKey = analysis_structure_key(loaded)
-  }
-
-  const load_manifest = async (): Promise<void> => {
-    topologyGeneration++
-    const generation = topologyGeneration
-    surfaceResult = undefined
-    surfaceActive = false
-    surfacePanelOpen = false
-    surfaceSelection = undefined
-    surfaceDisplay = surface_display_defaults()
-    loadedGeometryKey = ''
-    topologyResult = undefined
-    topologyActive = false
-    topologySelection = undefined
-    loading = true
-    errorMessage = undefined
+  async function load_manifest() {
     try {
-      const startupStateUrl = state_url()
-      let startupState: MatterVizWorkbenchState | undefined
-      if (startupStateUrl) startupState = await fetch_workbench_state(startupStateUrl)
-      const pageUrl = new URL(window.location.href)
-      const url = !pageUrl.searchParams.has('manifest') && startupState?.sourceManifest
-        ? new URL(startupState.sourceManifest, startupStateUrl)
-        : manifest_url()
-      loadedManifestUrl = url
-      const response = await fetch(url, { cache: 'no-store' })
+      const response = await fetch(manifestBase, { cache: 'no-store' })
       if (!response.ok) throw new Error(`Manifest request returned HTTP ${response.status}`)
-      manifest = (await response.json()) as MultiwfnManifest
+      manifest = await response.json()
       const inlinePlot = (manifest as MultiwfnManifest & { plot?: unknown }).plot
       if (inlinePlot !== undefined) {
         plots = [{ id: 'native', native: true, artifact: parse_plot(inlinePlot),
-          resolver: cached_plot_resolver(async (datasetId) => {
-            const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
-            return read_plot_dataset_response(response, datasetId)
-          }),
-        }]
+          resolver: cached_plot_resolver(async id => read_plot_dataset_response(await fetch(api_url(`/api/plot-data/${id}`)), id)) }]
         activeResult = 'native'
-        manifestBase = new URL('.', url)
         set_status(plot_title(plots[0].artifact))
-        await signal_frontend_ready()
-        loading = false
-        return
-      }
-      manifestBase = new URL('.', url)
-      quality = Number(manifest.espAnalysis?.defaultQuality ?? 120000)
-      orbitalIsovalue = normalize_orbital_isovalue(manifest.multiwfnGui?.state?.sur_value_orb, 0.02)
-      orbitalBackendAvailable = true
-      espIsovalue = Number(manifest.espAnalysis?.defaultIsovalue ?? 0.001)
-      orbitalIndex = Number(manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex ?? 0)
-      if (manifest.multiwfnGui?.state?.showMolecule !== undefined) {
-        sceneProps = {
-          ...sceneProps,
-          show_atoms: manifest.multiwfnGui.state.showMolecule,
-          ...(!manifest.multiwfnGui.state.showMolecule ? { show_bonds: 'never' } : {}),
+      } else {
+        const [source, groups] = await Promise.all([
+          manifest.structure && fetch_text(resolve_entry_url(manifest.structure, manifestBase)).then(text => parse_structure_file(text, manifest.structure!.path)),
+          Promise.all(cube_entries(manifest).map(entry => load_field(entry, manifestBase, manifest.periodic?.enabled ?? false))),
+        ])
+        const atoms = source ?? groups.find(group => group.structure)?.structure
+        if (atoms) structure = inject_manifest_lattice(atoms, manifest, { override: true })
+        loadedGeometryKey = analysis_structure_key(structure)
+        const gui = manifest.multiwfnGui
+        sceneProps = { ...sceneProps, show_atoms: gui?.state?.showMolecule ?? true,
+          ...(gui?.state?.showMolecule === false ? { show_bonds: 'never' } : {}),
+          show_cell_vectors: manifest.periodic?.showUnitCell ?? Boolean(manifest.periodic?.enabled) }
+        quality = manifest.espAnalysis?.defaultQuality ?? 120000
+        orbitalIsovalue = normalize_orbital_isovalue(gui?.state?.sur_value_orb, 0.02)
+        espIsovalue = manifest.espAnalysis?.defaultIsovalue ?? 0.001
+        replace_fields(groups.flatMap(group => group.fields))
+        settings = { ...settings, display_range: display_range(manifest) }
+        orbitalIndex = Number(homoIndex ?? fields.find(f => f.entry.visible !== false && f.entry.role === 'orbital')?.entry.orbitalIndex ?? 0)
+        if (gui?.entry?.toLowerCase().includes('drawmol')) {
+          const index = initial_orbital_volume_index(volumeEntries, homoIndex)
+          activeVolume = index === undefined ? undefined : fields[index].volume.id
+          if (index !== undefined) orbitalIndex = volumeEntries[index].orbitalIndex ?? orbitalIndex
+          settings = { ...settings, layers: settings.layers.map(layer => ({ ...layer, visible: layer.volume_id === activeVolume })) }
         }
-      }
-      showUnitCell = manifest.periodic?.showUnitCell !== false
-      latticeProps = {
-        ...latticeProps,
-        cell_edge_opacity: showUnitCell ? 1 : 0,
-        show_cell_vectors: showUnitCell,
-      }
-      const availableBondMethod = Object.entries(manifest.bondAnalysis?.methods ?? {})
-        .find(([, capability]) => capability.available !== false)?.[0]
-      if (availableBondMethod) bondMethod = availableBondMethod
-      const entries = cube_entries(manifest)
-      if (manifest.structure?.path) await load_structure()
-      if (entries.length) await apply_entries(entries, manifestBase)
-      if (manifest.topology) {
-        const geometry = geometryKey
-        const result = await load_topology(manifest.topology)
-        // Discard stale analysis without skipping the startup-ready handshake below.
-        if (generation === topologyGeneration && geometry === geometryKey) {
-          topologyResult = result
-          topologyActive = true
-          topologyPanelOpen = true
-          orbitalPanelOpen = false
+        const generation = topologyGeneration
+        if (manifest.topology) {
+          const result = await load_topology(manifest.topology)
+          if (generation === topologyGeneration && loadedGeometryKey === geometryKey) {
+            topologyResult = result
+            topologyActive = topologyPanelOpen = true
+            orbitalPanelOpen = false
+          }
         }
-      }
-      if (manifest.surfaceAnalysis) {
-        const geometry = geometryKey
-        const result = await load_surface(manifest.surfaceAnalysis)
-        if (generation === topologyGeneration && geometry === geometryKey) {
-          surfaceResult = result
-          surfaceFitPending = true
-          open_surface_results()
+        if (manifest.surfaceAnalysis) {
+          const result = await load_surface(manifest.surfaceAnalysis)
+          if (generation === topologyGeneration && loadedGeometryKey === geometryKey) {
+            surfaceResult = result
+            open_surface_results()
+          }
         }
+        set_status(fields.length ? ui_message('{count} volume layer(s) loaded', { count: fields.length }) : ui_message('Structure loaded'))
       }
-      if (String(manifest.multiwfnGui?.entry || '').toLowerCase().includes('drawmol')) {
-        const initialVolumeIdx = initial_orbital_volume_index(
-          volumeEntries,
-          manifest.orbitals?.homoIndex ?? manifest.multiwfnGui?.state?.homoIndex,
-        )
-        activate_only_volume(initialVolumeIdx)
-        const activeOrbitalIndex = initialVolumeIdx === undefined
-          ? undefined
-          : Number(volumeEntries[initialVolumeIdx]?.orbitalIndex)
-        if (Number.isInteger(activeOrbitalIndex) && Number(activeOrbitalIndex) > 0) {
-          orbitalIndex = Number(activeOrbitalIndex)
-        }
-      }
-      const initialEsp = declared_esp_pair()
-      if (initialEsp) {
-        set_color_volume(initialEsp.densityIdx, initialEsp.potentialIdx)
-        update_layer(initialEsp.potentialIdx, { visible: false })
-        refresh_esp_range(initialEsp.densityIdx, initialEsp.potentialIdx)
-        espLegendOpen = true
-      }
-      set_status(surfaceResult ? ui_message('Original quantitative surface results loaded') : entries.length ? ui_message('{count} volume layer(s) loaded', { count: entries.length }) : ui_message('Structure loaded'))
-      if (startupState) apply_workbench_state(startupState)
       await signal_frontend_ready()
-    } catch (error) {
-      report_error(error)
-      status = ui_message('Session loading failed')
-    } finally {
-      loading = false
-    }
+    } catch (error) { report_error(error) }
+    finally { loading = false }
   }
 
-  const request_orbital = async (options: { forceRecompute?: boolean } = {}): Promise<void> => {
+  function show_orbital(id?: string) {
+    const orbitalIds = new Set(fields.filter(f => f.entry.role === 'orbital').map(f => f.volume.id))
+    const layers = settings.layers.map(layer => orbitalIds.has(layer.volume_id)
+      ? { ...layer, visible: layer.volume_id === id } : layer)
+    const field = fields.find(field => field.volume.id === id)
+    if (field && !layers.some(layer => layer.volume_id === id))
+      layers.push({ ...layer_for_field(field, fields), visible: true, isovalue: orbitalIsovalue })
+    settings = { ...settings, layers }
+    if (id) activeVolume = id
+    topologyActive = surfaceActive = false
+  }
+
+  async function request_orbital(options: { forceRecompute?: boolean } = {}) {
     if (loading || structureLoading) return
-    const requestedIndex = orbitalIndex
-    if (requestedIndex === 0) {
-      errorMessage = undefined
-      activate_orbital_volume(undefined)
-      set_status(ui_message('No orbital selected'))
-      topologyActive = false
-      surfaceActive = false
+    const index = orbitalIndex
+    if (index === 0) { show_orbital(); return }
+    if (!orbital_index_valid()) return
+    if (loadedGeometryKey !== geometryKey) {
+      report_error(new Error('The displayed structure no longer matches the loaded wavefunction'))
       return
     }
-    if (!Number.isInteger(requestedIndex) || requestedIndex < 1 || requestedIndex > orbital_count()) {
-      report_error(new Error(`Orbital index must be an integer from 1 to ${orbital_count()}`))
-      return
-    }
-    errorMessage = undefined
-    const cachedVolumeIdx = loaded_orbital_volume_index(volumeEntries, requestedIndex)
-    if (cachedVolumeIdx !== undefined && !options.forceRecompute) {
-      activate_orbital_volume(cachedVolumeIdx)
-      set_status(ui_message('Orbital {number} loaded from session cache', { number: requestedIndex }))
-      topologyActive = false
-      surfaceActive = false
-      return
-    }
-    const requestedQuality = quality
-    if (!orbitalBackendAvailable) {
-      report_error(new Error('This orbital session is no longer connected to Multiwfn; reopen menu 0 to calculate another orbital'))
-      return
-    }
+    const generation = topologyGeneration
+    const cached = fields.find(field => field.entry.orbitalIndex === index)
+    if (cached && !options.forceRecompute) { show_orbital(cached.volume.id); return }
     loading = true
-    workingMessage = ui_message('Calculating orbital {number}...', { number: requestedIndex })
-    add_log(`Requesting orbital ${requestedIndex} at grid quality ${requestedQuality}`)
+    errorMessage = ''
+    workingMessage = ui_message('Calculating orbital {number}...', { number: index })
     try {
-      if (cachedVolumeIdx === undefined) activate_orbital_volume(undefined)
-      const params = new URLSearchParams({
-        index: String(requestedIndex),
-        quality: String(requestedQuality),
-        isovalue: String(orbitalIsovalue),
-        activeVolumeBytes: String(active_volume_bytes()),
-      })
+      const activeBytes = fields.reduce((bytes, field) => bytes + field.volume.values.byteLength, 0)
+      const params = new URLSearchParams({ index: String(index), quality: String(quality), isovalue: String(orbitalIsovalue), activeVolumeBytes: String(activeBytes) })
       const response = await fetch(api_url('/api/orbital', params), { cache: 'no-store' })
-      const contentType = response.headers.get('content-type') || ''
-      let activeIdx: number
-      if (response.ok && contentType.includes('application/vnd.multiwfn.volume')) {
-        const geometryBudget = read_geometry_memory_budget(response.headers, true)
+      let result: SessionField[]
+      if (response.ok && response.headers.get('content-type')?.includes('application/vnd.multiwfn.volume')) {
+        read_geometry_memory_budget(response.headers, true)
         const decoded = decode_matterviz_volume(await read_matterviz_volume_response(response))
-        if (decoded.protocol_major !== 2 || decoded.quantity_kind !== 'orbital') {
-          throw new Error('Multiwfn returned an unexpected volume for the orbital request')
-        }
-        const layer: ManifestEntry = {
-          name: `Orbital ${requestedIndex}`,
-          path: '/api/orbital',
-          format: 'mwfn-volume-v2',
-          role: 'orbital',
-          mode: 'signed',
-          orbitalIndex: requestedIndex,
-          gridQuality: requestedQuality,
-          isovalue: orbitalIsovalue,
-          visible: true,
-        }
-        const volume = {
-          ...adapt_matterviz_volume(decoded),
-          label: layer.name,
-          source: layer.path,
-        }
-        isosurfaceSettings = {
-          ...isosurfaceSettings,
-          geometry_memory_budget_bytes: geometryBudget,
-        }
-        activeIdx = upsert_loaded_volume(cachedVolumeIdx, layer, volume)
+        if (decoded.protocol_major !== 2 || decoded.quantity_kind !== 'orbital') throw new Error('Unexpected orbital response')
+        const entry: ManifestEntry = { name: `Orbital ${index}`, path: '/api/orbital', role: 'orbital', mode: 'signed',
+          format: 'mwfn-volume-v2', orbitalIndex: index, gridQuality: quality, isovalue: orbitalIsovalue }
+        const volume = adapt_matterviz_volume(decoded, field_id(entry))
+        volume.label = entry.name
+        result = [{ entry, volume }]
       } else {
         const payload = await read_api_payload(response)
-        if (!response.ok || !payload.ok || !payload.layer) {
-          throw new Error(payload.message || 'Orbital calculation failed')
-        }
-        const layer = {
-          ...payload.layer,
-          role: 'orbital',
-          orbitalIndex: requestedIndex,
-          gridQuality: Number(payload.quality ?? requestedQuality),
-          isovalue: Number(payload.isovalue ?? payload.layer.isovalue ?? orbitalIsovalue),
-        }
-        activeIdx = cachedVolumeIdx === undefined
-          ? await apply_entries([layer], manifestBase, 'append')
-          : await replace_volume_entry(cachedVolumeIdx, layer, manifestBase)
+        if (!response.ok || !payload.ok || !payload.layer) throw new Error(payload.message || 'Orbital calculation failed')
+        result = (await load_field({ ...payload.layer, role: 'orbital', orbitalIndex: index, isovalue: orbitalIsovalue }, manifestBase, manifest.periodic?.enabled ?? false)).fields
       }
-      orbitalIndex = requestedIndex
-      orbitalBackendAvailable = true
-      activate_orbital_volume(activeIdx)
-      topologyActive = false
-      surfaceActive = false
-      set_status(ui_message('Orbital {number} loaded', { number: requestedIndex }))
+      if (generation !== topologyGeneration || loadedGeometryKey !== geometryKey) return
+      // The native endpoint streams a new field on every calculation. Keep only the current
+      // streamed orbital and fields still used to color another surface.
+      const colorIds = new Set(settings.layers.filter(l => l.visible).map(l => l.color_volume_id))
+      const retained = fields.filter(f => f.entry.orbitalIndex !== index &&
+        !(f.entry.path === '/api/orbital' && !colorIds.has(f.volume.id)))
+      replace_fields([...retained, ...result], new Set(result.map(f => f.volume.id)))
+      show_orbital(result[0].volume.id)
+      set_status(ui_message('Orbital {number} loaded', { number: index }))
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (message.includes('Multiwfn backend unavailable')) orbitalBackendAvailable = false
-      restore_visible_orbital_selection()
+      if (String(error).includes('Multiwfn backend unavailable')) orbitalBackendAvailable = false
+      orbitalIndex = fields.find(f => f.entry.role === 'orbital' && settings.layers.some(l => l.volume_id === f.volume.id && l.visible))?.entry.orbitalIndex ?? 0
       report_error(error)
-    } finally {
-      loading = false
-    }
+    } finally { loading = false }
   }
-
   const change_orbital_quality = async (event: Event): Promise<void> => {
     const nextQuality = Number((event.currentTarget as HTMLSelectElement).value)
     if (!Number.isFinite(nextQuality)) return
@@ -1318,50 +474,34 @@
     if (orbital_index_valid()) await request_orbital({ forceRecompute: true })
   }
 
-  const change_orbital_isovalue = (value: unknown): void => {
+  function change_orbital_isovalue(value: number) {
     orbitalIsovalue = normalize_orbital_isovalue(value, orbitalIsovalue)
-    const activeIdx = loaded_orbital_volume_index(volumeEntries, orbitalIndex)
-    if (activeIdx !== undefined) update_layer(activeIdx, { isovalue: orbitalIsovalue })
+    const field = fields.find(f => f.entry.orbitalIndex === orbitalIndex)
+    if (field) settings = { ...settings, layers: settings.layers.map(layer => layer.volume_id === field.volume.id
+      ? { ...layer, isovalue: orbitalIsovalue } : layer) }
   }
-
-  const request_esp = async (): Promise<void> => {
-    if (loading || structureLoading) return
+  async function request_esp() {
+    if (loading || structureLoading || loadedGeometryKey !== geometryKey) return
+    const generation = topologyGeneration
     loading = true
+    errorMessage = ''
     workingMessage = ui_message('Calculating ESP...')
-    errorMessage = undefined
-    add_log(`Requesting ESP surface at grid quality ${quality}, density isovalue ${espIsovalue}`)
     try {
-      const params = new URLSearchParams({
-        quality: String(quality),
-        isovalue: String(espIsovalue),
-      })
+      const params = new URLSearchParams({ quality: String(quality), isovalue: String(espIsovalue) })
       const response = await fetch(api_url('/api/esp', params), { cache: 'no-store' })
       const payload = await read_api_payload(response)
-      if (!response.ok || !payload.ok || !payload.densityLayer || !payload.espLayer) {
-        throw new Error(payload.message || 'ESP calculation failed')
-      }
-      workingMessage = ui_message('Loading ESP surfaces...')
-      remove_volumes((entry) => entry.analysisKind === 'esp-density' || entry.analysisKind === 'esp-potential')
-      const entries: ManifestEntry[] = [payload.densityLayer, payload.espLayer]
-      const firstVolumeIdx = await apply_entries(entries, manifestBase, 'append')
-      const volumes = volumetricData ?? []
-      if (volumes.length >= firstVolumeIdx + 2) {
-        set_color_volume(firstVolumeIdx, firstVolumeIdx + 1)
-        update_layer(firstVolumeIdx + 1, { visible: false })
-        refresh_esp_range(firstVolumeIdx, firstVolumeIdx + 1)
-        espLegendOpen = true
-        espExtrema = undefined
-      }
+      if (!response.ok || !payload.ok || !payload.densityLayer || !payload.espLayer) throw new Error(payload.message || 'ESP calculation failed')
+      const entries = [payload.densityLayer, { ...payload.espLayer, visible: false }]
+      const result = (await Promise.all(entries.map(entry => load_field(entry, manifestBase, manifest.periodic?.enabled ?? false)))).flatMap(group => group.fields)
+      if (generation !== topologyGeneration || loadedGeometryKey !== geometryKey) return
+      const retained = fields.filter(f => f.entry.analysisKind !== 'esp-density' && f.entry.analysisKind !== 'esp-potential')
+      replace_fields([...retained, ...result], new Set(result.map(f => f.volume.id)))
+      activeVolume = result[0].volume.id
+      topologyActive = surfaceActive = false
       set_status(ui_message('ESP mapped onto the electron-density surface'))
-      topologyActive = false
-      surfaceActive = false
-    } catch (error) {
-      report_error(error)
-    } finally {
-      loading = false
-    }
+    } catch (error) { report_error(error) }
+    finally { loading = false }
   }
-
   const load_topology = (value: unknown): Promise<TopologyResult> => resolve_topology(value, async (datasetId) => {
     const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
     return read_plot_dataset_response(response, datasetId)
@@ -1373,7 +513,7 @@
     const geometry = geometryKey
     loading = true
     workingMessage = ui_message('Calculating AIM critical points and paths...')
-    errorMessage = undefined
+    errorMessage = ''
     add_log('Starting AIM critical-point search and path generation')
     try {
       const params = new URLSearchParams(Object.entries(topologyOptions).map(([key, value]) => [key, String(value)]))
@@ -1400,10 +540,13 @@
     }
   }
 
-  const export_topology = (format: 'json' | 'csv'): void => {
+  const export_topology = async (format: 'json' | 'csv'): Promise<void> => {
     if (!topologyResult) return
     const text = format === 'json' ? topology_document(topologyResult) : topology_csv(topologyResult)
-    download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-topology.${format}`)
+    try {
+      const outcome = await download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-topology.${format}`)
+      set_status(outcome === 'cancelled' ? ui_message('Save cancelled') : ui_message('{format} exported', { format: format.toUpperCase() }))
+    } catch (error) { report_error(error) }
   }
   const load_surface = (metadata: unknown) => resolve_surface(metadata, async (datasetId) => {
     const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
@@ -1425,7 +568,7 @@
       if (previous.metadata.statisticsSource) result.metadata = { ...result.metadata, volume: previous.metadata.volume, massDensity: previous.metadata.massDensity, statisticsSource: previous.metadata.statisticsSource }
       surfaceResult = result
       surfaceSelection = undefined
-      errorMessage = undefined
+      errorMessage = ''
       set_status(ui_message('Surface types confirmed; original data loaded'))
     } catch (error) {
       if (generation === topologyGeneration && geometry === geometryKey) report_error(error)
@@ -1441,7 +584,7 @@
       if (generation !== topologyGeneration || surfaceResult !== original || loading) return
       const stats = parse_surface_log(text, original)
       surfaceResult = { ...original, metadata: { ...original.metadata, ...stats, statisticsSource: { source: 'log', filename: file.name, precision: 'printed' } } }
-      errorMessage = undefined
+      errorMessage = ''
       set_status(ui_message('Printed surface statistics imported; area matches the current mesh'))
     } catch (error) {
       if (generation === topologyGeneration && surfaceResult === original) report_error(error)
@@ -1451,20 +594,29 @@
     if (!surfaceResult || loading) return
     surfaceResult = { ...surfaceResult, metadata: { ...surfaceResult.metadata, volume: null, massDensity: null, statisticsSource: undefined } }
   }
-  const export_surface = (format: 'json' | 'csv'): void => {
+  const export_surface = async (format: 'json' | 'csv'): Promise<void> => {
     if (!surfaceResult) return
     const text = format === 'json' ? surface_document(surfaceResult) : surface_csv(surfaceResult)
-    download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-quantitative-surface.${format}`)
+    try {
+      const outcome = await download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-quantitative-surface.${format}`)
+      set_status(outcome === 'cancelled' ? ui_message('Save cancelled') : ui_message('{format} exported', { format: format.toUpperCase() }))
+    } catch (error) { report_error(error) }
   }
 
-  const request_bond = async (options: { method?: string; pair?: BondPair } = {}): Promise<void> => {
+  let bondMethod = $state('mayer')
+  let bondResults = $state<{ key: string; atoms: string; method: string; value: number }[]>([])
+  type BondPair = [number, number]
+  const selected_source_bond_pair = (): BondPair | undefined =>
+    loadedGeometryKey === geometryKey && selectedSites.length === 2 && selectedSites.every(i => Number.isInteger(i) && i >= 0 && i < (structure?.sites.length ?? 0))
+      ? [selectedSites[0], selectedSites[1]] : undefined
+  const request_bond = async (): Promise<void> => {
     if (loading || structureLoading) return
-    const selected = options.pair ? valid_source_bond_pair(options.pair) : selected_source_bond_pair()
+    const selected = selected_source_bond_pair()
     if (!selected) {
       report_error(new Error('Select two atoms with the MatterViz measurement tool'))
       return
     }
-    const method = options.method ?? bondMethod
+    const method = bondMethod
     const capability = manifest.bondAnalysis?.methods?.[method]
     if (!capability) {
       report_error(new Error(`Unknown bond-order method: ${method}`))
@@ -1475,7 +627,7 @@
       return
     }
     loading = true
-    errorMessage = undefined
+    errorMessage = ''
     const atom1 = selected[0] + 1
     const atom2 = selected[1] + 1
     const sourceStructure = structure
@@ -1500,15 +652,6 @@
     } finally {
       loading = false
     }
-  }
-
-  const request_context_bond = async (method: string): Promise<void> => {
-    const menu = bondContextMenu
-    const pair = menu ? valid_source_bond_pair(menu.source_site_indices) : undefined
-    if (!pair || unavailable_bond_method_reason(method)) return
-    close_bond_context_menu()
-    bondMethod = method
-    await request_bond({ method, pair: [...pair] })
   }
 
   const return_to_multiwfn = async (): Promise<void> => {
@@ -1536,257 +679,6 @@
       report_error(error)
     }
   }
-
-  const calculate_esp_extrema = async (): Promise<void> => {
-    const pair = esp_pair()
-    if (!pair) {
-      report_error(new Error('No compatible ESP-colored density surface is available'))
-      return
-    }
-    const density = volumetricData?.[pair.densityIdx]
-    const potential = volumetricData?.[pair.potentialIdx]
-    if (!density || !potential) return
-    espExtremaLoading = true
-    espExtremaOpen = true
-    try {
-      espExtrema = await extract_esp_extrema_async(density, potential, espIsovalue, {
-        maxCells: 120000,
-        maxSamples: 50000,
-        maxExtrema: 12,
-        excludeBoundary: true,
-      })
-      set_status(ui_message('{minima} approximate ESP minima and {maxima} maxima found', { minima: espExtrema.minima.length, maxima: espExtrema.maxima.length }))
-    } catch (error) {
-      report_error(error)
-    } finally {
-      espExtremaLoading = false
-    }
-  }
-
-  const export_state = (): void => {
-    const camera: WorkbenchCameraState = {
-      position: sceneProps.camera_position,
-      target: sceneProps.camera_target,
-      up: sceneProps.camera_up,
-      zoom: sceneProps.camera_zoom,
-      projection: sceneProps.camera_projection,
-    }
-    download_workbench_state(create_workbench_state({
-      representations: $state.snapshot(representations),
-      manifest,
-      sourceManifest: loadedManifestUrl.href,
-      entries: volumeEntries,
-      isosurfaceSettings,
-      activeVolume: activeVolumeIdx,
-      atomSupercell: supercellScaling,
-      showBoundaryAtoms: showImageAtoms,
-      showUnitCell,
-      camera,
-      sceneProps,
-      backgroundColor,
-      backgroundOpacity,
-      slice: {
-        open: sliceOpen,
-        plane: slicePlane,
-        millerIndices: [sliceMillerH, sliceMillerK, sliceMillerL],
-        position: slicePosition,
-        resolution: sliceResolution,
-        colormap: sliceColormap,
-        rangeMode: sliceRangeMode,
-        ...(Number.isFinite(Number(sliceManualMin)) && sliceManualMin.trim() !== '' ? { manualMin: Number(sliceManualMin) } : {}),
-        ...(Number.isFinite(Number(sliceManualMax)) && sliceManualMax.trim() !== '' ? { manualMax: Number(sliceManualMax) } : {}),
-      },
-      espLegend: { visible: espLegendOpen, position: espLegendPosition },
-      topologyDisplay,
-    }))
-    set_status(ui_message('MatterViz workbench state exported'))
-  }
-
-  const import_state_file = async (event: Event): Promise<void> => {
-    const input = event.currentTarget as HTMLInputElement
-    const file = input.files?.[0]
-    if (!file) return
-    try {
-      apply_workbench_state(parse_workbench_state(JSON.parse(await file.text())))
-    } catch (error) {
-      report_error(error)
-    } finally {
-      input.value = ''
-    }
-  }
-
-  const track_camera = (data: {
-    camera_position?: [number, number, number]
-    camera_target?: [number, number, number]
-    camera_up?: [number, number, number]
-    camera_zoom?: number
-  }): void => {
-    if (camera_update_matches(sceneProps, data)) return
-    sceneProps = {
-      ...sceneProps,
-      ...(data.camera_position ? { camera_position: [...data.camera_position] as [number, number, number] } : {}),
-      ...(data.camera_target ? { camera_target: [...data.camera_target] as [number, number, number] } : {}),
-      ...(data.camera_up ? { camera_up: [...data.camera_up] as [number, number, number] } : {}),
-      ...(data.camera_zoom !== undefined ? { camera_zoom: data.camera_zoom, camera_projection: 'orthographic' as const } : {
-        camera_zoom: undefined,
-        camera_projection: 'perspective' as const,
-      }),
-    }
-  }
-
-  const current_camera_pose = (): CameraPose | undefined => normalize_camera_pose({
-    position: sceneProps.camera_position,
-    target: sceneProps.camera_target,
-    up: sceneProps.camera_up ?? [0, 1, 0],
-    projection: sceneProps.camera_projection ?? (sceneProps.camera_zoom !== undefined ? 'orthographic' : 'perspective'),
-    zoom: sceneProps.camera_zoom,
-  })
-
-  const apply_camera_pose = (pose: CameraPose): void => {
-    sceneProps = {
-      ...sceneProps,
-      camera_position: [...pose.position] as [number, number, number],
-      camera_target: [...pose.target] as [number, number, number],
-      camera_up: [...pose.up] as [number, number, number],
-      camera_projection: pose.projection,
-      auto_rotate: 0,
-      ...(pose.zoom !== undefined ? { camera_zoom: pose.zoom } : { camera_zoom: undefined }),
-    }
-  }
-
-  const fit_surface = (): void => {
-    const canvas = viewerShell?.querySelector('canvas')
-    const camera = canvas ? scene_registry.get(canvas)?.camera : undefined
-    if (!surfaceResult || !camera || !surfaceActive) return
-    const xyz = surfaceResult.xyz, scale = surfaceResult.metadata.bohrToAngstrom
-    const low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity]
-    for (let i = 0; i < xyz.length; i++) { const axis = i % 3; low[axis] = Math.min(low[axis], xyz[i] * scale); high[axis] = Math.max(high[axis], xyz[i] * scale) }
-    const pose = current_camera_pose() ?? normalize_camera_pose({ position: camera.position.toArray(), up: camera.up.toArray(),
-      target: [(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, (low[2] + high[2]) / 2], projection: camera instanceof OrthographicCamera ? 'orthographic' : 'perspective',
-      ...(camera instanceof OrthographicCamera ? { zoom: camera.zoom } : {}),
-    })
-    if (!pose) return
-    let radius = .1
-    for (let i = 0; i < xyz.length; i += 3) radius = Math.max(radius, Math.hypot(xyz[i] * scale - pose.target[0], xyz[i + 1] * scale - pose.target[1], xyz[i + 2] * scale - pose.target[2]))
-    radius *= 1.12
-    if (camera instanceof PerspectiveCamera) {
-      const halfAngle = Math.atan(Math.tan(camera.fov * Math.PI / 360) * Math.min(1, camera.aspect))
-      const distance = radius / Math.sin(halfAngle), old = Math.hypot(...pose.position.map((v, i) => v - pose.target[i]))
-      apply_camera_pose({ ...pose, position: pose.position.map((v, i) => pose.target[i] + (v - pose.target[i]) * distance / old) as [number, number, number] })
-    } else if (camera instanceof OrthographicCamera) {
-      apply_camera_pose({ ...pose, zoom: Math.min(camera.right - camera.left, camera.top - camera.bottom) / (2 * radius) })
-    }
-    surfaceFitPending = false
-  }
-
-  const fit_representations = (): void => {
-    const canvas = viewerShell?.querySelector('canvas')
-    const registered = canvas ? scene_registry.get(canvas) : undefined
-    if (!registered) return
-    const { scene, camera } = registered, bounds = new Box3()
-    for (const rep of representations.items.filter((item) => item.visible)) {
-      const group = scene.getObjectByName(`representation-${rep.id}`)
-      const localBounds = new Box3()
-      let planes: Plane[] = []
-      group?.traverseVisible((object) => {
-        if (!(object instanceof Mesh)) return
-        const materials = [object.material].flat()
-        if (materials.every((material) => !material.visible || material.opacity === 0)) return
-        localBounds.expandByObject(object)
-        planes = materials[0].clippingPlanes ?? []
-      })
-      bounds.union(clipped_rep_bounds(localBounds, planes))
-    }
-    if (bounds.isEmpty()) return
-    const sphere = bounds.getBoundingSphere(new Sphere()), radius = Math.max(0.1, sphere.radius) * 1.12
-    const direction = new Vector3(); camera.getWorldDirection(direction)
-    const pose = normalize_camera_pose({ position: camera.position.toArray(), target: sphere.center.toArray(), up: camera.up.toArray(), projection: camera instanceof OrthographicCamera ? 'orthographic' : 'perspective', ...(camera instanceof OrthographicCamera ? { zoom: camera.zoom } : {}) })
-    if (!pose) return
-    if (camera instanceof OrthographicCamera) {
-      apply_camera_pose({ ...pose, position: sphere.center.clone().addScaledVector(direction, -Math.max(radius * 2, 10)).toArray(), zoom: Math.min(camera.right - camera.left, camera.top - camera.bottom) / (radius * 2) })
-    } else if (camera instanceof PerspectiveCamera) {
-      const halfAngle = Math.atan(Math.tan(camera.fov * Math.PI / 360) * Math.min(1, camera.aspect))
-      apply_camera_pose({ ...pose, position: sphere.center.clone().addScaledVector(direction, -radius / Math.sin(halfAngle)).toArray() })
-    }
-  }
-
-  const step_rotate = (direction: CameraDirection): void => {
-    const pose = current_camera_pose()
-    const step = normalize_camera_step(rotationStep, 'rotation')
-    if (pose && step !== undefined) {
-      rotationStep = step
-      apply_camera_pose(rotate_camera(pose, direction, step))
-    }
-  }
-
-  const step_pan = (horizontal: number, vertical: number): void => {
-    const pose = current_camera_pose()
-    const step = normalize_camera_step(panStep, 'pan')
-    if (pose && step !== undefined) {
-      panStep = step
-      apply_camera_pose(pan_camera(pose, horizontal * step, vertical * step))
-    }
-  }
-
-  const step_zoom = (direction: 'in' | 'out'): void => {
-    const pose = current_camera_pose()
-    const step = normalize_camera_step(zoomStep, 'zoom')
-    if (pose && step !== undefined) {
-      zoomStep = step
-      apply_camera_pose(zoom_camera(pose, step, direction))
-    }
-  }
-
-  const set_show_gizmo = (value: boolean): void => {
-    showGizmo = value
-    sceneProps = { ...sceneProps, show_gizmo: value }
-  }
-
-  const apply_inspector_scene_props = (next: Record<string, unknown>): void => {
-    const { background_color, background_opacity, ...scene } = next
-    sceneProps = scene as typeof sceneProps
-    if (typeof scene.show_gizmo === 'boolean') showGizmo = scene.show_gizmo
-    if (typeof background_color === 'string') backgroundColor = background_color
-    if (typeof background_opacity === 'number' && Number.isFinite(background_opacity)) {
-      backgroundOpacity = Math.max(0, Math.min(1, background_opacity))
-    }
-  }
-
-  const set_inspector_unit_cell = (value: boolean): void => {
-    showUnitCell = value
-    latticeProps = {
-      ...latticeProps,
-      cell_edge_opacity: value ? 1 : 0,
-      show_cell_vectors: value,
-    }
-  }
-
-  const open_panel = (panel: 'layers' | 'slice' | 'logs'): void => {
-    if (panel === 'layers' && !advancedStructure) { open_representations(); return }
-    const next = panel === 'layers' ? !layerOpen
-      : panel === 'slice' ? !sliceOpen
-        : !logOpen
-    layerOpen = panel === 'layers' && next
-    sliceOpen = panel === 'slice' && next
-    logOpen = panel === 'logs' && next
-  }
-
-  const set_range = (axis: number, bound: number, value: number): void => {
-    const current = isosurfaceSettings.display_range ?? [[0, 1], [0, 1], [0, 1]]
-    const next = current.map((range) => [...range]) as [[number, number], [number, number], [number, number]]
-    const clamped = clamp_periodic_bound(value)
-    if (clamped === undefined) return
-    const [lower, upper] = next[axis]
-    next[axis][bound] = bound === 0 ? Math.min(clamped, upper) : Math.max(clamped, lower)
-    isosurfaceSettings = { ...isosurfaceSettings, display_range: next }
-  }
-
-  $effect(() => {
-    measurementSites
-    structure
-    measurementStructure
-    close_bond_context_menu()
-  })
 
   $effect(() => {
     structure
@@ -1817,38 +709,8 @@
     void load_manifest()
     void load_update_status()
   })
-
-  onMount(() => {
-    if (window.innerWidth < 1000) inspectorOpen = false
-    if (window.innerWidth < 760) orbitalPanelOpen = false
-    const narrowViewport = window.matchMedia('(max-width: 800px)')
-    const collapse_sidebars = (event: MediaQueryListEvent): void => {
-      if (event.matches) { inspectorOpen = false; orbitalPanelOpen = false }
-    }
-    narrowViewport.addEventListener('change', collapse_sidebars)
-    const close_on_outside_pointer = (event: PointerEvent): void => {
-      if (!bondContextMenu || !bondContextMenuElement) return
-      if (event.target instanceof Node && bondContextMenuElement.contains(event.target)) return
-      close_bond_context_menu()
-    }
-    const close_on_escape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && bondContextMenu) close_bond_context_menu()
-    }
-    document.addEventListener('pointerdown', close_on_outside_pointer, true)
-    window.addEventListener('keydown', close_on_escape)
-    window.addEventListener('resize', close_bond_context_menu)
-    window.addEventListener('blur', close_bond_context_menu)
-    return () => {
-      narrowViewport.removeEventListener('change', collapse_sidebars)
-      document.removeEventListener('pointerdown', close_on_outside_pointer, true)
-      window.removeEventListener('keydown', close_on_escape)
-      window.removeEventListener('resize', close_bond_context_menu)
-      window.removeEventListener('blur', close_bond_context_menu)
-    }
-  })
 </script>
-
-<main class="workbench" class:has-periodic={advancedStructure && Boolean(manifest.periodic?.enabled) && activeResult === 'scene'}>
+<main class="workbench">
   <header class="toolbar">
     <div class="brand">
       <div class="brand-mark"><Atom size={21} strokeWidth={1.6} /></div>
@@ -1860,58 +722,18 @@
         onchange={show_result} />
     </div>
     <Button variant="ghost" size="sm" type="button" title={$t("Open numeric curves or a saved plot document")} onclick={() => plotInput?.click()} disabled={importingPlot || savingResult}>
-      <Icon icon="Directory" width="16" height="16" /><span>{$t("Open plot")}</span>
+      <FolderOpen size={16} /><span>{$t("Open plot")}</span>
     </Button>
     <input class="hidden-file-input" bind:this={plotInput} type="file" accept=".txt,.dat,.csv,.json" multiple onchange={open_plot_files} />
     {#if activeResult === 'scene'}
-    <WorkbenchMenu name="view" label="View" bind:active={openMenu}>
-    <div class="menu-heading">{$t("Camera")}</div>
-    <div class="camera-tools" aria-label={$t("Fixed-step camera controls")}>
-      <label title={$t("Rotation step in degrees")}>
-        <span>{$t("Step (deg)")}</span>
-        <input aria-label={$t("Rotation step")} type="number" min="0.1" max="180" step="0.1" bind:value={rotationStep} />
-      </label>
-      <div class="axis-step" aria-label={$t("Rotate camera to move visible structure")}>
-        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Rotate up")} aria-label={$t("Rotate up")} onclick={() => step_rotate('up')} disabled={!current_camera_pose()}><Icon icon="ArrowUp" width="15" height="15" /></Button>
-        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Rotate down")} aria-label={$t("Rotate down")} onclick={() => step_rotate('down')} disabled={!current_camera_pose()}><Icon icon="ArrowDown" width="15" height="15" /></Button>
-        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Rotate left")} aria-label={$t("Rotate left")} onclick={() => step_rotate('left')} disabled={!current_camera_pose()}><Icon icon="ArrowLeft" width="15" height="15" /></Button>
-        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Rotate right")} aria-label={$t("Rotate right")} onclick={() => step_rotate('right')} disabled={!current_camera_pose()}><Icon icon="ArrowRight" width="15" height="15" /></Button>
-        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Roll clockwise")} aria-label={$t("Roll clockwise")} onclick={() => step_rotate('clockwise')} disabled={!current_camera_pose()}><Icon icon="Redo" width="15" height="15" /></Button>
-        <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Roll counterclockwise")} aria-label={$t("Roll counterclockwise")} onclick={() => step_rotate('counterclockwise')} disabled={!current_camera_pose()}><Icon icon="Undo" width="15" height="15" /></Button>
-      </div>
-      <label title={$t("Camera-relative pan step in world units")}>
-        <span>{$t("Move")}</span>
-        <input aria-label={$t("Pan step")} type="number" min="0.001" max="100" step="0.01" bind:value={panStep} />
-      </label>
-      <div class="pan-step" aria-label={$t("Pan camera")}>
-        <Button variant="ghost" size="sm" type="button" title={$t("Pan left")} aria-label={$t("Pan left")} onclick={() => step_pan(-1, 0)} disabled={!current_camera_pose()}><Icon icon="ArrowLeft" width="15" height="15" /></Button>
-        <Button variant="ghost" size="sm" type="button" title={$t("Pan up")} aria-label={$t("Pan up")} onclick={() => step_pan(0, 1)} disabled={!current_camera_pose()}><Icon icon="ArrowUp" width="15" height="15" /></Button>
-        <Button variant="ghost" size="sm" type="button" title={$t("Pan down")} aria-label={$t("Pan down")} onclick={() => step_pan(0, -1)} disabled={!current_camera_pose()}><Icon icon="ArrowDown" width="15" height="15" /></Button>
-        <Button variant="ghost" size="sm" type="button" title={$t("Pan right")} aria-label={$t("Pan right")} onclick={() => step_pan(1, 0)} disabled={!current_camera_pose()}><Icon icon="ArrowRight" width="15" height="15" /></Button>
-      </div>
-      <label title={$t("Reciprocal zoom step in percent")}>
-        <span>{$t("Zoom (%)")}</span>
-        <input aria-label={$t("Zoom step")} type="number" min="0.1" max="500" step="0.1" bind:value={zoomStep} />
-      </label>
-      <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Zoom out")} aria-label={$t("Zoom out")} onclick={() => step_zoom('out')} disabled={!current_camera_pose()}><Icon icon="ZoomOut" width="16" height="16" /></Button>
-      <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Zoom in")} aria-label={$t("Zoom in")} onclick={() => step_zoom('in')} disabled={!current_camera_pose()}><Icon icon="ZoomIn" width="16" height="16" /></Button>
-    </div>
-    <label><input type="checkbox" bind:checked={inspectorOpen} onchange={() => { surfacePanelOpen = false; topologyPanelOpen = false }} /><span>{$t("Inspector")}</span></label>
-    {#if orbital_selection_available()}<label><input type="checkbox" bind:checked={orbitalPanelOpen} /><span>{$t("Orbitals")}</span></label>{/if}
-    <label><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} /><span>{$t("Axes")}</span></label>
-    {#if interaction_legend()}<label><input type="checkbox" bind:checked={interactionLegendOpen} /><span>{$t("Interaction color scale")}</span></label>{/if}
-    <Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; open_panel('layers') }}>{$t("Volume layers ({count})", { count: volumeEntries.length })}</Button>
-    <Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; open_panel('slice') }} disabled={!volumetricData?.length}>{$t("2D Slice")}</Button>
-    {#if topologyResult}<Button variant="ghost" size="sm" type="button" onclick={() => { openMenu = undefined; surfaceActive = false; surfacePanelOpen = false; topologyPanelOpen = true; topologyActive = !topologyActive }} aria-pressed={topologyActive}>{$t("Topology view")}</Button>{/if}
-    </WorkbenchMenu>
-    {/if}
-    {#if activeResult === 'scene'}
     <WorkbenchMenu name="tools" label="Tools" bind:active={openMenu}>
-    <Button variant="ghost" size="sm" type="button" onclick={open_structure_editor} disabled={!structure}>{$t("Edit atoms and bonds...")}</Button>
+      {#if orbital_selection_available()}
+        <label><input type="checkbox" bind:checked={orbitalPanelOpen} />{$t('Orbitals')}</label>
+      {/if}
     <div class="menu-heading">{$t("Quantitative molecular surface")}</div>
     <AnalysisAction reason={surfaceResult ? '' : 'Run main function 12, then choose post-processing option 0 to view its results'} busy={false} onclick={open_surface_results}>{$t("Quantitative surface results...")}</AnalysisAction>
     <div class="menu-heading">{$t("Topology analysis (AIM)")}</div>
-    <AnalysisAction reason={topologyReason} busy={loading} onclick={() => { openMenu = undefined; surfacePanelOpen = false; topologyPanelOpen = true; inspectorOpen = false; orbitalPanelOpen = false }}>{$t("AIM critical points and paths...")}</AnalysisAction>
+    <AnalysisAction reason={topologyResult ? '' : topologyReason} busy={loading} onclick={() => { openMenu = undefined; surfacePanelOpen = surfaceActive = false; topologyPanelOpen = true; topologyActive = Boolean(topologyResult); orbitalPanelOpen = false }}>{$t("AIM critical points and paths...")}</AnalysisAction>
     <div class="menu-heading">{$t("Electrostatic potential")}</div>
     <label>
       <span>{$t("Density iso")}</span>
@@ -1920,10 +742,9 @@
     <AnalysisAction
       onclick={() => { openMenu = undefined; void request_esp() }}
       busy={loading}
-      reason={manifest.espAnalysis?.available === true ? '' : manifest.espAnalysis?.reason || 'No ESP calculation is available in this session'}
+      reason={loadedGeometryKey !== geometryKey ? 'The displayed structure no longer matches the loaded wavefunction' : manifest.espAnalysis?.available === true ? '' : manifest.espAnalysis?.reason || 'No ESP calculation is available in this session'}
     >{$t("ESP surface")}</AnalysisAction>
-    {#if esp_pair()}
-      <Button variant="ghost" size="sm" type="button" onclick={() => espLegendOpen = !espLegendOpen} aria-expanded={espLegendOpen}>{$t("ESP legend")}</Button>
+    {#if espPair}
       <Button variant="ghost" size="sm" type="button" onclick={calculate_esp_extrema} disabled={espExtremaLoading}>{$t("Approx. ESP extrema")}</Button>
     {/if}
     <div class="menu-heading">{$t("Bond-order analysis")}</div>
@@ -1940,25 +761,21 @@
       {#if !active_plot}
         <label><input type="checkbox" bind:checked={transparentExport} disabled={savingResult} /><span>{$t("Transparent background")}</span></label>
       {/if}
-      <Button variant="ghost" size="sm" type="button" onclick={() => save_result('png')} disabled={savingResult || (!active_plot && !scene_available)}><Icon icon="Download" width="16" height="16" />{$t("PNG image")}</Button>
+      <Button variant="ghost" size="sm" type="button" onclick={() => save_result('png')} disabled={savingResult || (!active_plot && !scene_available)}><Download size={16} />{$t("PNG image")}</Button>
       {#if active_plot}
         <Button variant="ghost" size="sm" type="button" onclick={() => save_result('pdf')} disabled={savingResult}>{$t("PDF figure")}</Button>
         <Button variant="ghost" size="sm" type="button" onclick={() => save_result('svg')} disabled={savingResult}>{$t("SVG figure")}</Button>
         <Button variant="ghost" size="sm" type="button" onclick={() => save_result('csv')} disabled={savingResult}>{$t("CSV numeric data")}</Button>
         <Button variant="ghost" size="sm" type="button" onclick={() => save_result('json')} disabled={savingResult}>{$t("Plot document (.json)")}</Button>
-      {:else}
-        <Button variant="ghost" size="sm" type="button" onclick={() => { export_state(); openMenu = undefined }} disabled={!scene_available}>{$t("Save display settings")}</Button>
-        <Button variant="ghost" size="sm" type="button" onclick={() => { stateInput?.click(); openMenu = undefined }} disabled={!scene_available || loading}>{$t("Restore display settings...")}</Button>
       {/if}
     </WorkbenchMenu>
-    <input class="hidden-file-input" bind:this={stateInput} type="file" accept="application/json,.json" onchange={import_state_file} />
     {#if active_plot && !active_plot.native}
-      <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Close current plot")} aria-label={$t("Close current plot")} onclick={close_plot} disabled={savingResult}><Icon icon="Cross" width="16" height="16" /></Button>
+      <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Close current plot")} aria-label={$t("Close current plot")} onclick={close_plot} disabled={savingResult}><X size={16} /></Button>
     {/if}
-    <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Operation log")} aria-label={$t("Operation log")} onclick={() => open_panel('logs')} aria-expanded={logOpen}><Icon icon="Info" width="16" height="16" /></Button>
+    <Button variant="ghost" size="sm" class="icon-button" type="button" title={$t("Operation log")} aria-label={$t("Operation log")} onclick={() => logOpen = !logOpen} aria-expanded={logOpen}><Info size={16} /></Button>
     {#if updaterBuildEnabled && updateStatus?.visible}
       <Button variant="ghost" size="sm" class="icon-button update-toolbar-button" type="button" title={$t("Open updater")} aria-label={$t("Open updater")} onclick={() => updateOpen = true}>
-        <Icon icon={updateStatus.state === 'available' ? 'Download' : 'Version'} width="16" height="16" />
+        <RefreshCw size={16} />
       </Button>
     {/if}
     <Button variant="outline" size="sm" type="button" class="language-toggle gap-1.5 text-xs" aria-label={$locale === 'zh' ? 'Switch to English' : '切换到中文'} title={$locale === 'zh' ? 'Switch to English' : '切换到中文'} onclick={() => set_locale($locale === 'zh' ? 'en' : 'zh')}>
@@ -1967,218 +784,39 @@
     <Button variant="outline" size="sm" class="return text-xs" type="button" title={$t("Return to the Multiwfn calculation menu")} onclick={return_to_multiwfn} disabled={returnPending || savingResult}>{$t("Return")}</Button>
   </header>
 
-  {#if advancedStructure && manifest.periodic?.enabled && activeResult === 'scene'}
-    <section class="periodic-bar" aria-label={$t("Periodic surface range")} hidden={!advancedStructure}>
-      <strong>{$t("Surface range")}</strong>
-      {#each ['a', 'b', 'c'] as axis, axis_idx}
-        <label>
-          <span>{axis}</span>
-          <input
-            type="number"
-            step="0.05"
-            value={isosurfaceSettings.display_range?.[axis_idx]?.[0] ?? 0}
-            oninput={(event) => set_range(axis_idx, 0, Number(event.currentTarget.value))}
-          />
-          <span>{$t("to")}</span>
-          <input
-            type="number"
-            step="0.05"
-            value={isosurfaceSettings.display_range?.[axis_idx]?.[1] ?? 1}
-            oninput={(event) => set_range(axis_idx, 1, Number(event.currentTarget.value))}
-          />
-        </label>
-      {/each}
-      <label>
-        <span>{$t("Atoms")}</span>
-        <input class="supercell" bind:value={supercellScaling} aria-label={$t("Atom supercell")} />
-      </label>
-      <label>
-        <input type="checkbox" bind:checked={showImageAtoms} />
-        <span>{$t("Boundary atoms")}</span>
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          bind:checked={showUnitCell}
-          onchange={() => latticeProps = {
-            ...latticeProps,
-            cell_edge_opacity: showUnitCell ? 1 : 0,
-            show_cell_vectors: showUnitCell,
-          }}
-        />
-        <span>{$t("Cell frame")}</span>
-      </label>
-    </section>
-  {/if}
-
   <div class="result-stage" bind:this={resultStage}>
-  <section class="workspace" class:has-topology={topologyPanelOpen || surfacePanelOpen} class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'} class:inspector-closed={!inspectorOpen && !topologyPanelOpen && !surfacePanelOpen} class:has-orbitals={orbital_selection_available() && orbitalPanelOpen}>
-    <nav class="tool-rail" aria-label={$t("Inspector tools")}>
-      <button type="button" class:active={inspectorOpen && !advancedStructure} aria-label={$t("Open representations")} aria-expanded={inspectorOpen} onclick={open_representations}>
-        <Layers size={17} aria-hidden="true" /><small>Reps</small>
-      </button>
-      {#if orbital_selection_available()}
-      <button type="button" class:active={orbitalPanelOpen} aria-label={$t("Toggle orbitals")} aria-expanded={orbitalPanelOpen} onclick={() => orbitalPanelOpen = !orbitalPanelOpen}>
-        <Orbit size={17} aria-hidden="true" /><small>{$t("Orbitals")}</small>
-      </button>
+    <section class="session-scene" class:inactive={activeResult !== 'scene'} inert={activeResult !== 'scene'} aria-hidden={activeResult !== 'scene'}>
+      {#if surfacePanelOpen && surfaceResult}
+        <SurfaceAnalysisPanel result={surfaceResult} bind:display={surfaceDisplay} bind:active={surfaceActive} bind:selection={surfaceSelection}
+          busy={loading || structureLoading} onclose={() => { surfacePanelOpen = surfaceActive = false }} onexport={export_surface}
+          onfit={() => analysisViewport?.fit()} onconfirm={confirm_surface} onlog={import_surface_log} onclearlog={clear_surface_log} />
+      {:else if topologyPanelOpen}
+        <TopologyPanel bind:options={topologyOptions} bind:display={topologyDisplay} bind:active={topologyActive} bind:selection={topologySelection}
+          result={topologyResult} busy={loading} reason={topologyReason} cell={topologyCell} onrun={request_topology}
+          onclose={() => { topologyPanelOpen = topologyActive = false }} onexport={export_topology} />
       {/if}
-      <button type="button" class="rail-close" aria-label={$t("Close inspector")} aria-expanded={inspectorOpen || surfacePanelOpen || topologyPanelOpen} onclick={() => { inspectorOpen = false; surfacePanelOpen = false; topologyPanelOpen = false }}>
-        <PanelLeftClose size={17} aria-hidden="true" /><small>{$t("Hide")}</small>
-      </button>
-    </nav>
-
-    {#if inspectorOpen && !topologyPanelOpen && !surfacePanelOpen && !advancedStructure}
-      <RepInspector collection={representations} entries={volumeEntries} sourceCell={selectedRepCell as Cell | undefined}
-        onchange={update_representations} onadd={add_representation} onclose={() => inspectorOpen = false} scene={repSceneSettings} errors={repErrors} />
-    {:else if inspectorOpen && !topologyPanelOpen && !surfacePanelOpen}
-      <ViewerInspector
-        bind:section={inspectorSection}
-        scene_props={{ ...sceneProps, background_color: backgroundColor, background_opacity: backgroundOpacity }}
-        isosurface_settings={isosurfaceSettings}
-        periodic={Boolean(manifest.periodic?.enabled)}
-        supercell_scaling={supercellScaling}
-        show_image_atoms={showImageAtoms}
-        show_unit_cell={showUnitCell}
-        volume_count={volumeEntries.length}
-        on_scene_props_change={apply_inspector_scene_props}
-        on_isosurface_settings_change={(next) => isosurfaceSettings = {
-          ...next,
-          geometry_memory_budget_bytes: isosurfaceSettings.geometry_memory_budget_bytes,
-        }}
-        on_supercell_change={(value) => supercellScaling = value}
-        on_boundary_atoms_change={(value) => showImageAtoms = value}
-        on_unit_cell_change={set_inspector_unit_cell}
-        on_range_change={set_range}
-        on_layers={() => { open_panel('layers'); inspectorOpen = false }}
-        on_close={() => inspectorOpen = false}
-      />
-    {/if}
-
-    {#if surfacePanelOpen && surfaceResult}
-      <SurfaceAnalysisPanel result={surfaceResult} bind:display={surfaceDisplay} bind:active={surfaceActive} bind:selection={surfaceSelection} busy={loading || structureLoading} onclose={() => surfacePanelOpen = false} onexport={export_surface} onfit={fit_surface} onconfirm={(value) => void confirm_surface(value)} onlog={(event) => void import_surface_log(event)} onclearlog={clear_surface_log} />
-    {:else if topologyPanelOpen}
-      <TopologyPanel bind:options={topologyOptions} bind:display={topologyDisplay} bind:active={topologyActive} bind:selection={topologySelection} result={topologyResult} busy={loading} reason={topologyReason} cell={topologyCell} onrun={() => void request_topology()} onclose={() => topologyPanelOpen = false} onexport={export_topology} />
-    {/if}
-    <section class="viewer-shell">
-    {#if advancedStructure}<div class="rep-edit-banner"><span>{$t("Editing source structure. Atom and bond edits apply to all Reps.")}</span><button type="button" onclick={open_representations}>{$t("Back to Reps")}</button></div>{/if}
-    <div class="scene-viewport" bind:this={viewerShell}>
-      {#if structure}
-        <Structure
-          bind:structure
-          bind:added_bonds={bondEdits.added} bind:removed_bonds={bondEdits.removed} bind:bond_order_overrides={bondEdits.overrides}
-          bind:displayed_structure={displayedStructure}
-          bind:volumetric_data={volumetricData}
-          bind:isosurface_settings={isosurfaceSettings}
-          bind:active_volume_idx={activeVolumeIdx}
-          bind:measured_sites={measuredSites}
-          bind:measure_mode={measureMode}
-          bind:supercell_scaling={supercellScaling}
-          bind:show_image_atoms={showImageAtoms}
-          bind:lattice_props={latticeProps}
-          bind:scene_props={sceneProps}
-          bind:background_color={backgroundColor}
-          bind:background_opacity={backgroundOpacity}
-          bind:loading={structureLoading}
-          bind:error_msg={viewerError}
-          on_camera_move={track_camera}
-          on_camera_reset={track_camera}
-          on_geometry_error={(message) => report_error(new Error(message))}
-          on_selected_bond_context={open_bond_context_menu}
-          show_atom_tooltip={false}
-          measure_selection_policy={{
-            distance: { max_sites: 2, overflow: 'restart' },
-            angle: { max_sites: 4, overflow: 'reject' },
-          }}
-          measure_geometry="ordered"
-          show_atom_legend={advancedStructure || topologyActive || surfaceActive}
-          show_controls={advancedStructure ? "always" : "never"}
-          allow_file_drop={false}
-          topology_view={topologyActive && Boolean(topologyResult)}
-          surface_view={surfaceActive && Boolean(surfaceResult)}
-          scene_children={topologyScene}
-        />
-      {:else if !loading}
-        <div class="empty">{$t("No structure is available in this session.")}</div>
-      {/if}
-      {#if bondContextMenu && manifest.bondAnalysis?.methods}
-        <div
-          class="bond-analysis-menu"
-          role="menu"
-          tabindex="-1"
-          aria-label={$t("Calculate bond order for atoms {first} and {second}", { first: bondContextMenu.source_site_indices[0] + 1, second: bondContextMenu.source_site_indices[1] + 1 })}
-          bind:this={bondContextMenuElement}
-          style={`left: ${bondContextMenu.left}px; top: ${bondContextMenu.top}px; max-width: ${bondContextMenu.max_width}px; max-height: ${bondContextMenu.max_height}px;`}
-        >
-          <header role="presentation">
-            <strong>{$t("Bond order")}</strong>
-            <span>{$t("Atoms")} {bondContextMenu.source_site_indices[0] + 1}–{bondContextMenu.source_site_indices[1] + 1}</span>
-            {#if bondContextMenu.bond_order !== undefined}
-              <small>{$t("Displayed bond:")} {typeof bondContextMenu.bond_order === 'number' ? bondContextMenu.bond_order.toPrecision(4) : bondContextMenu.bond_order}</small>
-            {/if}
-          </header>
-          <div class="bond-analysis-methods" role="presentation">
-            {#each Object.entries(manifest.bondAnalysis.methods) as [method, capability]}
-              {@const unavailableReason = unavailable_bond_method_reason(method)}
-              <button
-                type="button"
-                role="menuitem"
-                aria-disabled={Boolean(unavailableReason)}
-                disabled={Boolean(unavailableReason)}
-                title={unavailableReason ? $t(unavailableReason) : $t("Calculate {method} bond order", { method: bond_method_label(method) })}
-                onclick={() => request_context_bond(method)}
-              >
-                <span>{bond_method_label(method)}</span>
-                {#if unavailableReason}<small>{$t(capability.reason || unavailableReason)}</small>{/if}
-              </button>
-            {/each}
-          </div>
+      <section class="viewer-shell">
+        <div class="scene-viewport" bind:this={viewerShell}>
+          {#if (surfaceActive && surfaceResult) || (topologyActive && topologyResult)}
+            <AnalysisViewport bind:this={analysisViewport} surface={surfaceActive ? surfaceResult : undefined} {surfaceDisplay}
+              bind:surfaceSelection topology={topologyActive ? topologyResult : undefined} {topologyDisplay}
+              bind:topologySelection cell={topologyCell} />
+          {:else if structure}
+            <Structure bind:structure bind:volumetric_data={() => volumetricData, sync_native_volumes} bind:isosurface_settings={settings}
+              bind:active_volume_id={activeVolume} bind:scene_props={sceneProps} bind:background_color={backgroundColor}
+              bind:selected_sites={selectedSites} bind:loading={structureLoading}
+              show_controls="always" allow_file_drop={false} on_error={event => report_error(event.error_msg)} />
+          {:else if !loading}
+            <div class="empty">{$t('No structure is available in this session.')}</div>
+          {/if}
         </div>
-      {/if}
-      {#if sliceOpen}
-        <SlicePanel
-          volumes={volumetricData ?? []}
-          bind:active_volume_idx={activeVolumeIdx}
-          bind:open={sliceOpen}
-          bind:axis={slicePlane}
-          bind:miller_h={sliceMillerH}
-          bind:miller_k={sliceMillerK}
-          bind:miller_l={sliceMillerL}
-          bind:position={slicePosition}
-          bind:resolution={sliceResolution}
-          bind:colormap={sliceColormap}
-          bind:range_mode={sliceRangeMode}
-          bind:manual_min={sliceManualMin}
-          bind:manual_max={sliceManualMax}
-        />
-      {/if}
-      {#if !topologyActive && !surfaceActive && espLegendOpen && esp_pair()}
-        {@const legendRange = current_esp_range()}
-        <EspLegend min={legendRange[0]} max={legendRange[1]} colormap={current_esp_colormap()} color_stops={current_esp_color_stops()} bind:visible={espLegendOpen} bind:position={espLegendPosition} />
-      {/if}
-      {#if !topologyActive && !surfaceActive && interactionLegendOpen && interaction_legend()}
-        {@const layer = interaction_legend()!}
-        {@const range = layer.color_range!}
-        <EspLegend title="sign(λ₂)ρ" units="a.u." label="Interaction color scale" close_label="Hide color scale"
-          min={range[0]} max={range[1]} colormap={layer.colormap} color_stops={layer.color_stops}
-          ticks={Array.from({ length: 7 }, (_, idx) => {
-            const value = range[1] - idx * (range[1] - range[0]) / 6
-            return { label: Math.abs(value) < 1e-12 ? '0' : Number(value.toPrecision(3)).toString() }
-          })}
-          bind:visible={interactionLegendOpen} bind:position={interactionLegendPosition} />
-      {/if}
-    </div>
-    {#if loading || measurementSites.length || bondResults.length}
-      <div class="scene-readouts" aria-label={$t("Calculation and measurement results")}>
-        {#if loading}
-          <div class="calculation-status" role="status"><progress aria-label={format_message($locale, workingMessage)}></progress><span>{format_message($locale, workingMessage)}</span></div>
+        {#if loading || bondResults.length}
+          <div class="scene-readouts">
+            {#if loading}<div class="calculation-status" role="status"><progress></progress>{format_message($locale, workingMessage)}</div>{/if}
+            {#each bondResults as result (result.key)}<p>{result.atoms} · {result.method} {result.value.toPrecision(6)}</p>{/each}
+          </div>
         {/if}
-        <MeasurementReadout structure={measurementStructure} sites={measurementSites} mode={measureMode} bonds={bondResults}
-          on_clear_selection={() => { measuredSites = []; repMeasurement = undefined }}
-          on_remove_bond={(key) => bondResults = bondResults.filter((result) => result.key !== key)} />
-      </div>
-    {/if}
-    </section>
-
+      </section>
     {#if orbital_selection_available() && orbitalPanelOpen}
       <aside class="orbital-panel" aria-label={$t("Orbital controls")}>
         <header>
@@ -2237,7 +875,6 @@
         </div>
       </aside>
     {/if}
-
   </section>
   {#each plots as plot (plot.id)}
     <section class="result-document" class:inactive={activeResult !== plot.id} inert={activeResult !== plot.id} aria-hidden={activeResult !== plot.id} aria-label={plot.artifact.title}>
@@ -2252,141 +889,6 @@
     <span role="status">{savingResult ? $t('Exporting...') : importingPlot ? $t('Opening plot...') : errorMessage || format_message($locale, status)}</span>
     <span>{active_plot ? $t('2D plot') : $t('{count} volume(s)', { count: volumetricData?.length || 0 })}</span>
   </footer>
-
-  {#if layerOpen}
-    <aside class="layer-panel" aria-label={$t("Volume layers")}>
-      <header>
-        <strong>{$t("Volume layers")}</strong>
-        <button type="button" onclick={() => layerOpen = false}>{$t("Close")}</button>
-      </header>
-      <div class="layer-list">
-        {#each volumeEntries as entry, volumeIdx}
-          {@const layer = (isosurfaceSettings.layers ?? []).find((item) => item.volume_idx === volumeIdx)}
-          <section class:active={activeVolumeIdx === volumeIdx}>
-            <div class="layer-heading">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={layer?.visible !== false}
-                  onchange={(event) => update_layer(volumeIdx, { visible: event.currentTarget.checked })}
-                />
-                <button class="layer-name" type="button" onclick={() => activeVolumeIdx = volumeIdx}>
-                  {entry.name || entry.role || $t("Volume {number}", { number: volumeIdx + 1 })}
-                </button>
-              </label>
-              <button type="button" title={$t("Remove layer")} aria-label={$t("Remove layer")} onclick={() => remove_volume(volumeIdx)}>×</button>
-            </div>
-            <div class="layer-controls">
-              <label>
-                <span>{$t("Iso")}</span>
-                <input
-                  type="number"
-                  min="0.000001"
-                  step="0.001"
-                  value={layer?.isovalue ?? 0.001}
-                  onchange={(event) => update_layer(volumeIdx, { isovalue: Number(event.currentTarget.value) })}
-                />
-              </label>
-              <label>
-                <span>{$t("Opacity")}</span>
-                <input
-                  type="range"
-                  min="0.05"
-                  max="1"
-                  step="0.05"
-                  value={layer?.opacity ?? 0.82}
-                  oninput={(event) => update_layer(volumeIdx, { opacity: Number(event.currentTarget.value) })}
-                />
-              </label>
-              <label class="color-source">
-                <span>{$t("Color by")}</span>
-                <select
-                  value={layer?.color_volume_idx ?? -1}
-                  onchange={(event) => set_color_volume(volumeIdx, Number(event.currentTarget.value))}
-                >
-                  <option value={-1}>{$t("Solid")}</option>
-                  {#each volumeEntries as colorEntry, colorIdx}
-                    {#if colorIdx !== volumeIdx}
-                      <option
-                        value={colorIdx}
-                        disabled={!grids_compatible(volumeIdx, colorIdx)}
-                      >{colorEntry.name || colorEntry.role || $t("Volume {number}", { number: colorIdx + 1 })}</option>
-                    {/if}
-                  {/each}
-                </select>
-              </label>
-              <label>
-                <span>{$t("Positive color")}</span>
-                <input
-                  type="color"
-                  value={layer?.color || '#2563eb'}
-                  oninput={(event) => update_layer(volumeIdx, { color: event.currentTarget.value })}
-                />
-              </label>
-              <label class="check-control">
-                <input
-                  type="checkbox"
-                  checked={layer?.show_negative === true}
-                  onchange={(event) => update_layer(volumeIdx, { show_negative: event.currentTarget.checked })}
-                />
-                <span>{$t("Negative phase")}</span>
-              </label>
-              {#if layer?.show_negative}
-                <label>
-                  <span>{$t("Negative color")}</span>
-                  <input
-                    type="color"
-                    value={layer.negative_color || '#dc2626'}
-                    oninput={(event) => update_layer(volumeIdx, { negative_color: event.currentTarget.value })}
-                  />
-                </label>
-              {/if}
-              {#if layer?.color_volume_idx !== undefined}
-                <label>
-                  <span>{$t("Color scale")}</span>
-                  <select
-                    value={layer.colormap || 'interpolateRdBu'}
-                    onchange={(event) => update_layer(volumeIdx, { colormap: event.currentTarget.value as IsosurfaceLayer['colormap'] })}
-                  >
-                    <option value="interpolateTransFlag">{$t("Trans flag (pink / white / blue)")}</option>
-                    <option value="interpolateRdBu">{$t("Red / blue")}</option>
-                    <option value="interpolateTransFlag">{$t("Pink / white / blue")}</option>
-                    <option value="interpolateViridis">Viridis</option>
-                    <option value="interpolateTurbo">Turbo</option>
-                    <option value="interpolateCool">{$t("Cool")}</option>
-                    <option value="interpolateWarm">{$t("Warm")}</option>
-                    <option value="interpolateRdYlGn">{$t("Red / yellow / green")}</option>
-                    <option value="interpolateGreys">{$t("Greys")}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>{$t("Range min")}</span>
-                  <input
-                    type="number"
-                    step="0.001"
-                    value={layer.color_range?.[0] ?? -0.05}
-                    onchange={(event) => set_color_range(volumeIdx, 0, event.currentTarget.valueAsNumber)}
-                  />
-                </label>
-                <label>
-                  <span>{$t("Range max")}</span>
-                  <input
-                    type="number"
-                    step="0.001"
-                    value={layer.color_range?.[1] ?? 0.05}
-                    onchange={(event) => set_color_range(volumeIdx, 1, event.currentTarget.valueAsNumber)}
-                  />
-                </label>
-              {/if}
-            </div>
-          </section>
-        {:else}
-          <div class="panel-empty">{$t("No volume layers.")}</div>
-        {/each}
-      </div>
-    </aside>
-  {/if}
-
   {#if logOpen}
     <aside class="log-panel" aria-label={$t("Operation log")}>
       <header>
@@ -2409,8 +911,7 @@
       </div>
     </aside>
   {/if}
-
-  {#if activeResult === 'scene' && !topologyActive && !surfaceActive && espExtremaOpen && esp_pair()}
+  {#if activeResult === 'scene' && !topologyActive && !surfaceActive && espExtremaOpen && espPair}
     <aside class="esp-extrema-panel" aria-label={$t("Approximate ESP surface extrema")}>
       <header>
         <strong>{$t("Approximate ESP extrema")}</strong>
@@ -2433,110 +934,20 @@
       {/if}
     </aside>
   {/if}
-
   {#if updaterBuildEnabled && updateStatus?.visible}
     <UpdateModal open={updateOpen} page={new URL(window.location.href)} initial_status={updateStatus} onstatus={(status) => updateStatus = status} onclose={() => updateOpen = false} />
   {/if}
 </main>
 
-{#snippet topologyScene()}
-  {#if surfaceActive && surfaceResult}
-    <SurfaceAnalysisOverlay result={surfaceResult} display={surfaceDisplay} selection={surfaceSelection} onready={() => { if (surfaceFitPending) fit_surface() }} onselect={(selection) => { surfaceSelection = selection; surfacePanelOpen = true; topologyPanelOpen = false }} />
-  {:else if topologyActive && topologyResult}
-    <TopologyOverlay result={topologyResult} display={topologyDisplay} selection={topologySelection} cell={topologyCell} onselect={(selection) => { topologySelection = selection; topologyPanelOpen = true }} />
-  {:else if !advancedStructure && structure}
-    {#each representations.items.filter((rep) => rep.visible) as rep, order (rep.id)}
-      <RepLayer {rep} {order} {structure} {bondEdits} volumes={volumetricData ?? []} {measureMode} sceneProps={sceneProps}
-        measurementOwner={repMeasurement?.id ?? ''}
-        budget={isosurfaceSettings.geometry_memory_budget_bytes === undefined ? undefined : Math.floor(isosurfaceSettings.geometry_memory_budget_bytes / Math.max(1, representations.items.filter((item) => item.visible && item.source.kind === 'volume').length))}
-        onmeasure={measure_rep} oncontext={open_bond_context_menu} onerror={report_rep_error} oncolorrange={report_rep_color_range} />
-    {/each}
-  {/if}
-{/snippet}
-
-{#snippet repSceneSettings()}
-  <h3>{$t("Camera & display")}</h3>
-  <button type="button" class="rep-add" onclick={fit_representations}>{$t("Fit all visible Reps")}</button>
-  <label class="rep-field"><span>{$t("Measurement")}</span><select bind:value={measureMode}><option value="distance">{$t("Distance")}</option><option value="angle">{$t("Angle / dihedral")}</option></select></label>
-  <label class="rep-toggle"><input type="checkbox" checked={showGizmo !== false} onchange={(event) => set_show_gizmo(event.currentTarget.checked)} />{$t("Axes")}</label>
-  <label class="rep-field"><span>{$t("Background")}</span><input type="color" bind:value={backgroundColor} /></label>
-  <label class="rep-scalar"><span>{$t("Background opacity")}</span><input type="number" min="0" max="1" step="0.05" bind:value={backgroundOpacity} /><input type="range" min="0" max="1" step="0.05" bind:value={backgroundOpacity} aria-label={$t("Background opacity")} /></label>
-  <h3>{$t("Lighting")}</h3>
-  <label class="rep-field"><span>{$t("Lighting preset")}</span><select value={sceneProps.lighting_rig ?? 'default'} onchange={(event) => { const studio = event.currentTarget.value === 'tmim'; sceneProps = { ...sceneProps, lighting_rig: studio ? 'tmim' : 'default', scene_tone_mapping: studio ? 'none' : 'agx', ...(studio ? TMIM_LIGHTING_DEFAULTS : { ...LIGHTING_DEFAULTS, fill_light: 0.38, rim_light: 0.24 }) } }}><option value="default">{$t("Standard lighting")}</option><option value="tmim">{$t("Studio lighting")}</option></select></label>
-  {#each [{ key: 'ambient_light', label: 'Ambient light', fallback: 0.72 }, { key: 'directional_light', label: 'Directional light', fallback: 1.2 }, { key: 'fill_light', label: 'Fill light', fallback: 0.38 }, { key: 'rim_light', label: 'Rim light', fallback: 0.24 }] as control}
-    <label class="rep-scalar"><span>{$t(control.label)}</span><input type="number" min="0" max="4" step="0.05" value={Number(sceneProps[control.key] ?? control.fallback)} oninput={(event) => { if (Number.isFinite(event.currentTarget.valueAsNumber)) sceneProps = { ...sceneProps, [control.key]: Math.max(0, Math.min(4, event.currentTarget.valueAsNumber)) } }} /><input type="range" min="0" max="4" step="0.05" value={Number(sceneProps[control.key] ?? control.fallback)} aria-label={$t(control.label)} oninput={(event) => sceneProps = { ...sceneProps, [control.key]: event.currentTarget.valueAsNumber }} /></label>
-  {/each}
-  <p class="rep-help">{$t("Scene lighting is shared. Set opacity and reflection separately for each Rep.")}</p>
-{/snippet}
-
 <style>
-  .bond-analysis-menu {
-    position: fixed;
-    z-index: 70;
-    width: min(260px, calc(100vw - 16px));
-    overflow: auto;
-    color: #18202a;
-    background: #fff;
-    border: 1px solid #aeb8c5;
-    border-radius: 7px;
-    box-shadow: 0 12px 32px rgb(23 32 42 / 24%);
-  }
-
-  .bond-analysis-menu:focus {
-    outline: 2px solid #1976b8;
-    outline-offset: 1px;
-  }
-
-  .bond-analysis-menu > header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 2px 10px;
-    padding: 9px 10px 8px;
-    background: #f5f7f9;
-    border-bottom: 1px solid #d6dce4;
-  }
-
-  .bond-analysis-menu > header strong {
-    font-size: 12px;
-  }
-
-  .bond-analysis-menu > header span,
-  .bond-analysis-menu > header small {
-    color: #667085;
-    font-size: 10px;
-  }
-
-  .bond-analysis-menu > header small {
-    grid-column: 1 / -1;
-  }
-
-  .bond-analysis-methods {
-    display: grid;
-    gap: 2px;
-    padding: 5px;
-  }
-
-  .bond-analysis-methods button {
-    display: grid;
-    justify-items: start;
-    width: 100%;
-    min-height: 32px;
-    height: auto;
-    padding: 6px 8px;
-    text-align: left;
-    border-color: transparent;
-    background: transparent;
-  }
-
-  .bond-analysis-methods button span {
-    font-weight: 600;
-  }
-
-  .bond-analysis-methods button small {
-    margin-top: 2px;
-    color: #667085;
-    font-size: 10px;
-    line-height: 1.25;
-    white-space: normal;
+  .session-scene { position: absolute; inset: 0; display: flex; min-width: 0; }
+  .viewer-shell { flex: 1; }
+  .session-scene :global(.orbital-panel) { width: min(260px, 30%); }
+  .session-scene :global(.topology-panel), .session-scene :global(.surface-analysis-panel) { width: min(288px, 32%); }
+  @media (max-width: 760px) {
+    .session-scene { flex-direction: column; }
+    .session-scene :global(.orbital-panel), .session-scene :global(.topology-panel), .session-scene :global(.surface-analysis-panel) {
+      width: 100%; max-height: 40%; overflow: auto;
+    }
   }
 </style>

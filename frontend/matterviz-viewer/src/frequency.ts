@@ -1,7 +1,7 @@
 import { element_data } from 'matterviz/element'
-import { bonding_strategies, make_site, type Molecule } from 'matterviz/structure'
+import { compute_bonds, normalize_structure_bond, make_site, type Molecule } from 'matterviz/structure'
 import type { Vec3 } from 'matterviz/math'
-import type { TrajectoryFrame, TrajectoryType } from 'matterviz/trajectory'
+import { encode_frame, sync_run, TrajectoryProperties, type TrajectoryFrame, type TrajectoryRun } from 'matterviz/trajectory'
 
 export const FREQUENCY_FILE_LIMIT = 16 * 1024 * 1024
 export const FREQUENCY_FRAMES = 48
@@ -82,8 +82,8 @@ export function read_frequency_cjson(text: string): FrequencyData {
     return { number: index + 1, frequency, displacement: components, ...(typeof ir === 'number' ? { ir } : {}) }
   })
   // Infer bonds once at equilibrium with MatterViz, then keep them fixed throughout playback.
-  const bonds = bonding_strategies.compute_bonds({ sites }, 'electroneg_ratio')
-    .map(({ site_idx_1, site_idx_2, bond_order }) => bonding_strategies.normalize_structure_bond(site_idx_1, site_idx_2, bond_order ?? 1))
+  const bonds = compute_bonds({ sites }, 'electroneg_ratio')
+    .map(({ site_idx_1, site_idx_2, bond_order }) => normalize_structure_bond(site_idx_1, site_idx_2, bond_order ?? 1))
   const structure: Molecule = { sites, properties: { bonds } }
   return { structure, modes }
 }
@@ -93,7 +93,7 @@ export function read_frequency_cjson(text: string): FrequencyData {
  * vectors retain their relative lengths: never divide cclib vibdisps by sqrt(mass).
  * The global scale makes amplitude the largest atomic excursion in Å.
  */
-export function frequency_trajectory(data: FrequencyData, modeIndex: number, amplitude = DEFAULT_FREQUENCY_AMPLITUDE): TrajectoryType {
+export function frequency_trajectory(data: FrequencyData, modeIndex: number, amplitude = DEFAULT_FREQUENCY_AMPLITUDE): TrajectoryRun {
   const mode = data.modes[modeIndex]
   if (!mode) throw new Error('Select an available normal mode.')
   if (!Number.isFinite(amplitude) || amplitude <= 0 || amplitude > 2) {
@@ -115,15 +115,14 @@ export function frequency_trajectory(data: FrequencyData, modeIndex: number, amp
       step: index,
     }
   }
-  return {
-    frames: [frame(0)],
-    total_frames: FREQUENCY_FRAMES,
+  return sync_run({
+    label: `Normal mode ${mode.number}`,
+    provenance: { format: 'cclib CJSON' },
+    properties: new TrajectoryProperties([], true),
+    warnings: [],
+    preview: frame(0),
+    frame_count: FREQUENCY_FRAMES,
+    read: index => encode_frame(frame(index)),
     metadata: { frequency_cm_1: mode.frequency, mode: mode.number, amplitude_angstrom: amplitude },
-    frame_loader: {
-      load_frame: async (_data, index) => frame(index),
-      get_total_frames: async () => FREQUENCY_FRAMES,
-      build_frame_index: async () => [],
-      extract_plot_metadata: async () => [],
-    },
-  }
+  })
 }

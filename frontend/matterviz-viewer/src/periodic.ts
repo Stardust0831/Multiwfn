@@ -1,6 +1,6 @@
 import {
   EPS,
-  calc_lattice_params,
+  compute_lattice_params,
   create_cart_to_frac,
   det_3x3,
   type Matrix3x3,
@@ -70,10 +70,10 @@ export const inject_manifest_lattice = (
   if (!matrix) return structure
 
   let cart_to_frac: (cart: Vec3) => Vec3
-  let lattice_params: ReturnType<typeof calc_lattice_params>
+  let lattice_params: ReturnType<typeof compute_lattice_params>
   try {
     cart_to_frac = create_cart_to_frac(matrix)
-    lattice_params = calc_lattice_params(matrix)
+    lattice_params = compute_lattice_params(matrix)
   } catch {
     return structure
   }

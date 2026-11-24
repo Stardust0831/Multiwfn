@@ -101,6 +101,7 @@
       {#key data}
         <Trajectory
           {trajectory}
+          structure_series_key={data}
           bind:current_step_idx={step}
           auto_play={false}
           allow_file_drop={false}
@@ -109,10 +110,9 @@
           show_controls={{ mode: 'always', hidden: ['filename', 'info-pane', 'export-pane', 'view-mode', 'fullscreen'] }}
           fullscreen_toggle={false}
           structure_props={{
-            structure_series_key: data,
             enable_measure_mode: false,
             show_controls: { mode: 'always', hidden: ['info-pane', 'export-pane', 'fullscreen'] },
-            scene_props: { camera_target: cameraTarget, auto_rotate: 0 },
+            scene_props: { camera_target: cameraTarget ?? undefined, auto_rotate: 0 },
           }}
           on_error={event => { error = event.error_msg ?? 'Unable to display this normal mode.' }}
         />

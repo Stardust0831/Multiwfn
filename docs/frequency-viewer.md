@@ -67,15 +67,7 @@ core sources and the pinned BaneWfn source are unchanged; noGUI dependencies
 are unchanged. Existing Multiwfn frequency calculations and spectrum plotting
 continue to own their scientific behavior.
 
-The retained MatterViz package already exports `Trajectory`; it does not
-export `PhononModeExplorer`. Upstream at
-[`59f6b563`](https://github.com/janosh/matterviz/blob/59f6b563527877bbc2cee66affb96a215cc8e000/src/lib/spectral/phonon-modes.ts)
-still requires a real-space lattice and divides phonopy eigenvectors by
-`sqrt(mass)`. Feeding molecular Cartesian data into that API would be incorrect.
-This PR therefore uses the existing native trajectory renderer with a bounded
-data adapter. A future MatterViz molecular-mode interface can replace that
-adapter without changing the importer or application host. This is not a
-claim that the upstream phonon explorer supports molecules today.
+The panel passes a lazy frame source to the native MatterViz `Trajectory` component. The adapter uses molecular Cartesian displacements and preserves their relative amplitudes. Playback and frame selection use the upstream controls.
 
 Spectrum broadening, frequency computation, new quantum-output parsers,
 CP2K/xTB support and video export are outside this rendering PR.
@@ -89,30 +81,3 @@ renderer in Chromium. The test covers paused startup, native playback and
 scrubbing, mode changes, amplitude validation, camera interaction, import
 failure recovery and closing/reopening the viewer. Python is only needed to
 regenerate the documented cclib fixtures.
-
-## Camera compatibility patch
-
-The retained renderer clears `camera_target` and `camera_zoom` on every new
-structure object. A trajectory provides a new object each frame, so native
-zoom was lost during playback and mode switching. The focused `r25.freq1`
-backport adds upstream's `Structure.structure_series_key` contract and shares
-it with `StructureViewport` to retain the native reset baseline. This viewer
-passes its dataset as the key; changing files mounts a fresh scene, while
-changing modes/amplitude preserves camera position, zoom and reset state.
-
-Source design: MatterViz
-[`59f6b563`, Structure.svelte](https://github.com/janosh/matterviz/blob/59f6b563527877bbc2cee66affb96a215cc8e000/src/lib/structure/Structure.svelte)
-and `StructureViewport.svelte`. This is a small compatibility adaptation to
-the retained renderer, not a wholesale cherry-pick of the newer session system.
-Callers that omit the key retain existing behavior. A caller must use a new key
-when topology changes; coordinate-only frames may share one.
-
-Apply `vendor/patches/matterviz-0.4.2-multiwfn.d8719d12.r25.freq1.patch` with
-`patch -p1` inside the extracted `r25.reps2` package. Only the two Svelte files,
-their declarations and the package version change. The Python vendor replay
-test verifies byte-identical contents against the new archive and checks the
-complete changed-file allowlist. SHA-256 of `r25.freq1.tgz`:
-
-```text
-0f24494f31d94479a78c741958a5929cbc68efcc7af63db31f8603ecd70bf9fa
-```

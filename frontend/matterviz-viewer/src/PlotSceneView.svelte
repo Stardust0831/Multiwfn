@@ -115,7 +115,7 @@
             {:else if route === 'binned-scatter'}
               <BinnedScatterPlot class="scientific-binned-plot" series={dense_points(panel)} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} {padding} density={dense_config()} children={binned_frame} fullscreen_toggle={true} />
             {:else}
-              <ScatterPlot class="scientific-scatter-plot" line_tween={{ duration: 0 }} series={series(panel) as never[]} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} x2_axis={panel.axes.x2 ? axis_config(panel.axes.x2) : {}} y2_axis={panel.axes.y2 ? axis_config(panel.axes.y2) : {}} fill_regions={fills(panel) as never[]} error_bands={errors(panel) as never[]} {padding} user_content={annotations} legend={SCIENTIFIC_PLOT_LEGEND} controls={{ show: true }} fullscreen_toggle={true} pan={{ enabled: true }} />
+              <ScatterPlot class="scientific-scatter-plot" line_tween={{ duration: 0 }} series={series(panel) as never[]} x_axis={axis_config(panel.axes.x1)} y_axis={axis_config(panel.axes.y1)} x2_axis={panel.axes.x2 ? axis_config(panel.axes.x2) : {}} y2_axis={panel.axes.y2 ? axis_config(panel.axes.y2) : {}} fill_regions={fills(panel) as never[]} error_bands={errors(panel) as never[]} {padding} user_content={annotations} legend={SCIENTIFIC_PLOT_LEGEND} show_controls="always" fullscreen_toggle={true} pan={{ enabled: true }} />
             {/if}
           </div>
         </article>
