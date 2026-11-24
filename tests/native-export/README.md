@@ -24,7 +24,10 @@ gh workflow run matterviz-native-export.yml --ref <branch> \
 ```
 
 Set `platform=windows` or `both` when needed. The source run and artifact SHA-256
-are checked before extraction. There is no automatic PR run against a stale
+are checked before extraction. A macOS run whose only failure is the app UI
+step can also supply its DMG when all packaging checks and other jobs passed;
+provenance retains the original failed result. This permits correcting a UI
+driver against the same verified package. There is no automatic PR run against a stale
 package; current macOS app entry regression runs in the package job itself.
 The historical `38f63b1` host-only acceptance artifacts remain valid evidence
 for that older package, including its failed app launcher.
@@ -32,6 +35,9 @@ for that older package, including its failed app launcher.
 Windows uses native UIAutomation and the runner's input desktop. macOS uses
 AX/CGEvent and the existing login session. Both retain session information,
 screenshots, accessibility trees, decoded PNG dimensions and file hashes.
+The LaunchServices test removes CI/SSH markers only from its launch environment
+to exercise the normal Cocoa desktop route. Ordinary CLI tests retain those
+markers and verify the intentionally supported CLI routing.
 The four export cases assert cancellation without a file, a nonblank PNG,
 refused overwrite preserving the original bytes, and confirmed overwrite
 replacing a sentinel. `results.json` identifies the failed stage.
