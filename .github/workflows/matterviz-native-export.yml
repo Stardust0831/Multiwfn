@@ -1,20 +1,13 @@
 name: MatterViz native package acceptance
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - .github/workflows/matterviz-native-export.yml
-      - tests/native-export/**
   workflow_dispatch:
     inputs:
       package_run:
         description: Successful matterviz-gui run containing the existing packages
-        default: '45468159224'
         required: true
       package_head:
         description: Exact source head of that package run
-        default: '38f63b1d091ab7812cb9240c45aea5f23d79fc4a'
         required: true
       platform:
         description: Native platform to exercise without rebuilding packages
@@ -33,8 +26,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PACKAGE_RUN: ${{ inputs.package_run || '45468159224' }}
-  PACKAGE_HEAD: ${{ inputs.package_head || '38f63b1d091ab7812cb9240c45aea5f23d79fc4a' }}
+  PACKAGE_RUN: ${{ inputs.package_run }}
+  PACKAGE_HEAD: ${{ inputs.package_head }}
 
 jobs:
   windows:

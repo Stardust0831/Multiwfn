@@ -1,4 +1,4 @@
-// Exercise an existing packaged host in the runner's actual login session.
+// Exercise the packaged macOS user entry and native saves in its login session.
 // These APIs never request Accessibility, Automation or Screen Recording access.
 import Cocoa
 import ApplicationServices
@@ -15,9 +15,10 @@ let fm = FileManager.default
 try fm.createDirectory(at: output, withIntermediateDirectories: true)
 var stage = "desktop"
 var records: [[String: Any]] = []
-var host: Process?
+var ownedProcess: Process?
+var nativeHost: NSRunningApplication?
 var appAX: AXUIElement?
-var launcher: [String: Any] = [:]
+var entries: [[String: Any]] = []
 func write(_ name: String, _ value: Any) throws {
     let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
     try data.write(to: output.appendingPathComponent(name))
@@ -73,8 +74,8 @@ func wait<T>(_ description: String, seconds: Double = 30, _ test: () -> T?) thro
     let end = Date().addingTimeInterval(seconds)
     while Date() < end {
         if let result = test() { return result }
-        if let app = host, !app.isRunning { throw Failure("Packaged host exited: \(app.terminationStatus)") }
-        Thread.sleep(forTimeInterval: 0.2)
+        if let app = nativeHost, app.isTerminated { throw Failure("Packaged host exited before the expected UI state") }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
     }
     throw Failure("Timed out: \(description)")
 }
@@ -180,42 +181,141 @@ var info: [String: Any] = [
     "screens": NSScreen.screens.map { ["width": $0.frame.width, "height": $0.frame.height] }, "app": appPath.path,
 ]
 try write("environment.json", info)
-do {
-    guard AXIsProcessTrusted() else { throw Failure("BLOCKED: existing Accessibility authorization is absent") }
-    let session = output.appendingPathComponent("session")
-    try fm.createDirectory(at: session, withIntermediateDirectories: true)
-    let fixture = session.appendingPathComponent("water.xyz")
-    try "3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n".write(to: fixture, atomically: true, encoding: .utf8)
-    let manifest = session.appendingPathComponent("manifest.json")
-    try #"{"structure":{"path":"water.xyz","format":"xyz"},"cubes":[]}"#.write(to: manifest, atomically: true, encoding: .utf8)
-    stage = "app-launcher"
-    var appEnvironment = environment
-    appEnvironment["MULTIWFN_DIRECT_GUI"] = "1"
-    let wrapper = try launch(appPath.appendingPathComponent("Contents/MacOS/Multiwfn"),
-        arguments: [fixture.path], logName: "app-launcher.log", environment: appEnvironment)
-    let wrapperEnd = Date().addingTimeInterval(10)
-    while wrapper.isRunning && Date() < wrapperEnd { Thread.sleep(forTimeInterval: 0.2) }
-    launcher = ["runningAfter10Seconds": wrapper.isRunning, "log": "app-launcher.log"]
-    if wrapper.isRunning { wrapper.terminate(); wrapper.waitUntilExit() }
-    else { launcher["exitCode"] = wrapper.terminationStatus }
-    launcher["logText"] = (try? String(contentsOf: output.appendingPathComponent("app-launcher.log"), encoding: .utf8)) ?? ""
-    try write("app-launcher.json", launcher)
-    // Independently validate the unmodified host from this same app. A launcher
-    // failure remains a separate product failure, even if all host saves pass.
-    stage = "packaged-host-launch"
-    let resources = appPath.appendingPathComponent("Contents/Resources")
-    host = try launch(resources.appendingPathComponent("tools/matterviz-desktop"), arguments: [
-        "--frontend", resources.appendingPathComponent("frontend/matterviz-viewer/dist").path,
-        "--session", session.path, "--manifest", manifest.path, "--port", "0", "--startup-timeout", "120"
-    ], logName: "host.log", environment: environment)
-    appAX = AXUIElementCreateApplication(host!.processIdentifier)
+
+func activeApp(_ executable: URL) -> NSRunningApplication? {
+    let expected = executable.resolvingSymlinksInPath().path
+    return NSWorkspace.shared.runningApplications.first {
+        !$0.isTerminated && $0.executableURL?.resolvingSymlinksInPath().path == expected
+    }
+}
+func inspectApp(_ app: NSRunningApplication) {
+    appAX = AXUIElementCreateApplication(app.processIdentifier)
     AXUIElementSetMessagingTimeout(appAX!, 5)
-    NSRunningApplication(processIdentifier: host!.processIdentifier)?.activate(options: [])
-    info["hostPID"] = host!.processIdentifier
-    try write("environment.json", info)
-    stage = "webview-accessibility"
+    app.activate(options: [])
+}
+func logText(_ name: String) -> String {
+    return (try? String(contentsOf: output.appendingPathComponent(name), encoding: .utf8)) ?? ""
+}
+func appLogs(_ name: String) -> String {
+    return logText("\(name).stdout.log") + "\n" + logText("\(name).stderr.log")
+}
+func openApplication(_ name: String, document: URL? = nil) throws -> Process {
+    for stream in ["stdout", "stderr"] {
+        _ = fm.createFile(atPath: output.appendingPathComponent("\(name).\(stream).log").path, contents: nil)
+    }
+    var args = ["-n", "-W", "--stdout", output.appendingPathComponent("\(name).stdout.log").path,
+                "--stderr", output.appendingPathComponent("\(name).stderr.log").path,
+                "--env", "OMP_THREAD_LIMIT=1", "--env", "GFORTRAN_UNBUFFERED_ALL=y",
+                "--env", "MULTIWFN_MATTERVIZ_PORT=0", "-a", appPath.path]
+    if let document = document { args.append(document.path) }
+    // LaunchServices delivers document events just as Finder/Open With does.
+    // Only explicitly listed application environment variables are passed.
+    return try launch(URL(fileURLWithPath: "/usr/bin/open"), arguments: args,
+                      logName: "\(name)-open.log", environment: environment)
+}
+func exitStatus(_ app: Process, name: String) throws -> Int32 {
+    _ = try wait("\(name) process exit", seconds: 30) { !app.isRunning ? true : nil }
+    app.waitUntilExit()
+    guard app.terminationStatus == 0 else { throw Failure("\(name) exited \(app.terminationStatus)") }
+    return app.terminationStatus
+}
+func chooseInput(_ fixture: URL) throws {
+    let panel = try wait("native Open panel") { find("Multiwfn - Select Input File", role: "AXWindow") }
+    capture("no-argument-open-panel")
+    try key(5, flags: [.maskCommand, .maskShift])
+    let path = try wait("Open panel Go to Folder path") {
+        elements(panel).first { text($0.0, "AXIdentifier") == "PathTextField" }?.0
+    }
+    try setValue(path, fixture.path)
+    capture("no-argument-selected-path")
+    try key(36)
+    _ = try wait("Open panel Go to Folder dismissed") {
+        elements(panel).contains { text($0.0, "AXIdentifier") == "GoToWindow" } ? nil : true
+    }
+    try clickName("Open", root: panel)
+}
+func awaitViewer() throws {
+    let executable = appPath.appendingPathComponent("Contents/Resources/tools/matterviz-desktop")
+    nativeHost = try wait("host started by the app entry", seconds: 120) { activeApp(executable) }
+    inspectApp(nativeHost!)
     _ = try wait("loaded structure in WKWebView", seconds: 90) { find("Structure loaded") }
-    capture("startup")
+}
+func readSession(_ name: String, log: String, path: String) throws -> [String: Any] {
+    let line = try wait("host URL in app output") {
+        appLogs(log).components(separatedBy: .newlines).first { $0.hasPrefix("Multiwfn MatterViz GUI service: http://") }
+    }
+    let urlString = String(line.dropFirst("Multiwfn MatterViz GUI service: ".count))
+    guard var url = URLComponents(string: urlString) else { throw Failure("Invalid host URL") }
+    url.path = path
+    url.queryItems = url.queryItems?.filter { $0.name == "cap" }
+    let destination = output.appendingPathComponent(name)
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+    task.arguments = ["--fail", "--silent", "--show-error", "--max-time", "10", "--noproxy", "*",
+                      "--output", destination.path, url.url!.absoluteString]
+    try task.run(); task.waitUntilExit()
+    guard task.terminationStatus == 0 else { throw Failure("Reading actual session failed: \(path)") }
+    return try JSONSerialization.jsonObject(with: Data(contentsOf: destination)) as! [String: Any]
+}
+func verifyInput(_ name: String, fixture: URL, atoms: [(String, [Double])]) throws {
+    _ = try wait("requested input loaded by the real core") {
+        appLogs(name).contains("Loaded \(fixture.path) successfully!") ? true : nil
+    }
+    let manifest = try readSession("\(name)-manifest.json", log: name, path: "/session/manifest.json")
+    guard (manifest["multiwfnGui"] as? [String: Any])?["entry"] as? String == "drawmolgui" else {
+        throw Failure("The app did not start the core's molecular viewer")
+    }
+    let structure = try readSession("\(name)-structure.json", log: name, path: "/session/structure.json")
+    guard let sites = structure["sites"] as? [[String: Any]], sites.count == atoms.count else {
+        throw Failure("Loaded atom count differs from the requested input")
+    }
+    for (site, expected) in zip(sites, atoms) {
+        guard let species = site["species"] as? [[String: Any]], species.first?["element"] as? String == expected.0,
+              let xyz = site["xyz"] as? [Double], xyz.count == 3,
+              zip(xyz, expected.1).allSatisfy({ observed, wanted in abs(observed - wanted) < 1e-7 }) else {
+            throw Failure("Loaded species/coordinates differ from requested input")
+        }
+    }
+    capture("\(name)-loaded")
+    entries.append(["case": name, "input": fixture.path, "inputSha256": hash(fixture)!,
+                    "atoms": atoms.count, "speciesAndCoordinatesMatch": true,
+                    "hostPID": nativeHost!.processIdentifier, "passed": true])
+}
+func returnFromViewer(_ name: String, launcher: Process) throws {
+    let app = nativeHost!
+    try clickName("Return")
+    nativeHost = nil
+    _ = try wait("host closed after Return", seconds: 30) { app.isTerminated ? true : nil }
+    let status = try exitStatus(launcher, name: name)
+    guard !appLogs(name).contains("Fortran runtime error") else { throw Failure("Core runtime error after Return") }
+    entries[entries.count - 1]["launcherExit"] = status
+    entries[entries.count - 1]["hostClosedAfterReturn"] = true
+    appAX = nil
+}
+func checkCLI(_ name: String, fixture: URL, noArguments: Bool) throws {
+    let task = Process()
+    let log = output.appendingPathComponent("\(name).log")
+    _ = fm.createFile(atPath: log.path, contents: nil)
+    let handle = try FileHandle(forWritingTo: log)
+    let input = Pipe()
+    task.executableURL = appPath.appendingPathComponent("Contents/MacOS/Multiwfn")
+    task.arguments = noArguments ? [] : [fixture.path, "-nt", "1"]
+    var cliEnvironment = environment
+    cliEnvironment["MULTIWFN_DIRECT_GUI"] = "0"
+    cliEnvironment["GFORTRAN_UNBUFFERED_ALL"] = "y"
+    task.environment = cliEnvironment
+    task.standardInput = input; task.standardOutput = handle; task.standardError = handle
+    ownedProcess = task
+    try task.run(); try handle.close()
+    try input.fileHandleForWriting.write(contentsOf: Data((noArguments ? "\(fixture.path)\nq\n" : "q\n").utf8))
+    try input.fileHandleForWriting.close()
+    let status = try exitStatus(task, name: name)
+    guard logText("\(name).log").contains("Loaded \(fixture.path) successfully!") else {
+        throw Failure("CLI did not load the requested input")
+    }
+    entries.append(["case": name, "input": fixture.path, "exitCode": status, "passed": true])
+}
+func exerciseExports() throws {
     let target = output.appendingPathComponent("export.png")
     for mode in ["cancel", "save", "refuse-overwrite", "overwrite"] {
         var before = hash(target)
@@ -279,20 +379,64 @@ do {
         capture("\(mode)-result")
         records.append(["case": mode, "before": before as Any? ?? NSNull(), "after": hash(target) as Any? ?? NSNull(),
                         "png": image, "passed": true])
-        try write("results.json", ["status": "in_progress", "stage": stage, "cases": records, "launcher": launcher])
+        try write("results.json", ["status": "in_progress", "stage": stage, "cases": records, "entries": entries])
     }
-    let launcherFailed = (launcher["exitCode"] as? Int32).map { $0 != 0 } ?? false
-    try write("results.json", ["status": launcherFailed ? "failed" : "passed", "hostStatus": "passed",
-        "stage": launcherFailed ? "app-launcher" : "complete", "cases": records, "launcher": launcher,
-        "scope": "Unmodified packaged host with managed fixture; app entry is reported independently in launcher."])
-    if let app = host, app.isRunning { app.terminate() }
-    if launcherFailed { exit(2) }
+}
+
+do {
+    guard AXIsProcessTrusted() else { throw Failure("BLOCKED: existing Accessibility authorization is absent") }
+    let inputs = output.appendingPathComponent("input files")
+    try fm.createDirectory(at: inputs, withIntermediateDirectories: true)
+    let water = inputs.appendingPathComponent("选择 水 molecule.xyz")
+    let methane = inputs.appendingPathComponent("打开 甲烷 molecule.xyz")
+    try "3\nwater\nO 0 0 0\nH 0 0 0.96\nH 0.92 0 -0.24\n".write(to: water, atomically: true, encoding: .utf8)
+    try "5\nmethane\nC 0 0 0\nH 0.63 0.63 0.63\nH -0.63 -0.63 0.63\nH -0.63 0.63 -0.63\nH 0.63 -0.63 -0.63\n".write(to: methane, atomically: true, encoding: .utf8)
+    let waterAtoms: [(String, [Double])] = [("O", [0,0,0]), ("H", [0,0,0.96]), ("H", [0.92,0,-0.24])]
+    let methaneAtoms: [(String, [Double])] = [("C", [0,0,0]), ("H", [0.63,0.63,0.63]),
+        ("H", [-0.63,-0.63,0.63]), ("H", [-0.63,0.63,-0.63]), ("H", [0.63,-0.63,-0.63])]
+
+    stage = "no-argument-app-entry"
+    ownedProcess = try openApplication("no-argument")
+    let cocoa = try wait("Cocoa user entry", seconds: 30) {
+        activeApp(appPath.appendingPathComponent("Contents/MacOS/Multiwfn"))
+    }
+    inspectApp(cocoa)
+    try chooseInput(water)
+    try awaitViewer()
+    try verifyInput("no-argument", fixture: water, atoms: waterAtoms)
+    try returnFromViewer("no-argument", launcher: ownedProcess!)
+
+    stage = "document-open-app-entry"
+    ownedProcess = try openApplication("document-open", document: methane)
+    try awaitViewer()
+    try verifyInput("document-open", fixture: methane, atoms: methaneAtoms)
+    try exerciseExports()
+    try returnFromViewer("document-open", launcher: ownedProcess!)
+
+    // Exercise the documented direct GUI and terminal routes against the real
+    // core as well: its exit status must be 0 after consuming the queued q.
+    stage = "direct-gui-process-exit"
+    var directEnvironment = environment
+    directEnvironment["MULTIWFN_DIRECT_GUI"] = "1"
+    directEnvironment["GFORTRAN_UNBUFFERED_ALL"] = "y"
+    directEnvironment["MULTIWFN_MATTERVIZ_PORT"] = "0"
+    ownedProcess = try launch(appPath.appendingPathComponent("Contents/MacOS/Multiwfn"),
+        arguments: [water.path], logName: "direct-gui.stdout.log", environment: directEnvironment)
+    try awaitViewer()
+    try verifyInput("direct-gui", fixture: water, atoms: waterAtoms)
+    try returnFromViewer("direct-gui", launcher: ownedProcess!)
+    stage = "cli-compatibility"
+    try checkCLI("cli-file", fixture: water, noArguments: false)
+    try checkCLI("cli-no-arguments", fixture: methane, noArguments: true)
+    try write("results.json", ["status": "passed", "stage": "complete", "entries": entries, "cases": records,
+        "scope": "Real packaged Cocoa/LaunchServices entry, core-loaded input and native WebView exports; no managed fixture fallback."])
 } catch {
     capture("failure")
     let reason = String(describing: error)
     try write("results.json", ["status": reason.hasPrefix("BLOCKED:") ? "blocked" : "failed",
-        "stage": stage, "error": reason, "cases": records, "launcher": launcher])
-    if let app = host, app.isRunning { app.terminate() }
+        "stage": stage, "error": reason, "cases": records, "entries": entries])
+    nativeHost?.terminate()
+    if let app = ownedProcess, app.isRunning { app.terminate() }
     print(reason)
     exit(2)
 }

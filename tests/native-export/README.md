@@ -1,35 +1,41 @@
-# Existing native package acceptance
+# Native package acceptance
 
-The separate `matterviz-native-export.yml` workflow uses existing artifacts
-from a successful package run. Its defaults identify PR #82 at `38f63b1`.
-It verifies the source SHA and artifact SHA-256 before extraction and does
-not build the application or rerun the Linux acceptance suite.
+The macOS package job in `matterviz-gui.yml` mounts its newly built DMG read-only
+and tests the extracted, signature-verified app. It records the PR head, actual
+checkout SHA, DMG hash and packaged launcher/core/host hashes. Cocoa source and
+shell-launcher source hashes are included; the packaged shell must match source.
 
-After GitHub registers the workflow, run it against the branch with
-`gh workflow run matterviz-native-export.yml --ref <branch>` and optionally
-set `package_run` and `package_head`. A new workflow that exists only on a
-branch may initially return HTTP 404 from the dispatch API; its first pull
-request run registers it. Subsequent driver-only changes can use manual
-dispatch with existing package artifacts.
-Use `-f platform=windows` or `-f platform=macos` to repeat only the affected
-platform; the default is both.
+The Swift driver opens the real app through LaunchServices, first without a
+file (and selects a document in NSOpenPanel), then with a different document.
+It checks the exact loaded path in core output and compares species and all
+coordinates in the real host's session against the requested input. These
+integration checks exercise the actual core/host protocol rather than a stub.
+It then clicks the app's WebView and NSSavePanel for four export cases, checks
+Return/process termination, and verifies direct-GUI and ordinary CLI entries.
+There is no fallback that starts a host with a fabricated session.
 
-Windows uses the runner's native UI Automation API and input desktop. It
-records the session, window station, WebView2 runtime, accessibility tree
-and screenshots, then clicks the packaged WebView and system Save dialog.
-The four cases assert cancellation without a file, a decoded nonblank PNG,
-rejection of overwrite preserving the original hash, and confirmed overwrite
-replacing a sentinel. `results.json` distinguishes the stage that failed.
+The separate `matterviz-native-export.yml` workflow can repeat acceptance of
+existing packages without rebuilding or running Linux tests:
 
-macOS records the unchanged app launcher's result separately, then opens the
-same app's packaged host with a managed water fixture. It records the Quartz
-session and AX results, checks existing Accessibility/Screen Recording/input
-access without requesting it, and exercises the same four save cases through
-WKWebView and NSSavePanel. An AX authorization failure is a blocked native
-interaction, not a passing save test. A passing host save test does not excuse
-a failed app entry; `app-launcher.json` and its log retain that separate result.
+```sh
+gh workflow run matterviz-native-export.yml --ref <branch> \
+  -f package_run=<successful-package-run> -f package_head=<source-sha> \
+  -f platform=macos
+```
 
-No desktop permissions, repository settings, signatures or system services
-are changed. Only the workflow's normal read-only artifact access is used.
-Evidence is uploaded even on failure; a blocked environment remains visible
-as a non-successful platform result.
+Set `platform=windows` or `both` when needed. The source run and artifact SHA-256
+are checked before extraction. There is no automatic PR run against a stale
+package; current macOS app entry regression runs in the package job itself.
+The historical `38f63b1` host-only acceptance artifacts remain valid evidence
+for that older package, including its failed app launcher.
+
+Windows uses native UIAutomation and the runner's input desktop. macOS uses
+AX/CGEvent and the existing login session. Both retain session information,
+screenshots, accessibility trees, decoded PNG dimensions and file hashes.
+The four export cases assert cancellation without a file, a nonblank PNG,
+refused overwrite preserving the original bytes, and confirmed overwrite
+replacing a sentinel. `results.json` identifies the failed stage.
+
+No desktop permissions, repository settings or system services are changed.
+The existing-package workflow does not alter signatures. Evidence is retained
+even on failure; missing desktop authorization is a failed/blocked result.

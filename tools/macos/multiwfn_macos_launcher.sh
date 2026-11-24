@@ -2,12 +2,10 @@
 set -euo pipefail
 
 # Multiwfn macOS Application Launcher
-# Resolves application bundle paths, strips quarantine attributes from bundled dependencies,
-# configures environment, and routes input to Multiwfn MatterViz GUI.
+# Resolves bundle paths and routes Cocoa document opens or terminal CLI input.
 
 MACOS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTENTS_DIR="$(cd "$MACOS_DIR/.." && pwd)"
-APP_DIR="$(cd "$CONTENTS_DIR/.." && pwd)"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
 # Set up runtime environment
@@ -28,35 +26,13 @@ if [[ -f "$RESOURCES_DIR/banewfn-workbench" ]]; then
   exec "$RESOURCES_DIR/tools/matterviz-desktop" --workbench "$@"
 fi
 
-INPUT_FILE=""
-# Handle arguments passed by LaunchServices or CLI
-for arg in "$@"; do
-  # Skip macOS process serial number argument (-psn_...)
-  if [[ "$arg" =~ ^-psn_ ]]; then
-    continue
-  fi
-  if [[ -f "$arg" ]]; then
-    INPUT_FILE="$arg"
-    break
-  fi
-done
-
-# Launch Multiwfn
-if [[ -n "$INPUT_FILE" ]]; then
-  # When MULTIWFN_DIRECT_GUI=1 is set (e.g. by native Cocoa launcher on Finder open):
-  # Workflow-enabled bundles use a desktop-owned persistent engine.
-  if [[ "${MULTIWFN_DIRECT_GUI:-0}" == "1" ]]; then
-    if [[ -x "$RESOURCES_DIR/tools/multiwfn-workflow" ]]; then
-      exec "$RESOURCES_DIR/tools/matterviz-desktop" --launch "$INPUT_FILE"
-    fi
-    printf "0\n" | exec "$BINARY" "$INPUT_FILE"
-  else
-    exec "$BINARY" "$@"
-  fi
+# Cocoa selects a document before invoking this script. The core owns loading
+# that document and starting its managed viewer; the host has no --launch mode.
+# Keep all core arguments, and exit gracefully after the user returns/closes
+# the viewer instead of leaving the core to read EOF at its main menu.
+if [[ "${MULTIWFN_DIRECT_GUI:-0}" == "1" && $# -gt 0 && -f "$1" ]]; then
+  printf '0\nq\n' | "$BINARY" "$@"
 else
-  if [[ $# -eq 0 && -x "$RESOURCES_DIR/tools/multiwfn-workflow" ]]; then
-    exec "$RESOURCES_DIR/tools/matterviz-desktop" --launch
-  else
-    exec "$BINARY" "$@"
-  fi
+  # Includes no-argument terminal/batch entry: preserve the core's own prompt.
+  exec "$BINARY" "$@"
 fi

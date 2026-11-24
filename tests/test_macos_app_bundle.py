@@ -12,7 +12,7 @@ TOOLS_MACOS = ROOT / "tools" / "macos"
 
 class MacOSAppBundleTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "exec launcher is a Unix shell script")
-    def test_workflow_desktop_entry_receives_exact_file_argument(self):
+    def test_cocoa_core_cli_and_workbench_routing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "Multiwfn with spaces.app" / "Contents"
             macos = root / "MacOS"
@@ -22,19 +22,36 @@ class MacOSAppBundleTests(unittest.TestCase):
             launcher = macos / "multiwfn_macos_launcher.sh"
             launcher.write_bytes((TOOLS_MACOS / launcher.name).read_bytes())
             for name, content in [
-                (macos / "Multiwfn_MatterVizGUI", "#!/bin/sh\nexit 77\n"),
+                (macos / "Multiwfn_MatterVizGUI", '#!/bin/sh\nprintf "core\\n"\nprintf "%s\\n" "$@"\nprintf "stdin\\n"\ncat\nexit "${TEST_CORE_EXIT:-0}"\n'),
                 (tools / "multiwfn-workflow", "#!/bin/sh\nexit 0\n"),
-                (tools / "matterviz-desktop", '#!/bin/sh\nprintf "%s\\n" "$@"\n'),
+                (tools / "matterviz-desktop", '#!/bin/sh\nprintf "host\\n"\nprintf "%s\\n" "$@"\n'),
             ]:
                 name.write_text(content)
                 name.chmod(0o755)
             startup = Path(directory) / "启动 文件.xyz"
             startup.write_text("fixture")
-            env = dict(os.environ, MULTIWFN_DIRECT_GUI="1")
-            for args, expected in [([], ["--launch"]), ([str(startup)], ["--launch", str(startup)])]:
-                result = subprocess.run(["bash", str(launcher), *args], env=env, capture_output=True, text=True)
+            def run(args, direct=False, stdin="q\n", exit_code=0):
+                env = dict(os.environ, MULTIWFN_DIRECT_GUI="1" if direct else "0", TEST_CORE_EXIT=str(exit_code))
+                return subprocess.run(["bash", str(launcher), *args], env=env, input=stdin,
+                                      capture_output=True, text=True, timeout=10)
+            # A workflow runner's presence must not redirect molecular viewing
+            # to a nonexistent host mode or discard additional core arguments.
+            args = [str(startup), "-nt", "2"]
+            result = run(args, direct=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ["core", *args, "stdin", "0", "q"])
+            self.assertEqual(run(args, direct=True, exit_code=77).returncode, 77)
+            result = run(args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ["core", *args, "stdin", "q"])
+            result = run([], stdin=f"{startup}\nq\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ["core", "", "stdin", str(startup), "q"])
+            (root / "Resources" / "banewfn-workbench").touch()
+            for args in [[], ["--script", "脚本 with spaces.bw", "--wfn", str(startup)]]:
+                result = run(args, direct=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout.splitlines(), expected)
+                self.assertEqual(result.stdout.splitlines(), ["host", "--workbench", *args])
 
     def test_workflow_arguments_with_and_without_preview_updater(self):
         workflow = (ROOT / ".github/workflows/matterviz-gui.yml").read_text()
@@ -113,8 +130,6 @@ class MacOSAppBundleTests(unittest.TestCase):
 
         content = launcher.read_text(encoding="utf-8")
         self.assertIn("set -euo pipefail", content)
-        self.assertIn('matterviz-desktop" --launch "$INPUT_FILE"', content,
-                      "Workflow GUI must own its persistent engine")
         self.assertIn("${MULTIWFN_DIRECT_GUI:-0}", content, "Must respect MULTIWFN_DIRECT_GUI flag")
         self.assertIn("MULTIWFN_MATTERVIZ_HOME", content)
         self.assertIn("DYLD_LIBRARY_PATH", content)
