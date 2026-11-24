@@ -1,0 +1,96 @@
+name: MatterViz native package acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/matterviz-native-export.yml
+      - tests/native-export/**
+  workflow_dispatch:
+    inputs:
+      package_run:
+        description: Successful matterviz-gui run containing the existing packages
+        default: '45468159224'
+        required: true
+      package_head:
+        description: Exact source head of that package run
+        default: '38f63b1d091ab7812cb9240c45aea5f23d79fc4a'
+        required: true
+
+# Both scopes are within this repository's existing read-only token default.
+# No repository settings, secrets, desktop permissions or services are changed.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: native-export-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_RUN: ${{ inputs.package_run || '45468159224' }}
+  PACKAGE_HEAD: ${{ inputs.package_head || '38f63b1d091ab7812cb9240c45aea5f23d79fc4a' }}
+
+jobs:
+  windows:
+    name: Existing Windows package native export
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download the verified existing Windows package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tests/native-export/download_package.py --run "$env:PACKAGE_RUN" --head "$env:PACKAGE_HEAD" --artifact matterviz-package-Windows --output "$env:RUNNER_TEMP/native-package"
+      - name: Inspect native desktop and exercise WebView2 saves
+        shell: powershell
+        run: |
+          $archive = (Get-ChildItem "$env:RUNNER_TEMP/native-package/payload" -Filter *.zip).FullName
+          Expand-Archive $archive "$env:RUNNER_TEMP/native-package/extracted"
+          & tests/native-export/windows.ps1 -Package "$env:RUNNER_TEMP/native-package/extracted" -Output "$env:RUNNER_TEMP/native-export"
+      - name: Retain native evidence and package provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-export-Windows
+          path: |
+            ${{ runner.temp }}/native-export
+            ${{ runner.temp }}/native-package/provenance.json
+          if-no-files-found: error
+
+  macos:
+    name: Existing macOS app desktop feasibility
+    runs-on: macos-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download the verified existing macOS app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tests/native-export/download_package.py --run "$PACKAGE_RUN" --head "$PACKAGE_HEAD" --artifact matterviz-macos-dmg --output "$RUNNER_TEMP/native-package"
+      - name: Extract the app without installing or changing its signature
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-package/mount" "$RUNNER_TEMP/native-package/extracted" "$RUNNER_TEMP/native-export"
+          mount="$RUNNER_TEMP/native-package/mount"
+          trap 'hdiutil detach "$mount" >/dev/null 2>&1 || true' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$RUNNER_TEMP/native-package/payload/"*.dmg
+          ditto "$mount/Multiwfn.app" "$RUNNER_TEMP/native-package/extracted/Multiwfn.app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/native-package/extracted/Multiwfn.app"
+      - name: Inspect native session and exercise WKWebView saves when accessible
+        run: |
+          swiftc tests/native-export/macos.swift -o "$RUNNER_TEMP/native-export-driver" -framework Cocoa -framework ApplicationServices
+          "$RUNNER_TEMP/native-export-driver" "$RUNNER_TEMP/native-package/extracted/Multiwfn.app" "$RUNNER_TEMP/native-export"
+      - name: Retain native evidence and package provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-export-macOS
+          path: |
+            ${{ runner.temp }}/native-export
+            ${{ runner.temp }}/native-package/provenance.json
+          if-no-files-found: error
