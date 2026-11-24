@@ -16,6 +16,11 @@ on:
         description: Exact source head of that package run
         default: '38f63b1d091ab7812cb9240c45aea5f23d79fc4a'
         required: true
+      platform:
+        description: Native platform to exercise without rebuilding packages
+        type: choice
+        options: [both, windows, macos]
+        default: both
 
 # Both scopes are within this repository's existing read-only token default.
 # No repository settings, secrets, desktop permissions or services are changed.
@@ -33,6 +38,7 @@ env:
 
 jobs:
   windows:
+    if: ${{ !inputs.platform || inputs.platform == 'both' || inputs.platform == 'windows' }}
     name: Existing Windows package native export
     runs-on: windows-latest
     timeout-minutes: 12
@@ -61,7 +67,8 @@ jobs:
           if-no-files-found: error
 
   macos:
-    name: Existing macOS app desktop feasibility
+    if: ${{ !inputs.platform || inputs.platform == 'both' || inputs.platform == 'macos' }}
+    name: Existing macOS app native export
     runs-on: macos-latest
     timeout-minutes: 12
     steps:

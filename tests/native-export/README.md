@@ -11,6 +11,8 @@ set `package_run` and `package_head`. A new workflow that exists only on a
 branch may initially return HTTP 404 from the dispatch API; its first pull
 request run registers it. Subsequent driver-only changes can use manual
 dispatch with existing package artifacts.
+Use `-f platform=windows` or `-f platform=macos` to repeat only the affected
+platform; the default is both.
 
 Windows uses the runner's native UI Automation API and input desktop. It
 records the session, window station, WebView2 runtime, accessibility tree
@@ -19,13 +21,13 @@ The four cases assert cancellation without a file, a decoded nonblank PNG,
 rejection of overwrite preserving the original hash, and confirmed overwrite
 replacing a sentinel. `results.json` distinguishes the stage that failed.
 
-macOS opens the unchanged app from the existing DMG through its packaged
-launcher, records the Quartz session/window and AX results, and checks
-existing Accessibility/Screen Recording/input access without requesting it.
-An AX authorization failure is a blocked native interaction, not a passing
-save test. If AX is available, inspect the saved tree before extending the
-platform-specific interaction steps. Window existence alone proves neither
-rendering nor chooser behavior.
+macOS records the unchanged app launcher's result separately, then opens the
+same app's packaged host with a managed water fixture. It records the Quartz
+session and AX results, checks existing Accessibility/Screen Recording/input
+access without requesting it, and exercises the same four save cases through
+WKWebView and NSSavePanel. An AX authorization failure is a blocked native
+interaction, not a passing save test. A passing host save test does not excuse
+a failed app entry; `app-launcher.json` and its log retain that separate result.
 
 No desktop permissions, repository settings, signatures or system services
 are changed. Only the workflow's normal read-only artifact access is used.

@@ -17,6 +17,8 @@ public static class NativeDesktop {
     public static extern bool GetUserObjectInformation(IntPtr handle, int index, StringBuilder value, uint length, out uint needed);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr parameter, string value);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr parameter, StringBuilder value);
 }
 '@
 
@@ -82,7 +84,8 @@ function Capture([string]$Name) {
     try {
         foreach ($element in $rootElement.FindAll($scope, $all)) {
             $c = $element.Current
-            $lines.Add("$($c.ControlType.ProgrammaticName) name=$($c.Name) id=$($c.AutomationId) pid=$($c.ProcessId) bounds=$($c.BoundingRectangle)")
+            $patterns = ($element.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName }) -join ','
+            $lines.Add("$($c.ControlType.ProgrammaticName) name=$($c.Name) id=$($c.AutomationId) pid=$($c.ProcessId) hwnd=$($c.NativeWindowHandle) patterns=$patterns bounds=$($c.BoundingRectangle)")
             if ($lines.Count -ge 2000) { break }
         }
     } catch { $lines.Add("UIA snapshot error: $($_.Exception.Message)") }
@@ -99,17 +102,32 @@ function Capture([string]$Name) {
 }
 function Set-Filename($Dialog, [string]$Path) {
     $edit = Wait-For {
-        foreach ($element in $Dialog.FindAll($scope, $all)) {
+        # Windows Server 2025 exposes this native edit as ControlType.Pane.
+        # Another address-bar control has the same ID, so scope to its host.
+        $condition = [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'FileNameControlHost')
+        $hostElement = $Dialog.FindFirst($scope, $condition)
+        if ($null -eq $hostElement) { return $null }
+        foreach ($element in $hostElement.FindAll($scope, $all)) {
             $c = $element.Current
-            if ($c.ControlType -eq [System.Windows.Automation.ControlType]::Edit -and
-                ($c.Name -match '^File name' -or $c.AutomationId -in @('1001','1148'))) {
+            if ($c.AutomationId -in @('1001','1148')) {
                 return $element
             }
         }
     } 'native filename field'
-    $value = $edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-    $value.SetValue($Path)
-    if ($value.Current.Value -ne $Path) { throw 'Native filename value was not set' }
+    $value = $null
+    if ($edit.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$value)) {
+        $value.SetValue($Path)
+        if ($value.Current.Value -ne $Path) { throw 'Native filename value was not set' }
+    } else {
+        $handle = [IntPtr]$edit.Current.NativeWindowHandle
+        if ($handle -eq [IntPtr]::Zero) { throw 'Native filename field exposes neither ValuePattern nor HWND' }
+        # WM_SETTEXT/WM_GETTEXT operate only on the observed native filename HWND.
+        [void][NativeDesktop]::SendMessage($handle, 0x000C, [IntPtr]::Zero, $Path)
+        $readback = [Text.StringBuilder]::new(32768)
+        [void][NativeDesktop]::SendMessage($handle, 0x000D, [IntPtr]32768, $readback)
+        if ($readback.ToString() -ne $Path) { throw 'Native filename HWND readback differs from requested path' }
+    }
 }
 function Inspect-Png([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)
