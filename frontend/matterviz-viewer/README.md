@@ -216,6 +216,11 @@ Its **Transparent background** checkbox defaults to off: PNG files keep the
 selected scene background color (white initially). Check it to retain alpha.
 This affects only the exported image, leaving the scene and materials unchanged.
 
+In the packaged desktop viewer, Save opens the native file dialog. Cancelling
+leaves existing files intact; replacing an existing file requires confirmation.
+The status reports success only after the host finishes writing the file.
+Browser sessions continue to use the browser's download handling.
+
 Native binary plot arrays stay typed in transport/cache. At the ScatterPlot boundary,
 immutable coordinate and fill arrays are converted once with a weak cache, because
 MatterViz's point construction uses `Array.map` to produce objects. Passing a typed

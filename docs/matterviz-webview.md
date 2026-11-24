@@ -37,6 +37,15 @@ also requires a single `Host` header matching its actual loopback authority,
 including the selected fallback port; this prevents unrelated web origins and
 DNS rebinding from reading a session or triggering calculations.
 
+The packaged viewer toolbar sends rendered exports to `POST /api/viewer-export`.
+This bounded (64 MiB) endpoint requires the session capability, matching Host
+and Origin, a plain filename and matching supported content type. It never
+accepts a destination path from JavaScript: the native chooser supplies it.
+Cancellation does not write; confirmed replacement uses a sibling temporary
+file and atomic rename. A suffix added after the dialog is created exclusively
+so an unconfirmed existing file cannot be replaced. The frontend awaits the
+host's saved/cancelled/error result instead of claiming success at anchor click.
+
 ## Prerequisites
 
 - Node.js 24.11 or newer and pnpm 11 for the MatterViz frontend.
@@ -45,8 +54,13 @@ DNS rebinding from reading a session or triggering calculations.
   - Windows: Microsoft Edge WebView2 Evergreen Runtime.
   - macOS: Xcode Command Line Tools and the system WKWebView framework.
   - Linux: GTK/WebKitGTK development packages required by Tauri 2 (package
-    names depend on the distribution); the native file picker uses the XDG
-    desktop portal when invoked.
+    names depend on the distribution). Packaged builds use the separate GTK
+    file chooser helper; otherwise selection uses the XDG desktop portal.
+    Current upstream MatterViz requires `navigator.gpu` to mount its scene.
+    The host enables WebKitGTK's public `WebGPU` feature when the installed
+    runtime exposes it (feature API since 2.42). Three uses its own WebGL2
+    backend if WebGPU cannot provide an adapter. Older runtimes without that
+    feature can open 2D plots but require a WebKitGTK update for 3D scenes.
 
 Python is not required by the MatterViz runtime. Python-based repository tools
 and tests remain development-only and are not copied into a package.
@@ -142,6 +156,20 @@ cargo clippy --manifest-path tests/matterviz-volume-e2e/Cargo.toml --locked --al
 ```
 
 These checks cover HTTP and pipe behavior, not native window rendering.
+
+The Linux package job also drives the actual WebView toolbar and GTK save
+dialog through AT-SPI, with compositing enabled under Xvfb:
+
+```sh
+dbus-run-session -- xvfb-run -a -s '-screen 0 1440x1000x24' \
+  /usr/bin/python3 tests/linux/test_matterviz_native_export.py \
+    --package /path/to/extracted/package --output /tmp/matterviz-native-export
+```
+
+It verifies a nonblank scene PNG, cancellation without a file, rejection of
+replacement without changing the original, and confirmed replacement. The CI
+artifact retains dialog screenshots, exported PNGs, before/after hashes and
+the host log. This does not establish Windows or macOS dialog behavior.
 
 The default capability file grants no filesystem, shell, process, or other
 frontend IPC permissions. The current host needs no Tauri command bridge; any

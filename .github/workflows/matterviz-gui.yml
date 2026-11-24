@@ -560,6 +560,24 @@ jobs:
             WEBKIT_DISABLE_COMPOSITING_MODE=1 \
             python3 tests/linux/test_matterviz_mapped_surfaces.py \
               --executable "$root/Multiwfn_MatterVizGUI"
+      - name: Test native Linux PNG save, cancel and overwrite
+        if: runner.os == 'Linux'
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1440x1000x24' \
+            /usr/bin/python3 tests/linux/test_matterviz_native_export.py \
+              --package "$PWD/clean-test/$PKG" \
+              --output "$RUNNER_TEMP/matterviz-native-export"
+
+      - name: Upload native export evidence
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: matterviz-native-export-${{ matrix.platform }}
+          path: ${{ runner.temp }}/matterviz-native-export
+          if-no-files-found: ignore
+
       - name: Package macOS preview
         if: runner.os == 'macOS'
         shell: bash

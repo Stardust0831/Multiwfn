@@ -156,11 +156,4 @@ export const plot_data_csv = async (plot: WorkbenchPlot): Promise<string> => {
   return `${rows.join('\r\n')}\r\n`
 }
 
-export const download_blob = (blob: Blob, filename: string): void => {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_')
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 30_000)
-}
+export { download_blob } from './save-export.ts'

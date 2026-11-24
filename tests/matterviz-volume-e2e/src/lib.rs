@@ -26,6 +26,8 @@ pub mod stream_broker;
 pub mod transport;
 #[path = "../../../frontend/matterviz-desktop/src/updater.rs"]
 pub mod updater;
+#[path = "../../../frontend/matterviz-desktop/src/viewer_export.rs"]
+pub mod viewer_export;
 #[path = "../../../frontend/matterviz-desktop/src/volume_protocol.rs"]
 pub mod volume_protocol;
 #[path = "../../../frontend/matterviz-desktop/src/volume_store.rs"]
@@ -46,6 +48,12 @@ pub mod workflows;
 // Native selection is covered by desktop-host tests; this headless harness
 // exercises the same service and workflow process manager without a WebView.
 pub mod file_dialog {
+    pub fn save_viewer_export(
+        _filename: &str,
+        _extension: &str,
+    ) -> Result<Option<std::path::PathBuf>, String> {
+        Ok(None)
+    }
     pub fn select_workflow_inputs() -> Result<Option<Vec<std::path::PathBuf>>, String> {
         Ok(None)
     }

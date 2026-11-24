@@ -170,24 +170,25 @@
     openMenu = undefined
     const plot = active_plot
     try {
+      let outcome: string
       if (plot) {
         if (format === 'csv' || format === 'json') {
           const data = format === 'csv' ? await plot_data_csv(plot) : await serialize_plot_document(plot)
-          download_blob(new Blob([data], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json' }), `${plot_title(plot.artifact)}.${format}`)
+          outcome = await download_blob(new Blob([data], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json' }), `${plot_title(plot.artifact)}.${format}`)
         } else {
           const root = resultStage?.querySelector<HTMLElement>('.result-document:not(.inactive) [data-plot-document]')
           if (!root) throw new Error('The active plot is not ready')
           const bytes = await render_plot_document(root, format)
-          download_blob(new Blob([bytes.slice().buffer], { type: format === 'svg' ? 'image/svg+xml' : format === 'pdf' ? 'application/pdf' : 'image/png' }), `${plot_title(plot.artifact)}.${format}`)
+          outcome = await download_blob(new Blob([bytes.slice().buffer], { type: format === 'svg' ? 'image/svg+xml' : format === 'pdf' ? 'application/pdf' : 'image/png' }), `${plot_title(plot.artifact)}.${format}`)
         }
       } else {
         const canvas = viewerShell?.querySelector<HTMLCanvasElement>('canvas')
         if (!canvas) throw new Error('The 3D scene is not ready')
         const background = transparentExport ? undefined : backgroundColor
         const png = analysisViewport ? await analysisViewport.capture(background) : await scene_to_png_blob(canvas, background)
-        download_blob(png, 'Multiwfn-scene.png')
+        outcome = await download_blob(png, 'Multiwfn-scene.png')
       }
-      set_status(ui_message('{format} exported', { format: format.toUpperCase() }))
+      set_status(outcome === 'cancelled' ? ui_message('Save cancelled') : ui_message('{format} exported', { format: format.toUpperCase() }))
     } catch (error) { report_error(error) }
     finally { savingResult = false }
   }
@@ -539,10 +540,13 @@
     }
   }
 
-  const export_topology = (format: 'json' | 'csv'): void => {
+  const export_topology = async (format: 'json' | 'csv'): Promise<void> => {
     if (!topologyResult) return
     const text = format === 'json' ? topology_document(topologyResult) : topology_csv(topologyResult)
-    download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-topology.${format}`)
+    try {
+      const outcome = await download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-topology.${format}`)
+      set_status(outcome === 'cancelled' ? ui_message('Save cancelled') : ui_message('{format} exported', { format: format.toUpperCase() }))
+    } catch (error) { report_error(error) }
   }
   const load_surface = (metadata: unknown) => resolve_surface(metadata, async (datasetId) => {
     const response = await fetch(api_url(`/api/plot-data/${datasetId}`), { cache: 'no-store' })
@@ -590,10 +594,13 @@
     if (!surfaceResult || loading) return
     surfaceResult = { ...surfaceResult, metadata: { ...surfaceResult.metadata, volume: null, massDensity: null, statisticsSource: undefined } }
   }
-  const export_surface = (format: 'json' | 'csv'): void => {
+  const export_surface = async (format: 'json' | 'csv'): Promise<void> => {
     if (!surfaceResult) return
     const text = format === 'json' ? surface_document(surfaceResult) : surface_csv(surfaceResult)
-    download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-quantitative-surface.${format}`)
+    try {
+      const outcome = await download_blob(new Blob([text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' }), `Multiwfn-quantitative-surface.${format}`)
+      set_status(outcome === 'cancelled' ? ui_message('Save cancelled') : ui_message('{format} exported', { format: format.toUpperCase() }))
+    } catch (error) { report_error(error) }
   }
 
   let bondMethod = $state('mayer')
