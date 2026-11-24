@@ -21,7 +21,24 @@ def api(path):
 
 run = api(f'actions/runs/{args.run}')
 assert run['head_sha'] == args.head, 'package source SHA differs from requested source'
-assert run['conclusion'] == 'success', 'source package workflow did not pass'
+# A failed UI driver can be corrected against the already-built DMG. Accept
+# only that precise post-package failure; compilation, package checks and all
+# other jobs must still have passed. Retain the failed source-run result below.
+validation_failure = None
+if run['conclusion'] != 'success':
+    assert args.artifact == 'matterviz-macos-dmg', 'source package workflow did not pass'
+    jobs = api(f'actions/runs/{args.run}/jobs')['jobs']
+    package = next(job for job in jobs if job['name'] == 'Package MatterViz WebView (macOS)')
+    steps = {step['name']: step['conclusion'] for step in package['steps']}
+    required = ['Package macOS preview', 'Verify macOS installer license and attribution',
+                'Test extracted macOS package', 'Test workflows in extracted package',
+                'Test independent BaneWfn workbench in extracted package',
+                'Verify package contents', 'Upload macOS DMG installer']
+    assert all(steps.get(name) == 'success' for name in required), 'macOS packaging checks did not pass'
+    failed = [name for name, result in steps.items() if result == 'failure']
+    assert failed == ['Test macOS app entry and native exports'], 'source failure was not limited to app UI validation'
+    assert all(job['conclusion'] in ('success', 'skipped') for job in jobs if job['id'] != package['id']), 'another source job did not pass'
+    validation_failure = {'job': package['html_url'], 'steps': failed}
 artifacts = api(f'actions/runs/{args.run}/artifacts')['artifacts']
 artifact = next(a for a in artifacts if a['name'] == args.artifact and not a['expired'])
 args.output.mkdir(parents=True, exist_ok=True)
@@ -34,6 +51,7 @@ assert artifact['digest'] == f'sha256:{digest}', 'artifact digest mismatch'
 with zipfile.ZipFile(archive) as zipped:
     zipped.extractall(args.output / 'payload')
 provenance = {'source_run': args.run, 'source_head': args.head,
+              'source_run_conclusion': run['conclusion'], 'validation_failure': validation_failure,
               'artifact': artifact, 'verified_sha256': digest,
               'payloads': [{'name': p.name, 'bytes': p.stat().st_size,
                             'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}

@@ -208,10 +208,12 @@ func openApplication(_ name: String, document: URL? = nil) throws -> Process {
                 "--env", "OMP_THREAD_LIMIT=1", "--env", "GFORTRAN_UNBUFFERED_ALL=y",
                 "--env", "MULTIWFN_MATTERVIZ_PORT=0", "-a", appPath.path]
     if let document = document { args.append(document.path) }
-    // LaunchServices delivers document events just as Finder/Open With does.
-    // Only explicitly listed application environment variables are passed.
+    // LaunchServices inherits the caller environment. Cocoa deliberately uses
+    // CLI mode under CI/SSH, so model a normal desktop launch without those
+    // process-local markers. The ordinary CLI cases retain the CI environment.
+    let desktopEnvironment = environment.filter { !["CI", "SSH_CONNECTION", "SSH_CLIENT"].contains($0.key) }
     return try launch(URL(fileURLWithPath: "/usr/bin/open"), arguments: args,
-                      logName: "\(name)-open.log", environment: environment)
+                      logName: "\(name)-open.log", environment: desktopEnvironment)
 }
 func exitStatus(_ app: Process, name: String) throws -> Int32 {
     _ = try wait("\(name) process exit", seconds: 30) { !app.isRunning ? true : nil }
