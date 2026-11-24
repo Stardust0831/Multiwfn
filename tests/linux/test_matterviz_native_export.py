@@ -5,6 +5,7 @@ Requires the GTK/AT-SPI introspection files provided by the existing WebView
 development dependencies. No WebDriver or browser replacement is used.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -17,7 +18,7 @@ import gi
 gi.require_version("Atspi", "2.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Atspi, Gdk, GdkPixbuf
+from gi.repository import Atspi, Gdk, GdkPixbuf, GLib
 
 
 def nodes(root=None, depth=0):
@@ -40,7 +41,12 @@ def label(node):
 def wait(predicate, description, timeout=30):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        result = predicate()
+        try:
+            result = predicate()
+        except GLib.Error:
+            # WebKit can replace accessible objects during navigation. Retry a
+            # fresh snapshot within the same deadline, retaining all assertions.
+            result = None
         if result:
             return result
         time.sleep(0.15)
@@ -71,9 +77,10 @@ def filename_entry(dialog):
 
 
 def capture(output, name):
-    (output / f"{name}.txt").write_text("\n".join(
+    snapshot = wait(lambda: "\n".join(
         "  " * depth + f"{node.get_role_name()}: {label(node)!r}"
-        for node, depth in nodes()), encoding="utf-8")
+        for node, depth in nodes()), "stable accessibility snapshot")
+    (output / f"{name}.txt").write_text(snapshot, encoding="utf-8")
     root = Gdk.get_default_root_window()
     image = Gdk.pixbuf_get_from_window(root, 0, 0, root.get_width(), root.get_height())
     image.savev(str(output / f"{name}.png"), "png", [], [])
@@ -81,6 +88,42 @@ def capture(output, name):
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@contextmanager
+def accessibility_bus(registry):
+    """Use an extracted registry executable without installing desktop services."""
+    if registry is None:
+        yield
+        return
+    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address"],
+                           stdout=subprocess.PIPE, text=True)
+    daemon = None
+    try:
+        address = bus.stdout.readline().strip()
+        assert address.startswith("unix:"), "accessibility bus did not start"
+        os.environ["AT_SPI_BUS_ADDRESS"] = address
+        daemon = subprocess.Popen([str(registry)])
+
+        def registered():
+            result = subprocess.run(["gdbus", "call", "--address", address,
+                                     "--dest", "org.freedesktop.DBus",
+                                     "--object-path", "/org/freedesktop/DBus",
+                                     "--method", "org.freedesktop.DBus.NameHasOwner",
+                                     "org.a11y.atspi.Registry"], capture_output=True, text=True)
+            return result.returncode == 0 and "true" in result.stdout
+
+        wait(registered, "private accessibility registry", 10)
+        yield
+    finally:
+        for process in [daemon, bus]:
+            if process and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
 
 
 def run(package, output):
@@ -168,6 +211,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--atspi-registry", type=Path,
+                        help="Path to an extracted at-spi2-registryd for CI without desktop services")
     args = parser.parse_args()
-    Atspi.init()
-    run(args.package.resolve(), args.output.resolve())
+    with accessibility_bus(args.atspi_registry):
+        Atspi.init()
+        run(args.package.resolve(), args.output.resolve())

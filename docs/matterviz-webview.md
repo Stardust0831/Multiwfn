@@ -161,7 +161,7 @@ The Linux package job also drives the actual WebView toolbar and GTK save
 dialog through AT-SPI, with compositing enabled under Xvfb:
 
 ```sh
-dbus-run-session -- xvfb-run -a -s '-screen 0 1440x1000x24' \
+xvfb-run -a -s '-screen 0 1440x1000x24' dbus-run-session -- \
   /usr/bin/python3 tests/linux/test_matterviz_native_export.py \
     --package /path/to/extracted/package --output /tmp/matterviz-native-export
 ```
@@ -170,6 +170,10 @@ It verifies a nonblank scene PNG, cancellation without a file, rejection of
 replacement without changing the original, and confirmed replacement. The CI
 artifact retains dialog screenshots, exported PNGs, before/after hashes and
 the host log. This does not establish Windows or macOS dialog behavior.
+On the minimal CI runner, the test uses an extracted `at-spi2-registryd` and
+a private accessibility bus via `--atspi-registry`; no desktop service is
+installed or enabled. Xvfb starts before D-Bus so session helpers inherit
+the display environment.
 
 The default capability file grants no filesystem, shell, process, or other
 frontend IPC permissions. The current host needs no Tauri command bridge; any

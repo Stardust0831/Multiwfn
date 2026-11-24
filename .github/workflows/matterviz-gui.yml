@@ -565,10 +565,20 @@ jobs:
         timeout-minutes: 4
         shell: bash
         run: |
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1440x1000x24' \
+          # The minimal runner has AT-SPI libraries but no desktop bus launcher.
+          # Extract its registry into RUNNER_TEMP and run a private bus; install
+          # no system or login service. Xvfb must precede D-Bus so activated
+          # helpers inherit DISPLAY.
+          mkdir -p "$RUNNER_TEMP/matterviz-atspi"
+          (cd "$RUNNER_TEMP/matterviz-atspi" && apt-get download at-spi2-core)
+          for deb in "$RUNNER_TEMP/matterviz-atspi/"*.deb; do
+            dpkg-deb -x "$deb" "$RUNNER_TEMP/matterviz-atspi"
+          done
+          xvfb-run -a -s '-screen 0 1440x1000x24' dbus-run-session -- \
             /usr/bin/python3 tests/linux/test_matterviz_native_export.py \
               --package "$PWD/clean-test/$PKG" \
-              --output "$RUNNER_TEMP/matterviz-native-export"
+              --output "$RUNNER_TEMP/matterviz-native-export" \
+              --atspi-registry "$RUNNER_TEMP/matterviz-atspi/usr/libexec/at-spi2-registryd"
 
       - name: Upload native export evidence
         if: always() && runner.os == 'Linux'
@@ -892,6 +902,7 @@ jobs:
           fi
 
       - name: Upload MatterViz package
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: matterviz-package-${{ matrix.platform }}
