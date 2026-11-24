@@ -5,6 +5,13 @@ from a successful package run. Its defaults identify PR #82 at `38f63b1`.
 It verifies the source SHA and artifact SHA-256 before extraction and does
 not build the application or rerun the Linux acceptance suite.
 
+After GitHub registers the workflow, run it against the branch with
+`gh workflow run matterviz-native-export.yml --ref <branch>` and optionally
+set `package_run` and `package_head`. A new workflow that exists only on a
+branch may initially return HTTP 404 from the dispatch API; its first pull
+request run registers it. Subsequent driver-only changes can use manual
+dispatch with existing package artifacts.
+
 Windows uses the runner's native UI Automation API and input desktop. It
 records the session, window station, WebView2 runtime, accessibility tree
 and screenshots, then clicks the packaged WebView and system Save dialog.
