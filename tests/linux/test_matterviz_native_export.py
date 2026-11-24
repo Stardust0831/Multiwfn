@@ -154,7 +154,13 @@ def run(package, output):
                     before = target.read_bytes()
                     (output / "before-overwrite.bin").write_bytes(before)
                 click("Save")
-                click("PNG image")
+                try:
+                    click("PNG image")
+                except GLib.Error as error:
+                    # WebKit may lose the AT-SPI action reply while encoding
+                    # the PNG. Do not click twice: require the actual chooser
+                    # below, then keep all file and status assertions.
+                    print(f"PNG action reply lost; waiting for native chooser: {error}", flush=True)
                 dialog = wait(lambda: find("Save viewer export", role="file chooser"), "native save dialog")
                 capture(output, f"{mode}-dialog")
                 if mode == "cancel":
