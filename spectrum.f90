@@ -4198,6 +4198,16 @@ if (index(filename,"multiple.txt")/=0) then !Load multiple systems
 		end if
         
         call loadNMR(trim(c200tmp)) !Load atomic shielding tensor to atmshd
+        if (i==1) then
+			ncentmp=ncenter
+        else
+			if (ncenter/=ncentmp) then
+				write(*,*) "Error: The systems to be plotted should have the same number of atoms!"
+                write(*,*) "Press ENTER button to exit program"
+                read(*,*)
+                stop
+            end if
+        end if
         if (.not.allocated(atmshdall)) allocate(atmshdall(ncenter,nsystem))
         atmshdall(:,i)=atmshd(:)
         deallocate(atmshd)

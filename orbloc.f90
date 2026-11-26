@@ -6,12 +6,13 @@ subroutine orbloc
 use defvar
 use util
 use functions
+use, intrinsic :: iso_fortran_env, only: int64
 implicit real*8 (a-h,o-z)
 character c2000tmp*2000
 integer :: maxcyc=80,ireload=1,idoene=0,idocore=1,imethod=1,domark(4),iPMexp=2,ilmocen=0
 real*8 :: arrayi(nbasis),arrayj(nbasis),crit=1D-4,tmpbasarr(nbasis),tmpprimarr(nprims),bastot(nbasis)
 real*8,pointer :: Cmat(:,:)
-real*8,allocatable :: FLMOA(:,:),FLMOB(:,:),Xmat(:,:),Xmatinv(:,:),SC(:,:),AOMbas(:,:,:),tmpmat(:,:)
+real*8,allocatable :: FLMOA(:,:),FLMOB(:,:),Xmat(:,:),Xmatinv(:,:),AOMbas(:,:,:),tmpmat(:,:)
 real*8 :: orbcomp(ncenter,nbasis) !Used in printing major orbital character
 integer :: orbtype(nmo) !LMO type determined according to composition, 0=other, 1=one-center, 2=two-center
 integer :: orbatm(2,nmo) !The index of the atom mainly involved in the LMO. one-center LMO has first element, two-center LMO has two elements
@@ -22,6 +23,21 @@ integer :: thres_1c=90,thres_2c=85,icompmethod=2
 character c200tmp*200,typestr*4,selectyn
 integer orblist(nmo),norblist !Record the index of MOs included in the localization
 integer orblist_did(nmo) !If the orbital is involved in orbital localization, it will be set to 1, otherwise 0
+!Used by optimized OpenMP PM-Mulliken / PM-Lowdin localization
+integer :: natm_act,nwords,neven,nhalf,iround,ipair,iw,iw_beg,iw_end,ibit,ia
+integer,allocatable :: atm_start(:),atm_end(:),top_orb(:),bot_orb(:),iw_min(:),iw_max(:)
+integer(int64),allocatable :: pm_mask(:,:)
+integer(int64) :: bits
+logical :: has_ovl
+real*8,allocatable :: Cact(:,:),SCact(:,:),Qdiag(:,:),P_orb(:)
+real*8 :: r_tol2,gam_tol,cg,sg,tmp1,tmp2
+!Used by optimized OpenMP PM-Becke / Foster-Boys localization (MO-basis Jacobi)
+integer :: nmat,iexp,idir,imat,irot,irow,icol,n_rot
+integer,allocatable :: rot_i(:),rot_j(:)
+logical,allocatable :: pair_rot(:)
+real*8,allocatable :: Omo(:,:,:),Umat(:,:),AOMtmp(:,:),Omo_slice(:,:),Dtmp(:,:),Ctmp(:,:)
+real*8,allocatable :: pair_c(:),pair_s(:),rot_c(:),rot_s(:)
+real*8 :: ravg
 !Used by PM-Becke
 real*8 tmprow(1,nbasis),mat11(1,1),veccoeffi(1,nbasis),veccoeffj(1,nbasis)
 !Below for calculating LMO centers and dipole moments
@@ -220,7 +236,6 @@ end if
 !Preparation work for specific method
 if (imethod==1) then !PM with Mulliken
     call ask_Sbas_PBC
-	allocate(SC(nbasis,nbasis))
 else if (imethod==2) then !PM with Lowdin
 	write(*,*) "Performing Lowdin orthonormalization..."
     call ask_Sbas_PBC
@@ -247,6 +262,21 @@ call walltime(iwalltime1)
 !Carry out localization
 !Alpha-occ,Alpha-vir,Beta-occ,Beta-vir
 orblist_did=0
+natm_act=0
+if (imethod==1.or.imethod==2) then
+    natm_act=count(basstart(1:ncenter)>0)
+    if (natm_act>0) then
+        allocate(atm_start(natm_act),atm_end(natm_act))
+        ia=0
+        do iatm=1,ncenter
+            if (basstart(iatm)>0) then
+                ia=ia+1
+                atm_start(ia)=basstart(iatm)
+                atm_end(ia)=basend(iatm)
+            end if
+        end do
+    end if
+end if
 do itime=1,4
 	if (domark(itime)==0) cycle
 	if (itime<=2) then
@@ -277,11 +307,6 @@ do itime=1,4
         continue !orblist has already been defined by user
     end if
     orblist_did(orblist(1:norblist))=1
-	if (imethod==1) then
-		write(*,*)
-        write(*,*) "Calculating intermediate matrix, please wait..."
-        SC=matmul_blas(Sbas,Cmat,nbasis,nbasis,0,0) !Generate intermediate matrix SC for PM-Mulliken for lowering cost from N^4 to N^3
-    end if
 	
 	if (wfntype==0) then
 		if (itime==1) write(*,"(/,a)") " Localizing occupied orbitals..."
@@ -293,126 +318,408 @@ do itime=1,4
 		if (itime==4) write(*,"(/,a)") " Localizing beta unoccupied orbitals..."
 	end if
 
-	Pvalold=0
-	do icyc=1,maxcyc
-		do idx=1,norblist-1 !Cycle each orbital pair
-            imo=orblist(idx)
-			do jdx=idx+1,norblist
-                jmo=orblist(jdx)
-                !PM-Mulliken and PM-Lowdin. Working equation is Journal of Computational Chemistry, 14, 6, 736 (1993)
-				if (imethod==1.or.imethod==2) then
-				    Aval=0;Bval=0
-					do iatm=1,ncenter
-						is=basstart(iatm)
-                        if (is==0) cycle
-						ie=basend(iatm)
-                        if (imethod==1) then !Mulliken population
-						    Qij=0.5D0*sum(Cmat(is:ie,jmo)*SC(is:ie,imo)+Cmat(is:ie,imo)*SC(is:ie,jmo))
-						    Qii=sum(Cmat(is:ie,imo)*SC(is:ie,imo))
-						    Qjj=sum(Cmat(is:ie,jmo)*SC(is:ie,jmo))
-                        else if (imethod==2) then !Lowdin population
-						    Qij=sum(Cmat(is:ie,imo)*Cmat(is:ie,jmo))
-						    Qii=sum(Cmat(is:ie,imo)*Cmat(is:ie,imo))
-						    Qjj=sum(Cmat(is:ie,jmo)*Cmat(is:ie,jmo))
-                        end if
-						if (iPMexp==2) then
-							Aval=Aval+( Qij**2-(Qii-Qjj)**2/4D0 )
-							Bval=Bval+( Qij*(Qii-Qjj) )
-						else if (iPMexp==4) then
-							Aval=Aval-Qii**4-Qjj**4+6*(Qii**2+Qjj**2)*Qij**2+Qii**3*Qjj+Qjj**3*Qii
-							Bval=Bval+4*Qij*(Qii**3-Qjj**3)
-						end if
-					end do
-                    !The following parallization makes calculation evidently slower perhaps due to additional overhead due to create threads
-     !               !$OMP parallel private(iatm,Avaltmp,Bvaltmp,is,ie,Qij,Qii,Qjj) num_threads(nthreads)
-					!Avaltmp=0
-					!Bvaltmp=0
-     !               !$OMP do schedule(dynamic)
-					!do iatm=1,ncenter
-					!	is=basstart(iatm)
-     !                   if (is==0) cycle
-					!	ie=basend(iatm)
-					!	Qij=0.5D0*sum(Cmat(is:ie,jmo)*SC(is:ie,imo)+Cmat(is:ie,imo)*SC(is:ie,jmo))
-					!	Qii=sum(Cmat(is:ie,imo)*SC(is:ie,imo))
-					!	Qjj=sum(Cmat(is:ie,jmo)*SC(is:ie,jmo))
-					!	Avaltmp=Avaltmp+( Qij**2-(Qii-Qjj)**2/4D0 )
-					!	Bvaltmp=Bvaltmp+( Qij*(Qii-Qjj) )
-					!end do
-     !               !$OMP end do
-     !               !$OMP CRITICAL
-	    !            Aval=Aval+Avaltmp
-	    !            Bval=Bval+Bvaltmp
-     !               !$OMP end CRITICAL
-     !               !$OMP end parallel
-                !PM-Becke. See Eqs. 14 and 17 in J. Chem. Theory Comput., 10, 642 (2014)
-                else if (imethod==3) then
-				    Aval=0;Bval=0
-                    veccoeffi(1,:)=Cmat(:,imo)
-                    veccoeffj(1,:)=Cmat(:,jmo)
-                    !$OMP parallel private(iatm,Avaltmp,Bvaltmp,tmprow,mat11,Qij,Qii,Qjj) num_threads(nthreads)
-					Avaltmp=0
-					Bvaltmp=0
-                    !$OMP do schedule(dynamic)
-					do iatm=1,ncenter !Note: Constructing tmprow is the most time-consuming step of PM-Becke method, especially for large system
-                        tmprow=matmul_blas(veccoeffi(1:1,:),AOMbas(:,:,iatm),1,nbasis,0,0)
-                        mat11=matmul_blas(tmprow(1:1,:),Cmat(:,jmo:jmo),1,1,0,0)
-                        Qij=mat11(1,1)
-                        mat11=matmul_blas(tmprow(1:1,:),Cmat(:,imo:imo),1,1,0,0)
-                        Qii=mat11(1,1)
-                        tmprow=matmul_blas(veccoeffj(1:1,:),AOMbas(:,:,iatm),1,nbasis,0,0)
-                        mat11=matmul_blas(tmprow(1:1,:),Cmat(:,jmo:jmo),1,1,0,0)
-                        Qjj=mat11(1,1)
-						if (iPMexp==2) then
-							Avaltmp=Avaltmp+( Qij**2-(Qii-Qjj)**2/4D0 )
-							Bvaltmp=Bvaltmp+( Qij*(Qii-Qjj) )
-						else if (iPMexp==4) then
-							Avaltmp=Avaltmp-Qii**4-Qjj**4+6*(Qii**2+Qjj**2)*Qij**2+Qii**3*Qjj+Qjj**3*Qii
-							Bvaltmp=Bvaltmp+4*Qij*(Qii**3-Qjj**3)
-						end if
-					end do
-                    !$OMP end do
-                    !$OMP CRITICAL
-	                Aval=Aval+Avaltmp
-	                Bval=Bval+Bvaltmp
-                    !$OMP end CRITICAL
-                    !$OMP end parallel
-                !Foster-Boys localization
-				else if (imethod==10) then
-					call boysdipint(iri,jrj,irj,imo,jmo,Cmat)
-					Aval=sum(irj**2)-sum((iri-jrj)**2)/4
-					Bval=sum(irj*(iri-jrj))
-				end if
-                
-				if (Aval**2+Bval**2<1D-12) cycle
-				gamma=sign(1D0,Bval)*acos(-Aval/dsqrt(Aval**2+Bval**2))/4D0
-				arrayi=cos(gamma)*Cmat(:,imo)+sin(gamma)*Cmat(:,jmo) !Rotate imo and jmo by angle gamma to yield a new orbital
-				arrayj=-sin(gamma)*Cmat(:,imo)+cos(gamma)*Cmat(:,jmo)
-				Cmat(:,imo)=arrayi !Update current coefficient matrix by new mixed orbital
-				Cmat(:,jmo)=arrayj
-				if (imethod==1) then !For PM-Mulliken, also correspondingly update auxiliary matrix SC
-					arrayi=cos(gamma)*SC(:,imo)+sin(gamma)*SC(:,jmo)
-					arrayj=-sin(gamma)*SC(:,imo)+cos(gamma)*SC(:,jmo)
-					SC(:,imo)=arrayi
-					SC(:,jmo)=arrayj
-				end if
-                
-			end do
-		end do
-        
-		Pval=0
+	if (imethod==1.or.imethod==2) then
+		if (norblist<=0.or.natm_act<=0) cycle
+		allocate(Cact(nbasis,norblist))
 		do idx=1,norblist
-            imo=orblist(idx)
+			Cact(:,idx)=Cmat(:,orblist(idx))
+		end do
+		if (imethod==1) then
+			write(*,*) "Calculating intermediate matrix, please wait..."
+			allocate(SCact(nbasis,norblist))
+			SCact=matmul_blas(Sbas,Cact,nbasis,norblist,0,0) !Only active orbitals: O(M*B^2) instead of O(B^3)
+		else
+			allocate(SCact(1,1)) !Dummy allocation so SCact is always allocated in OpenMP shared clause
+		end if
+
+		nwords=(natm_act+63)/64
+		neven=norblist+mod(norblist,2)
+		nhalf=neven/2
+		r_tol2=1D-12
+		gam_tol=1D-10
+		allocate(Qdiag(natm_act,norblist),P_orb(norblist),pm_mask(nwords,norblist), &
+		         iw_min(norblist),iw_max(norblist),top_orb(nhalf),bot_orb(nhalf))
+
+		!$OMP parallel do default(none) &
+		!$OMP shared(imethod,iPMexp,nbasis,norblist,natm_act,atm_start,atm_end, &
+		!$OMP        nwords,r_tol2,Cact,SCact,Qdiag,P_orb,pm_mask,iw_min,iw_max) &
+		!$OMP private(idx) num_threads(nthreads)
+		do idx=1,norblist
+			if (imethod==1) then
+				call calc_orb_pm_info(imethod,iPMexp,nbasis,natm_act,atm_start,atm_end, &
+					nwords,r_tol2,Cact(:,idx),SCact(:,idx),Qdiag(:,idx),P_orb(idx), &
+					pm_mask(:,idx),iw_min(idx),iw_max(idx))
+			else
+				call calc_orb_pm_info(imethod,iPMexp,nbasis,natm_act,atm_start,atm_end, &
+					nwords,r_tol2,Cact(:,idx),Cact(:,idx),Qdiag(:,idx),P_orb(idx), &
+					pm_mask(:,idx),iw_min(idx),iw_max(idx))
+			end if
+		end do
+		!$OMP end parallel do
+
+		Pvalold=sum(P_orb(1:norblist))
+		write(*,"(' Initial P:',f16.8)") Pvalold
+
+		do icyc=1,maxcyc
+			do ipair=1,nhalf
+				top_orb(ipair)=ipair
+				bot_orb(ipair)=neven-ipair+1
+			end do
+
+			!$OMP parallel default(none) &
+			!$OMP shared(imethod,iPMexp,nbasis,norblist,natm_act,nwords,neven,nhalf, &
+			!$OMP        atm_start,atm_end,Cact,SCact,Qdiag,P_orb,pm_mask,iw_min,iw_max, &
+			!$OMP        top_orb,bot_orb,r_tol2,gam_tol) &
+			!$OMP private(iround,ipair,idx,jdx,iw_beg,iw_end,iw,bits,ibit,ia,is,ie,ibas, &
+			!$OMP         has_ovl,Aval,Bval,Qij,Qii,Qjj,gamma,cg,sg,tmp1,tmp2,itmp) &
+			!$OMP num_threads(nthreads)
+			do iround=1,neven-1
+				!$OMP do schedule(guided)
+				do ipair=1,nhalf
+					idx=top_orb(ipair)
+					jdx=bot_orb(ipair)
+					if (idx>norblist.or.jdx>norblist) cycle
+					iw_beg=max(iw_min(idx),iw_min(jdx))
+					iw_end=min(iw_max(idx),iw_max(jdx))
+					if (iw_beg>iw_end) cycle
+
+					!Working equation is Journal of Computational Chemistry, 14, 6, 736 (1993)
+					!Using exact identity over overlapping atoms S_i \cap S_j from cached P_orb and Qdiag
+					if (iPMexp==2) then
+						Aval=-0.25D0*(P_orb(idx)+P_orb(jdx))
+					else
+						Aval=-(P_orb(idx)+P_orb(jdx))
+					end if
+					Bval=0D0
+					has_ovl=.false.
+
+					do iw=iw_beg,iw_end
+						bits=iand(pm_mask(iw,idx),pm_mask(iw,jdx))
+						do while (bits/=0_int64)
+							has_ovl=.true.
+							ibit=trailz(bits)
+							bits=ibclr(bits,ibit)
+							ia=ishft(iw-1,6)+ibit+1
+							is=atm_start(ia)
+							ie=atm_end(ia)
+
+							Qij=0D0
+							if (imethod==1) then !Mulliken population
+								do ibas=is,ie
+									Qij=Qij+Cact(ibas,jdx)*SCact(ibas,idx)+Cact(ibas,idx)*SCact(ibas,jdx)
+								end do
+								Qij=0.5D0*Qij
+							else !Lowdin population
+								do ibas=is,ie
+									Qij=Qij+Cact(ibas,idx)*Cact(ibas,jdx)
+								end do
+							end if
+
+							Qii=Qdiag(ia,idx)
+							Qjj=Qdiag(ia,jdx)
+							if (iPMexp==2) then
+								Aval=Aval+Qij*Qij+0.5D0*Qii*Qjj
+								Bval=Bval+Qij*(Qii-Qjj)
+							else
+								Aval=Aval+6D0*(Qii*Qii+Qjj*Qjj)*Qij*Qij+Qii*Qjj*(Qii*Qii+Qjj*Qjj)
+								Bval=Bval+4D0*Qij*(Qii**3-Qjj**3)
+							end if
+						end do
+					end do
+
+					if (.not.has_ovl) cycle
+					if (Aval*Aval+Bval*Bval<1D-14) cycle
+					gamma=0.25D0*atan2(Bval,-Aval)
+					if (abs(gamma)<gam_tol) cycle
+
+					!Rotate idx and jdx in-place by angle gamma
+					cg=cos(gamma)
+					sg=sin(gamma)
+					do ibas=1,nbasis
+						tmp1=Cact(ibas,idx)
+						tmp2=Cact(ibas,jdx)
+						Cact(ibas,idx)=cg*tmp1+sg*tmp2
+						Cact(ibas,jdx)=-sg*tmp1+cg*tmp2
+					end do
+					if (imethod==1) then !For PM-Mulliken, also correspondingly update SCact
+						do ibas=1,nbasis
+							tmp1=SCact(ibas,idx)
+							tmp2=SCact(ibas,jdx)
+							SCact(ibas,idx)=cg*tmp1+sg*tmp2
+							SCact(ibas,jdx)=-sg*tmp1+cg*tmp2
+						end do
+					end if
+
+					!Refresh cached Qdiag, P_orb, and screening bitmask for the 2 rotated orbitals
+					if (imethod==1) then
+						call calc_orb_pm_info(imethod,iPMexp,nbasis,natm_act,atm_start,atm_end, &
+							nwords,r_tol2,Cact(:,idx),SCact(:,idx),Qdiag(:,idx),P_orb(idx), &
+							pm_mask(:,idx),iw_min(idx),iw_max(idx))
+						call calc_orb_pm_info(imethod,iPMexp,nbasis,natm_act,atm_start,atm_end, &
+							nwords,r_tol2,Cact(:,jdx),SCact(:,jdx),Qdiag(:,jdx),P_orb(jdx), &
+							pm_mask(:,jdx),iw_min(jdx),iw_max(jdx))
+					else
+						call calc_orb_pm_info(imethod,iPMexp,nbasis,natm_act,atm_start,atm_end, &
+							nwords,r_tol2,Cact(:,idx),Cact(:,idx),Qdiag(:,idx),P_orb(idx), &
+							pm_mask(:,idx),iw_min(idx),iw_max(idx))
+						call calc_orb_pm_info(imethod,iPMexp,nbasis,natm_act,atm_start,atm_end, &
+							nwords,r_tol2,Cact(:,jdx),Cact(:,jdx),Qdiag(:,jdx),P_orb(jdx), &
+							pm_mask(:,jdx),iw_min(jdx),iw_max(jdx))
+					end if
+				end do
+				!$OMP end do
+
+				!$OMP single
+				if (nhalf>1) then !Round-robin cyclic shift (keep top_orb(1) fixed)
+					itmp=bot_orb(1)
+					do ipair=1,nhalf-1
+						bot_orb(ipair)=bot_orb(ipair+1)
+					end do
+					bot_orb(nhalf)=top_orb(nhalf)
+					do ipair=nhalf,3,-1
+						top_orb(ipair)=top_orb(ipair-1)
+					end do
+					top_orb(2)=itmp
+				end if
+				!$OMP end single
+			end do
+			!$OMP end parallel
+
+			Pval=sum(P_orb(1:norblist))
+			deltaPval=Pval-Pvalold
+			write(*,"(' Cycle:',i5,'  P:',f16.8,'  Delta P:',f16.8)") icyc,Pval,deltaPval
+			if (abs(deltaPval)<crit) exit
+			Pvalold=Pval
+		end do
+
+		do idx=1,norblist
+			Cmat(:,orblist(idx))=Cact(:,idx)
+		end do
+		deallocate(Cact,SCact,Qdiag,P_orb,pm_mask,iw_min,iw_max,top_orb,bot_orb)
+	else if (imethod==3.or.imethod==10) then
+		if (norblist<=0) cycle
+		if (imethod==3.and.ncenter<=0) cycle
+		allocate(Cact(nbasis,norblist))
+		do idx=1,norblist
+			Cact(:,idx)=Cmat(:,orblist(idx))
+		end do
+
+		if (imethod==3) then
+			nmat=ncenter
+			iexp=iPMexp
+			write(*,*) "Transforming atomic overlap matrices to MO basis, please wait..."
+			allocate(Omo(nmat,norblist,norblist),AOMtmp(nbasis,norblist),Omo_slice(norblist,norblist))
 			do iatm=1,ncenter
-				if (basstart(iatm)==0) cycle
-				Pval=Pval+Qval(Cmat,imo,imo,iatm)**iPMexp
+				call dgemm('N','N',nbasis,norblist,nbasis,1D0,AOMbas(1,1,iatm),nbasis,Cact,nbasis,0D0,AOMtmp,nbasis)
+				call dgemm('T','N',norblist,norblist,nbasis,1D0,Cact,nbasis,AOMtmp,nbasis,0D0,Omo_slice,norblist)
+				!$OMP parallel do default(none) shared(Omo,Omo_slice,iatm,norblist) private(idx,jdx) num_threads(nthreads)
+				do jdx=1,norblist
+					do idx=1,norblist
+						Omo(iatm,idx,jdx)=Omo_slice(idx,jdx)
+					end do
+				end do
+				!$OMP end parallel do
+			end do
+			deallocate(AOMtmp,Omo_slice)
+		else !imethod==10 (Foster-Boys)
+			nmat=3
+			iexp=2
+			allocate(Omo(3,norblist,norblist),Dtmp(nbasis,nbasis),AOMtmp(nbasis,norblist),Omo_slice(norblist,norblist))
+			do idir=1,3
+				Dtmp(:,:)=Dbas(idir,:,:)
+				call dgemm('N','N',nbasis,norblist,nbasis,1D0,Dtmp,nbasis,Cact,nbasis,0D0,AOMtmp,nbasis)
+				call dgemm('T','N',norblist,norblist,nbasis,1D0,Cact,nbasis,AOMtmp,nbasis,0D0,Omo_slice,norblist)
+				!$OMP parallel do default(none) shared(Omo,Omo_slice,idir,norblist) private(idx,jdx) num_threads(nthreads)
+				do jdx=1,norblist
+					do idx=1,norblist
+						Omo(idir,idx,jdx)=Omo_slice(idx,jdx)
+					end do
+				end do
+				!$OMP end parallel do
+			end do
+			deallocate(Dtmp,AOMtmp,Omo_slice)
+			!Origin-center diagonal dipole integrals (leaves Qii-Qjj and off-diagonal Qij unchanged)
+			do idir=1,3
+				ravg=0D0
+				do idx=1,norblist
+					ravg=ravg+Omo(idir,idx,idx)
+				end do
+				ravg=ravg/dble(norblist)
+				do idx=1,norblist
+					Omo(idir,idx,idx)=Omo(idir,idx,idx)-ravg
+				end do
+			end do
+		end if
+
+		neven=norblist+mod(norblist,2)
+		nhalf=neven/2
+		gam_tol=1D-10
+		allocate(Umat(norblist,norblist),top_orb(nhalf),bot_orb(nhalf), &
+		         pair_rot(nhalf),pair_c(nhalf),pair_s(nhalf), &
+		         rot_i(nhalf),rot_j(nhalf),rot_c(nhalf),rot_s(nhalf))
+		Umat=0D0
+		do idx=1,norblist
+			Umat(idx,idx)=1D0
+		end do
+
+		Pvalold=0D0
+		do idx=1,norblist
+			do imat=1,nmat
+				Pvalold=Pvalold+Omo(imat,idx,idx)**iexp
 			end do
 		end do
-		deltaPval=Pval-Pvalold
-        
-		write(*,"(' Cycle:',i5,'  P:',f16.8,'  Delta P:',f16.8)") icyc,Pval,deltaPval
-		if (abs(deltaPval)<crit) exit
-		Pvalold=Pval
-	end do
+		if (imethod==3) then
+			write(*,"(' Initial P:',f16.8)") Pvalold
+		else
+			write(*,"(' Initial F:',f18.8)") Pvalold
+		end if
+
+		do icyc=1,maxcyc
+			do ipair=1,nhalf
+				top_orb(ipair)=ipair
+				bot_orb(ipair)=neven-ipair+1
+			end do
+
+			!$OMP parallel default(none) &
+			!$OMP shared(nmat,iexp,norblist,neven,nhalf,Omo,Umat,top_orb,bot_orb, &
+			!$OMP        pair_rot,pair_c,pair_s,rot_i,rot_j,rot_c,rot_s,n_rot,gam_tol) &
+			!$OMP private(iround,ipair,idx,jdx,imat,Aval,Bval,Qii,Qjj,Qij,gamma,cg,sg, &
+			!$OMP         irot,irow,icol,tmp1,tmp2,itmp) num_threads(nthreads)
+			do iround=1,neven-1
+				!Phase 1: Evaluate all disjoint pairs in this round (stride-1 along imat=1..nmat)
+				!$OMP do schedule(static)
+				do ipair=1,nhalf
+					pair_rot(ipair)=.false.
+					idx=top_orb(ipair)
+					jdx=bot_orb(ipair)
+					if (idx>norblist.or.jdx>norblist) cycle
+
+					Aval=0D0
+					Bval=0D0
+					if (iexp==2) then
+						do imat=1,nmat
+							Qii=Omo(imat,idx,idx)
+							Qjj=Omo(imat,jdx,jdx)
+							Qij=Omo(imat,idx,jdx)
+							Aval=Aval+Qij*Qij-0.25D0*(Qii-Qjj)**2
+							Bval=Bval+Qij*(Qii-Qjj)
+						end do
+					else
+						do imat=1,nmat
+							Qii=Omo(imat,idx,idx)
+							Qjj=Omo(imat,jdx,jdx)
+							Qij=Omo(imat,idx,jdx)
+							Aval=Aval-Qii**4-Qjj**4+6D0*(Qii*Qii+Qjj*Qjj)*Qij*Qij+Qii**3*Qjj+Qjj**3*Qii
+							Bval=Bval+4D0*Qij*(Qii**3-Qjj**3)
+						end do
+					end if
+
+					if (Aval*Aval+Bval*Bval<1D-14) cycle
+					gamma=0.25D0*atan2(Bval,-Aval)
+					if (abs(gamma)<gam_tol) cycle
+
+					pair_rot(ipair)=.true.
+					pair_c(ipair)=cos(gamma)
+					pair_s(ipair)=sin(gamma)
+				end do
+				!$OMP end do
+
+				!$OMP single
+				n_rot=0
+				do ipair=1,nhalf
+					if (pair_rot(ipair)) then
+						n_rot=n_rot+1
+						rot_i(n_rot)=top_orb(ipair)
+						rot_j(n_rot)=bot_orb(ipair)
+						rot_c(n_rot)=pair_c(ipair)
+						rot_s(n_rot)=pair_s(ipair)
+					end if
+				end do
+				!$OMP end single
+
+				if (n_rot>0) then
+					!Phase 2: Right-multiply O <- O*G and U <- U*G on disjoint columns
+					!$OMP do schedule(static)
+					do irot=1,n_rot
+						idx=rot_i(irot)
+						jdx=rot_j(irot)
+						cg=rot_c(irot)
+						sg=rot_s(irot)
+						do irow=1,norblist
+							do imat=1,nmat
+								tmp1=Omo(imat,irow,idx)
+								tmp2=Omo(imat,irow,jdx)
+								Omo(imat,irow,idx)=cg*tmp1+sg*tmp2
+								Omo(imat,irow,jdx)=-sg*tmp1+cg*tmp2
+							end do
+						end do
+						do irow=1,norblist
+							tmp1=Umat(irow,idx)
+							tmp2=Umat(irow,jdx)
+							Umat(irow,idx)=cg*tmp1+sg*tmp2
+							Umat(irow,jdx)=-sg*tmp1+cg*tmp2
+						end do
+					end do
+					!$OMP end do
+
+					!Phase 3: Left-multiply O <- G^T*O on disjoint columns icol (stride-1 along imat)
+					!$OMP do schedule(static)
+					do icol=1,norblist
+						do irot=1,n_rot
+							idx=rot_i(irot)
+							jdx=rot_j(irot)
+							cg=rot_c(irot)
+							sg=rot_s(irot)
+							do imat=1,nmat
+								tmp1=Omo(imat,idx,icol)
+								tmp2=Omo(imat,jdx,icol)
+								Omo(imat,idx,icol)=cg*tmp1+sg*tmp2
+								Omo(imat,jdx,icol)=-sg*tmp1+cg*tmp2
+							end do
+						end do
+					end do
+					!$OMP end do
+				end if
+
+				!$OMP single
+				if (nhalf>1) then !Round-robin cyclic shift (keep top_orb(1) fixed)
+					itmp=bot_orb(1)
+					do ipair=1,nhalf-1
+						bot_orb(ipair)=bot_orb(ipair+1)
+					end do
+					bot_orb(nhalf)=top_orb(nhalf)
+					do ipair=nhalf,3,-1
+						top_orb(ipair)=top_orb(ipair-1)
+					end do
+					top_orb(2)=itmp
+				end if
+				!$OMP end single
+			end do
+			!$OMP end parallel
+
+			Pval=0D0
+			do idx=1,norblist
+				do imat=1,nmat
+					Pval=Pval+Omo(imat,idx,idx)**iexp
+				end do
+			end do
+			deltaPval=Pval-Pvalold
+			if (imethod==3) then
+				write(*,"(' Cycle:',i5,'  P:',f16.8,'  Delta P:',f16.8)") icyc,Pval,deltaPval
+			else
+				write(*,"(' Cycle:',i5,'  F:',f18.8,'  Delta F:',f18.8)") icyc,Pval,deltaPval
+			end if
+			if (abs(deltaPval)<crit) exit
+			Pvalold=Pval
+		end do
+
+		allocate(Ctmp(nbasis,norblist))
+		call dgemm('N','N',nbasis,norblist,norblist,1D0,Cact,nbasis,Umat,norblist,0D0,Ctmp,nbasis)
+		do idx=1,norblist
+			Cmat(:,orblist(idx))=Ctmp(:,idx)
+		end do
+		deallocate(Cact,Ctmp,Omo,Umat,top_orb,bot_orb,pair_rot,pair_c,pair_s,rot_i,rot_j,rot_c,rot_s)
+	end if
     
 	if (icyc==maxcyc+1) then
 		write(*,*) "Warning: Convergence failed!"
@@ -420,6 +727,8 @@ do itime=1,4
 		write(*,"(a)") " Successfully converged!"
 	end if
 end do
+if (allocated(atm_start)) deallocate(atm_start,atm_end)
+if (allocated(AOMbas)) deallocate(AOMbas)
 
 if (imethod==2) then !PM with Lowdin. Back convert CObas from orthonormal basis to original basis
     CObasa=matmul_blas(Xmatinv,CObasa,nbasis,nbasis,0,0)
@@ -1041,7 +1350,7 @@ real*8 Cmat(nbasis,nbasis)
 integer imo,jmo,iatm,ibas
 Qval=0
 do ibas=basstart(iatm),basend(iatm)
-	Qval=Qval+sum( (Cmat(:,imo)*Cmat(ibas,jmo)+Cmat(ibas,imo)*Cmat(:,jmo)) *Sbas(ibas,:) )
+	Qval=Qval+sum( (Cmat(:,imo)*Cmat(ibas,jmo)+Cmat(ibas,imo)*Cmat(:,jmo)) *Sbas(:,ibas) )
 end do
 Qval=Qval/2D0
 end function
@@ -1075,4 +1384,55 @@ jrj=jrj+jrjpriv
 irj=irj+irjpriv
 !$OMP END CRITICAL
 !$OMP END PARALLEL
+end subroutine
+
+
+!------ Compute atomic diagonal populations, P contribution, and 64-bit active-atom bitmask for one orbital
+subroutine calc_orb_pm_info(imethod,iPMexp,nbasis,natm_act,atm_start,atm_end, &
+	nwords,r_tol2,Cvec,SCvec,Qorb,Porb,mask_orb,iw_lo,iw_hi)
+use, intrinsic :: iso_fortran_env, only: int64
+implicit none
+integer,intent(in) :: imethod,iPMexp,nbasis,natm_act,atm_start(natm_act),atm_end(natm_act),nwords
+real*8,intent(in) :: r_tol2,Cvec(nbasis),SCvec(nbasis)
+real*8,intent(out) :: Qorb(natm_act),Porb
+integer(int64),intent(out) :: mask_orb(nwords)
+integer,intent(out) :: iw_lo,iw_hi
+integer :: ia,is,ie,ibas,iw,ibit
+real*8 :: qii,c2sum,v2sum,r2val
+
+mask_orb=0_int64
+Porb=0D0
+iw_lo=nwords+1
+iw_hi=0
+
+do ia=1,natm_act
+	is=atm_start(ia)
+	ie=atm_end(ia)
+	if (imethod==1) then
+		qii=0D0
+		c2sum=0D0
+		v2sum=0D0
+		do ibas=is,ie
+			qii=qii+Cvec(ibas)*SCvec(ibas)
+			c2sum=c2sum+Cvec(ibas)*Cvec(ibas)
+			v2sum=v2sum+SCvec(ibas)*SCvec(ibas)
+		end do
+		r2val=0.5D0*(c2sum+v2sum)
+	else
+		qii=0D0
+		do ibas=is,ie
+			qii=qii+Cvec(ibas)*Cvec(ibas)
+		end do
+		r2val=qii
+	end if
+	Qorb(ia)=qii
+	Porb=Porb+qii**iPMexp
+	if (r2val>r_tol2) then
+		iw=ishft(ia-1,-6)+1
+		ibit=iand(ia-1,63)
+		mask_orb(iw)=ibset(mask_orb(iw),ibit)
+		if (iw<iw_lo) iw_lo=iw
+		if (iw>iw_hi) iw_hi=iw
+	end if
+end do
 end subroutine

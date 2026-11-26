@@ -1,6 +1,6 @@
 {
-  "archive_name": "Multiwfn_2026.11.13_src_Linux.zip",
-  "archive_url": "http://sobereva.com/multiwfn/misc/Multiwfn_2026.11.13_src_Linux.zip",
+  "archive_name": "Multiwfn_2026.11.26_src_Linux.zip",
+  "archive_url": "http://sobereva.com/multiwfn/misc/Multiwfn_2026.11.26_src_Linux.zip",
   "files": [
     "0123dim.f90",
     "AdNDP.f90",
@@ -62,6 +62,7 @@
     "noGUI/mouse_rotate_empty.f90",
     "orbcomp.f90",
     "orbloc.f90",
+    "orbloc_new.f90",
     "otherfunc.f90",
     "otherfunc2.f90",
     "otherfunc3.f90",
@@ -77,5 +78,5 @@
     "util.f90",
     "visweak.f90"
   ],
-  "sha256": "4ba48297428d43ee2255744b863def0ee22be436c6f0762bdc8f68cc8da73910"
+  "sha256": "3ce53c524864ac20acb1173b9a52d0950c92683cff1ae855086e5cec5053d646"
 }
